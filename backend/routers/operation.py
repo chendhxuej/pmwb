@@ -5,19 +5,13 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
-from schemas.operation import (
-    OperationIssueCreate,
-    OperationIssueListResponse,
-    OperationIssueOut,
-    OperationIssueStats,
-    OperationIssueUpdate,
-)
+from schemas.operation import OperationIssueCreate, OperationIssueUpdate
 from services.operation import operation_issue_service
 
 router = APIRouter(prefix="/operation", tags=["业务运营监控"])
 
 
-@router.get("/issues", response_model=OperationIssueListResponse)
+@router.get("/issues")
 def list_issues(
     keyword: Optional[str] = Query(None, description="关键字搜索"),
     issue_type: Optional[str] = Query(None, description="问题类型"),
@@ -41,28 +35,28 @@ def list_issues(
         page=page,
         page_size=page_size,
     )
-    return data
+    return success(data=data)
 
 
-@router.get("/issues/{issue_id}", response_model=OperationIssueOut)
+@router.get("/issues/{issue_id}")
 def get_issue(issue_id: int, db: Session = Depends(get_db)):
     """获取问题详情。"""
     obj = operation_issue_service.get(db, issue_id)
-    return obj
+    return success(data=obj)
 
 
-@router.post("/issues", response_model=OperationIssueOut)
+@router.post("/issues")
 def create_issue(obj_in: OperationIssueCreate, db: Session = Depends(get_db)):
     """创建问题。"""
     obj = operation_issue_service.create(db, obj_in.model_dump())
-    return obj
+    return success(data=obj)
 
 
-@router.put("/issues/{issue_id}", response_model=OperationIssueOut)
+@router.put("/issues/{issue_id}")
 def update_issue(issue_id: int, obj_in: OperationIssueUpdate, db: Session = Depends(get_db)):
     """更新问题。"""
     obj = operation_issue_service.update(db, issue_id, obj_in.model_dump(exclude_unset=True))
-    return obj
+    return success(data=obj)
 
 
 @router.delete("/issues/{issue_id}")
@@ -72,7 +66,7 @@ def delete_issue(issue_id: int, db: Session = Depends(get_db)):
     return success(data=ok)
 
 
-@router.get("/stats", response_model=OperationIssueStats)
+@router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
     """获取运营问题统计。"""
-    return operation_issue_service.get_stats(db)
+    return success(data=operation_issue_service.get_stats(db))

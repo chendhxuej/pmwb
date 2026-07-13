@@ -68,6 +68,10 @@ class TodoUpdate(BaseModel):
     related_id: Optional[str] = Field(None, max_length=64)
 
 
+class TodoStatusUpdate(BaseModel):
+    status: TodoStatus = Field(..., description="待办状态")
+
+
 class TodoOut(TodoBase):
     id: int
     completed_at: Optional[datetime]

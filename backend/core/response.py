@@ -1,5 +1,6 @@
 from typing import Any, Dict, Generic, Optional, TypeVar
 
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
 T = TypeVar("T")
@@ -15,7 +16,7 @@ def success(data: Any = None, message: str = "success") -> Dict[str, Any]:
     return {
         "code": 0,
         "message": message,
-        "data": data,
+        "data": jsonable_encoder(data) if data is not None else None,
     }
 
 
@@ -23,5 +24,5 @@ def error(message: str, code: int = 500, data: Any = None) -> Dict[str, Any]:
     return {
         "code": code,
         "message": message,
-        "data": data,
+        "data": jsonable_encoder(data) if data is not None else None,
     }

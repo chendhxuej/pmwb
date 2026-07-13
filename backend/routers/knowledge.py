@@ -5,19 +5,13 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
-from schemas.knowledge import (
-    KnowledgeContentResponse,
-    KnowledgeItemCreate,
-    KnowledgeItemUpdate,
-    KnowledgeListResponse,
-    KnowledgeItemOut,
-)
+from schemas.knowledge import KnowledgeItemCreate, KnowledgeItemUpdate
 from services.knowledge import knowledge_item_service
 
 router = APIRouter(prefix="/knowledge", tags=["知识库"])
 
 
-@router.get("", response_model=KnowledgeListResponse)
+@router.get("")
 def list_items(
     keyword: Optional[str] = Query(None, description="关键字搜索"),
     category: Optional[str] = Query(None, description="分类"),
@@ -29,7 +23,7 @@ def list_items(
     db: Session = Depends(get_db),
 ):
     """查询知识条目。"""
-    return knowledge_item_service.list_with_filters(
+    return success(data=knowledge_item_service.list_with_filters(
         db=db,
         keyword=keyword,
         category=category,
@@ -38,32 +32,32 @@ def list_items(
         source_type=source_type,
         page=page,
         page_size=page_size,
-    )
+    ))
 
 
-@router.get("/{item_id}", response_model=KnowledgeItemOut)
+@router.get("/{item_id}")
 def get_item(item_id: int, db: Session = Depends(get_db)):
     """获取知识条目详情。"""
-    return knowledge_item_service.get(db, item_id)
+    return success(data=knowledge_item_service.get(db, item_id))
 
 
-@router.get("/{item_id}/content", response_model=KnowledgeContentResponse)
+@router.get("/{item_id}/content")
 def get_item_content(item_id: int, db: Session = Depends(get_db)):
     """获取知识条目 Markdown 内容。"""
     data = knowledge_item_service.get_content(db, item_id)
-    return data
+    return success(data=data)
 
 
-@router.post("", response_model=KnowledgeItemOut)
+@router.post("")
 def create_item(obj_in: KnowledgeItemCreate, db: Session = Depends(get_db)):
     """创建知识条目，可选同时写入 Obsidian。"""
-    return knowledge_item_service.create_with_content(db, obj_in)
+    return success(data=knowledge_item_service.create_with_content(db, obj_in))
 
 
-@router.put("/{item_id}", response_model=KnowledgeItemOut)
+@router.put("/{item_id}")
 def update_item(item_id: int, obj_in: KnowledgeItemUpdate, db: Session = Depends(get_db)):
     """更新知识条目元数据。"""
-    return knowledge_item_service.update(db, item_id, obj_in.model_dump(exclude_unset=True))
+    return success(data=knowledge_item_service.update(db, item_id, obj_in.model_dump(exclude_unset=True)))
 
 
 @router.put("/{item_id}/content")
