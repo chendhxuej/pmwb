@@ -181,6 +181,7 @@ class PmwbTodo(Base):
     related_id = Column(String(64), comment="关联对象ID")
     source = Column(String(64), default="manual", comment="来源：manual/meeting/plugin")
     completed_at = Column(DateTime, comment="完成时间")
+    is_overdue = Column(Integer, default=0, comment="是否超期")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,
