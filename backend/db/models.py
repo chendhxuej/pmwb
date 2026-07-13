@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.orm import relationship
 
 from db.base import Base
 
@@ -272,6 +273,9 @@ class PmwbMeeting(Base):
         onupdate=datetime.utcnow,
         comment="更新时间",
     )
+
+    attendees = relationship("PmwbMeetingAttendee", backref="meeting", lazy="selectin", cascade="all, delete-orphan")
+    actions = relationship("PmwbMeetingAction", backref="meeting", lazy="selectin", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_meeting_start_time", "start_time"),
