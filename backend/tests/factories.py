@@ -144,20 +144,27 @@ class RequirementExtFactory:
 
 
 class KnowledgeFactory:
+    _counter = 0
+
     @staticmethod
     def create(
         db: Session,
+        item_id: str = None,
         title: str = "测试知识",
         category: str = "需求分析",
-        item_type: str = "note",
-        status: str = "draft",
+        obsidian_path: str = None,
         **kwargs,
     ):
+        KnowledgeFactory._counter += 1
+        if item_id is None:
+            item_id = f"KN-TEST-{KnowledgeFactory._counter:04d}"
+        if obsidian_path is None:
+            obsidian_path = f"/vault/{item_id}.md"
         obj = PmwbKnowledgeItem(
+            item_id=item_id,
             title=title,
             category=category,
-            item_type=item_type,
-            status=status,
+            obsidian_path=obsidian_path,
             **kwargs,
         )
         db.add(obj)
