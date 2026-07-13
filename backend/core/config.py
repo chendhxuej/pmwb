@@ -7,12 +7,29 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     SECRET_KEY: str = "your-secret-key-change-in-production"
 
-    DATABASE_URL: str = "mysql+pymysql://username:password@localhost:3306/aicoding"
+    # Database
+    DB_HOST: str = "127.0.0.1"
+    DB_PORT: int = 3306
+    DB_USER: str = "root"
+    DB_PASSWORD: str = "123456"
+    DB_NAME: str = "yxtyg_db"
+    DB_CHARSET: str = "utf8mb4"
+    DATABASE_URL: str = ""
+
     EMAIL_CENTER_URL: str = "http://localhost:3210"
     OBSIDIAN_VAULT_PATH: str = "D:\\项目\\知识图谱"
 
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if not self.DATABASE_URL:
+            self.DATABASE_URL = (
+                f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}"
+                f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+                f"?charset={self.DB_CHARSET}"
+            )
 
     class Config:
         env_file = ".env"
