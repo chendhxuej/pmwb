@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -362,3 +363,28 @@ class PmwbKnowledgeItem(Base):
         Index("idx_knowledge_source", "source_type", "source_id"),
         {"comment": "知识库条目索引表"},
     )
+
+
+class SentEmail(Base):
+    """已发送需求邮件记录表（只读/关联）。"""
+
+    __tablename__ = "sent_emails"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(255), comment="需求编号")
+    req_name = Column(String(500), comment="需求名称")
+    proposer = Column(String(255), comment="提出人")
+    propose_time = Column(String(255), comment="提出时间")
+    background = Column(Text, comment="需求背景及目标")
+    description = Column(Text, comment="需求描述")
+    clarification = Column(Text, comment="需求澄清")
+    system_name = Column(String(255), comment="系统")
+    sa_name = Column(String(255), comment="SA")
+    send_datetime = Column(String(64), comment="邮件发送日期")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="写入时间")
+    workload = Column(Numeric(10, 2), comment="工作量")
+    is_involved = Column(Integer, default=1, comment="是否涉及开发(0:否,1:是)")
+    dev_ticket_no = Column(String(255), comment="开发单号")
+    involve_dev = Column(String(10), default="是", comment="涉及开发")
+
+    __table_args__ = ({"comment": "已发送邮件记录"},)

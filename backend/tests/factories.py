@@ -11,6 +11,7 @@ from db.models import (
     PmwbMeetingAction,
     PmwbMeetingAttendee,
     PmwbOperationIssue,
+    PmwbRequirementExt,
     PmwbTodo,
 )
 
@@ -109,6 +110,31 @@ class TodoFactory:
             priority=priority,
             status=status,
             due_date=due_date,
+            **kwargs,
+        )
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return obj
+
+
+class RequirementExtFactory:
+    @staticmethod
+    def create(
+        db: Session,
+        req_id: str = "REQ-TEST-001",
+        status: str = "proposed",
+        priority: str = "P2",
+        tags: str = "",
+        personal_note: str = "",
+        **kwargs,
+    ):
+        obj = PmwbRequirementExt(
+            req_id=req_id,
+            status=status,
+            priority=priority,
+            tags=tags,
+            personal_note=personal_note,
             **kwargs,
         )
         db.add(obj)
