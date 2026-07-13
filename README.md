@@ -9,38 +9,122 @@
 - 邮件：统一邮件中心 HTTP API
 - 知识库：Obsidian Vault (Markdown)
 
+## 已实现模块
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| 首页看板 | ✅ | 聚合待办、会议、运营问题、知识库统计数据 |
+| 业务运营监控 | ✅ | 问题录入、分类、状态跟踪、统计 |
+| 会议管理 | ✅ | 会议记录、参会人、行动项 |
+| 知识库 | ✅ | 条目索引、Obsidian Markdown 归档 |
+| 待办中心 | ✅ | 待办任务、优先级、截止日期、超期提醒 |
+| 需求管理 | 🔄 | 基础表已创建，后续对接 sent_emails |
+| 开发工单 | 🔄 | 基础表已创建，后续完善 Chrome 插件采集 |
+
 ## 目录结构
 
 ```
 .
 ├── backend/          # 后端代码
+│   ├── app/          # 应用逻辑
+│   ├── core/         # 配置、异常、响应
+│   ├── db/           # 数据库模型与连接
+│   ├── routers/      # API 路由
+│   ├── schemas/      # Pydantic 模型
+│   ├── services/     # 业务逻辑
+│   ├── utils/        # 工具函数
+│   ├── alembic/      # 数据库迁移
+│   └── scripts/      # 启动脚本
 ├── frontend/         # 前端代码
+│   ├── src/api/      # API 封装
+│   ├── src/components/ # 通用组件
+│   ├── src/views/    # 页面视图
+│   └── scripts/      # 启动脚本
 ├── docs/             # 需求与设计文档
-├── scripts/          # 工具脚本
+├── scripts/          # 一键启动脚本
 ├── sql/              # 数据库脚本
 ├── .env.example      # 环境变量模板
 └── README.md
 ```
 
+## 环境要求
+
+- Python 3.11+
+- Node.js 18+
+- MySQL 5.7+（已包含现有 `sent_emails` 表）
+
 ## 快速启动
 
-### 后端
+### 方式一：一键启动（推荐）
+
+双击运行：
+
+```
+scripts\start_all.bat
+```
+
+启动后访问：
+- 前端：http://localhost:5173/
+- 后端 API：http://127.0.0.1:8000/api/v1/health
+
+### 方式二：手动启动
+
+#### 后端
 
 ```bash
 cd backend
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload
+venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### 前端
+或运行脚本：
+
+```
+backend\scripts\run_dev.bat
+```
+
+#### 前端
 
 ```bash
 cd frontend
-npm install
 npm run dev
 ```
+
+或运行脚本：
+
+```
+frontend\scripts\run_dev.bat
+```
+
+## 数据库配置
+
+复制 `.env.example` 到 `backend\.env`，并修改数据库连接信息：
+
+```env
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=123456
+DB_NAME=yxtyg_db
+DB_CHARSET=utf8mb4
+```
+
+执行迁移：
+
+```bash
+cd backend
+venv\Scripts\alembic.exe upgrade head
+```
+
+## 主要 API
+
+| 模块 | 路径前缀 | 说明 |
+|------|---------|------|
+| 健康检查 | `/api/v1/health` | 服务状态 |
+| 业务运营监控 | `/api/v1/operation` | 问题 CRUD + 统计 |
+| 会议管理 | `/api/v1/meetings` | 会议 CRUD |
+| 知识库 | `/api/v1/knowledge` | 知识条目 + Markdown 内容 |
+| 待办中心 | `/api/v1/todos` | 待办 CRUD + 统计 |
+| 首页看板 | `/api/v1/dashboard` | 聚合数据 |
 
 ## 开发分支
 
