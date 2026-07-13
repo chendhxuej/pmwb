@@ -10,7 +10,7 @@ from core.config import settings
 from core.exceptions import PMWBException
 from db.base import engine
 from db.models import Base  # noqa: F401
-from routers import health, operation, meeting
+from routers import health, operation, meeting, knowledge
 
 
 def setup_logging() -> logging.Logger:
@@ -74,6 +74,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(health.router, prefix="/api/v1", tags=["健康检查"])
 app.include_router(operation.router, prefix="/api/v1", tags=["业务运营监控"])
 app.include_router(meeting.router, prefix="/api/v1", tags=["会议管理"])
+app.include_router(knowledge.router, prefix="/api/v1", tags=["知识库"])
 
 
 @app.on_event("startup")
