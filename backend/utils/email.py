@@ -1,6 +1,10 @@
+import logging
+
 import httpx
 
 from core.config import settings
+
+logger = logging.getLogger("pmwb.email")
 
 
 class EmailCenterClient:
@@ -36,6 +40,42 @@ class EmailCenterClient:
         response = self.client.post(f"/api/templates/{template_id}/render", json=data)
         response.raise_for_status()
         return response.json()
+
+
+    def search_contacts(self, keyword: str) -> list:
+        """在统一邮件中心通讯录中搜索联系人（按姓名/邮箱/部门模糊匹配）。"""
+        try:
+            response = self.client.get(
+                "/api/contacts",
+                params={"search": keyword},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("items", []) if isinstance(data, dict) else []
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("查询邮件中心通讯录失败: %s", exc)
+            return []
+
+    def resolve_contact_emails(self, names: list) -> dict:
+        """按 SA 姓名列表解析真实邮箱，返回 {姓名: 邮箱|None}。
+
+        通过邮件中心通讯录按姓名精确匹配；查不到或通讯录不可用时返回 None。
+        """
+        result: dict = {}
+        for name in names or []:
+            if not name:
+                continue
+            target = str(name).strip()
+            result[target] = None
+            items = self.search_contacts(target)
+            for item in items:
+                item_name = (item.get("name") or "").strip()
+                email = (item.get("email") or "").strip()
+                if item_name and item_name == target and email:
+                    result[target] = email
+                    break
+        return result
 
 
 email_client = EmailCenterClient()

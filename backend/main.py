@@ -85,8 +85,8 @@ app.include_router(reminder.router, prefix="/api/v1", tags=["邮件催办"])
 @app.on_event("startup")
 async def startup_event():
     logger.info("PMWB backend started")
-    # 如需自动创建表，可取消注释（但建议用 Alembic）
-    # Base.metadata.create_all(bind=engine)
+    # 幂等创建缺失的数据表（对已有表无副作用；与 Alembic 不冲突）
+    Base.metadata.create_all(bind=engine)
 
 
 @app.on_event("shutdown")

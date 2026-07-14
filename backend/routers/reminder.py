@@ -1,6 +1,7 @@
-from typing import List
+from typing import Dict, List
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.response import success
@@ -9,6 +10,17 @@ from schemas.reminder import ReminderRecordOut, ReminderSendRequest, ReminderSen
 from services.reminder import reminder_service
 
 router = APIRouter(prefix="/reminders", tags=["邮件催办"])
+
+
+class ContactResolveRequest(BaseModel):
+    names: List[str]
+
+
+@router.post("/resolve-contacts")
+def resolve_contacts(req: ContactResolveRequest):
+    """按 SA 姓名列表解析真实邮箱（来自统一邮件中心通讯录）。"""
+    data: Dict[str, str] = reminder_service.resolve_contacts(req.names)
+    return success(data=data)
 
 
 @router.post("/send")
