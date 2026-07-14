@@ -73,9 +73,10 @@
                     />
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="80" align="center">
+                <el-table-column label="操作" width="140" align="center">
                   <template #default="{ row: ev }">
                     <el-button link type="primary" size="small" @click="handleViewEval(ev)">查看</el-button>
+                    <el-button link type="warning" size="small" @click="handleReminderOpenEval(ev)">催办</el-button>
                   </template>
                 </el-table-column>
               </el-table>
@@ -207,7 +208,7 @@
             :timestamp="record.created_at"
           >
             <div>{{ record.subject }}</div>
-            <div class="record-meta">收件人：{{ record.recipient }} | 状态：{{ record.send_status }}</div>
+            <div class="record-meta">收件人：{{ record.recipient_name || record.recipient }} | 状态：{{ record.send_status }}</div>
           </el-timeline-item>
         </el-timeline>
         <el-empty v-else description="暂无催办记录" />
@@ -317,7 +318,7 @@ const reminderLoading = ref(false)
 const form = reactive({ req_id: '', req_name: '', status: '', priority: '', tags: '', personal_note: '' })
 const detail = ref({})
 const reminderRecords = ref([])
-const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', subject: '', body: '' })
+const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
 
 async function fetchData() {
   tableLoading.value = true
@@ -456,37 +457,71 @@ async function fetchReminderRecords(reqId) {
   }
 }
 
-function buildDefaultReminderBody(req) {
+function saEmail(saName) {
+  return saName ? `${saName}@chinamobile.com` : ''
+}
+
+function buildDefaultReminderBody(req, systemName) {
   const lines = [
     `您好，以下需求目前需要跟进，请协助处理：`,
     ``,
     `需求编号：${req.req_id || ''}`,
     `需求名称：${req.req_name || ''}`,
     `提出人：${req.proposer || ''}`,
-    `系统：${req.system_name || ''}`,
+    `系统：${systemName || req.system_name || ''}`,
     ``,
     `请及时反馈当前进展与预计完成时间，谢谢。`,
   ]
   return lines.join('\n')
 }
 
-function initReminderForm(rowOrDetail) {
-  reminderForm.req_id = rowOrDetail.req_id
-  reminderForm.req_name = rowOrDetail.req_name
-  reminderForm.to = rowOrDetail.sa_name ? `${rowOrDetail.sa_name}@chinamobile.com` : ''
-  reminderForm.cc = ''
-  reminderForm.subject = `催办：${rowOrDetail.req_name || rowOrDetail.req_id}`
-  reminderForm.body = buildDefaultReminderBody(rowOrDetail)
+// 聚合需求下所有团队评估的 SA（按系统对应），去重后作为收件人
+async function aggregateSaRecipients(reqId) {
+  const saNames = []
+  const seen = new Set()
+  try {
+    const evs = await getEvaluations(reqId)
+    for (const ev of (evs || [])) {
+      if (ev.sa_name && !seen.has(ev.sa_name)) {
+        seen.add(ev.sa_name)
+        saNames.push(ev.sa_name)
+      }
+    }
+  } catch (e) {
+    console.error('聚合团队SA失败', e)
+  }
+  return saNames
 }
 
-function handleReminderOpen(row) {
-  initReminderForm(row)
+// 需求级催办：自动获取该需求下全部系统的对应 SA，群发给所有团队
+async function handleReminderOpen(row) {
+  reminderForm.req_id = row.req_id
+  reminderForm.req_name = row.req_name
+  const saNames = await aggregateSaRecipients(row.req_id)
+  const names = saNames.length ? saNames : (row.sa_name ? [row.sa_name] : [])
+  reminderForm.to = names.map(saEmail).filter(Boolean).join(', ')
+  reminderForm.recipient_name = names.join(', ')
+  reminderForm.cc = ''
+  reminderForm.subject = `催办：${row.req_name || row.req_id}`
+  reminderForm.body = buildDefaultReminderBody(row)
+  reminderVisible.value = true
+}
+
+// 团队级催办：按当前系统的对应 SA 精确发送
+function handleReminderOpenEval(ev) {
+  reminderForm.req_id = ev.req_id
+  reminderForm.req_name = ev.req_name
+  reminderForm.to = saEmail(ev.sa_name)
+  reminderForm.recipient_name = ev.sa_name || ''
+  reminderForm.cc = ''
+  reminderForm.subject = `催办：${ev.req_name || ev.req_id}（${ev.system_name || '系统'}）`
+  reminderForm.body = buildDefaultReminderBody(ev, ev.system_name)
   reminderVisible.value = true
 }
 
 function handleReminderFromDetail() {
-  initReminderForm(detail.value)
-  reminderVisible.value = true
+  // 需求详情弹窗内一键催办：复用需求级聚合逻辑（按系统对应 SA 群发）
+  handleReminderOpen(detail.value)
 }
 
 async function handleReminderSend() {
@@ -501,6 +536,7 @@ async function handleReminderSend() {
       req_name: reminderForm.req_name,
       to: reminderForm.to,
       cc: reminderForm.cc,
+      recipient_name: reminderForm.recipient_name,
       subject: reminderForm.subject,
       body: reminderForm.body,
       operator: 'pmwb',

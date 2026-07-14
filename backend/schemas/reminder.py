@@ -9,6 +9,7 @@ class ReminderSendRequest(BaseModel):
     req_name: Optional[str] = Field(None, description="需求名称")
     to: str = Field(..., description="收件人邮箱")
     cc: Optional[str] = Field(None, description="抄送人邮箱，多个用逗号分隔")
+    recipient_name: Optional[str] = Field(None, description="收件人姓名（多个用逗号分隔），用于记录展示")
     subject: str = Field(..., description="邮件主题")
     body: str = Field(..., description="邮件正文")
     template_id: Optional[str] = Field(None, description="邮件模板ID")

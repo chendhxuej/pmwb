@@ -54,6 +54,26 @@ def test_send_reminder_success(client: TestClient, db: Session, monkeypatch):
     assert record.recipient == "sa@example.com"
 
 
+def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, monkeypatch):
+    mock_client = MagicMock()
+    mock_client.send_email.return_value = {"status": "ok"}
+    monkeypatch.setattr(reminder_service, "email_client", mock_client)
+    payload = {
+        "req_id": "REQ-REMINDER-NAME",
+        "req_name": "测试需求",
+        "to": "chen@example.com,zhao@example.com",
+        "recipient_name": "陈山, 赵明",
+        "subject": "催办：测试需求",
+        "body": "请尽快处理",
+    }
+    response = client.post("/api/v1/reminders/send", json=payload)
+    assert response.status_code == 200
+    record = db.query(EmailRecord).filter(EmailRecord.req_id == "REQ-REMINDER-NAME").first()
+    assert record is not None
+    assert record.recipient_name == "陈山, 赵明"
+    assert record.recipient == "chen@example.com,zhao@example.com"
+
+
 def test_send_reminder_failure(client: TestClient, db: Session, monkeypatch):
     mock_client = MagicMock()
     mock_client.send_email.side_effect = Exception("邮件中心不可用")

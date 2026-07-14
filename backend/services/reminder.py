@@ -20,7 +20,7 @@ class ReminderService:
             req_name=obj_in.req_name,
             email_type=obj_in.template_id or "pmwb_reminder",
             recipient=obj_in.to,
-            recipient_name=None,
+            recipient_name=obj_in.recipient_name,
             subject=obj_in.subject,
             content=obj_in.body,
             send_status="pending",
