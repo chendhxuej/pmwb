@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
-from schemas.requirement import EvaluationUpdate, RequirementExtUpdate
+from schemas.requirement import EvaluationCreate, EvaluationUpdate, RequirementExtUpdate
 from services.requirement import requirement_service
 
 router = APIRouter(prefix="/requirements", tags=["需求管理"])
@@ -62,11 +62,25 @@ def get_evaluations(req_id: str, db: Session = Depends(get_db)):
     return success(data=data)
 
 
+@router.post("/{req_id}/evaluations")
+def create_evaluation(req_id: str, obj_in: EvaluationCreate, db: Session = Depends(get_db)):
+    """新增一条团队评估记录（手动录入）。"""
+    data = requirement_service.create_evaluation(db, req_id, obj_in.model_dump(exclude_unset=True))
+    return success(data=data)
+
+
 @router.put("/{req_id}/evaluations/{eval_id}")
 def update_evaluation(req_id: str, eval_id: int, obj_in: EvaluationUpdate, db: Session = Depends(get_db)):
-    """更新团队评估记录（工作量评估、评估意见、开发单号）。"""
+    """更新团队评估记录（SA/系统/工作量/复核工作量/评估意见/开发单号）。"""
     data = requirement_service.update_evaluation(db, eval_id, obj_in.model_dump(exclude_unset=True))
     return success(data=data)
+
+
+@router.delete("/{req_id}/evaluations/{eval_id}")
+def delete_evaluation(req_id: str, eval_id: int, db: Session = Depends(get_db)):
+    """删除一条团队评估记录。"""
+    ok = requirement_service.delete_evaluation(db, eval_id)
+    return success(data={"deleted": ok})
 
 
 @router.put("/{req_id}")

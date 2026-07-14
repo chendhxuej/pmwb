@@ -38,11 +38,44 @@ class RequirementExtUpdate(BaseModel):
 
 
 class EvaluationUpdate(BaseModel):
-    """团队评估记录可编辑字段。"""
+    """团队评估记录可编辑字段（全量可选，按传入字段更新）。"""
 
+    sa_name: Optional[str] = Field(None, description="评估SA/团队负责人")
+    system_name: Optional[str] = Field(None, description="负责系统")
     workload: Optional[float] = Field(None, description="工作量评估(人天)")
+    review_workload: Optional[float] = Field(None, description="复核工作量(人天)")
     opinion: Optional[str] = Field(None, description="评估意见登记")
     dev_ticket_no: Optional[str] = Field(None, description="开发单号")
+
+
+class EvaluationCreate(BaseModel):
+    """新增团队评估记录。"""
+
+    sa_name: str = Field(..., description="评估SA/团队负责人")
+    system_name: Optional[str] = Field(None, description="负责系统")
+    workload: Optional[float] = Field(None, description="工作量评估(人天)")
+    review_workload: Optional[float] = Field(None, description="复核工作量(人天)")
+    opinion: Optional[str] = Field(None, description="评估意见登记")
+    dev_ticket_no: Optional[str] = Field(None, description="开发单号")
+
+
+class EvaluationOut(BaseModel):
+    """团队评估记录输出。"""
+
+    id: int
+    req_id: Optional[str] = None
+    sent_email_id: Optional[int] = None
+    sa_name: Optional[str] = None
+    system_name: Optional[str] = None
+    workload: Optional[float] = None
+    review_workload: Optional[float] = None
+    opinion: Optional[str] = None
+    dev_ticket_no: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 
 class RequirementExtOut(RequirementExtBase):

@@ -111,16 +111,19 @@ def test_get_evaluations(client: TestClient, db):
 
 
 def test_update_evaluation(client: TestClient, db):
-    """更新团队评估工作量与评估意见，写入扩展层且可回读。"""
-    ev = _create_sent_email(db, req_id="REQ-UE-001", sa_name="陈山", system_name="订单中心", workload=None)
-    eval_id = ev.id
+    """更新团队评估工作量与评估意见，写入评估表且可回读。"""
+    _create_sent_email(db, req_id="REQ-UE-001", sa_name="陈山", system_name="订单中心", workload=None)
+    # 首次访问会从邮件自动播种，拿到评估记录自身 id
+    resp0 = client.get("/api/v1/requirements/REQ-UE-001/evaluations")
+    eval_id = resp0.json()["data"][0]["id"]
     response = client.put(
         f"/api/v1/requirements/REQ-UE-001/evaluations/{eval_id}",
-        json={"workload": 8.5, "opinion": "需评审后确认", "dev_ticket_no": "DEV-2026-001"},
+        json={"workload": 8.5, "review_workload": 9.0, "opinion": "需评审后确认", "dev_ticket_no": "DEV-2026-001"},
     )
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["workload"] == 8.5
+    assert data["review_workload"] == 9.0
     assert data["opinion"] == "需评审后确认"
     assert data["dev_ticket_no"] == "DEV-2026-001"
 
@@ -128,6 +131,7 @@ def test_update_evaluation(client: TestClient, db):
     resp2 = client.get("/api/v1/requirements/REQ-UE-001/evaluations")
     row = next(r for r in resp2.json()["data"] if r["id"] == eval_id)
     assert row["workload"] == 8.5
+    assert row["review_workload"] == 9.0
     assert row["opinion"] == "需评审后确认"
     assert row["dev_ticket_no"] == "DEV-2026-001"
 
@@ -140,3 +144,40 @@ def test_update_evaluation_not_found(client: TestClient, db):
     )
     assert response.status_code == 200
     assert response.json()["data"] is None
+
+
+def test_create_and_delete_evaluation(client: TestClient, db):
+    """手动新增一条团队评估记录，可出现在列表；删除后不再出现（不会复活）。"""
+    _create_sent_email(db, req_id="REQ-CAD-001", req_name="增删测试")
+    create_resp = client.post(
+        "/api/v1/requirements/REQ-CAD-001/evaluations",
+        json={"sa_name": "王五", "system_name": "计费中心", "workload": 3.0, "review_workload": 3.5, "opinion": "ok", "dev_ticket_no": "T-1"},
+    )
+    assert create_resp.status_code == 200
+    new_ev = create_resp.json()["data"]
+    assert new_ev["sa_name"] == "王五"
+    assert new_ev["review_workload"] == 3.5
+
+    list_resp = client.get("/api/v1/requirements/REQ-CAD-001/evaluations")
+    rows = list_resp.json()["data"]
+    assert any(r["id"] == new_ev["id"] and r["review_workload"] == 3.5 for r in rows)
+
+    del_resp = client.delete(f"/api/v1/requirements/REQ-CAD-001/evaluations/{new_ev['id']}")
+    assert del_resp.status_code == 200
+    assert del_resp.json()["data"]["deleted"] is True
+
+    list_resp2 = client.get("/api/v1/requirements/REQ-CAD-001/evaluations")
+    assert all(r["id"] != new_ev["id"] for r in list_resp2.json()["data"])
+
+
+def test_delete_seeded_record_not_resurrect(client: TestClient, db):
+    """删除由邮件播种出的评估记录后，重新读取不应再自动播种复活。"""
+    _create_sent_email(db, req_id="REQ-DSR-001", sa_name="陈山", system_name="订单中心")
+    resp0 = client.get("/api/v1/requirements/REQ-DSR-001/evaluations")
+    eval_id = resp0.json()["data"][0]["id"]
+
+    del_resp = client.delete(f"/api/v1/requirements/REQ-DSR-001/evaluations/{eval_id}")
+    assert del_resp.status_code == 200
+
+    resp1 = client.get("/api/v1/requirements/REQ-DSR-001/evaluations")
+    assert resp1.json()["data"] == []

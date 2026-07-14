@@ -27,3 +27,11 @@ export function getEvaluations(reqId) {
 export function updateEvaluation(reqId, evalId, data) {
   return request.put(`/requirements/${reqId}/evaluations/${evalId}`, data)
 }
+
+export function createEvaluation(reqId, data) {
+  return request.post(`/requirements/${reqId}/evaluations`, data)
+}
+
+export function deleteEvaluation(reqId, evalId) {
+  return request.delete(`/requirements/${reqId}/evaluations/${evalId}`)
+}

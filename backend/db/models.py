@@ -32,8 +32,9 @@ class PmwbRequirementExt(Base):
     )
     tags = Column(String(512), comment="个人标签，逗号分隔")
     personal_note = Column(Text, comment="个人备注")
-    priority = Column(Enum("P0", "P1", "P2", "P3"), default="P2", comment="个人优先级")
+    priority = Column(String(64), default="P2", comment="个人优先级：P0/P1/P2/P3/集团需求/紧急需求等")
     owner_note = Column(Text, comment="负责人备忘")
+    eval_seeded = Column(Integer, default=0, comment="团队评估是否已从 sent_emails 播种(避免删除后复活)")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,
@@ -366,20 +367,27 @@ class PmwbKnowledgeItem(Base):
 
 
 class PmwbRequirementEvaluation(Base):
-    """需求团队评估扩展表（每条对应一个 sent_emails 团队评估记录的可编辑层）。
+    """需求团队评估记录表（可自由增删改的清单）。
 
-    sent_emails 为只读来源数据，产品经理对每个团队评估的工作量、评估意见、
-    开发单号等的修改写入本表，通过 sent_email_id 关联。
+    首次打开某需求时，会从只读来源 sent_emails 自动播种出可编辑的评估记录；
+    之后产品经理可新增/修改/删除任意一条。sent_email_id 仅用于溯源，
+    手动新增的记录 sent_email_id 为 NULL。
     """
 
     __tablename__ = "pmwb_requirement_evaluation"
 
-    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID（评估记录自身标识）")
     sent_email_id = Column(
-        Integer, nullable=False, unique=True, comment="关联 sent_emails.id（每个团队评估记录一条）"
+        Integer, nullable=True, unique=True, comment="溯源：关联 sent_emails.id；手动新增记录为 NULL"
     )
     req_id = Column(String(255), comment="需求编号，冗余便于查询")
+    req_name = Column(String(255), comment="需求名称（冗余，便于展示/催办）")
+    proposer = Column(String(64), comment="提出人（冗余，便于催办）")
+    send_datetime = Column(String(255), comment="邮件发送时间（溯源展示用）")
+    sa_name = Column(String(64), comment="评估SA/团队负责人")
+    system_name = Column(String(255), comment="负责系统")
     workload = Column(Numeric(10, 2), comment="工作量评估(人天)")
+    review_workload = Column(Numeric(10, 2), comment="复核工作量(人天)")
     opinion = Column(Text, comment="评估意见登记")
     dev_ticket_no = Column(String(255), comment="开发单号")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")

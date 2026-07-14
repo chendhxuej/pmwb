@@ -124,15 +124,25 @@ class RequirementService:
             ext_rows = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id.in_(req_ids)).all()
             ext_map = {row.req_id: row for row in ext_rows}
 
-        # 统计每个需求的团队评估数量
+        # 统计每个需求的团队评估数量（以可编辑评估表为准，无记录时回退到邮件数）
         req_ids = {item.req_id for item in items}
-        eval_counts = (
+        sent_counts = (
             db.query(SentEmail.req_id, func.count(SentEmail.id))
             .filter(SentEmail.req_id.in_(req_ids))
             .group_by(SentEmail.req_id)
             .all()
         )
-        eval_count_map = {row[0]: row[1] for row in eval_counts}
+        sent_count_map = {row[0]: row[1] for row in sent_counts}
+        eval_row_counts = (
+            db.query(PmwbRequirementEvaluation.req_id, func.count(PmwbRequirementEvaluation.id))
+            .filter(PmwbRequirementEvaluation.req_id.in_(req_ids))
+            .group_by(PmwbRequirementEvaluation.req_id)
+            .all()
+        )
+        eval_row_map = {row[0]: row[1] for row in eval_row_counts}
+        eval_count_map = {}
+        for rid in req_ids:
+            eval_count_map[rid] = eval_row_map.get(rid, 0) or sent_count_map.get(rid, 0)
 
         merged = [self._merge_ext(item, ext_map.get(item.req_id), eval_count_map.get(item.req_id, 0)) for item in items]
         return PaginationResponse.create(
@@ -188,92 +198,129 @@ class RequirementService:
         }
 
     def get_evaluations(self, db: Session, req_id: str) -> List[Dict[str, Any]]:
-        """获取需求下所有团队评估记录（每条对应一个SA/系统的评估）。
+        """获取需求下所有团队评估记录（可自由增删改的清单）。
 
-        sent_emails 为只读来源，产品经理的编辑（工作量/评估意见/开发单号）
-        存放在 pmwb_requirement_evaluation，通过 sent_email_id 关联合并。
+        首次访问且尚未播种时，从只读来源 sent_emails 自动播种出可编辑记录，
+        并打上 eval_seeded 标记；之后以 pmwb_requirement_evaluation 为唯一权威
+        来源（支持增/删/改）。删除后的记录不会因重新读取而复活。
         """
-        items = (
-            db.query(SentEmail)
-            .filter(SentEmail.req_id == req_id)
-            .order_by(SentEmail.id.asc())
+        existing = (
+            db.query(PmwbRequirementEvaluation)
+            .filter(PmwbRequirementEvaluation.req_id == req_id)
+            .order_by(PmwbRequirementEvaluation.id.asc())
             .all()
         )
-        if not items:
-            return []
-        sent_ids = [item.id for item in items]
-        eval_rows = (
-            db.query(PmwbRequirementEvaluation)
-            .filter(PmwbRequirementEvaluation.sent_email_id.in_(sent_ids))
-            .all()
+        if not existing:
+            ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+            if not (ext and ext.eval_seeded):
+                # 尚未播种：从邮件导入为可编辑记录（仅此一次）
+                source_items = (
+                    db.query(SentEmail)
+                    .filter(SentEmail.req_id == req_id)
+                    .order_by(SentEmail.id.asc())
+                    .all()
+                )
+                for item in source_items:
+                    ev = PmwbRequirementEvaluation(
+                        sent_email_id=item.id,
+                        req_id=item.req_id,
+                        req_name=item.req_name,
+                        proposer=item.proposer,
+                        send_datetime=item.send_datetime,
+                        sa_name=item.sa_name,
+                        system_name=item.system_name,
+                        workload=float(item.workload) if item.workload is not None else None,
+                        review_workload=None,
+                        opinion="",
+                        dev_ticket_no=item.dev_ticket_no,
+                    )
+                    db.add(ev)
+                if ext is None:
+                    ext = PmwbRequirementExt(req_id=req_id)
+                    db.add(ext)
+                ext.eval_seeded = 1
+                db.commit()
+                existing = (
+                    db.query(PmwbRequirementEvaluation)
+                    .filter(PmwbRequirementEvaluation.req_id == req_id)
+                    .order_by(PmwbRequirementEvaluation.id.asc())
+                    .all()
+                )
+        return [self._eval_to_dict(ev) for ev in existing]
+
+    def _eval_to_dict(self, ev: "PmwbRequirementEvaluation") -> Dict[str, Any]:
+        return {
+            "id": ev.id,
+            "req_id": ev.req_id,
+            "req_name": ev.req_name,
+            "proposer": ev.proposer,
+            "sa_name": ev.sa_name,
+            "system_name": ev.system_name,
+            "workload": float(ev.workload) if ev.workload is not None else None,
+            "review_workload": float(ev.review_workload) if ev.review_workload is not None else None,
+            "opinion": ev.opinion or "",
+            "send_datetime": ev.send_datetime,
+            "dev_ticket_no": ev.dev_ticket_no or "",
+        }
+
+    def create_evaluation(self, db: Session, req_id: str, obj_in: Dict[str, Any]) -> Dict[str, Any]:
+        """新增一条团队评估记录（手动录入，sent_email_id 为 NULL）。"""
+        item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
+        ev = PmwbRequirementEvaluation(
+            sent_email_id=None,
+            req_id=req_id,
+            sa_name=obj_in.get("sa_name"),
+            system_name=obj_in.get("system_name"),
+            workload=obj_in.get("workload"),
+            review_workload=obj_in.get("review_workload"),
+            opinion=obj_in.get("opinion") or "",
+            dev_ticket_no=obj_in.get("dev_ticket_no"),
         )
-        eval_map = {row.sent_email_id: row for row in eval_rows}
+        # 借用该需求下某条只读邮件的上下文补全展示字段
+        if item:
+            ev.req_name = item.req_name
+            ev.proposer = item.proposer
+            ev.send_datetime = item.send_datetime
+        db.add(ev)
+        # 打上已播种标记，确保之后即使记录被删空也不会从邮件复活
+        ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+        if ext is None:
+            ext = PmwbRequirementExt(req_id=req_id)
+            db.add(ext)
+        ext.eval_seeded = 1
+        db.commit()
+        db.refresh(ev)
+        return self._eval_to_dict(ev)
 
-        result = []
-        for item in items:
-            ext = eval_map.get(item.id)
-            # 有效工作量：优先取产品经理编辑值，否则取来源值
-            if ext is not None and ext.workload is not None:
-                workload = float(ext.workload)
-            elif item.workload is not None:
-                workload = float(item.workload)
-            else:
-                workload = None
-            result.append({
-                "id": item.id,  # sent_emails.id，作为评估记录唯一标识
-                "req_id": item.req_id,
-                "req_name": item.req_name,
-                "proposer": item.proposer,
-                "sa_name": item.sa_name,
-                "system_name": item.system_name,
-                "workload": workload,
-                "opinion": ext.opinion if ext and ext.opinion else "",
-                "background": item.background[:500] if item.background else "",
-                "description": item.description[:1000] if item.description else "",
-                "clarification": item.clarification[:500] if item.clarification else "",
-                "send_datetime": item.send_datetime,
-                "is_involved": item.is_involved,
-                "dev_ticket_no": (ext.dev_ticket_no if ext and ext.dev_ticket_no else item.dev_ticket_no),
-            })
-        return result
-
-    def update_evaluation(self, db: Session, sent_email_id: int, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """更新单条团队评估记录（工作量/评估意见/开发单号）。
-
-        写入 pmwb_requirement_evaluation（不修改只读的 sent_emails）。
-        sent_email_id 即评估记录标识（对应 sent_emails.id）。
-        """
-        item = db.query(SentEmail).filter(SentEmail.id == sent_email_id).first()
-        if not item:
-            return None
-        ext = (
+    def update_evaluation(self, db: Session, eval_id: int, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """更新单条团队评估记录（按评估记录自身 id）。"""
+        ev = (
             db.query(PmwbRequirementEvaluation)
-            .filter(PmwbRequirementEvaluation.sent_email_id == sent_email_id)
+            .filter(PmwbRequirementEvaluation.id == eval_id)
             .first()
         )
-        if not ext:
-            ext = PmwbRequirementEvaluation(sent_email_id=sent_email_id, req_id=item.req_id)
-            db.add(ext)
-        # 只允许更新特定字段（防止越权修改）
-        allowed = {"workload", "opinion", "dev_ticket_no"}
+        if not ev:
+            return None
+        allowed = {"sa_name", "system_name", "workload", "review_workload", "opinion", "dev_ticket_no"}
         for key, value in obj_in.items():
-            if key in allowed and hasattr(ext, key):
-                setattr(ext, key, value)
+            if key in allowed and hasattr(ev, key):
+                setattr(ev, key, value)
         db.commit()
-        db.refresh(ext)
+        db.refresh(ev)
+        return self._eval_to_dict(ev)
 
-        workload = float(ext.workload) if ext.workload is not None else (
-            float(item.workload) if item.workload is not None else None
+    def delete_evaluation(self, db: Session, eval_id: int) -> bool:
+        """删除单条团队评估记录。"""
+        ev = (
+            db.query(PmwbRequirementEvaluation)
+            .filter(PmwbRequirementEvaluation.id == eval_id)
+            .first()
         )
-        return {
-            "id": item.id,
-            "req_id": item.req_id,
-            "sa_name": item.sa_name,
-            "system_name": item.system_name,
-            "workload": workload,
-            "opinion": ext.opinion or "",
-            "dev_ticket_no": ext.dev_ticket_no or item.dev_ticket_no,
-        }
+        if not ev:
+            return False
+        db.delete(ev)
+        db.commit()
+        return True
 
     def get_systems(self, db: Session) -> List[str]:
         rows = db.query(SentEmail.system_name).distinct().filter(SentEmail.system_name.isnot(None)).all()

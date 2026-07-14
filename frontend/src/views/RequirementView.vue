@@ -33,7 +33,10 @@
         <el-table-column type="expand">
           <template #default="{ row }">
             <div class="expand-content" v-loading="evalLoadingMap[row.req_id]">
-              <div class="expand-title">团队评估记录（{{ row.eval_count || 0 }} 个团队）</div>
+              <div class="expand-title">
+                <span>团队评估记录（{{ (evaluationsMap[row.req_id] || []).length || row.eval_count || 0 }} 个团队）</span>
+                <el-button type="primary" size="small" @click="handleAddEval(row)">新增评估</el-button>
+              </div>
               <el-table :data="evaluationsMap[row.req_id] || []" size="small" border>
                 <el-table-column prop="sa_name" label="评估SA" width="90" />
                 <el-table-column prop="system_name" label="负责系统" width="120" />
@@ -48,6 +51,20 @@
                       controls-position="right"
                       style="width: 120px"
                       @change="(val) => handleEvalUpdate(ev, 'workload', val)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column prop="review_workload" label="复核工作量(人天)" width="160">
+                  <template #default="{ row: ev }">
+                    <el-input-number
+                      v-model="ev.review_workload"
+                      :min="0"
+                      :precision="1"
+                      :step="0.5"
+                      size="small"
+                      controls-position="right"
+                      style="width: 140px"
+                      @change="(val) => handleEvalUpdate(ev, 'review_workload', val)"
                     />
                   </template>
                 </el-table-column>
@@ -73,10 +90,11 @@
                     />
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="140" align="center">
+                <el-table-column label="操作" width="210" align="center">
                   <template #default="{ row: ev }">
                     <el-button link type="primary" size="small" @click="handleViewEval(ev)">查看</el-button>
                     <el-button link type="warning" size="small" @click="handleReminderOpenEval(ev)">催办</el-button>
+                    <el-button link type="danger" size="small" @click="handleDeleteEval(ev)">删除</el-button>
                   </template>
                 </el-table-column>
               </el-table>
@@ -221,6 +239,7 @@
         </el-form-item>
         <el-form-item label="收件人">
           <el-input v-model="reminderForm.to" placeholder="多个收件人用逗号分隔" />
+          <div class="form-hint">收件人邮箱按姓名自动从邮件中心通讯录解析；若未匹配到，请手动填写真实邮箱。</div>
         </el-form-item>
         <el-form-item label="抄送">
           <el-input v-model="reminderForm.cc" placeholder="多个抄送人用逗号分隔" />
@@ -237,19 +256,50 @@
         <el-button type="primary" :loading="reminderLoading" @click="handleReminderSend">发送</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="evalFormVisible" title="新增团队评估" width="560px">
+      <el-form :model="evalForm" label-width="110px">
+        <el-form-item label="需求编号">
+          <el-input v-model="evalForm.req_id" disabled />
+        </el-form-item>
+        <el-form-item label="评估SA" required>
+          <el-input v-model="evalForm.sa_name" placeholder="评估SA/团队负责人" />
+        </el-form-item>
+        <el-form-item label="负责系统">
+          <el-input v-model="evalForm.system_name" placeholder="负责系统" />
+        </el-form-item>
+        <el-form-item label="工作量(人天)">
+          <el-input-number v-model="evalForm.workload" :min="0" :precision="1" :step="0.5" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="复核工作量(人天)">
+          <el-input-number v-model="evalForm.review_workload" :min="0" :precision="1" :step="0.5" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="开发单号">
+          <el-input v-model="evalForm.dev_ticket_no" placeholder="开发单号" />
+        </el-form-item>
+        <el-form-item label="评估意见">
+          <el-input v-model="evalForm.opinion" type="textarea" :rows="3" placeholder="评估意见登记" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="evalFormVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleEvalSubmit">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import {
   getRequirements, getRequirement, updateRequirement,
-  getRequirementStats, getEvaluations, updateEvaluation
+  getRequirementStats, getEvaluations, updateEvaluation,
+  createEvaluation, deleteEvaluation
 } from '@/api/requirement.js'
-import { sendReminder, getReminderRecords } from '@/api/reminder.js'
+import { sendReminder, getReminderRecords, resolveContacts } from '@/api/reminder.js'
 
 const searchFields = [
   { name: 'keyword', label: '关键字', type: 'input', placeholder: '编号/名称/提出人' },
@@ -267,6 +317,8 @@ const searchFields = [
     { label: 'P1', value: 'P1' },
     { label: 'P2', value: 'P2' },
     { label: 'P3', value: 'P3' },
+    { label: '集团需求', value: '集团需求' },
+    { label: '紧急需求', value: '紧急需求' },
   ]},
 ]
 
@@ -285,6 +337,8 @@ const priorityOptions = {
   P1: { label: 'P1', type: 'warning' },
   P2: { label: 'P2', type: 'primary' },
   P3: { label: 'P3', type: 'info' },
+  '集团需求': { label: '集团需求', type: 'success' },
+  '紧急需求': { label: '紧急需求', type: 'danger' },
 }
 
 const statusSelectOptions = Object.entries(statusOptions).map(([value, item]) => ({ value, label: item.label }))
@@ -315,6 +369,12 @@ const dialogVisible = ref(false)
 const detailVisible = ref(false)
 const reminderVisible = ref(false)
 const reminderLoading = ref(false)
+const evalFormVisible = ref(false)
+const evalForm = reactive({
+  req_id: '', req_name: '', id: null,
+  sa_name: '', system_name: '', workload: null,
+  review_workload: null, opinion: '', dev_ticket_no: '',
+})
 const form = reactive({ req_id: '', req_name: '', status: '', priority: '', tags: '', personal_note: '' })
 const detail = ref({})
 const reminderRecords = ref([])
@@ -379,7 +439,10 @@ async function handleExpandChange(row, expanded) {
     const list = res || []
     // 记录原始值，用于失焦时判断是否真的改动，避免重复保存
     list.forEach((ev) => {
-      ev._orig = { workload: ev.workload, opinion: ev.opinion, dev_ticket_no: ev.dev_ticket_no }
+      ev._orig = {
+        workload: ev.workload, opinion: ev.opinion,
+        dev_ticket_no: ev.dev_ticket_no, review_workload: ev.review_workload,
+      }
     })
     evaluationsMap.value[row.req_id] = list
   } catch (err) {
@@ -407,6 +470,73 @@ function handleViewEval(ev) {
   // 查看单条评估详情（可复用详情对话框）
   detail.value = { ...ev, is_eval: true }
   detailVisible.value = true
+}
+
+function handleAddEval(row) {
+  // 打开新增团队评估弹窗
+  Object.assign(evalForm, {
+    req_id: row.req_id,
+    req_name: row.req_name,
+    id: null,
+    sa_name: '',
+    system_name: '',
+    workload: null,
+    review_workload: null,
+    opinion: '',
+    dev_ticket_no: '',
+  })
+  evalFormVisible.value = true
+}
+
+async function handleEvalSubmit() {
+  if (!evalForm.sa_name || !evalForm.sa_name.trim()) {
+    ElMessage.warning('请填写评估SA/团队负责人')
+    return
+  }
+  try {
+    const payload = {
+      sa_name: evalForm.sa_name,
+      system_name: evalForm.system_name || '',
+      workload: evalForm.workload ?? null,
+      review_workload: evalForm.review_workload ?? null,
+      opinion: evalForm.opinion || '',
+      dev_ticket_no: evalForm.dev_ticket_no || '',
+    }
+    const newEv = await createEvaluation(evalForm.req_id, payload)
+    if (!evaluationsMap.value[evalForm.req_id]) {
+      evaluationsMap.value[evalForm.req_id] = []
+    }
+    newEv._orig = {
+      workload: newEv.workload, opinion: newEv.opinion,
+      dev_ticket_no: newEv.dev_ticket_no, review_workload: newEv.review_workload,
+    }
+    evaluationsMap.value[evalForm.req_id].push(newEv)
+    ElMessage.success('新增评估成功')
+    evalFormVisible.value = false
+  } catch (err) {
+    ElMessage.error(err.message || '新增失败')
+  }
+}
+
+async function handleDeleteEval(ev) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除「${ev.sa_name || '该团队'}」的评估记录？`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return // 用户取消
+  }
+  try {
+    await deleteEvaluation(ev.req_id, ev.id)
+    const list = evaluationsMap.value[ev.req_id] || []
+    const idx = list.findIndex((x) => x.id === ev.id)
+    if (idx !== -1) list.splice(idx, 1)
+    ElMessage.success('已删除')
+  } catch (err) {
+    ElMessage.error(err.message || '删除失败')
+  }
 }
 
 function handleEdit(row) {
@@ -457,8 +587,43 @@ async function fetchReminderRecords(reqId) {
   }
 }
 
-function saEmail(saName) {
-  return saName ? `${saName}@chinamobile.com` : ''
+// 严格邮箱正则（ASCII 本地名），与后端校验保持一致
+const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
+
+function validateEmailsField(raw) {
+  if (!raw) return []
+  return raw
+    .split(/[,;，；\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s) => !EMAIL_RE.test(s))
+}
+
+// 按 SA 姓名从统一邮件中心通讯录解析真实邮箱并预填收件人
+async function prefillRecipients(names) {
+  reminderForm.recipient_name = (names || []).join(', ')
+  reminderForm.to = ''
+  const list = (names || []).filter(Boolean)
+  if (!list.length) return
+  try {
+    const res = await resolveContacts(list)
+    const map = (res && res.data) || {}
+    const resolved = []
+    const missing = []
+    for (const n of list) {
+      const email = map[n] || map[n.trim()]
+      if (email) resolved.push(email)
+      else missing.push(n)
+    }
+    reminderForm.to = resolved.join(', ')
+    if (missing.length) {
+      ElMessage.warning(
+        `以下 SA 未在邮件中心通讯录找到邮箱，请手动填写真实邮箱或先在邮件中心添加：${missing.join('、')}`
+      )
+    }
+  } catch (e) {
+    console.error('解析收件人邮箱失败', e)
+  }
 }
 
 function buildDefaultReminderBody(req, systemName, saName) {
@@ -513,8 +678,7 @@ async function handleReminderOpen(row) {
   reminderForm.req_name = row.req_name
   const saNames = await aggregateSaRecipients(row.req_id)
   const names = saNames.length ? saNames : (row.sa_name ? [row.sa_name] : [])
-  reminderForm.to = names.map(saEmail).filter(Boolean).join(', ')
-  reminderForm.recipient_name = names.join(', ')
+  await prefillRecipients(names)
   reminderForm.cc = ''
   reminderForm.subject = `催办：${row.req_name || row.req_id}`
   reminderForm.body = buildDefaultReminderBody(row)
@@ -522,14 +686,13 @@ async function handleReminderOpen(row) {
 }
 
 // 团队级催办：按当前系统的对应 SA 精确发送
-function handleReminderOpenEval(ev) {
+async function handleReminderOpenEval(ev) {
   reminderForm.req_id = ev.req_id
   reminderForm.req_name = ev.req_name
-  reminderForm.to = saEmail(ev.sa_name)
-  reminderForm.recipient_name = ev.sa_name || ''
   reminderForm.cc = ''
   reminderForm.subject = `催办：${ev.req_name || ev.req_id}（${ev.system_name || '系统'}）`
   reminderForm.body = buildDefaultReminderBody(ev, ev.system_name, ev.sa_name)
+  await prefillRecipients([ev.sa_name])
   reminderVisible.value = true
 }
 
@@ -541,6 +704,16 @@ function handleReminderFromDetail() {
 async function handleReminderSend() {
   if (!reminderForm.to || !reminderForm.subject) {
     ElMessage.warning('请填写收件人和主题')
+    return
+  }
+  const bad = [
+    ...validateEmailsField(reminderForm.to),
+    ...validateEmailsField(reminderForm.cc),
+  ]
+  if (bad.length) {
+    ElMessage.warning(
+      `收件人邮箱格式不正确：${bad.join('、')}（请填写真实邮箱，可在邮件中心通讯录按姓名查询）`
+    )
     return
   }
   reminderLoading.value = true
@@ -565,7 +738,8 @@ async function handleReminderSend() {
       await fetchReminderRecords(reminderForm.req_id)
     }
   } catch (err) {
-    ElMessage.error(err.message || '发送失败')
+    // 服务端已通过拦截器提示具体错误（如 400 校验失败），此处仅记录避免重复弹窗
+    console.error('催办邮件发送失败', err)
   } finally {
     reminderLoading.value = false
   }
@@ -578,6 +752,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.form-hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
+  margin-top: 4px;
+}
 .stats-row {
   display: flex;
   gap: 16px;
