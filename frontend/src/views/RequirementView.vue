@@ -21,26 +21,109 @@
         @reset="handleReset"
       />
 
-      <DataTable
+      <el-table
+        v-loading="tableLoading"
         :data="tableData"
-        :columns="columns"
-        :total="total"
-        :page="page"
-        :page-size="pageSize"
-        @page-change="handlePageChange"
+        stripe
+        border
+        style="width: 100%"
+        row-key="req_id"
+        @expand-change="handleExpandChange"
       >
-        <template #status="{ row }">
-          <StatusBadge :value="row.ext?.status || 'proposed'" :options="statusOptions" />
-        </template>
-        <template #priority="{ row }">
-          <StatusBadge :value="row.ext?.priority || 'P2'" :options="priorityOptions" />
-        </template>
-        <template #actions="{ row }">
-          <el-button type="primary" size="small" @click="handleEdit(row)">跟踪</el-button>
-          <el-button size="small" @click="handleView(row)">详情</el-button>
-          <el-button type="warning" size="small" @click="handleReminderOpen(row)">催办</el-button>
-        </template>
-      </DataTable>
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="expand-content" v-loading="evalLoadingMap[row.req_id]">
+              <div class="expand-title">团队评估记录（{{ row.eval_count || 0 }} 个团队）</div>
+              <el-table :data="evaluationsMap[row.req_id] || []" size="small" border>
+                <el-table-column prop="sa_name" label="评估SA" width="90" />
+                <el-table-column prop="system_name" label="负责系统" width="120" />
+                <el-table-column prop="workload" label="工作量(人天)" width="140">
+                  <template #default="{ row: ev }">
+                    <el-input-number
+                      v-model="ev.workload"
+                      :min="0"
+                      :precision="1"
+                      :step="0.5"
+                      size="small"
+                      controls-position="right"
+                      style="width: 120px"
+                      @change="(val) => handleEvalUpdate(ev, 'workload', val)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column label="评估意见登记" min-width="240">
+                  <template #default="{ row: ev }">
+                    <el-input
+                      v-model="ev.opinion"
+                      type="textarea"
+                      :autosize="{ minRows: 1, maxRows: 4 }"
+                      size="small"
+                      placeholder="填写评估意见后失焦自动保存"
+                      @blur="handleEvalUpdate(ev, 'opinion', ev.opinion)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column prop="dev_ticket_no" label="开发单号" width="150">
+                  <template #default="{ row: ev }">
+                    <el-input
+                      v-model="ev.dev_ticket_no"
+                      size="small"
+                      placeholder="开发单号"
+                      @blur="handleEvalUpdate(ev, 'dev_ticket_no', ev.dev_ticket_no)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="80" align="center">
+                  <template #default="{ row: ev }">
+                    <el-button link type="primary" size="small" @click="handleViewEval(ev)">查看</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <div v-if="!(evaluationsMap[row.req_id] || []).length && !evalLoadingMap[row.req_id]" class="expand-empty">
+                暂无团队评估数据
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="req_id" label="需求编号" width="180" show-overflow-tooltip />
+        <el-table-column prop="req_name" label="需求名称" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="proposer" label="提出人" width="90" />
+        <el-table-column label="团队评估" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" type="info">{{ row.eval_count || 0 }}个团队</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="优先级" width="80" align="center">
+          <template #default="{ row }">
+            <StatusBadge :value="row.ext?.priority || 'P2'" :options="priorityOptions" />
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="90" align="center">
+          <template #default="{ row }">
+            <StatusBadge :value="row.ext?.status || 'proposed'" :options="statusOptions" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="160" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="handleEdit(row)">跟踪</el-button>
+            <el-button link type="primary" @click="handleView(row)">详情</el-button>
+            <el-button link type="warning" @click="handleReminderOpen(row)">催办</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-pagination
+        v-if="total > 0"
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[10, 20, 50]"
+        layout="total, sizes, prev, pager, next"
+        class="pagination"
+        @size-change="fetchData"
+        @current-change="fetchData"
+      />
     </div>
 
     <el-dialog v-model="dialogVisible" title="需求跟踪" width="600px">
@@ -84,29 +167,37 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="detailVisible" title="需求详情" width="700px">
-      <div class="detail-actions">
+    <el-dialog v-model="detailVisible" :title="detail.is_eval ? '团队评估详情' : '需求详情'" width="700px">
+      <div class="detail-actions" v-if="!detail.is_eval">
         <el-button type="warning" size="small" @click="handleReminderFromDetail">一键催办</el-button>
       </div>
       <el-descriptions :column="2" border>
         <el-descriptions-item label="需求编号">{{ detail.req_id }}</el-descriptions-item>
         <el-descriptions-item label="需求名称">{{ detail.req_name }}</el-descriptions-item>
-        <el-descriptions-item label="提出人">{{ detail.proposer }}</el-descriptions-item>
-        <el-descriptions-item label="提出时间">{{ detail.propose_time }}</el-descriptions-item>
-        <el-descriptions-item label="系统">{{ detail.system_name }}</el-descriptions-item>
-        <el-descriptions-item label="SA">{{ detail.sa_name }}</el-descriptions-item>
-        <el-descriptions-item label="开发单号">{{ detail.dev_ticket_no }}</el-descriptions-item>
-        <el-descriptions-item label="工作量">{{ detail.workload }}</el-descriptions-item>
+        <template v-if="detail.is_eval">
+          <el-descriptions-item label="评估SA">{{ detail.sa_name }}</el-descriptions-item>
+          <el-descriptions-item label="负责系统">{{ detail.system_name }}</el-descriptions-item>
+          <el-descriptions-item label="工作量(人天)">{{ detail.workload ?? '未填写' }}</el-descriptions-item>
+          <el-descriptions-item label="开发单号">{{ detail.dev_ticket_no || '未填写' }}</el-descriptions-item>
+          <el-descriptions-item label="发送时间">{{ detail.send_datetime }}</el-descriptions-item>
+          <el-descriptions-item label="评估意见">{{ detail.opinion || '未登记' }}</el-descriptions-item>
+        </template>
+        <template v-else>
+          <el-descriptions-item label="提出人">{{ detail.proposer }}</el-descriptions-item>
+          <el-descriptions-item label="提出时间">{{ detail.propose_time }}</el-descriptions-item>
+          <el-descriptions-item label="团队数">{{ detail.eval_count || 0 }} 个</el-descriptions-item>
+          <el-descriptions-item label="开发单号">{{ detail.dev_ticket_no }}</el-descriptions-item>
+        </template>
       </el-descriptions>
-      <div class="detail-section">
+      <div v-if="detail.background" class="detail-section">
         <div class="detail-section-title">需求背景</div>
         <div class="detail-section-content">{{ detail.background }}</div>
       </div>
-      <div class="detail-section">
+      <div v-if="detail.description && !detail.is_eval" class="detail-section">
         <div class="detail-section-title">需求描述</div>
         <div class="detail-section-content">{{ detail.description }}</div>
       </div>
-      <div class="detail-section">
+      <div v-if="!detail.is_eval" class="detail-section">
         <div class="detail-section-title">催办记录</div>
         <el-timeline v-if="reminderRecords.length">
           <el-timeline-item
@@ -151,10 +242,12 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import DataTable from '@/components/Common/DataTable.vue'
 import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
-import { getRequirements, getRequirement, updateRequirement, getRequirementStats } from '@/api/requirement.js'
+import {
+  getRequirements, getRequirement, updateRequirement,
+  getRequirementStats, getEvaluations, updateEvaluation
+} from '@/api/requirement.js'
 import { sendReminder, getReminderRecords } from '@/api/reminder.js'
 
 const searchFields = [
@@ -176,15 +269,7 @@ const searchFields = [
   ]},
 ]
 
-const columns = [
-  { prop: 'req_id', label: '需求编号', width: 160 },
-  { prop: 'req_name', label: '需求名称', minWidth: 200 },
-  { prop: 'proposer', label: '提出人', width: 100 },
-  { prop: 'system_name', label: '系统', width: 120 },
-  { slot: 'priority', label: '优先级', width: 90 },
-  { slot: 'status', label: '状态', width: 100 },
-  { slot: 'actions', label: '操作', width: 150, fixed: 'right' },
-]
+const columns = [] // 不再使用 DataTable，直接用 el-table
 
 const statusOptions = {
   proposed: { label: '已提出', type: 'info' },
@@ -208,8 +293,13 @@ const tableData = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
+const tableLoading = ref(false)
 const query = reactive({ keyword: '', status: '', priority: '' })
 const stats = ref({ total: 0, proposed: 0, accepted: 0, dev: 0, closed: 0, paused: 0, involved: 0 })
+
+// 团队评估展开行数据
+const evaluationsMap = ref({})       // { [req_id]: [...] }
+const evalLoadingMap = ref({})        // { [req_id]: true/false }
 
 const statsItems = computed(() => [
   { label: '需求总数', value: stats.value.total },
@@ -230,6 +320,7 @@ const reminderRecords = ref([])
 const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', subject: '', body: '' })
 
 async function fetchData() {
+  tableLoading.value = true
   try {
     const res = await getRequirements({
       ...query,
@@ -240,6 +331,8 @@ async function fetchData() {
     total.value = res.total || 0
   } catch (err) {
     ElMessage.error(err.message || '获取需求列表失败')
+  } finally {
+    tableLoading.value = false
   }
 }
 
@@ -271,6 +364,48 @@ function handleReset() {
 function handlePageChange(p) {
   page.value = p
   fetchData()
+}
+
+// ===== 团队评估展开行逻辑 =====
+
+async function handleExpandChange(row, expanded) {
+  if (!expanded) return
+  // 已加载过则不重复请求
+  if (evaluationsMap.value[row.req_id]) return
+  evalLoadingMap.value[row.req_id] = true
+  try {
+    const res = await getEvaluations(row.req_id)
+    const list = res || []
+    // 记录原始值，用于失焦时判断是否真的改动，避免重复保存
+    list.forEach((ev) => {
+      ev._orig = { workload: ev.workload, opinion: ev.opinion, dev_ticket_no: ev.dev_ticket_no }
+    })
+    evaluationsMap.value[row.req_id] = list
+  } catch (err) {
+    console.error('获取团队评估失败', err)
+    ElMessage.error('获取团队评估记录失败')
+    evaluationsMap.value[row.req_id] = []
+  } finally {
+    evalLoadingMap.value[row.req_id] = false
+  }
+}
+
+async function handleEvalUpdate(ev, field, value) {
+  // 值未变化则跳过（尤其是 textarea/input 的 blur 事件）
+  if (ev._orig && ev._orig[field] === value) return
+  try {
+    await updateEvaluation(ev.req_id, ev.id, { [field]: value })
+    if (ev._orig) ev._orig[field] = value
+    ElMessage.success('已保存')
+  } catch (err) {
+    ElMessage.error(err.message || '保存失败')
+  }
+}
+
+function handleViewEval(ev) {
+  // 查看单条评估详情（可复用详情对话框）
+  detail.value = { ...ev, is_eval: true }
+  detailVisible.value = true
 }
 
 function handleEdit(row) {
@@ -434,5 +569,22 @@ onMounted(() => {
   font-size: 12px;
   color: #909399;
   margin-top: 4px;
+}
+.expand-content {
+  padding: 16px 24px;
+}
+.expand-title {
+  font-weight: bold;
+  margin-bottom: 12px;
+  color: #303133;
+}
+.expand-empty {
+  text-align: center;
+  color: #909399;
+  padding: 16px;
+}
+.pagination {
+  margin-top: 20px;
+  justify-content: flex-end;
 }
 </style>

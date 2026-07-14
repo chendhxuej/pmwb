@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
-from schemas.requirement import RequirementExtUpdate
+from schemas.requirement import EvaluationUpdate, RequirementExtUpdate
 from services.requirement import requirement_service
 
 router = APIRouter(prefix="/requirements", tags=["需求管理"])
@@ -52,6 +52,20 @@ def get_systems(db: Session = Depends(get_db)):
 def get_requirement(req_id: str, db: Session = Depends(get_db)):
     """获取需求详情。"""
     data = requirement_service.get(db, req_id)
+    return success(data=data)
+
+
+@router.get("/{req_id}/evaluations")
+def get_evaluations(req_id: str, db: Session = Depends(get_db)):
+    """获取需求下所有团队评估记录（按SA/系统维度）。"""
+    data = requirement_service.get_evaluations(db, req_id)
+    return success(data=data)
+
+
+@router.put("/{req_id}/evaluations/{eval_id}")
+def update_evaluation(req_id: str, eval_id: int, obj_in: EvaluationUpdate, db: Session = Depends(get_db)):
+    """更新团队评估记录（工作量评估、评估意见、开发单号）。"""
+    data = requirement_service.update_evaluation(db, eval_id, obj_in.model_dump(exclude_unset=True))
     return success(data=data)
 
 

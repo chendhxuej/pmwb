@@ -19,3 +19,11 @@ export function getRequirementStats() {
 export function getRequirementSystems() {
   return request.get('/requirements/meta/systems')
 }
+
+export function getEvaluations(reqId) {
+  return request.get(`/requirements/${reqId}/evaluations`)
+}
+
+export function updateEvaluation(reqId, evalId, data) {
+  return request.put(`/requirements/${reqId}/evaluations/${evalId}`, data)
+}

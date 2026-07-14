@@ -37,6 +37,14 @@ class RequirementExtUpdate(BaseModel):
     owner_note: Optional[str] = None
 
 
+class EvaluationUpdate(BaseModel):
+    """团队评估记录可编辑字段。"""
+
+    workload: Optional[float] = Field(None, description="工作量评估(人天)")
+    opinion: Optional[str] = Field(None, description="评估意见登记")
+    dev_ticket_no: Optional[str] = Field(None, description="开发单号")
+
+
 class RequirementExtOut(RequirementExtBase):
     id: int
     req_id: str

@@ -365,6 +365,37 @@ class PmwbKnowledgeItem(Base):
     )
 
 
+class PmwbRequirementEvaluation(Base):
+    """需求团队评估扩展表（每条对应一个 sent_emails 团队评估记录的可编辑层）。
+
+    sent_emails 为只读来源数据，产品经理对每个团队评估的工作量、评估意见、
+    开发单号等的修改写入本表，通过 sent_email_id 关联。
+    """
+
+    __tablename__ = "pmwb_requirement_evaluation"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    sent_email_id = Column(
+        Integer, nullable=False, unique=True, comment="关联 sent_emails.id（每个团队评估记录一条）"
+    )
+    req_id = Column(String(255), comment="需求编号，冗余便于查询")
+    workload = Column(Numeric(10, 2), comment="工作量评估(人天)")
+    opinion = Column(Text, comment="评估意见登记")
+    dev_ticket_no = Column(String(255), comment="开发单号")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_eval_req_id", "req_id"),
+        {"comment": "需求团队评估扩展表"},
+    )
+
+
 class SentEmail(Base):
     """已发送需求邮件记录表（只读/关联）。"""
 

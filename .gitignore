@@ -51,3 +51,9 @@ backend/alembic/versions/*.pyc
 
 # WorkBuddy local memory
 .workbuddy/
+
+# Screenshots & verification artifacts
+screenshot_*.png
+verify_shots/
+verify_*.log
+*.timestamp-*.mjs
