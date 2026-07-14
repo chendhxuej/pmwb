@@ -1,41 +1,41 @@
 import request from './request.js'
 
 export function getDevTickets(params) {
-  return request.get('/api/v1/dev-tickets', { params })
+  return request.get('/dev-tickets', { params })
 }
 
 export function getDevTicket(id) {
-  return request.get(`/api/v1/dev-tickets/${id}`)
+  return request.get(`/dev-tickets/${id}`)
 }
 
 export function createDevTicket(data) {
-  return request.post('/api/v1/dev-tickets', data)
+  return request.post('/dev-tickets', data)
 }
 
 export function updateDevTicket(id, data) {
-  return request.put(`/api/v1/dev-tickets/${id}`, data)
+  return request.put(`/dev-tickets/${id}`, data)
 }
 
 export function updateDevTicketStatus(id, data) {
-  return request.put(`/api/v1/dev-tickets/${id}/status`, data)
+  return request.put(`/dev-tickets/${id}/status`, data)
 }
 
 export function deleteDevTicket(id) {
-  return request.delete(`/api/v1/dev-tickets/${id}`)
+  return request.delete(`/dev-tickets/${id}`)
 }
 
 export function getDevTicketStats() {
-  return request.get('/api/v1/dev-tickets/stats')
+  return request.get('/dev-tickets/stats')
 }
 
 export function getDevTicketSystems() {
-  return request.get('/api/v1/dev-tickets/meta/systems')
+  return request.get('/dev-tickets/meta/systems')
 }
 
 export function getDevTicketLogs(id) {
-  return request.get(`/api/v1/dev-tickets/${id}/logs`)
+  return request.get(`/dev-tickets/${id}/logs`)
 }
 
 export function getDevTicketDeliverables(id) {
-  return request.get(`/api/v1/dev-tickets/${id}/deliverables`)
+  return request.get(`/dev-tickets/${id}/deliverables`)
 }

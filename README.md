@@ -18,8 +18,9 @@
 | 会议管理 | ✅ | 会议记录、参会人、行动项 |
 | 知识库 | ✅ | 条目索引、Obsidian Markdown 归档 |
 | 待办中心 | ✅ | 待办任务、优先级、截止日期、超期提醒 |
-| 需求管理 | 🔄 | 基础表已创建，后续对接 sent_emails |
-| 开发工单 | 🔄 | 基础表已创建，后续完善 Chrome 插件采集 |
+| 需求管理 | ✅ | 聚合 sent_emails + pmwb_requirement_ext，跟踪/催办 |
+| 开发工单 | ✅ | 六阶段生命周期、变更日志、交付物归档 |
+| 统一邮件催办 | ✅ | 对接统一邮件中心，发送催办并记录发送状态 |
 
 ## 目录结构
 
@@ -125,6 +126,9 @@ venv\Scripts\alembic.exe upgrade head
 | 知识库 | `/api/v1/knowledge` | 知识条目 + Markdown 内容 |
 | 待办中心 | `/api/v1/todos` | 待办 CRUD + 统计 |
 | 首页看板 | `/api/v1/dashboard` | 聚合数据 |
+| 需求管理 | `/api/v1/requirements` | 需求列表/统计/跟踪 |
+| 开发工单 | `/api/v1/dev-tickets` | 工单 CRUD + 状态流转 |
+| 统一邮件催办 | `/api/v1/reminders` | 发送催办 + 记录查询 |
 
 ## 开发分支
 

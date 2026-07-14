@@ -76,7 +76,9 @@ def main():
     os.makedirs(OUTDIR, exist_ok=True)
     proc = subprocess.Popen(
         [CHROME, f"--remote-debugging-port={PORT}", "--remote-allow-origins=*",
-         "--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "about:blank"],
+         "--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+         "--disable-dev-shm-usage", "--no-sandbox", "--disable-software-rasterizer",
+         "about:blank"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     try:
@@ -93,63 +95,67 @@ def main():
             pass
 
         for route, name in ROUTES:
-            url = BASE + route
-            print(f"\n===== {route} ({name}) =====")
-            rpc(ws, "Page.navigate", {"url": url})
-            # wait for load event
-            loaded = False
-            deadline = time.time() + 15
-            while time.time() < deadline:
-                try:
-                    msg = json.loads(ws.recv())
-                except websocket.WebSocketTimeoutException:
-                    continue
-                if msg.get("method") == "Page.loadEventFired":
-                    loaded = True
-                    break
-            if not loaded:
-                print("  [WARN] load event not fired")
-            time.sleep(1.5)
+            try:
+                url = BASE + route
+                print(f"\n===== {route} ({name}) =====")
+                rpc(ws, "Page.navigate", {"url": url})
+                # wait for load event
+                loaded = False
+                deadline = time.time() + 15
+                while time.time() < deadline:
+                    try:
+                        msg = json.loads(ws.recv())
+                    except websocket.WebSocketTimeoutException:
+                        continue
+                    if msg.get("method") == "Page.loadEventFired":
+                        loaded = True
+                        break
+                if not loaded:
+                    print("  [WARN] load event not fired")
+                time.sleep(1.5)
 
-            # collect console errors + failed network for a window
-            errors = []
-            deadline = time.time() + 6
-            while time.time() < deadline:
-                try:
-                    msg = json.loads(ws.recv())
-                except websocket.WebSocketTimeoutException:
-                    continue
-                m = msg.get("method")
-                if m == "Runtime.consoleAPICalled" and msg["params"].get("type") == "error":
-                    texts = [a.get("value", "") or a.get("description", "") for a in msg["params"].get("args", [])]
-                    errors.append("CONSOLE: " + " ".join(filter(None, texts)))
-                elif m == "Runtime.exceptionThrown":
-                    desc = msg["params"].get("exceptionDetails", {}).get("exception", {}).get("description", "")
-                    errors.append("EXCEPTION: " + desc)
-            for e in errors:
-                print("  " + e)
+                # collect console errors + failed network for a window
+                errors = []
+                deadline = time.time() + 6
+                while time.time() < deadline:
+                    try:
+                        msg = json.loads(ws.recv())
+                    except websocket.WebSocketTimeoutException:
+                        continue
+                    m = msg.get("method")
+                    if m == "Runtime.consoleAPICalled" and msg["params"].get("type") == "error":
+                        texts = [a.get("value", "") or a.get("description", "") for a in msg["params"].get("args", [])]
+                        errors.append("CONSOLE: " + " ".join(filter(None, texts)))
+                    elif m == "Runtime.exceptionThrown":
+                        desc = msg["params"].get("exceptionDetails", {}).get("exception", {}).get("description", "")
+                        errors.append("EXCEPTION: " + desc)
+                for e in errors:
+                    print("  " + e)
 
-            # wait for content to render
-            has_table = wait_element(ws, ".el-table__body-wrapper .el-table__row", timeout=10)
-            has_app = wait_element(ws, "#app", timeout=5)
-            # detect error page text
-            res = rpc(ws, "Runtime.evaluate",
-                      {"expression": "document.body.innerText.slice(0,200)", "returnByValue": True})
-            body_text = res.get("result", {}).get("result", {}).get("value", "") or ""
-            if errors:
-                print(f"  [FAIL] console errors detected")
-            elif not has_app:
-                print(f"  [FAIL] #app not mounted; body={body_text!r}")
-            else:
-                print(f"  [OK] mounted; table_rows={has_table}; body_preview={body_text[:60]!r}")
+                # wait for content to render
+                has_table = wait_element(ws, ".el-table__body-wrapper .el-table__row", timeout=10)
+                has_app = wait_element(ws, "#app", timeout=5)
+                # detect error page text
+                res = rpc(ws, "Runtime.evaluate",
+                          {"expression": "document.body.innerText.slice(0,200)", "returnByValue": True})
+                body_text = res.get("result", {}).get("result", {}).get("value", "") or ""
+                if errors:
+                    print(f"  [FAIL] console errors detected")
+                elif not has_app:
+                    print(f"  [FAIL] #app not mounted; body={body_text!r}")
+                else:
+                    print(f"  [OK] mounted; table_rows={has_table}; body_preview={body_text[:60]!r}")
 
-            # screenshot
-            shot = rpc(ws, "Page.captureScreenshot", {"format": "png"})
-            data = shot["result"]["data"]
-            out = os.path.join(OUTDIR, f"{name}.png")
-            with open(out, "wb") as f:
-                f.write(base64.b64decode(data))
-            print(f"  screenshot -> {out}")
+                # screenshot
+                shot = rpc(ws, "Page.captureScreenshot", {"format": "png"})
+                data = shot["result"]["data"]
+                out = os.path.join(OUTDIR, f"{name}.png")
+                with open(out, "wb") as f:
+                    f.write(base64.b64decode(data))
+                print(f"  screenshot -> {out}")
+            except Exception as exc:
+                print(f"  [ERROR] route {route} failed: {exc!r}")
+                continue
     finally:
         proc.terminate()
         try:
