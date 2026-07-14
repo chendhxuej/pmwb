@@ -388,3 +388,28 @@ class SentEmail(Base):
     involve_dev = Column(String(10), default="是", comment="涉及开发")
 
     __table_args__ = ({"comment": "已发送邮件记录"},)
+
+
+class EmailRecord(Base):
+    """统一邮件发送记录表（已有表 email_records）。"""
+
+    __tablename__ = "email_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(255), comment="需求编号")
+    req_name = Column(String(500), comment="需求名称")
+    email_type = Column(String(255), comment="邮件类型")
+    recipient = Column(String(255), comment="收件人邮箱")
+    recipient_name = Column(String(255), comment="收件人姓名")
+    subject = Column(String(500), comment="邮件主题")
+    content = Column(Text, comment="邮件正文")
+    send_status = Column(String(255), comment="发送状态")
+    error_msg = Column(Text, comment="错误信息")
+    source = Column(String(255), comment="来源系统")
+    sender = Column(String(255), comment="发送人")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="发送时间")
+
+    __table_args__ = (
+        Index("idx_email_record_req_id", "req_id"),
+        {"comment": "邮件发送记录"},
+    )

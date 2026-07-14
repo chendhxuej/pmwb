@@ -38,6 +38,7 @@
         <template #actions="{ row }">
           <el-button type="primary" size="small" @click="handleEdit(row)">跟踪</el-button>
           <el-button size="small" @click="handleView(row)">详情</el-button>
+          <el-button type="warning" size="small" @click="handleReminderOpen(row)">催办</el-button>
         </template>
       </DataTable>
     </div>
@@ -84,6 +85,9 @@
     </el-dialog>
 
     <el-dialog v-model="detailVisible" title="需求详情" width="700px">
+      <div class="detail-actions">
+        <el-button type="warning" size="small" @click="handleReminderFromDetail">一键催办</el-button>
+      </div>
       <el-descriptions :column="2" border>
         <el-descriptions-item label="需求编号">{{ detail.req_id }}</el-descriptions-item>
         <el-descriptions-item label="需求名称">{{ detail.req_name }}</el-descriptions-item>
@@ -102,6 +106,44 @@
         <div class="detail-section-title">需求描述</div>
         <div class="detail-section-content">{{ detail.description }}</div>
       </div>
+      <div class="detail-section">
+        <div class="detail-section-title">催办记录</div>
+        <el-timeline v-if="reminderRecords.length">
+          <el-timeline-item
+            v-for="record in reminderRecords"
+            :key="record.id"
+            :type="record.send_status === 'success' ? 'success' : 'danger'"
+            :timestamp="record.created_at"
+          >
+            <div>{{ record.subject }}</div>
+            <div class="record-meta">收件人：{{ record.recipient }} | 状态：{{ record.send_status }}</div>
+          </el-timeline-item>
+        </el-timeline>
+        <el-empty v-else description="暂无催办记录" />
+      </div>
+    </el-dialog>
+    <el-dialog v-model="reminderVisible" title="发送催办邮件" width="600px">
+      <el-form :model="reminderForm" label-width="100px">
+        <el-form-item label="需求编号">
+          <el-input v-model="reminderForm.req_id" disabled />
+        </el-form-item>
+        <el-form-item label="收件人">
+          <el-input v-model="reminderForm.to" placeholder="多个收件人用逗号分隔" />
+        </el-form-item>
+        <el-form-item label="抄送">
+          <el-input v-model="reminderForm.cc" placeholder="多个抄送人用逗号分隔" />
+        </el-form-item>
+        <el-form-item label="主题">
+          <el-input v-model="reminderForm.subject" />
+        </el-form-item>
+        <el-form-item label="正文">
+          <el-input v-model="reminderForm.body" type="textarea" :rows="6" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="reminderVisible = false">取消</el-button>
+        <el-button type="primary" :loading="reminderLoading" @click="handleReminderSend">发送</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -113,6 +155,7 @@ import DataTable from '@/components/Common/DataTable.vue'
 import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import { getRequirements, getRequirement, updateRequirement, getRequirementStats } from '@/api/requirement.js'
+import { sendReminder, getReminderRecords } from '@/api/reminder.js'
 
 const searchFields = [
   { name: 'keyword', label: '关键字', type: 'input', placeholder: '编号/名称/提出人' },
@@ -179,8 +222,12 @@ const statsItems = computed(() => [
 
 const dialogVisible = ref(false)
 const detailVisible = ref(false)
+const reminderVisible = ref(false)
+const reminderLoading = ref(false)
 const form = reactive({ req_id: '', req_name: '', status: '', priority: '', tags: '', personal_note: '' })
 const detail = ref({})
+const reminderRecords = ref([])
+const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', subject: '', body: '' })
 
 async function fetchData() {
   try {
@@ -257,9 +304,85 @@ async function handleView(row) {
   try {
     const res = await getRequirement(row.req_id)
     detail.value = res || {}
+    await fetchReminderRecords(row.req_id)
     detailVisible.value = true
   } catch (err) {
     ElMessage.error(err.message || '获取详情失败')
+  }
+}
+
+async function fetchReminderRecords(reqId) {
+  try {
+    const res = await getReminderRecords(reqId)
+    reminderRecords.value = res || []
+  } catch (err) {
+    console.error('获取催办记录失败', err)
+    reminderRecords.value = []
+  }
+}
+
+function buildDefaultReminderBody(req) {
+  const lines = [
+    `您好，以下需求目前需要跟进，请协助处理：`,
+    ``,
+    `需求编号：${req.req_id || ''}`,
+    `需求名称：${req.req_name || ''}`,
+    `提出人：${req.proposer || ''}`,
+    `系统：${req.system_name || ''}`,
+    ``,
+    `请及时反馈当前进展与预计完成时间，谢谢。`,
+  ]
+  return lines.join('\n')
+}
+
+function initReminderForm(rowOrDetail) {
+  reminderForm.req_id = rowOrDetail.req_id
+  reminderForm.req_name = rowOrDetail.req_name
+  reminderForm.to = rowOrDetail.sa_name ? `${rowOrDetail.sa_name}@chinamobile.com` : ''
+  reminderForm.cc = ''
+  reminderForm.subject = `催办：${rowOrDetail.req_name || rowOrDetail.req_id}`
+  reminderForm.body = buildDefaultReminderBody(rowOrDetail)
+}
+
+function handleReminderOpen(row) {
+  initReminderForm(row)
+  reminderVisible.value = true
+}
+
+function handleReminderFromDetail() {
+  initReminderForm(detail.value)
+  reminderVisible.value = true
+}
+
+async function handleReminderSend() {
+  if (!reminderForm.to || !reminderForm.subject) {
+    ElMessage.warning('请填写收件人和主题')
+    return
+  }
+  reminderLoading.value = true
+  try {
+    const res = await sendReminder({
+      req_id: reminderForm.req_id,
+      req_name: reminderForm.req_name,
+      to: reminderForm.to,
+      cc: reminderForm.cc,
+      subject: reminderForm.subject,
+      body: reminderForm.body,
+      operator: 'pmwb',
+    })
+    if (res && res.success) {
+      ElMessage.success('催办邮件发送成功')
+    } else {
+      ElMessage.warning(res?.message || '催办邮件发送失败')
+    }
+    reminderVisible.value = false
+    if (detailVisible.value) {
+      await fetchReminderRecords(reminderForm.req_id)
+    }
+  } catch (err) {
+    ElMessage.error(err.message || '发送失败')
+  } finally {
+    reminderLoading.value = false
   }
 }
 
@@ -302,5 +425,14 @@ onMounted(() => {
   color: #606266;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+.detail-actions {
+  margin-bottom: 16px;
+  text-align: right;
+}
+.record-meta {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 </style>
