@@ -36,6 +36,9 @@
         />
       </template>
 
+      <!-- 兼容通过 #columns 插槽传入的列（Todo/Ticket/Meeting/Operation 等视图用法） -->
+      <slot name="columns" />
+
       <!-- 默认操作列（当 showAction 且未在 columns 中定义 actions 时显示） -->
       <el-table-column v-if="showAction && !hasActionsSlot" label="操作" width="150" fixed="right">
         <template #default="{ row }">
