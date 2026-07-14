@@ -458,6 +458,9 @@ const handleSubmit = async () => {
     if (!valid) return
 
     const payload = { ...form }
+    for (const k of Object.keys(payload)) {
+      if (payload[k] === '') payload[k] = null
+    }
     if (payload.remind_at && typeof payload.remind_at === 'object') {
       payload.remind_at = payload.remind_at.toISOString()
     }

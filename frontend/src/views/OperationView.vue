@@ -452,6 +452,9 @@ const handleSubmit = async () => {
     if (!valid) return
 
     const payload = { ...form }
+    for (const k of Object.keys(payload)) {
+      if (payload[k] === '') payload[k] = null
+    }
     if (payload.discovery_date && typeof payload.discovery_date === 'object') {
       payload.discovery_date = payload.discovery_date.toISOString()
     }

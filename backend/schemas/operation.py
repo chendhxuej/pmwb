@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class IssueType(str, Enum):
@@ -49,6 +49,13 @@ class OperationIssueBase(BaseModel):
     obsidian_path: Optional[str] = Field(None, max_length=512, description="沉淀知识条目路径")
     is_overdue: int = Field(0, description="是否超期")
 
+    @field_validator("discovery_date", "resolve_date", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        if v is None or v == "":
+            return None
+        return v
+
 
 class OperationIssueCreate(OperationIssueBase):
     pass
@@ -70,6 +77,13 @@ class OperationIssueUpdate(BaseModel):
     related_system: Optional[str] = Field(None, max_length=128)
     obsidian_path: Optional[str] = Field(None, max_length=512)
     is_overdue: Optional[int] = None
+
+    @field_validator("discovery_date", "resolve_date", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        if v is None or v == "":
+            return None
+        return v
 
 
 class OperationIssueOut(OperationIssueBase):

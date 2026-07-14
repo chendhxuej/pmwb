@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TodoCategory(str, Enum):
@@ -49,6 +49,13 @@ class TodoBase(BaseModel):
     related_id: Optional[str] = Field(None, max_length=64, description="关联对象ID")
     source: str = Field("manual", max_length=64, description="来源")
 
+    @field_validator("due_date", "remind_at", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        if v is None or v == "":
+            return None
+        return v
+
 
 class TodoCreate(TodoBase):
     pass
@@ -66,6 +73,13 @@ class TodoUpdate(BaseModel):
     repeat_type: Optional[TodoRepeatType] = None
     related_type: Optional[str] = Field(None, max_length=64)
     related_id: Optional[str] = Field(None, max_length=64)
+
+    @field_validator("due_date", "remind_at", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        if v is None or v == "":
+            return None
+        return v
 
 
 class TodoStatusUpdate(BaseModel):
