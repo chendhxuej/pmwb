@@ -461,17 +461,31 @@ function saEmail(saName) {
   return saName ? `${saName}@chinamobile.com` : ''
 }
 
-function buildDefaultReminderBody(req, systemName) {
+function buildDefaultReminderBody(req, systemName, saName) {
+  const salutation = saName
+    ? `尊敬的${saName}（${systemName || '相关'}团队）：`
+    : '各相关评估团队：'
   const lines = [
-    `您好，以下需求目前需要跟进，请协助处理：`,
+    salutation,
     ``,
+    `您团队负责的需求已进入前期评估阶段，烦请尽快完成以下工作并及时反馈：`,
+    `1. 需求前期评估（可行性、范围、依赖关系等）；`,
+    `2. 工作量初评结果（预计投入人天）及预计完成时间。`,
+    ``,
+    `需求信息：`,
     `需求编号：${req.req_id || ''}`,
     `需求名称：${req.req_name || ''}`,
     `提出人：${req.proposer || ''}`,
-    `系统：${systemName || req.system_name || ''}`,
-    ``,
-    `请及时反馈当前进展与预计完成时间，谢谢。`,
   ]
+  if (systemName) {
+    lines.push(`负责系统：${systemName}`)
+  }
+  lines.push(
+    ``,
+    `请于收到后尽快回复评估结果，谢谢配合！`,
+    ``,
+    `——产品经理工作台（PMWB）`,
+  )
   return lines.join('\n')
 }
 
@@ -515,7 +529,7 @@ function handleReminderOpenEval(ev) {
   reminderForm.recipient_name = ev.sa_name || ''
   reminderForm.cc = ''
   reminderForm.subject = `催办：${ev.req_name || ev.req_id}（${ev.system_name || '系统'}）`
-  reminderForm.body = buildDefaultReminderBody(ev, ev.system_name)
+  reminderForm.body = buildDefaultReminderBody(ev, ev.system_name, ev.sa_name)
   reminderVisible.value = true
 }
 

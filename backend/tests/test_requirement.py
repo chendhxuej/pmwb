@@ -106,6 +106,8 @@ def test_get_evaluations(client: TestClient, db):
     sas = {row["sa_name"] for row in data}
     assert sas == {"陈山", "郑文东"}
     assert "opinion" in data[0]
+    assert "proposer" in data[0]  # 催办正文需要提出人上下文
+    assert "system_name" in data[0]
 
 
 def test_update_evaluation(client: TestClient, db):

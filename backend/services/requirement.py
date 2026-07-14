@@ -223,6 +223,7 @@ class RequirementService:
                 "id": item.id,  # sent_emails.id，作为评估记录唯一标识
                 "req_id": item.req_id,
                 "req_name": item.req_name,
+                "proposer": item.proposer,
                 "sa_name": item.sa_name,
                 "system_name": item.system_name,
                 "workload": workload,
