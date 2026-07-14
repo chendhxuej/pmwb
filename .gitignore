@@ -57,3 +57,7 @@ screenshot_*.png
 verify_shots/
 verify_*.log
 *.timestamp-*.mjs
+scripts/screenshot_*.py
+
+# MSYS 设备名怪象（Git Bash 下误建的 nul 文件，Windows 视为保留设备无法删除）
+/nul
