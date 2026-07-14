@@ -8,8 +8,36 @@
       style="width: 100%"
       @sort-change="handleSortChange"
     >
-      <slot name="columns" />
-      <el-table-column v-if="showAction" label="操作" width="150" fixed="right">
+      <!-- 根据 columns prop 动态渲染列 -->
+      <template v-for="(col, index) in columns" :key="index">
+        <!-- 插槽列（如 status、priority、actions） -->
+        <el-table-column
+          v-if="col.slot"
+          :label="col.label"
+          :width="col.width"
+          :min-width="col.minWidth"
+          :fixed="col.fixed"
+          :show-overflow-tooltip="col.showOverflowTooltip !== false"
+        >
+          <template #default="{ row }">
+            <slot :name="col.slot" :row="row" />
+          </template>
+        </el-table-column>
+        <!-- 普通数据列（有 prop） -->
+        <el-table-column
+          v-else-if="col.prop"
+          :prop="col.prop"
+          :label="col.label"
+          :width="col.width"
+          :min-width="col.minWidth"
+          :fixed="col.fixed"
+          :sortable="col.sortable || false"
+          :show-overflow-tooltip="col.showOverflowTooltip !== false"
+        />
+      </template>
+
+      <!-- 默认操作列（当 showAction 且未在 columns 中定义 actions 时显示） -->
+      <el-table-column v-if="showAction && !hasActionsSlot" label="操作" width="150" fixed="right">
         <template #default="{ row }">
           <slot name="actions" :row="row">
             <el-button link type="primary" @click="$emit('edit', row)">编辑</el-button>
@@ -33,10 +61,11 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 
 const props = defineProps({
   data: { type: Array, default: () => [] },
+  columns: { type: Array, default: () => [] },
   total: { type: Number, default: 0 },
   loading: { type: Boolean, default: false },
   page: { type: Number, default: 1 },
@@ -44,6 +73,11 @@ const props = defineProps({
   showPagination: { type: Boolean, default: true },
   showAction: { type: Boolean, default: true },
 })
+
+// 检查 columns 中是否已定义了 actions 插槽列（避免重复渲染操作列）
+const hasActionsSlot = computed(() =>
+  props.columns.some(col => col.slot === 'actions')
+)
 
 const emit = defineEmits(['update:page', 'update:pageSize', 'change', 'edit', 'delete'])
 

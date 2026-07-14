@@ -62,20 +62,50 @@ class RequirementService:
         page: int = 1,
         page_size: int = 20,
     ) -> PaginationResponse[Dict[str, Any]]:
-        query = db.query(SentEmail)
+        # 基础查询：从 sent_emails 中按需求数号去重（同一需求只取最新一条）
+        base_query = db.query(
+            SentEmail.req_id,
+            func.max(SentEmail.id).label('max_id')
+        ).group_by(SentEmail.req_id)
+
+        # 子查询获取每个需求的最新记录 ID
+        from sqlalchemy import text
+        subq = base_query.subquery()
+
         if keyword:
-            query = query.filter(
+            subq_filtered = db.query(subq.c.req_id).join(
+                SentEmail, SentEmail.req_id == subq.c.req_id
+            ).filter(
                 (SentEmail.req_id.ilike(f"%{keyword}%"))
                 | (SentEmail.req_name.ilike(f"%{keyword}%"))
                 | (SentEmail.proposer.ilike(f"%{keyword}%"))
             )
-        if system_name:
-            query = query.filter(SentEmail.system_name == system_name)
-        if is_involved is not None:
-            query = query.filter(SentEmail.is_involved == is_involved)
+            matched_ids = [row[0] for row in subq_filtered.all()]
+            subq = base_query.filter(subq.c.req_id.in_(matched_ids))
 
-        total = query.count()
-        items = query.order_by(SentEmail.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        # 获取去重后的总需求条数
+        total_query = db.query(func.count()).select_from(subq)
+        total = total_query.scalar() or 0
+
+        # 分页取最新记录 ID
+        paginated = (
+            db.query(subq.c.req_id, subq.c.max_id)
+            .order_by(subq.c.max_id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        max_ids = [row.max_id for row in paginated]
+
+        # 用这些 ID 查出完整的 SentEmail 记录
+        items_query = db.query(SentEmail).filter(SentEmail.id.in_(max_ids))
+        if system_name:
+            items_query = items_query.filter(SentEmail.system_name == system_name)
+        if is_involved is not None:
+            items_query = items_query.filter(SentEmail.is_involved == is_involved)
+        # 按 max_id 降序保持顺序
+        id_order = {mid: idx for idx, mid in enumerate(max_ids)}
+        items = sorted(items_query.all(), key=lambda x: id_order.get(x.id, 0))
 
         ext_map = {}
         if status or priority:
@@ -121,8 +151,14 @@ class RequirementService:
         return self._merge_ext(item, ext)
 
     def get_stats(self, db: Session) -> Dict[str, int]:
-        total = db.query(SentEmail).count()
-        involved = db.query(SentEmail).filter(SentEmail.is_involved == 1).count()
+        # 按需求文号去重统计（同一需求多次发邮件只算 1 条）
+        total = db.query(SentEmail.req_id).distinct().count()
+        involved = (
+            db.query(SentEmail.req_id)
+            .filter(SentEmail.is_involved == 1)
+            .distinct()
+            .count()
+        )
         counts = (
             db.query(PmwbRequirementExt.status, func.count(PmwbRequirementExt.id))
             .group_by(PmwbRequirementExt.status)
