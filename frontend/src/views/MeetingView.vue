@@ -400,14 +400,32 @@ const handleSubmit = async () => {
     if (!valid) return
 
     const payload = { ...form }
-    if (payload.start_time && typeof payload.start_time === 'object') {
-      payload.start_time = payload.start_time.toISOString()
+    // 规范化：空字符串 -> null（避免后端 Optional[datetime] 等字段 422）；
+    // Date 对象 -> ISO 字符串
+    for (const key of Object.keys(payload)) {
+      const v = payload[key]
+      if (v instanceof Date) {
+        payload[key] = v.toISOString()
+      } else if (v === '') {
+        payload[key] = null
+      }
     }
-    if (payload.end_time && typeof payload.end_time === 'object') {
-      payload.end_time = payload.end_time.toISOString()
-    }
-    payload.attendees = payload.attendees.filter((a) => a.name.trim())
-    payload.actions = payload.actions.filter((a) => a.content.trim())
+    payload.attendees = payload.attendees
+      .filter((a) => a.name.trim())
+      .map((a) => ({
+        name: a.name.trim(),
+        email: a.email ? a.email.trim() : null,
+        dept: a.dept ? a.dept.trim() : null,
+        is_required: a.is_required ? 1 : 0,
+      }))
+    payload.actions = payload.actions
+      .filter((a) => a.content.trim())
+      .map((a) => ({
+        content: a.content.trim(),
+        owner: a.owner ? a.owner.trim() : null,
+        due_date: a.due_date ? a.due_date : null,
+        status: a.status || 'pending',
+      }))
 
     try {
       if (isEdit.value) {

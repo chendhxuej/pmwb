@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MeetingType(str, Enum):
@@ -45,6 +45,11 @@ class MeetingActionBase(BaseModel):
     status: str = Field("pending", description="状态")
     related_todo_id: Optional[int] = Field(None, description="关联待办ID")
 
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def _empty_due_date_to_none(cls, v):
+        return None if v in ("", None) else v
+
 
 class MeetingActionCreate(MeetingActionBase):
     pass
@@ -78,6 +83,11 @@ class MeetingCreate(MeetingBase):
     attendees: List[MeetingAttendeeCreate] = Field([], description="参会人列表")
     actions: List[MeetingActionCreate] = Field([], description="行动项列表")
 
+    @field_validator("start_time", "end_time", mode="before")
+    @classmethod
+    def _empty_datetime_to_none(cls, v):
+        return None if v in ("", None) else v
+
 
 class MeetingUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
@@ -91,6 +101,11 @@ class MeetingUpdate(BaseModel):
     related_req_id: Optional[str] = Field(None, max_length=64)
     related_ticket_no: Optional[str] = Field(None, max_length=64)
     status: Optional[MeetingStatus] = None
+
+    @field_validator("start_time", "end_time", mode="before")
+    @classmethod
+    def _empty_datetime_to_none_update(cls, v):
+        return None if v in ("", None) else v
 
 
 class MeetingOut(MeetingBase):
