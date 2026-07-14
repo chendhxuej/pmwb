@@ -61,3 +61,6 @@ scripts/screenshot_*.py
 
 # MSYS 设备名怪象（Git Bash 下误建的 nul 文件，Windows 视为保留设备无法删除）
 /nul
+
+# Session temp files（会话开发时随手建的临时脚本/测试产物，非源码，永不被提交）
+tmp_*
