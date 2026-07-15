@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     EMAIL_CENTER_URL: str = "http://localhost:3210"
     OBSIDIAN_VAULT_PATH: str = "D:\\项目\\知识图谱"
 
+    # 产品圣经：业务大类 -> Obsidian vault 内相对路径（新增业务只需加一项）
+    PRODUCT_BIBLE: list = [
+        {
+            "key": "group-sms",
+            "name": "集团短信业务",
+            "path": "01-业务知识/政企业务知识库/集团短信业务/集团短信产品业务知识.md",
+        },
+    ]
+
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000
 

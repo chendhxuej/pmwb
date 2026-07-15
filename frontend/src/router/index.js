@@ -50,6 +50,12 @@ const routes = [
         component: () => import('@/views/KnowledgeView.vue'),
         meta: { title: '知识库', icon: 'Collection' },
       },
+      {
+        path: 'product-bible',
+        name: 'ProductBible',
+        component: () => import('@/views/ProductBibleView.vue'),
+        meta: { title: '产品圣经', icon: 'Notebook' },
+      },
     ],
   },
   {
