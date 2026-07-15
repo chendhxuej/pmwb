@@ -203,6 +203,9 @@ class RequirementService:
         首次访问且尚未播种时，从只读来源 sent_emails 自动播种出可编辑记录，
         并打上 eval_seeded 标记；之后以 pmwb_requirement_evaluation 为唯一权威
         来源（支持增/删/改）。删除后的记录不会因重新读取而复活。
+
+        读取时若评估记录本身的 sa_name/system_name 为空，则回退到其溯源来源
+        sent_emails（通过 sent_email_id 关联）补全展示，避免子表出现空白列。
         """
         existing = (
             db.query(PmwbRequirementEvaluation)
@@ -246,7 +249,23 @@ class RequirementService:
                     .order_by(PmwbRequirementEvaluation.id.asc())
                     .all()
                 )
-        return [self._eval_to_dict(ev) for ev in existing]
+        # 溯源补全：评估记录本身 sa_name/system_name 为空时，回退 sent_emails 源值
+        sent_ids = [ev.sent_email_id for ev in existing if ev.sent_email_id]
+        src_map = {}
+        if sent_ids:
+            src_rows = db.query(SentEmail).filter(SentEmail.id.in_(sent_ids)).all()
+            src_map = {s.id: s for s in src_rows}
+        result = []
+        for ev in existing:
+            d = self._eval_to_dict(ev)
+            src = src_map.get(ev.sent_email_id)
+            if src:
+                if not d.get("sa_name"):
+                    d["sa_name"] = src.sa_name
+                if not d.get("system_name"):
+                    d["system_name"] = src.system_name
+            result.append(d)
+        return result
 
     def _eval_to_dict(self, ev: "PmwbRequirementEvaluation") -> Dict[str, Any]:
         return {

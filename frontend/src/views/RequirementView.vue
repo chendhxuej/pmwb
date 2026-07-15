@@ -607,7 +607,9 @@ async function prefillRecipients(names) {
   if (!list.length) return
   try {
     const res = await resolveContacts(list)
-    const map = (res && res.data) || {}
+    // 注意：request.js 拦截器在 code===0 时已返回 data.data（即邮箱映射对象本身），
+    // res 已经是 {姓名: 邮箱} 映射，不要再取 res.data（会是 undefined）。
+    const map = res || {}
     const resolved = []
     const missing = []
     for (const n of list) {
@@ -628,14 +630,15 @@ async function prefillRecipients(names) {
 
 function buildDefaultReminderBody(req, systemName, saName) {
   const salutation = saName
-    ? `尊敬的${saName}（${systemName || '相关'}团队）：`
+    ? `${saName}（${systemName || '相关'}团队）：`
     : '各相关评估团队：'
+  const target = saName ? '你' : '你们'
   const lines = [
     salutation,
     ``,
-    `您团队负责的需求已进入前期评估阶段，烦请尽快完成以下工作并及时反馈：`,
-    `1. 需求前期评估（可行性、范围、依赖关系等）；`,
-    `2. 工作量初评结果（预计投入人天）及预计完成时间。`,
+    `${target}负责的需求现在到前期评估环节了，麻烦尽快把下面两件事搞定，然后反馈给我：`,
+    `1. 需求前期评估（可行性、范围、依赖这些）；`,
+    `2. 工作量初评（大概要多少人天）和预计完成时间。`,
     ``,
     `需求信息：`,
     `需求编号：${req.req_id || ''}`,
@@ -647,7 +650,7 @@ function buildDefaultReminderBody(req, systemName, saName) {
   }
   lines.push(
     ``,
-    `请于收到后尽快回复评估结果，谢谢配合！`,
+    `收到后尽快回我评估结果哈，辛苦了！`,
     ``,
     `——产品经理工作台（PMWB）`,
   )

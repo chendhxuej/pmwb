@@ -21,11 +21,16 @@ class EmailCenterClient:
         body: str,
         template_id: str = None,
         template_data: dict = None,
+        body_format: str = "text",
     ) -> dict:
+        # 默认按纯文本(text/plain)发送：邮件客户端会忠实保留换行符，
+        # 预览(textarea / white-space: pre-wrap)与收到邮件的段落排版完全一致。
+        # 若改为 html，正文里的 \n 会被折叠成空格，导致"发出去变成一整段"。
         payload = {
             "to": to if isinstance(to, list) else [to],
             "subject": subject,
             "body": body,
+            "bodyFormat": body_format,
         }
         if template_id:
             payload["template_id"] = template_id
