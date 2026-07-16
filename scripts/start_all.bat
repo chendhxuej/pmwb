@@ -10,6 +10,23 @@ set BACKEND_DIR=D:\项目\个人工作台系统\backend
 set FRONTEND_DIR=D:\项目\个人工作台系统\frontend
 set MAIL_CENTER_DIR=D:\项目\统一邮件中心\server
 
+REM ---------- MySQL(3306) 必须先于后端启动 ----------
+REM 注意：本机 MySQL80 Windows 服务已损坏(net start 报 2186)，改用进程直拉(免管理员、已验证可用)。
+set MYSQL_BIN=C:\mysql\mysql-8.0.46-winx64\bin\mysqld.exe
+set MYSQL_INI=C:\mysql\mysql-8.0.46-winx64\my.ini
+netstat -ano 2>nul | findstr /r ":3306 .*LISTEN" >nul
+if errorlevel 1 (
+  if exist "%MYSQL_BIN%" (
+    echo 启动 MySQL(3306)...
+    start "MySQL" /min "%MYSQL_BIN%" --defaults-file="%MYSQL_INI%"
+    timeout /t 6 /nobreak >nul
+  ) else (
+    echo [警告] 未找到 mysqld.exe，请确认 MySQL 安装路径
+  )
+) else (
+  echo MySQL(3306) 已在运行，跳过
+)
+
 REM ---------- 后端(8000) ----------
 netstat -ano 2>nul | findstr /r ":8000 .*LISTEN" >nul
 if not errorlevel 1 (

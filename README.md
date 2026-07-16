@@ -64,8 +64,12 @@
 scripts\start_all.bat
 ```
 
+该脚本会依次拉起 **MySQL(3306) → 后端(8000) → 前端(5173) → 统一邮件中心(3210)**，端口已监听则自动跳过。
+
+> 说明：本机 MySQL80 Windows 服务已损坏（`net start` 报 2186），脚本改用进程直拉 mysqld（免管理员）。桌面另有一键脚本 `pmwb-start.bat` 功能相同，并额外支持注册「登录 Windows 自动启动」。
+
 启动后访问：
-- 前端：http://localhost:5173/
+- 前端：http://127.0.0.1:5173/ （或 http://localhost:5173/）
 - 后端 API：http://127.0.0.1:8000/api/v1/health
 
 ### 方式二：手动启动
