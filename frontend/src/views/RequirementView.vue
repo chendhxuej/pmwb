@@ -21,14 +21,22 @@
         @reset="handleReset"
       />
 
+      <div class="table-hint">
+        点击「需求名称」查看详情；点击表格任意一行可展开 / 收起
+        <b>团队评估</b> 与 <b>关联工单进度</b>（再次点击收起）。
+      </div>
+
       <el-table
+        ref="tableRef"
         v-loading="tableLoading"
         :data="tableData"
         stripe
         border
+        class="req-table"
         style="width: 100%"
         row-key="req_id"
         @expand-change="handleExpandChange"
+        @row-click="handleRowClick"
       >
         <el-table-column type="expand">
           <template #default="{ row }">
@@ -38,61 +46,20 @@
                 <el-button type="primary" size="small" @click="handleAddEval(row)">新增评估</el-button>
               </div>
               <el-table :data="evaluationsMap[row.req_id] || []" size="small" border>
-                <el-table-column prop="sa_name" label="评估SA" width="90" />
-                <el-table-column prop="system_name" label="负责系统" width="120" />
-                <el-table-column prop="workload" label="工作量(人天)" width="140">
+                <el-table-column prop="sa_name" label="评估SA" width="90" show-overflow-tooltip />
+                <el-table-column prop="system_name" label="负责系统" width="110" show-overflow-tooltip />
+                <el-table-column prop="workload" label="工作量(人天)" width="110" align="center" />
+                <el-table-column prop="review_workload" label="复核(人天)" width="100" align="center" />
+                <el-table-column prop="dev_ticket_no" label="开发单号" width="130" show-overflow-tooltip />
+                <el-table-column label="评估意见" min-width="200" show-overflow-tooltip>
                   <template #default="{ row: ev }">
-                    <el-input-number
-                      v-model="ev.workload"
-                      :min="0"
-                      :precision="1"
-                      :step="0.5"
-                      size="small"
-                      controls-position="right"
-                      style="width: 120px"
-                      @change="(val) => handleEvalUpdate(ev, 'workload', val)"
-                    />
+                    <span class="opinion-text">{{ ev.opinion || '未登记' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column prop="review_workload" label="复核工作量(人天)" width="160">
-                  <template #default="{ row: ev }">
-                    <el-input-number
-                      v-model="ev.review_workload"
-                      :min="0"
-                      :precision="1"
-                      :step="0.5"
-                      size="small"
-                      controls-position="right"
-                      style="width: 140px"
-                      @change="(val) => handleEvalUpdate(ev, 'review_workload', val)"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column label="评估意见登记" min-width="240">
-                  <template #default="{ row: ev }">
-                    <el-input
-                      v-model="ev.opinion"
-                      type="textarea"
-                      :autosize="{ minRows: 1, maxRows: 4 }"
-                      size="small"
-                      placeholder="填写评估意见后失焦自动保存"
-                      @blur="handleEvalUpdate(ev, 'opinion', ev.opinion)"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column prop="dev_ticket_no" label="开发单号" width="150">
-                  <template #default="{ row: ev }">
-                    <el-input
-                      v-model="ev.dev_ticket_no"
-                      size="small"
-                      placeholder="开发单号"
-                      @blur="handleEvalUpdate(ev, 'dev_ticket_no', ev.dev_ticket_no)"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="210" align="center">
+                <el-table-column label="操作" width="200" align="center">
                   <template #default="{ row: ev }">
                     <el-button link type="primary" size="small" @click="handleViewEval(ev)">查看</el-button>
+                    <el-button link type="success" size="small" @click="handleEditEval(ev)">编辑</el-button>
                     <el-button link type="warning" size="small" @click="handleReminderOpenEval(ev)">催办</el-button>
                     <el-button link type="danger" size="small" @click="handleDeleteEval(ev)">删除</el-button>
                   </template>
@@ -101,12 +68,53 @@
               <div v-if="!(evaluationsMap[row.req_id] || []).length && !evalLoadingMap[row.req_id]" class="expand-empty">
                 暂无团队评估数据
               </div>
+
+              <div class="expand-title" style="margin-top: 20px">
+                <span>关联开发工单进度（{{ (ticketMap[row.req_id] || []).length }} 个工单）</span>
+                <span class="expand-hint">版本要求：{{ row.ext?.version_required_date || '未设置' }}</span>
+              </div>
+              <div class="ticket-scroll">
+                <el-table
+                  :data="ticketMap[row.req_id] || []"
+                  size="small"
+                  border
+                  class="ticket-table"
+                  :row-class-name="ticketRowClass"
+                >
+                  <el-table-column prop="ticket_no" label="工单号" width="160" />
+                  <el-table-column prop="system_name" label="系统" width="130" />
+                  <el-table-column label="状态" width="100" align="center">
+                    <template #default="{ row: t }">
+                      <el-tag size="small" :type="devStatusTag(t.status)">{{ devStatusLabel(t.status) }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="progress" label="进度%" width="80" align="center" />
+                  <el-table-column prop="dev_completed_date" label="开发完成" width="120" />
+                  <el-table-column prop="test_completed_date" label="测试完成" width="120" />
+                  <el-table-column prop="go_live_date" label="上线日期" width="120" />
+                  <el-table-column label="预警" width="90" align="center">
+                    <template #default="{ row: t }">
+                      <el-tag v-if="t.flag === 'overdue' || t.flag === 'late'" size="small" type="danger">超期</el-tag>
+                      <el-tag v-else-if="t.flag === 'warning'" size="small" type="warning">临近</el-tag>
+                      <el-tag v-else-if="t.flag === 'on_time'" size="small" type="success">按时</el-tag>
+                      <span v-else class="muted">-</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+              <div v-if="!(ticketMap[row.req_id] || []).length && !evalLoadingMap[row.req_id]" class="expand-empty">
+                该需求暂无关联开发工单
+              </div>
             </div>
           </template>
         </el-table-column>
 
         <el-table-column prop="req_id" label="需求编号" width="180" show-overflow-tooltip />
-        <el-table-column prop="req_name" label="需求名称" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="req_name" label="需求名称" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="req-name-link" :title="row.req_name" @click="handleView(row)">{{ row.req_name }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="proposer" label="提出人" width="90" />
         <el-table-column label="团队评估" width="90" align="center">
           <template #default="{ row }">
@@ -121,6 +129,38 @@
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
             <StatusBadge :value="row.ext?.status || 'proposed'" :options="statusOptions" />
+          </template>
+        </el-table-column>
+        <el-table-column label="版本要求" width="150" align="center">
+          <template #default="{ row }">
+            <el-popover placement="bottom" trigger="click" width="260" popper-class="version-popover">
+              <template #reference>
+                <span class="version-text" :class="versionTextClass(row)" @click.stop>
+                  {{ row.ext?.version_required_date || '设置日期' }}
+                </span>
+              </template>
+              <div class="version-pop">
+                <el-date-picker
+                  v-model="row.ext.version_required_date"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  format="YYYY-MM-DD"
+                  size="small"
+                  style="width: 100%"
+                  @change="(val) => handleVersionDateChange(row, val)"
+                />
+                <div class="version-pop-actions">
+                  <el-button size="small" text type="info" @click="handleVersionClear(row)">清除</el-button>
+                </div>
+              </div>
+            </el-popover>
+          </template>
+        </el-table-column>
+        <el-table-column label="跟踪状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" :type="trackingTagType(row.tracking_status)">
+              {{ trackingLabel(row.tracking_status) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
@@ -206,6 +246,7 @@
           <el-descriptions-item label="提出时间">{{ detail.propose_time }}</el-descriptions-item>
           <el-descriptions-item label="团队数">{{ detail.eval_count || 0 }} 个</el-descriptions-item>
           <el-descriptions-item label="开发单号">{{ detail.dev_ticket_no }}</el-descriptions-item>
+          <el-descriptions-item label="版本要求">{{ detail.ext?.version_required_date || '未设置' }}</el-descriptions-item>
         </template>
       </el-descriptions>
       <div v-if="detail.background" class="detail-section">
@@ -231,6 +272,9 @@
         </el-timeline>
         <el-empty v-else description="暂无催办记录" />
       </div>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
     <el-dialog v-model="reminderVisible" title="发送催办邮件" width="600px">
       <el-form :model="reminderForm" label-width="100px">
@@ -257,7 +301,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="evalFormVisible" title="新增团队评估" width="560px">
+    <el-dialog v-model="evalFormVisible" :title="evalForm.id ? '编辑团队评估' : '新增团队评估'" width="560px">
       <el-form :model="evalForm" label-width="110px">
         <el-form-item label="需求编号">
           <el-input v-model="evalForm.req_id" disabled />
@@ -344,6 +388,30 @@ const priorityOptions = {
 const statusSelectOptions = Object.entries(statusOptions).map(([value, item]) => ({ value, label: item.label }))
 const prioritySelectOptions = Object.entries(priorityOptions).map(([value, item]) => ({ value, label: item.label }))
 
+// 跟踪状态（版本要求 vs 关联开发工单进度）
+const trackingMap = {
+  none: { label: '无工单', type: 'info' },
+  on_time: { label: '按时', type: 'success' },
+  on_track: { label: '进行中', type: 'primary' },
+  warning: { label: '预警', type: 'warning' },
+  overdue: { label: '超期', type: 'danger' },
+}
+function trackingLabel(s) { return (trackingMap[s] || trackingMap.none).label }
+function trackingTagType(s) { return (trackingMap[s] || trackingMap.none).type }
+
+// 开发工单状态
+const devStatusOptions = {
+  created: { label: '已创建', type: 'info' },
+  design_reviewed: { label: '已评审', type: 'primary' },
+  dev_completed: { label: '开发完成', type: 'warning' },
+  test_completed: { label: '测试完成', type: 'warning' },
+  live: { label: '已上线', type: 'success' },
+  archived: { label: '已归档', type: 'info' },
+}
+function devStatusLabel(s) { return (devStatusOptions[s] || {}).label || s }
+function devStatusTag(s) { return (devStatusOptions[s] || {}).type || 'info' }
+
+const tableRef = ref(null)
 const tableData = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -355,6 +423,7 @@ const stats = ref({ total: 0, proposed: 0, accepted: 0, dev: 0, closed: 0, pause
 // 团队评估展开行数据
 const evaluationsMap = ref({})       // { [req_id]: [...] }
 const evalLoadingMap = ref({})        // { [req_id]: true/false }
+const ticketMap = ref({})             // { [req_id]: [关联开发工单] }
 
 const statsItems = computed(() => [
   { label: '需求总数', value: stats.value.total },
@@ -388,7 +457,7 @@ async function fetchData() {
       page: page.value,
       page_size: pageSize.value,
     })
-    tableData.value = res.items || []
+    tableData.value = (res.items || []).map((r) => ({ ...r, ext: r.ext || {} }))
     total.value = res.total || 0
   } catch (err) {
     ElMessage.error(err.message || '获取需求列表失败')
@@ -427,16 +496,34 @@ function handlePageChange(p) {
   fetchData()
 }
 
+// 整行点击展开/收起评估与工单面板；对交互元素做防误触 guard
+function handleRowClick(row, column, event) {
+  // 展开箭头列、需求名称列（自带详情跳转）不触发展开
+  if (column && column.type === 'expand') return
+  if (column && column.property === 'req_name') return
+  // 点击已展开内容区、输入框、按钮、文本域时不折叠
+  const t = event && event.target
+  if (t && t.closest) {
+    if (t.closest('.expand-content')) return
+    const tag = t.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return
+  }
+  if (tableRef.value) tableRef.value.toggleRowExpansion(row)
+}
+
 // ===== 团队评估展开行逻辑 =====
 
 async function handleExpandChange(row, expanded) {
   if (!expanded) return
   // 已加载过则不重复请求
-  if (evaluationsMap.value[row.req_id]) return
+  if (evaluationsMap.value[row.req_id] && ticketMap.value[row.req_id]) return
   evalLoadingMap.value[row.req_id] = true
   try {
-    const res = await getEvaluations(row.req_id)
-    const list = res || []
+    const [evals, detail] = await Promise.all([
+      getEvaluations(row.req_id),
+      getRequirement(row.req_id),
+    ])
+    const list = evals || []
     // 记录原始值，用于失焦时判断是否真的改动，避免重复保存
     list.forEach((ev) => {
       ev._orig = {
@@ -445,22 +532,64 @@ async function handleExpandChange(row, expanded) {
       }
     })
     evaluationsMap.value[row.req_id] = list
+    ticketMap.value[row.req_id] = (detail && detail.linked_tickets) || []
   } catch (err) {
-    console.error('获取团队评估失败', err)
-    ElMessage.error('获取团队评估记录失败')
-    evaluationsMap.value[row.req_id] = []
+    console.error('获取团队评估/工单失败', err)
+    ElMessage.error('获取需求详情失败')
+    evaluationsMap.value[row.req_id] = evaluationsMap.value[row.req_id] || []
+    ticketMap.value[row.req_id] = ticketMap.value[row.req_id] || []
   } finally {
     evalLoadingMap.value[row.req_id] = false
   }
 }
 
-async function handleEvalUpdate(ev, field, value) {
-  // 值未变化则跳过（尤其是 textarea/input 的 blur 事件）
-  if (ev._orig && ev._orig[field] === value) return
+async function handleEditEval(ev) {
+  // 打开评估编辑弹窗（复用新增表单，带 id 即编辑模式）
+  Object.assign(evalForm, {
+    req_id: ev.req_id,
+    req_name: ev.req_name,
+    id: ev.id,
+    sa_name: ev.sa_name || '',
+    system_name: ev.system_name || '',
+    workload: ev.workload ?? null,
+    review_workload: ev.review_workload ?? null,
+    opinion: ev.opinion || '',
+    dev_ticket_no: ev.dev_ticket_no || '',
+  })
+  evalFormVisible.value = true
+}
+
+// 版本要求文本着色：按跟踪状态提示紧急度
+function versionTextClass(row) {
+  const t = row.tracking_status
+  if (t === 'overdue' || t === 'late') return 'is-overdue'
+  if (t === 'warning') return 'is-warning'
+  return row.ext?.version_required_date ? '' : 'is-unset'
+}
+
+async function handleVersionClear(row) {
   try {
-    await updateEvaluation(ev.req_id, ev.id, { [field]: value })
-    if (ev._orig) ev._orig[field] = value
-    ElMessage.success('已保存')
+    await updateRequirement(row.req_id, { version_required_date: null })
+    row.ext.version_required_date = null
+    ElMessage.success('已清除版本要求')
+    fetchData()
+  } catch (err) {
+    ElMessage.error(err.message || '操作失败')
+  }
+}
+
+// 超期/晚于版本要求的工单整行高亮
+function ticketRowClass({ row }) {
+  if (row.flag === 'overdue' || row.flag === 'late') return 'ticket-row-overdue'
+  if (row.flag === 'warning') return 'ticket-row-warning'
+  return ''
+}
+
+async function handleVersionDateChange(row, val) {
+  try {
+    await updateRequirement(row.req_id, { version_required_date: val || null })
+    ElMessage.success('已保存版本要求')
+    fetchData()  // 刷新以更新跟踪状态
   } catch (err) {
     ElMessage.error(err.message || '保存失败')
   }
@@ -502,19 +631,32 @@ async function handleEvalSubmit() {
       opinion: evalForm.opinion || '',
       dev_ticket_no: evalForm.dev_ticket_no || '',
     }
-    const newEv = await createEvaluation(evalForm.req_id, payload)
-    if (!evaluationsMap.value[evalForm.req_id]) {
-      evaluationsMap.value[evalForm.req_id] = []
+    if (evalForm.id) {
+      // 编辑模式：更新已存在评估
+      const updated = await updateEvaluation(evalForm.req_id, evalForm.id, payload)
+      const list = evaluationsMap.value[evalForm.req_id] || []
+      const idx = list.findIndex((x) => x.id === evalForm.id)
+      if (idx !== -1) {
+        const origKeys = { workload: updated.workload, opinion: updated.opinion, dev_ticket_no: updated.dev_ticket_no, review_workload: updated.review_workload }
+        list.splice(idx, 1, { ...list[idx], ...updated, _orig: origKeys })
+      }
+      ElMessage.success('已更新评估')
+    } else {
+      // 新增模式
+      const newEv = await createEvaluation(evalForm.req_id, payload)
+      if (!evaluationsMap.value[evalForm.req_id]) {
+        evaluationsMap.value[evalForm.req_id] = []
+      }
+      newEv._orig = {
+        workload: newEv.workload, opinion: newEv.opinion,
+        dev_ticket_no: newEv.dev_ticket_no, review_workload: newEv.review_workload,
+      }
+      evaluationsMap.value[evalForm.req_id].push(newEv)
+      ElMessage.success('新增评估成功')
     }
-    newEv._orig = {
-      workload: newEv.workload, opinion: newEv.opinion,
-      dev_ticket_no: newEv.dev_ticket_no, review_workload: newEv.review_workload,
-    }
-    evaluationsMap.value[evalForm.req_id].push(newEv)
-    ElMessage.success('新增评估成功')
     evalFormVisible.value = false
   } catch (err) {
-    ElMessage.error(err.message || '新增失败')
+    ElMessage.error(err.message || '保存失败')
   }
 }
 
@@ -819,5 +961,83 @@ onMounted(() => {
 .pagination {
   margin-top: 20px;
   justify-content: flex-end;
+}
+.table-hint {
+  font-size: 13px;
+  color: #909399;
+  margin: 4px 2px 12px;
+  line-height: 1.6;
+}
+.table-hint b {
+  color: #606266;
+}
+.req-name-link {
+  color: #409eff;
+  cursor: pointer;
+  font-weight: 500;
+}
+.req-name-link:hover {
+  text-decoration: underline;
+}
+.req-table :deep(.el-table__row) {
+  cursor: pointer;
+}
+.muted {
+  color: #c0c4cc;
+}
+.version-text {
+  display: inline-block;
+  cursor: pointer;
+  color: #409eff;
+  font-size: 13px;
+}
+.version-text:hover {
+  text-decoration: underline;
+}
+.version-text.is-overdue {
+  color: #f56c6c;
+  font-weight: 600;
+}
+.version-text.is-warning {
+  color: #e6a23c;
+  font-weight: 600;
+}
+.version-text.is-unset {
+  color: #c0c4cc;
+}
+.version-pop {
+  text-align: center;
+}
+.version-pop-actions {
+  margin-top: 8px;
+  text-align: right;
+}
+.opinion-text {
+  color: #606266;
+}
+.ticket-scroll {
+  overflow-x: auto;
+  width: 100%;
+}
+.ticket-table {
+  min-width: 940px;
+}
+.ticket-table :deep(.ticket-row-overdue) {
+  background-color: #fef0f0;
+}
+.ticket-table :deep(.ticket-row-overdue:hover > td) {
+  background-color: #fde2e2 !important;
+}
+.ticket-table :deep(.ticket-row-overdue td:first-child) {
+  border-left: 3px solid #f56c6c;
+}
+.ticket-table :deep(.ticket-row-warning) {
+  background-color: #fdf6ec;
+}
+.ticket-table :deep(.ticket-row-warning:hover > td) {
+  background-color: #faecd8 !important;
+}
+.ticket-table :deep(.ticket-row-warning td:first-child) {
+  border-left: 3px solid #e6a23c;
 }
 </style>

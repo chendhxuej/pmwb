@@ -10,4 +10,9 @@ export const productBibleApi = {
   getBible(key) {
     return request.get(`/product-bible/${key}`)
   },
+
+  // 保存编辑后的 markdown 写回 Obsidian 源文件
+  updateBible(key, markdown) {
+    return request.put(`/product-bible/${key}`, { markdown })
+  },
 }

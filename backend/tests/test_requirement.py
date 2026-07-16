@@ -1,6 +1,8 @@
+from datetime import date
+
 from fastapi.testclient import TestClient
 
-from db.models import SentEmail
+from db.models import PmwbDevTicket, SentEmail
 from tests.factories import RequirementExtFactory
 
 
@@ -181,3 +183,81 @@ def test_delete_seeded_record_not_resurrect(client: TestClient, db):
 
     resp1 = client.get("/api/v1/requirements/REQ-DSR-001/evaluations")
     assert resp1.json()["data"] == []
+
+
+def _create_dev_ticket(db, req_id, ticket_no="DT-1", status="created", go_live_date=None):
+    obj = PmwbDevTicket(
+        ticket_no=ticket_no,
+        req_id=req_id,
+        system_name="测试系统",
+        status=status,
+        go_live_date=go_live_date,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def test_version_required_date_update_and_clear(client: TestClient, db):
+    """需求可设置版本要求日期，且可清空为 NULL。"""
+    _create_sent_email(db, req_id="REQ-VR-001")
+    resp = client.put(
+        "/api/v1/requirements/REQ-VR-001",
+        json={"version_required_date": "2026-08-01"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ext"]["version_required_date"] == "2026-08-01"
+
+    # 清空
+    resp2 = client.put(
+        "/api/v1/requirements/REQ-VR-001",
+        json={"version_required_date": None},
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["data"]["ext"]["version_required_date"] is None
+
+
+def test_tracking_status_overdue(client: TestClient, db):
+    """版本要求已过期且工单未完成 -> 超期。"""
+    _create_sent_email(db, req_id="REQ-TRK-OVD")
+    client.put("/api/v1/requirements/REQ-TRK-OVD", json={"version_required_date": "2020-01-01"})
+    _create_dev_ticket(db, req_id="REQ-TRK-OVD", status="created")
+
+    list_resp = client.get("/api/v1/requirements")
+    item = next(i for i in list_resp.json()["data"]["items"] if i["req_id"] == "REQ-TRK-OVD")
+    assert item["tracking_status"] == "overdue"
+
+    detail = client.get("/api/v1/requirements/REQ-TRK-OVD").json()["data"]
+    assert detail["tracking_status"] == "overdue"
+    assert detail["linked_tickets"][0]["flag"] == "overdue"
+
+
+def test_tracking_status_on_time(client: TestClient, db):
+    """工单已上线且早于版本要求 -> 按时。"""
+    _create_sent_email(db, req_id="REQ-TRK-OK")
+    client.put("/api/v1/requirements/REQ-TRK-OK", json={"version_required_date": "2099-01-01"})
+    _create_dev_ticket(db, req_id="REQ-TRK-OK", status="live", go_live_date=date(2098, 1, 1))
+
+    detail = client.get("/api/v1/requirements/REQ-TRK-OK").json()["data"]
+    assert detail["tracking_status"] == "on_time"
+    assert detail["linked_tickets"][0]["flag"] == "on_time"
+
+
+def test_tracking_status_none_without_ticket(client: TestClient, db):
+    """设置了版本要求但无关联工单 -> 无工单。"""
+    _create_sent_email(db, req_id="REQ-TRK-NONE")
+    client.put("/api/v1/requirements/REQ-TRK-NONE", json={"version_required_date": "2026-12-01"})
+    detail = client.get("/api/v1/requirements/REQ-TRK-NONE").json()["data"]
+    assert detail["tracking_status"] == "none"
+    assert detail["linked_tickets"] == []
+
+
+def test_stats_dev_ticket_missing(client: TestClient, db):
+    """涉及开发但 dev_ticket_no 为空的需求应计入 dev_ticket_missing。"""
+    _create_sent_email(db, req_id="REQ-DM-1", is_involved=1, dev_ticket_no="")
+    _create_sent_email(db, req_id="REQ-DM-2", is_involved=1, dev_ticket_no="TICKET-9")
+    _create_sent_email(db, req_id="REQ-DM-3", is_involved=0, dev_ticket_no="")
+    response = client.get("/api/v1/requirements/stats")
+    assert response.status_code == 200
+    assert response.json()["data"]["dev_ticket_missing"] == 1

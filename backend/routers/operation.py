@@ -14,7 +14,8 @@ router = APIRouter(prefix="/operation", tags=["业务运营监控"])
 @router.get("/issues")
 def list_issues(
     keyword: Optional[str] = Query(None, description="关键字搜索"),
-    issue_type: Optional[str] = Query(None, description="问题类型"),
+    category: Optional[str] = Query(None, description="工单大类"),
+    issue_type: Optional[str] = Query(None, description="问题子类"),
     status: Optional[str] = Query(None, description="状态"),
     impact_level: Optional[str] = Query(None, description="影响等级"),
     handler: Optional[str] = Query(None, description="处理人"),
@@ -23,10 +24,11 @@ def list_issues(
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     db: Session = Depends(get_db),
 ):
-    """查询问题列表。"""
+    """查询工单列表。"""
     data = operation_issue_service.list_with_filters(
         db=db,
         keyword=keyword,
+        category=category,
         issue_type=issue_type,
         status=status,
         impact_level=impact_level,
@@ -67,6 +69,9 @@ def delete_issue(issue_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/stats")
-def get_stats(db: Session = Depends(get_db)):
-    """获取运营问题统计。"""
-    return success(data=operation_issue_service.get_stats(db))
+def get_stats(
+    category: Optional[str] = Query(None, description="工单大类(不传则返回全部)"),
+    db: Session = Depends(get_db),
+):
+    """获取运营工单统计。"""
+    return success(data=operation_issue_service.get_stats(db, category=category))

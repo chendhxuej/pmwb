@@ -8,12 +8,27 @@ from core.response import success
 from db.base import get_db
 from schemas.reminder import ReminderRecordOut, ReminderSendRequest, ReminderSendResponse
 from services.reminder import reminder_service
+from services.requirement import requirement_service
 
 router = APIRouter(prefix="/reminders", tags=["邮件催办"])
 
 
 class ContactResolveRequest(BaseModel):
     names: List[str]
+
+
+@router.get("/pending")
+def list_pending(db=Depends(get_db)):
+    """按 SA 分组的待催办需求列表（用于催办中心批量催办）。"""
+    data = requirement_service.pending_by_sa(db)
+    return success(data=data)
+
+
+@router.get("/records")
+def list_records(limit: int = 50, db=Depends(get_db)):
+    """全局邮件发送记录（最近 N 条）。"""
+    data = reminder_service.list_all(db, limit)
+    return success(data=data)
 
 
 @router.post("/resolve-contacts")

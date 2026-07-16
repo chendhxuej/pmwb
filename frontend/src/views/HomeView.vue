@@ -3,56 +3,72 @@
     <h2 class="page-title">首页看板</h2>
 
     <!-- 统计卡片 -->
-    <el-row :gutter="16" class="stats-row">
-      <el-col :span="4">
+    <div class="stats-row">
+      <div class="stat-col">
         <el-card shadow="hover" class="stat-card" @click="goTo('/todo')">
           <div class="stat-item">
             <div class="stat-value">{{ stats.todo_total }}</div>
             <div class="stat-label">待办总数</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="stat-card stat-warning" @click="goTo('/todo')">
           <div class="stat-item">
             <div class="stat-value">{{ stats.todo_today }}</div>
             <div class="stat-label">今日待办</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="stat-card stat-danger" @click="goTo('/todo')">
           <div class="stat-item">
             <div class="stat-value">{{ stats.todo_overdue }}</div>
             <div class="stat-label">超期待办</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="stat-card" @click="goTo('/meeting')">
           <div class="stat-item">
             <div class="stat-value">{{ stats.meeting_this_week }}</div>
             <div class="stat-label">本周会议</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="stat-card stat-danger" @click="goTo('/operation')">
           <div class="stat-item">
             <div class="stat-value">{{ stats.issue_pending }}</div>
             <div class="stat-label">待处理问题</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="stat-card" @click="goTo('/knowledge')">
           <div class="stat-item">
             <div class="stat-value">{{ stats.knowledge_total }}</div>
             <div class="stat-label">知识条目</div>
           </div>
         </el-card>
-      </el-col>
-    </el-row>
+      </div>
+      <div class="stat-col">
+        <el-card shadow="hover" class="stat-card mail-center-card" @click="checkMailCenter">
+          <div class="stat-item">
+            <div
+              class="stat-value"
+              :class="mailCenter.ok === true ? 'ok' : (mailCenter.ok === false ? 'bad' : '')"
+            >
+              {{ mailCenter.checking ? '检测中' : (mailCenter.ok === true ? '正常' : (mailCenter.ok === false ? '异常' : '-')) }}
+            </div>
+            <div class="stat-label">
+              邮件中心
+              <el-icon class="refresh-icon"><Refresh /></el-icon>
+            </div>
+          </div>
+        </el-card>
+      </div>
+    </div>
 
     <!-- 快捷操作 -->
     <el-card class="quick-actions" shadow="never">
@@ -190,7 +206,9 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 import { dashboardApi } from '@/api/dashboard'
+import { getMailCenterHealth } from '@/api/mailCenter.js'
 import { formatDateTime } from '@/utils/format'
 
 const router = useRouter()
@@ -213,6 +231,29 @@ const stats = reactive({
 const recentTodos = ref([])
 const recentMeetings = ref([])
 const recentIssues = ref([])
+
+// 统一邮件中心(3210)健康状态
+const mailCenter = reactive({ ok: null, detail: null, checking: false })
+
+const checkMailCenter = async () => {
+  mailCenter.checking = true
+  try {
+    const res = await getMailCenterHealth()
+    mailCenter.ok = !!(res && res.ok)
+    mailCenter.detail = res && res.detail ? res.detail : null
+    if (mailCenter.ok === false) {
+      const db = mailCenter.detail && mailCenter.detail.database
+      const smtp = mailCenter.detail && mailCenter.detail.smtp
+      ElMessage.warning(`邮件中心异常：database=${db || '-'} smtp=${smtp || '-'}（点击卡片可重试）`)
+    }
+  } catch (err) {
+    mailCenter.ok = false
+    mailCenter.detail = null
+    console.error('邮件中心健康检查失败', err)
+  } finally {
+    mailCenter.checking = false
+  }
+}
 
 const loadData = async () => {
   loading.value = true
@@ -285,6 +326,7 @@ const impactType = (level) => {
 
 onMounted(() => {
   loadData()
+  checkMailCenter()
 })
 </script>
 
@@ -300,7 +342,15 @@ onMounted(() => {
 }
 
 .stats-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
+}
+
+.stat-col {
+  flex: 1;
+  min-width: 140px;
 }
 
 .stat-card {
@@ -336,6 +386,20 @@ onMounted(() => {
 
 .stat-danger .stat-value {
   color: #f56c6c;
+}
+
+.mail-center-card .stat-value.ok {
+  color: #67c23a;
+}
+
+.mail-center-card .stat-value.bad {
+  color: #f56c6c;
+}
+
+.refresh-icon {
+  margin-left: 4px;
+  vertical-align: middle;
+  font-size: 13px;
 }
 
 .quick-actions {

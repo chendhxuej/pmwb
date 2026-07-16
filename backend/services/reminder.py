@@ -87,5 +87,14 @@ class ReminderService:
             .all()
         )
 
+    def list_all(self, db: Session, limit: int = 50) -> List[EmailRecord]:
+        """全局邮件发送记录（最近 limit 条，倒序）。"""
+        return (
+            db.query(EmailRecord)
+            .order_by(EmailRecord.created_at.desc())
+            .limit(max(1, min(limit, 200)))
+            .all()
+        )
+
 
 reminder_service = ReminderService()

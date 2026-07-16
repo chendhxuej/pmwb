@@ -34,6 +34,7 @@ class PmwbRequirementExt(Base):
     personal_note = Column(Text, comment="个人备注")
     priority = Column(String(64), default="P2", comment="个人优先级：P0/P1/P2/P3/集团需求/紧急需求等")
     owner_note = Column(Text, comment="负责人备忘")
+    version_required_date = Column(Date, comment="版本要求(需求管理要求的上线时间)")
     eval_seeded = Column(Integer, default=0, comment="团队评估是否已从 sent_emails 播种(避免删除后复活)")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
@@ -206,12 +207,17 @@ class PmwbOperationIssue(Base):
     __tablename__ = "pmwb_operation_issue"
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
-    issue_no = Column(String(64), nullable=False, unique=True, comment="问题编号")
-    title = Column(String(255), nullable=False, comment="问题标题")
+    issue_no = Column(String(64), nullable=False, unique=True, comment="工单编号")
+    title = Column(String(255), nullable=False, comment="工单标题")
+    category = Column(
+        Enum("bug", "data", "prod", "task", "complaint"),
+        default="prod",
+        comment="工单大类：BUG管理/数据异常管理/生产问题分析/临时交办任务/热点投诉",
+    )
     issue_type = Column(
         Enum("data_error", "system_failure", "complaint", "process_block", "performance", "other"),
         default="other",
-        comment="问题类型",
+        comment="问题子类(细分类型)",
     )
     status = Column(
         Enum("pending", "processing", "verify", "resolved", "closed", "suspended"),
@@ -242,8 +248,9 @@ class PmwbOperationIssue(Base):
     __table_args__ = (
         Index("idx_issue_status", "status"),
         Index("idx_issue_type", "issue_type"),
+        Index("idx_issue_category", "category"),
         Index("idx_issue_related_req", "related_req_id"),
-        {"comment": "业务运营问题表"},
+        {"comment": "业务运营工单表"},
     )
 
 
@@ -451,4 +458,22 @@ class EmailRecord(Base):
     __table_args__ = (
         Index("idx_email_record_req_id", "req_id"),
         {"comment": "邮件发送记录"},
+    )
+
+
+class SaInfo(Base):
+    """SA 收件人信息表（原 2525 中继的 sa_info，现由 PMWB 统一托管）。"""
+
+    __tablename__ = "sa_info"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    sa_name = Column(String(255), nullable=False, comment="SA姓名")
+    system_name = Column(String(255), default=None, comment="系统名称")
+    email = Column(String(255), nullable=False, comment="邮箱")
+    wechat_nickname = Column(String(255), default=None, comment="微信昵称")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+
+    __table_args__ = (
+        Index("uk_sa_info_system", "sa_name", "system_name"),
+        {"comment": "SA收件人信息表"},
     )

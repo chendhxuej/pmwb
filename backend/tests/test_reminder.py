@@ -114,3 +114,66 @@ def test_list_reminders_empty(client: TestClient, db: Session):
     data = response.json()
     assert data["code"] == 0
     assert data["data"] == []
+
+
+def _create_sent_email_for_pending(db: Session, req_id: str, sa_name: str, workload=None, is_involved: int = 1):
+    from db.models import SentEmail
+
+    obj = SentEmail(
+        req_id=req_id,
+        req_name="待催办需求",
+        proposer="张三",
+        propose_time="2026-07-01",
+        system_name="测试系统",
+        sa_name=sa_name,
+        workload=workload,
+        is_involved=is_involved,
+        dev_ticket_no="",
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def test_list_pending_by_sa(client: TestClient, db: Session):
+    # 待催办：is_involved=1 且工作量未填 → 应分组统计
+    _create_sent_email_for_pending(db, req_id="REQ-P-1", sa_name="陈山", workload=None, is_involved=1)
+    _create_sent_email_for_pending(db, req_id="REQ-P-2", sa_name="陈山", workload=None, is_involved=1)
+    # 已填工作量 → 排除
+    _create_sent_email_for_pending(db, req_id="REQ-P-3", sa_name="赵明", workload=5.0, is_involved=1)
+    # 不涉及开发 → 排除
+    _create_sent_email_for_pending(db, req_id="REQ-P-4", sa_name="钱七", workload=None, is_involved=0)
+
+    response = client.get("/api/v1/reminders/pending")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    groups = {g["sa_name"]: g for g in data}
+    assert "陈山" in groups
+    assert groups["陈山"]["count"] == 2
+    assert "赵明" not in groups
+    assert "钱七" not in groups
+
+
+def test_list_records(client: TestClient, db: Session):
+    _create_email_record(db, req_id="REQ-R-1")
+    _create_email_record(db, req_id="REQ-R-2")
+    response = client.get("/api/v1/reminders/records?limit=10")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data) == 2
+    assert data[0]["req_id"] in ("REQ-R-1", "REQ-R-2")
+
+
+def test_mail_center_health(client: TestClient, db: Session, monkeypatch):
+    from routers.mail_center import client as mail_center_client
+
+    monkeypatch.setattr(
+        mail_center_client,
+        "health_check",
+        lambda: {"ok": True, "status": 200, "detail": {"database": "ok", "smtp": "ok"}},
+    )
+    response = client.get("/api/v1/mail-center/health")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["ok"] is True

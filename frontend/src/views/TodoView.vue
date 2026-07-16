@@ -3,56 +3,64 @@
     <h2 class="page-title">待办中心</h2>
 
     <!-- 统计卡片 -->
-    <el-row :gutter="16" class="stats-row">
-      <el-col :span="4">
+    <div class="stats-row">
+      <div class="stat-col">
+        <el-card shadow="hover" class="stat-card stat-warning clickable" @click="goTo('/requirement')">
+          <div class="stat-item">
+            <div class="stat-value">{{ stats.dev_ticket_missing }}</div>
+            <div class="stat-label">开发单号未录入</div>
+          </div>
+        </el-card>
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover">
           <div class="stat-item">
             <div class="stat-value">{{ stats.total }}</div>
             <div class="stat-label">待办总数</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="status-todo">
           <div class="stat-item">
             <div class="stat-value">{{ stats.todo }}</div>
             <div class="stat-label">未开始</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="status-progress">
           <div class="stat-item">
             <div class="stat-value">{{ stats.in_progress }}</div>
             <div class="stat-label">进行中</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="status-done">
           <div class="stat-item">
             <div class="stat-value">{{ stats.done }}</div>
             <div class="stat-label">已完成</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="status-today">
           <div class="stat-item">
             <div class="stat-value">{{ stats.today }}</div>
             <div class="stat-label">今日截止</div>
           </div>
         </el-card>
-      </el-col>
-      <el-col :span="4">
+      </div>
+      <div class="stat-col">
         <el-card shadow="hover" class="status-overdue">
           <div class="stat-item">
             <div class="stat-value">{{ stats.overdue }}</div>
             <div class="stat-label">已超期</div>
           </div>
         </el-card>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
 
     <!-- 搜索表单 -->
     <el-card class="search-card" shadow="never">
@@ -282,9 +290,11 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DataTable from '@/components/Common/DataTable.vue'
 import { todoApi } from '@/api/todo'
+import { getRequirementStats } from '@/api/requirement.js'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -375,6 +385,7 @@ const stats = reactive({
   cancelled: 0,
   overdue: 0,
   today: 0,
+  dev_ticket_missing: 0,
 })
 
 const loadData = async () => {
@@ -400,6 +411,21 @@ const loadStats = async () => {
     Object.assign(stats, res)
   } catch (error) {
     ElMessage.error('加载统计失败')
+  }
+}
+
+const router = useRouter()
+const goTo = (path) => {
+  router.push(path)
+}
+
+// 开发单号未录入需求数（来自需求统计，点击跳转需求管理跟进）
+const loadDevTicketMissing = async () => {
+  try {
+    const res = await getRequirementStats()
+    stats.dev_ticket_missing = res.dev_ticket_missing || 0
+  } catch (error) {
+    console.error('加载开发单号未录入统计失败', error)
   }
 }
 
@@ -485,6 +511,7 @@ const handleSubmit = async () => {
 onMounted(() => {
   loadData()
   loadStats()
+  loadDevTicketMissing()
 })
 </script>
 
@@ -500,7 +527,28 @@ onMounted(() => {
 }
 
 .stats-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
+}
+
+.stat-col {
+  flex: 1;
+  min-width: 140px;
+}
+
+.stat-card {
+  transition: all 0.3s;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
 }
 
 .stat-item {

@@ -4,22 +4,51 @@
       <div class="logo">
         <span v-show="!collapsed">PMWB</span>
       </div>
-      <el-menu
-        :default-active="$route.path"
-        :collapse="collapsed"
-        :collapse-transition="false"
-        router
-        background-color="#304156"
-        text-color="#bfcbd9"
-        active-text-color="#409eff"
-      >
-        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
-          <el-icon>
-            <component :is="item.icon" />
-          </el-icon>
-          <template #title>{{ item.title }}</template>
-        </el-menu-item>
-      </el-menu>
+        <el-menu
+          :default-active="$route.path"
+          :collapse="collapsed"
+          :collapse-transition="false"
+          router
+          background-color="#304156"
+          text-color="#bfcbd9"
+          active-text-color="#409eff"
+        >
+          <template v-for="item in menuItems" :key="item.path">
+            <el-sub-menu v-if="item.children && item.children.length" :index="item.path">
+              <template #title>
+                <el-icon>
+                  <component :is="item.icon" />
+                </el-icon>
+                <span>{{ item.title }}</span>
+              </template>
+              <el-menu-item
+                v-for="sub in item.children"
+                :key="sub.path"
+                :index="sub.path"
+              >
+                <el-icon v-if="sub.icon">
+                  <component :is="sub.icon" />
+                </el-icon>
+                <template #title>
+                  <span>{{ sub.title }}</span>
+                  <el-tag
+                    v-if="sub.badge"
+                    size="small"
+                    type="info"
+                    effect="plain"
+                    class="menu-badge"
+                  >{{ sub.badge }}</el-tag>
+                </template>
+              </el-menu-item>
+            </el-sub-menu>
+            <el-menu-item v-else :index="item.path">
+              <el-icon>
+                <component :is="item.icon" />
+              </el-icon>
+              <template #title>{{ item.title }}</template>
+            </el-menu-item>
+          </template>
+        </el-menu>
     </el-aside>
     <el-container>
       <el-header class="header">
@@ -51,11 +80,24 @@ const appStore = useAppStore()
 const { collapsed, toggleCollapsed } = appStore
 
 const menuItems = computed(() => {
-  return route.matched[0]?.children?.map((child) => ({
-    path: '/' + child.path,
-    title: child.meta?.title || child.name,
-    icon: child.meta?.icon,
-  })) || []
+  const top = route.matched[0]?.children || []
+  return top.map((child) => {
+    const base = {
+      path: '/' + child.path,
+      title: child.meta?.title || child.name,
+      icon: child.meta?.icon,
+    }
+    if (child.children && child.children.length) {
+      base.children = child.children
+        .filter((c) => !c.meta?.hidden)
+        .map((c) => ({
+          path: '/' + child.path + '/' + c.path,
+          title: c.meta?.title || c.name,
+          icon: c.meta?.icon,
+        }))
+    }
+    return base
+  })
 })
 </script>
 
@@ -111,5 +153,10 @@ const menuItems = computed(() => {
 
 :deep(.el-menu) {
   border-right: none;
+}
+
+.menu-badge {
+  margin-left: 8px;
+  transform: scale(0.85);
 }
 </style>

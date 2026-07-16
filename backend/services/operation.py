@@ -19,6 +19,7 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
         self,
         db: Session,
         keyword: str = None,
+        category: str = None,
         issue_type: str = None,
         status: str = None,
         impact_level: str = None,
@@ -29,6 +30,8 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
     ):
         query = db.query(self.model)
 
+        if category:
+            query = query.filter(self.model.category == category)
         if issue_type:
             query = query.filter(self.model.issue_type == issue_type)
         if status:
@@ -69,22 +72,39 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
             "items": items,
         }
 
-    def get_stats(self, db: Session) -> OperationIssueStats:
-        total = db.query(func.count(self.model.id)).scalar()
-        pending = db.query(func.count(self.model.id)).filter(self.model.status == "pending").scalar()
-        processing = db.query(func.count(self.model.id)).filter(self.model.status == "processing").scalar()
-        verify = db.query(func.count(self.model.id)).filter(self.model.status == "verify").scalar()
-        resolved = db.query(func.count(self.model.id)).filter(self.model.status == "resolved").scalar()
-        closed = db.query(func.count(self.model.id)).filter(self.model.status == "closed").scalar()
-        suspended = db.query(func.count(self.model.id)).filter(self.model.status == "suspended").scalar()
-        overdue = db.query(func.count(self.model.id)).filter(self.model.is_overdue == 1).scalar()
+    def get_stats(self, db: Session, category: str = None) -> OperationIssueStats:
+        query = db.query(self.model)
+        if category:
+            query = query.filter(self.model.category == category)
 
-        type_rows = (
-            db.query(self.model.issue_type, func.count(self.model.id))
-            .group_by(self.model.issue_type)
-            .all()
-        )
+        base_count = query.with_entities(func.count(self.model.id))
+        total = base_count.scalar()
+        pending = query.filter(self.model.status == "pending").with_entities(func.count(self.model.id)).scalar()
+        processing = query.filter(self.model.status == "processing").with_entities(func.count(self.model.id)).scalar()
+        verify = query.filter(self.model.status == "verify").with_entities(func.count(self.model.id)).scalar()
+        resolved = query.filter(self.model.status == "resolved").with_entities(func.count(self.model.id)).scalar()
+        closed = query.filter(self.model.status == "closed").with_entities(func.count(self.model.id)).scalar()
+        suspended = query.filter(self.model.status == "suspended").with_entities(func.count(self.model.id)).scalar()
+        overdue = query.filter(self.model.is_overdue == 1).with_entities(func.count(self.model.id)).scalar()
+
+        closed_loop_rate = 0.0
+        if total:
+            closed_loop_rate = round((resolved + closed) * 100.0 / total, 1)
+
+        type_query = db.query(self.model.issue_type, func.count(self.model.id))
+        if category:
+            type_query = type_query.filter(self.model.category == category)
+        type_rows = type_query.group_by(self.model.issue_type).all()
         by_type = [IssueStatsItem(name=row[0], value=row[1]) for row in type_rows]
+
+        by_category = []
+        if not category:
+            cat_rows = (
+                db.query(self.model.category, func.count(self.model.id))
+                .group_by(self.model.category)
+                .all()
+            )
+            by_category = [IssueStatsItem(name=row[0], value=row[1]) for row in cat_rows]
 
         return OperationIssueStats(
             total=total,
@@ -95,7 +115,9 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
             closed=closed,
             suspended=suspended,
             overdue=overdue,
+            closed_loop_rate=closed_loop_rate,
             by_type=by_type,
+            by_category=by_category,
         )
 
     def update_status(self, db: Session, id: int, status: str, resolve_date: datetime = None):

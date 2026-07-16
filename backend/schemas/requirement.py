@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -35,6 +35,7 @@ class RequirementExtUpdate(BaseModel):
     personal_note: Optional[str] = None
     priority: Optional[str] = None
     owner_note: Optional[str] = None
+    version_required_date: Optional[date] = None
 
 
 class EvaluationUpdate(BaseModel):

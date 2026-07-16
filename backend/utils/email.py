@@ -22,6 +22,8 @@ class EmailCenterClient:
         template_id: str = None,
         template_data: dict = None,
         body_format: str = "text",
+        cc: str | list[str] = None,
+        email_type: str = None,
     ) -> dict:
         # 默认按纯文本(text/plain)发送：邮件客户端会忠实保留换行符，
         # 预览(textarea / white-space: pre-wrap)与收到邮件的段落排版完全一致。
@@ -32,6 +34,10 @@ class EmailCenterClient:
             "body": body,
             "bodyFormat": body_format,
         }
+        if cc:
+            payload["cc"] = cc if isinstance(cc, list) else [cc]
+        if email_type:
+            payload["type"] = email_type
         if template_id:
             payload["template_id"] = template_id
         if template_data:
@@ -81,6 +87,16 @@ class EmailCenterClient:
                     result[target] = email
                     break
         return result
+
+    def health_check(self) -> dict:
+        """检查统一邮件中心健康状态（对齐 email-manager 的 mailCenter.healthCheck）。"""
+        try:
+            response = self.client.get("/api/health", timeout=10.0)
+            data = response.json() if response.content else None
+            return {"ok": response.status_code == 200, "status": response.status_code, "detail": data}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("邮件中心健康检查失败: %s", exc)
+            return {"ok": False, "error": str(exc)}
 
 
 email_client = EmailCenterClient()

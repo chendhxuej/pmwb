@@ -29,6 +29,8 @@ mermaid.initialize({
 const contentRef = ref(null)
 const renderedHtml = ref('')
 let mermaidSeq = 0
+let matchEls = []
+let activeMatch = -1
 
 function wrapTables(root) {
   root.querySelectorAll('table').forEach((t) => {
@@ -86,8 +88,96 @@ async function render() {
   await renderMermaid(root)
 }
 
+// ---- 关键字搜索高亮 ----
+function clearHighlight() {
+  if (!contentRef.value) return
+  const marks = contentRef.value.querySelectorAll('mark.bible-hl')
+  marks.forEach((m) => {
+    const parent = m.parentNode
+    while (m.firstChild) parent.insertBefore(m.firstChild, m)
+    parent.removeChild(m)
+  })
+  contentRef.value.normalize()
+  matchEls = []
+  activeMatch = -1
+}
+
+function searchInContent(keyword) {
+  clearHighlight()
+  if (!keyword || !contentRef.value) return 0
+  const root = contentRef.value
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT
+      const p = node.parentElement
+      if (p && (p.tagName === 'SCRIPT' || p.tagName === 'STYLE')) return NodeFilter.FILTER_REJECT
+      if (p && p.closest('mark.bible-hl')) return NodeFilter.FILTER_REJECT
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
+  const textNodes = []
+  let n
+  while ((n = walker.nextNode())) textNodes.push(n)
+  const safe = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(safe, 'gi')
+  textNodes.forEach((node) => {
+    const text = node.nodeValue
+    re.lastIndex = 0
+    if (!re.test(text)) return
+    const frag = document.createDocumentFragment()
+    let last = 0
+    re.lastIndex = 0
+    let m
+    while ((m = re.exec(text)) !== null) {
+      const start = m.index
+      const end = start + m[0].length
+      if (start > last) frag.appendChild(document.createTextNode(text.slice(last, start)))
+      const mark = document.createElement('mark')
+      mark.className = 'bible-hl'
+      mark.textContent = text.slice(start, end)
+      frag.appendChild(mark)
+      last = end
+      if (m[0].length === 0) re.lastIndex++
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)))
+    node.parentNode.replaceChild(frag, node)
+  })
+  matchEls = Array.from(root.querySelectorAll('mark.bible-hl'))
+  activeMatch = matchEls.length ? 0 : -1
+  if (activeMatch >= 0) scrollToMatch(activeMatch)
+  return matchEls.length
+}
+
+function scrollToMatch(i) {
+  if (i < 0 || i >= matchEls.length) return
+  if (activeMatch >= 0 && matchEls[activeMatch]) matchEls[activeMatch].classList.remove('active')
+  activeMatch = i
+  const el = matchEls[i]
+  el.classList.add('active')
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+function nextMatch() {
+  if (!matchEls.length) return -1
+  scrollToMatch((activeMatch + 1) % matchEls.length)
+  return activeMatch
+}
+
+function prevMatch() {
+  if (!matchEls.length) return -1
+  scrollToMatch((activeMatch - 1 + matchEls.length) % matchEls.length)
+  return activeMatch
+}
+
 onMounted(render)
 watch(() => props.content, render)
+
+defineExpose({
+  search: (kw) => searchInContent(kw),
+  next: nextMatch,
+  prev: prevMatch,
+  clear: clearHighlight,
+})
 </script>
 
 <style>
@@ -264,5 +354,17 @@ watch(() => props.content, render)
 
 .markdown-body img {
   max-width: 100%;
+}
+
+/* 搜索高亮 */
+.markdown-body mark.bible-hl {
+  background: #fff3a3;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.markdown-body mark.bible-hl.active {
+  background: #ffb02e;
 }
 </style>

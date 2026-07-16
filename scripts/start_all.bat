@@ -3,13 +3,46 @@ chcp 65001 >nul
 echo 正在启动产品经理个人工作台...
 echo.
 
-start "PMWB Backend" "D:\项目\个人工作台系统\backend\scripts\run_dev.bat"
+REM ============ 统一入口：拉起 后端(8000) / 前端(5173) / 邮件中心(3210) ============
+REM 端口感知：若已监听则先结束旧进程再拉起，确保用上最新代码（避免重复实例绑定失败）。
+
+set BACKEND_DIR=D:\项目\个人工作台系统\backend
+set FRONTEND_DIR=D:\项目\个人工作台系统\frontend
+set MAIL_CENTER_DIR=D:\项目\统一邮件中心\server
+
+REM ---------- 后端(8000) ----------
+netstat -ano 2>nul | findstr /r ":8000 .*LISTEN" >nul
+if not errorlevel 1 (
+  echo 检测到旧的后端进程，先结束以加载最新代码...
+  for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTEN"') do taskkill /PID %%p /F >nul 2>&1
+  timeout /t 2 /nobreak >nul
+)
+start "PMWB Backend" "%BACKEND_DIR%\scripts\run_dev.bat"
 timeout /t 3 /nobreak >nul
-start "PMWB Frontend" "D:\项目\个人工作台系统\frontend\scripts\run_dev.bat"
+
+REM ---------- 前端(5173) ----------
+netstat -ano 2>nul | findstr /r ":5173 .*LISTEN" >nul
+if not errorlevel 1 (
+  echo 检测到旧的前端进程，先结束以加载最新代码...
+  for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":5173" ^| findstr "LISTEN"') do taskkill /PID %%p /F >nul 2>&1
+  timeout /t 2 /nobreak >nul
+)
+start "PMWB Frontend" "%FRONTEND_DIR%\scripts\run_dev.bat"
+timeout /t 2 /nobreak >nul
+
+REM ---------- 统一邮件中心(3210) 纳管：未监听则拉起，已运行则跳过 ----------
+netstat -ano 2>nul | findstr /r ":3210 .*LISTEN" >nul
+if errorlevel 1 (
+  echo 启动统一邮件中心(3210)...
+  start "统一邮件中心" /d "%MAIL_CENTER_DIR%" cmd /k "npx tsx src/index.ts"
+) else (
+  echo 统一邮件中心(3210) 已在运行，跳过
+)
 
 echo.
 echo 后端: http://127.0.0.1:8000
 echo 前端: http://localhost:5173/
+echo 邮件中心: http://127.0.0.1:3210
 echo.
 echo 请稍等几秒后访问前端地址。
 pause

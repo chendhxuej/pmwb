@@ -2,12 +2,17 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from core.config import settings
 from core.exceptions import NotFoundException
 from core.response import success
 
 router = APIRouter(prefix="/product-bible", tags=["产品圣经"])
+
+
+class BibleUpdate(BaseModel):
+    markdown: str
 
 
 def _resolve_source(key: str) -> dict:
@@ -63,3 +68,19 @@ def get_bible(key: str):
         "markdown": markdown,
     }
     return success(data=data)
+
+
+@router.put("/{key}")
+def update_bible(key: str, payload: BibleUpdate):
+    """把编辑后的 markdown 写回 Obsidian 源文件（单一事实源）。"""
+    source = _resolve_source(key)
+    full = Path(settings.OBSIDIAN_VAULT_PATH) / source["path"]
+    if not full.exists() or not full.is_file():
+        raise NotFoundException(f"知识文件不存在：{source['path']}")
+    # 安全校验：解析后的绝对路径必须仍位于 vault 之内，杜绝路径越界写文件
+    full_resolved = full.resolve()
+    vault_resolved = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
+    if full_resolved != vault_resolved and vault_resolved not in full_resolved.parents:
+        raise NotFoundException("非法路径，拒绝写入")
+    full.write_text(payload.markdown, encoding="utf-8")
+    return success(message="已保存", data={"key": key})

@@ -1,9 +1,10 @@
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, SentEmail
+from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, PmwbDevTicket, SentEmail
 from schemas.common import PaginationParams, PaginationResponse
 
 
@@ -45,12 +46,42 @@ class RequirementService:
                 "status": ext.status,
                 "tags": ext.tags,
                 "personal_note": ext.personal_note,
-                "priority": ext.priority,
-                "owner_note": ext.owner_note,
-                "created_at": ext.created_at,
+            "priority": ext.priority,
+            "owner_note": ext.owner_note,
+            "version_required_date": ext.version_required_date,
+            "created_at": ext.created_at,
                 "updated_at": ext.updated_at,
             }
         return data
+
+    # ---- 版本要求 / 开发工单进度跟踪 ----
+    def _ticket_flag(self, ticket: "PmwbDevTicket", version_required_date, today) -> str:
+        """单张工单相对「版本要求」的预警标记。"""
+        done = ticket.status in ("live", "archived")
+        if done:
+            if version_required_date and ticket.go_live_date and ticket.go_live_date > version_required_date:
+                return "late"   # 已上线但晚于要求
+            return "on_time"
+        # 未完成
+        if version_required_date:
+            if today > version_required_date:
+                return "overdue"   # 未上线且已过截止日
+            if 0 <= (version_required_date - today).days <= 7:
+                return "warning"   # 临近（7天内）
+        return "on_track"
+
+    def _aggregate_tracking(self, tickets, version_required_date, today) -> str:
+        """聚合需求级跟踪状态：none/none(无工单)/on_time/进行中/预警/超期。"""
+        if not tickets:
+            return "none"
+        flags = [self._ticket_flag(t, version_required_date, today) for t in tickets]
+        if "overdue" in flags or "late" in flags:
+            return "overdue"
+        if "warning" in flags:
+            return "warning"
+        if all(f == "on_time" for f in flags):
+            return "on_time"
+        return "on_track"
 
     def list_with_filters(
         self,
@@ -144,7 +175,24 @@ class RequirementService:
         for rid in req_ids:
             eval_count_map[rid] = eval_row_map.get(rid, 0) or sent_count_map.get(rid, 0)
 
-        merged = [self._merge_ext(item, ext_map.get(item.req_id), eval_count_map.get(item.req_id, 0)) for item in items]
+        # 批量查询关联开发工单，用于计算「跟踪状态」
+        dev_tickets_all = (
+            db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id.in_(req_ids)).all()
+            if req_ids else []
+        )
+        dev_by_req: Dict[str, List] = {}
+        for t in dev_tickets_all:
+            dev_by_req.setdefault(t.req_id, []).append(t)
+        today = date.today()
+
+        merged = []
+        for item in items:
+            ext = ext_map.get(item.req_id)
+            vr = ext.version_required_date if ext else None
+            tickets = dev_by_req.get(item.req_id, [])
+            d = self._merge_ext(item, ext, eval_count_map.get(item.req_id, 0))
+            d["tracking_status"] = self._aggregate_tracking(tickets, vr, today)
+            merged.append(d)
         return PaginationResponse.create(
             total=total,
             page=page,
@@ -158,7 +206,27 @@ class RequirementService:
             return None
         ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
         eval_count = db.query(SentEmail).filter(SentEmail.req_id == req_id).count()
-        return self._merge_ext(item, ext, eval_count)
+        data = self._merge_ext(item, ext, eval_count)
+        # 关联开发工单进度（按版本要求日期判定预警）
+        tickets = db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id == req_id).all()
+        vr = ext.version_required_date if ext else None
+        today = date.today()
+        linked = []
+        for t in tickets:
+            linked.append({
+                "id": t.id,
+                "ticket_no": t.ticket_no,
+                "system_name": t.system_name,
+                "status": t.status,
+                "progress": t.progress,
+                "dev_completed_date": t.dev_completed_date,
+                "test_completed_date": t.test_completed_date,
+                "go_live_date": t.go_live_date,
+                "flag": self._ticket_flag(t, vr, today),
+            })
+        data["linked_tickets"] = linked
+        data["tracking_status"] = self._aggregate_tracking(tickets, vr, today)
+        return data
 
     def update_ext(self, db: Session, req_id: str, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
@@ -166,7 +234,12 @@ class RequirementService:
             return None
         ext = self._get_or_create_ext(db, req_id)
         for key, value in obj_in.items():
-            if value is not None and hasattr(ext, key):
+            if not hasattr(ext, key):
+                continue
+            if key == "version_required_date":
+                # 允许清空（NULL）；空串归一为 NULL
+                setattr(ext, key, None if value in (None, "") else value)
+            elif value is not None:
                 setattr(ext, key, value)
         db.commit()
         db.refresh(ext)
@@ -187,6 +260,14 @@ class RequirementService:
             .all()
         )
         status_map = {row[0]: row[1] for row in counts}
+        # 开发单号未录入：涉及开发但 dev_ticket_no 为空的需求数（待跟进）
+        dev_ticket_missing = (
+            db.query(SentEmail.req_id)
+            .filter(SentEmail.is_involved == 1)
+            .filter(func.coalesce(SentEmail.dev_ticket_no, "") == "")
+            .distinct()
+            .count()
+        )
         return {
             "total": total,
             "proposed": status_map.get("proposed", 0),
@@ -195,6 +276,7 @@ class RequirementService:
             "closed": status_map.get("closed", 0),
             "paused": status_map.get("paused", 0),
             "involved": involved,
+            "dev_ticket_missing": dev_ticket_missing,
         }
 
     def get_evaluations(self, db: Session, req_id: str) -> List[Dict[str, Any]]:
@@ -344,6 +426,43 @@ class RequirementService:
     def get_systems(self, db: Session) -> List[str]:
         rows = db.query(SentEmail.system_name).distinct().filter(SentEmail.system_name.isnot(None)).all()
         return [row[0] for row in rows if row[0]]
+
+    def pending_by_sa(self, db: Session) -> List[Dict[str, Any]]:
+        """按 SA 分组的待催办列表：is_involved=1 且工作量(空/0) 的需求，按 req_id 去重。
+
+        语义对齐 email-manager 的 /api/reminders（以 sent_emails.workload 为判据），
+        不依赖评估层是否已播种，确保未评估的需求稳定出现在待催办中。
+        """
+        rows = (
+            db.query(SentEmail)
+            .filter(SentEmail.is_involved == 1)
+            .filter(func.coalesce(SentEmail.workload, 0) == 0)
+            .order_by(SentEmail.sa_name, SentEmail.propose_time)
+            .all()
+        )
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        seen = set()
+        for r in rows:
+            sa = (r.sa_name or "").strip() or "未分配"
+            if (sa, r.req_id) in seen:
+                continue
+            seen.add((sa, r.req_id))
+            grouped.setdefault(sa, []).append({
+                "req_id": r.req_id,
+                "req_name": r.req_name,
+                "proposer": r.proposer,
+                "system_name": r.system_name,
+                "sa_name": r.sa_name,
+                "workload": float(r.workload) if r.workload is not None else None,
+                "dev_ticket_no": r.dev_ticket_no,
+                "propose_time": r.propose_time,
+            })
+        result = []
+        for sa, items in grouped.items():
+            result.append({"sa_name": sa, "count": len(items), "items": items})
+        # 未分配置后，其余按 SA 名排序
+        result.sort(key=lambda g: (g["sa_name"] == "未分配", g["sa_name"]))
+        return result
 
 
 requirement_service = RequirementService()

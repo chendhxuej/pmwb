@@ -15,7 +15,9 @@ from routers import (
     dev_ticket,
     health,
     knowledge,
+    mail_center,
     meeting,
+    plugin,
     operation,
     product_bible,
     reminder,
@@ -86,6 +88,8 @@ app.include_router(health.router, prefix="/api/v1", tags=["健康检查"])
 app.include_router(operation.router, prefix="/api/v1", tags=["业务运营监控"])
 app.include_router(meeting.router, prefix="/api/v1", tags=["会议管理"])
 app.include_router(knowledge.router, prefix="/api/v1", tags=["知识库"])
+app.include_router(mail_center.router, prefix="/api/v1", tags=["邮件中心"])
+app.include_router(plugin.router, prefix="/api/v1", tags=["插件接入"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["首页看板"])
 app.include_router(todo.router, prefix="/api/v1", tags=["待办中心"])
 app.include_router(requirement.router, prefix="/api/v1", tags=["需求管理"])

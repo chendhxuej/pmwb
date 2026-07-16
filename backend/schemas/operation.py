@@ -14,6 +14,15 @@ class IssueType(str, Enum):
     other = "other"
 
 
+class WorkOrderCategory(str, Enum):
+    """工单大类。"""
+    bug = "bug"            # BUG管理
+    data = "data"          # 数据异常管理
+    prod = "prod"          # 生产问题分析
+    task = "task"          # 临时交办任务
+    complaint = "complaint"  # 热点投诉
+
+
 class IssueStatus(str, Enum):
     pending = "pending"
     processing = "processing"
@@ -31,9 +40,10 @@ class ImpactLevel(str, Enum):
 
 
 class OperationIssueBase(BaseModel):
-    issue_no: str = Field(..., max_length=64, description="问题编号")
-    title: str = Field(..., max_length=255, description="问题标题")
-    issue_type: IssueType = Field(IssueType.other, description="问题类型")
+    issue_no: str = Field(..., max_length=64, description="工单编号")
+    title: str = Field(..., max_length=255, description="工单标题")
+    category: WorkOrderCategory = Field(WorkOrderCategory.prod, description="工单大类")
+    issue_type: IssueType = Field(IssueType.other, description="问题子类(细分类型)")
     status: IssueStatus = Field(IssueStatus.pending, description="状态")
     source: str = Field("manual", max_length=64, description="来源")
     discovery_date: Optional[datetime] = Field(None, description="发现时间")
@@ -63,6 +73,7 @@ class OperationIssueCreate(OperationIssueBase):
 
 class OperationIssueUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
+    category: Optional[WorkOrderCategory] = None
     issue_type: Optional[IssueType] = None
     status: Optional[IssueStatus] = None
     discovery_date: Optional[datetime] = None
@@ -117,4 +128,6 @@ class OperationIssueStats(BaseModel):
     closed: int
     suspended: int
     overdue: int
+    closed_loop_rate: float = 0  # 闭环率(%) = (已解决+已关闭)/总数
     by_type: List[IssueStatsItem]
+    by_category: List[IssueStatsItem] = []
