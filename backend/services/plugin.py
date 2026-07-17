@@ -8,7 +8,7 @@
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -36,8 +36,15 @@ class PluginService:
         self.email_client = EmailCenterClient()
 
     # ---------------- 统一邮件中心发信 ----------------
-    def send_email(self, to: str, subject: str, body: str, cc: str = None,
-                   body_format: str = "text") -> Dict[str, Any]:
+    def send_email(
+        self,
+        to: Union[str, List[str]],
+        subject: str,
+        body: str,
+        cc: Union[str, List[str], None] = None,
+        body_format: str = "text",
+        attachments: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """通过统一邮件中心发送邮件（对齐 2525 /send）。"""
         result = self.email_client.send_email(
             to=to,
@@ -46,6 +53,7 @@ class PluginService:
             body=body,
             body_format=body_format,
             email_type="xqemail_plugin",
+            attachments=attachments,
         )
         return {
             "success": True,

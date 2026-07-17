@@ -4,7 +4,7 @@
 因此返回**扁平 JSON**（{"success": ...}），不套用 core.response.success 的 code/data 包装。
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -18,13 +18,13 @@ router = APIRouter(prefix="/plugins", tags=["插件接入"])
 
 # ---------------- 请求模型 ----------------
 class PluginSendRequest(BaseModel):
-    to: str
-    cc: Optional[str] = None
+    to: Union[str, List[str]]
+    cc: Optional[Union[str, List[str]]] = None
     subject: str
     body: Optional[str] = None
     html: Optional[str] = None
-    # attachments / smtp 由插件传入但 PMWB 统一邮件中心暂不支持附件，忽略
-    attachments: Optional[List[Any]] = None
+    bodyFormat: Optional[str] = None  # text | html，优先于 html 字段推断
+    attachments: Optional[List[Any]] = None  # 插件透传到统一邮件中心
 
 
 class PluginIngestRequest(BaseModel):
@@ -69,15 +69,40 @@ def plugin_health():
 # ---------------- 发信（对齐 2525 /send）----------------
 @router.post("/send")
 def plugin_send(req: PluginSendRequest):
-    body = req.html or req.body or ""
-    body_format = "html" if req.html else "text"
+    # 兼容插件旧版字符串（逗号分隔）与新版数组
+    def _split(v: Union[str, List[str], None]) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [x.strip() for x in v.replace(';', ',').split(',') if x.strip()]
+        return [str(x).strip() for x in v if str(x).strip()]
+
+    to_list = _split(req.to)
+    cc_list = _split(req.cc)
+
+    body = req.body or req.html or ""
+    # 插件可能同时传 body(纯文本) 和 html；优先按显式 bodyFormat，否则有 html 就按 html
+    body_format = req.bodyFormat or ("html" if req.html and not req.body else "text")
+
+    # 附件字段兼容：旧 content / 新 contentBase64
+    attachments = None
+    if req.attachments:
+        attachments = []
+        for a in req.attachments:
+            attachments.append({
+                "filename": a.get("filename") or a.get("name") or "附件",
+                "contentBase64": a.get("contentBase64") or a.get("content") or "",
+                "mimeType": a.get("mimeType") or a.get("contentType") or "application/octet-stream",
+            })
+
     try:
         result = plugin_service.send_email(
-            to=req.to,
+            to=to_list,
             subject=req.subject,
             body=body,
-            cc=req.cc,
+            cc=cc_list or None,
             body_format=body_format,
+            attachments=attachments or None,
         )
         return result
     except Exception as exc:  # noqa: BLE001

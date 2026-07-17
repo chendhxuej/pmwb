@@ -117,5 +117,41 @@ def test_plugin_send_mocked(client: "TestClient"):
         # 验证插件发信被标记为 xqemail_plugin 类型透传给统一邮件中心
         _, kwargs = mock_send.call_args
         assert kwargs.get("email_type") == "xqemail_plugin"
-        assert kwargs.get("to") == "someone@example.com"
+        assert kwargs.get("to") == ["someone@example.com"]
         assert kwargs.get("body_format") == "text"
+
+
+def test_plugin_send_list_and_attachments(client: "TestClient"):
+    """兼容插件 to/cc 数组/字符串混用，并透传附件。"""
+    with patch(
+        "utils.email.EmailCenterClient.send_email",
+        return_value={
+            "messageId": "test-msg-2",
+            "fromEmail": "pmwb@workbuddy",
+            "accountId": "acc-1",
+        },
+    ) as mock_send:
+        resp = client.post(
+            "/api/v1/plugins/send",
+            json={
+                "to": ["a@example.com", "b@example.com"],
+                "cc": "c@example.com, d@example.com",
+                "subject": "UT",
+                "body": "hello",
+                "bodyFormat": "html",
+                "attachments": [
+                    {"filename": "a.txt", "content": "base64", "contentType": "text/plain"}
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        _, kwargs = mock_send.call_args
+        assert kwargs.get("to") == ["a@example.com", "b@example.com"]
+        assert kwargs.get("cc") == ["c@example.com", "d@example.com"]
+        assert kwargs.get("body_format") == "html"
+        attachments = kwargs.get("attachments")
+        assert attachments and len(attachments) == 1
+        assert attachments[0]["contentBase64"] == "base64"
+        assert attachments[0]["mimeType"] == "text/plain"

@@ -24,6 +24,7 @@ class EmailCenterClient:
         body_format: str = "text",
         cc: str | list[str] = None,
         email_type: str = None,
+        attachments: list[dict] = None,
     ) -> dict:
         # 默认按纯文本(text/plain)发送：邮件客户端会忠实保留换行符，
         # 预览(textarea / white-space: pre-wrap)与收到邮件的段落排版完全一致。
@@ -38,6 +39,8 @@ class EmailCenterClient:
             payload["cc"] = cc if isinstance(cc, list) else [cc]
         if email_type:
             payload["type"] = email_type
+        if attachments:
+            payload["attachments"] = attachments
         if template_id:
             payload["template_id"] = template_id
         if template_data:
