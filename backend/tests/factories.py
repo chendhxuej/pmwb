@@ -24,7 +24,7 @@ class OperationIssueFactory:
         db: Session,
         issue_no: str = None,
         title: str = "测试问题",
-        issue_type: str = "data_error",
+        issue_type: str = "data_abnormal",
         impact_level: str = "P2",
         status: str = "pending",
         handler: str = "测试人",

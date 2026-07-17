@@ -6,12 +6,14 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class IssueType(str, Enum):
-    data_error = "data_error"
-    system_failure = "system_failure"
-    complaint = "complaint"
-    process_block = "process_block"
-    performance = "performance"
-    other = "other"
+    """工单子类（细分类型）。2026-07-16 优化重定义。"""
+
+    bug = "bug"  # BUG
+    data_abnormal = "data_abnormal"  # 数据异常
+    topic_analysis = "topic_analysis"  # 专题分析
+    spot_event = "spot_event"  # 投点事件
+    temp_task = "temp_task"  # 临时任务
+    other = "other"  # 其他
 
 
 class WorkOrderCategory(str, Enum):
@@ -48,8 +50,8 @@ class OperationIssueBase(BaseModel):
     source: str = Field("manual", max_length=64, description="来源")
     discovery_date: Optional[datetime] = Field(None, description="发现时间")
     resolve_date: Optional[datetime] = Field(None, description="解决时间")
-    handler: Optional[str] = Field(None, max_length=64, description="处理人")
-    impact_scope: Optional[str] = Field(None, description="影响范围")
+    handler: Optional[str] = Field(None, max_length=512, description="处理人(多选,逗号分隔)")
+    situation_desc: Optional[str] = Field(None, description="情况说明")
     impact_level: ImpactLevel = Field(ImpactLevel.P2, description="影响等级")
     root_cause: Optional[str] = Field(None, description="根因分析")
     solution: Optional[str] = Field(None, description="解决方案")
@@ -78,8 +80,8 @@ class OperationIssueUpdate(BaseModel):
     status: Optional[IssueStatus] = None
     discovery_date: Optional[datetime] = None
     resolve_date: Optional[datetime] = None
-    handler: Optional[str] = Field(None, max_length=64)
-    impact_scope: Optional[str] = None
+    handler: Optional[str] = Field(None, max_length=512)
+    situation_desc: Optional[str] = None
     impact_level: Optional[ImpactLevel] = None
     root_cause: Optional[str] = None
     solution: Optional[str] = None

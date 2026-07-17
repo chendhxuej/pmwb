@@ -39,7 +39,7 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
         if impact_level:
             query = query.filter(self.model.impact_level == impact_level)
         if handler:
-            query = query.filter(self.model.handler == handler)
+            query = query.filter(self.model.handler.like(f"%{handler}%"))
         if related_system:
             query = query.filter(self.model.related_system == related_system)
         if keyword:

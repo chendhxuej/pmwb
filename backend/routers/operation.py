@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from core.response import success
 from db.base import get_db
 from schemas.operation import OperationIssueCreate, OperationIssueUpdate
+from services.obsidian_link import sediment_operation_issue
 from services.operation import operation_issue_service
 
 router = APIRouter(prefix="/operation", tags=["业务运营监控"])
@@ -66,6 +67,12 @@ def delete_issue(issue_id: int, db: Session = Depends(get_db)):
     """删除问题。"""
     ok = operation_issue_service.delete(db, issue_id)
     return success(data=ok)
+
+
+@router.post("/issues/{issue_id}/sediment")
+def sediment_issue(issue_id: int, db: Session = Depends(get_db)):
+    """一键沉淀：把运营工单生成知识条目写入 Obsidian 并建双向索引。"""
+    return success(data=sediment_operation_issue(db, issue_id))
 
 
 @router.get("/stats")

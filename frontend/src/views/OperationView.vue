@@ -85,6 +85,19 @@
       </el-col>
     </el-row>
 
+    <!-- 知识沉淀入口 -->
+    <h3 class="section-title">知识联动</h3>
+    <el-card shadow="hover" class="notes-entry" @click="router.push('/operation/notes')">
+      <div class="notes-entry-inner">
+        <el-icon class="notes-entry-icon"><Notebook /></el-icon>
+        <div class="notes-entry-text">
+          <div class="notes-entry-title">知识沉淀</div>
+          <div class="notes-entry-desc">浏览运营关联的 Obsidian 笔记，工单与笔记同屏联动管理</div>
+        </div>
+        <span class="notes-entry-arrow">→</span>
+      </div>
+    </el-card>
+
     <!-- 近期工单 -->
     <h3 class="section-title">近期工单</h3>
     <el-card shadow="never">
@@ -277,6 +290,41 @@ onMounted(() => {
 }
 .cat-foot {
   font-size: 12px;
+  color: #409eff;
+}
+
+.notes-entry {
+  cursor: pointer;
+  margin-bottom: 8px;
+  border-top: 3px solid #409eff;
+}
+.notes-entry:hover {
+  transform: translateY(-3px);
+}
+.notes-entry-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.notes-entry-icon {
+  font-size: 28px;
+  color: #409eff;
+}
+.notes-entry-text {
+  flex: 1;
+}
+.notes-entry-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+.notes-entry-desc {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+.notes-entry-arrow {
+  font-size: 20px;
   color: #409eff;
 }
 .status-pending .stat-value {

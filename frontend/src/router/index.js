@@ -93,6 +93,12 @@ const routes = [
             meta: { title: '热点投诉', category: 'complaint' },
           },
           {
+            path: 'notes',
+            name: 'OperationNotes',
+            component: () => import('@/views/OperationNotesView.vue'),
+            meta: { title: '知识沉淀', icon: 'Notebook' },
+          },
+          {
             path: 'monitor',
             name: 'ProductionMonitor',
             component: () => import('@/views/ProductionMonitorPlaceholder.vue'),

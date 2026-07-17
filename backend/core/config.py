@@ -26,6 +26,18 @@ class Settings(BaseSettings):
             "name": "集团短信业务",
             "path": "01-业务知识/政企业务知识库/集团短信业务/集团短信产品业务知识.md",
         },
+        {
+            "key": "e-contract",
+            "name": "电子协议",
+            "format": "docx",
+            "path": "06-附件/电子协议支撑服务能力白皮书V0.1.docx",
+        },
+    ]
+
+    # 运营工单关联的知识笔记路径（Obsidian vault 内相对目录，已被重构整理）
+    OPERATION_NOTE_FOLDERS: list = [
+        "11-业务运营",
+        "01-业务知识/政企业务知识库",
     ]
 
     BACKEND_HOST: str = "127.0.0.1"

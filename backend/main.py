@@ -17,6 +17,7 @@ from routers import (
     knowledge,
     mail_center,
     meeting,
+    obsidian,
     plugin,
     operation,
     product_bible,
@@ -96,6 +97,7 @@ app.include_router(requirement.router, prefix="/api/v1", tags=["需求管理"])
 app.include_router(dev_ticket.router, prefix="/api/v1", tags=["开发工单"])
 app.include_router(reminder.router, prefix="/api/v1", tags=["邮件催办"])
 app.include_router(product_bible.router, prefix="/api/v1", tags=["产品圣经"])
+app.include_router(obsidian.router, prefix="/api/v1", tags=["Obsidian 联动"])
 
 
 @app.on_event("startup")

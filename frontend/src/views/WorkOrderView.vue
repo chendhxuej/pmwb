@@ -153,7 +153,19 @@
           </template>
         </el-table-column>
         <el-table-column prop="impact_level" label="影响等级" width="90" />
-        <el-table-column prop="handler" label="责任人" width="120" />
+        <el-table-column prop="handler" label="责任人" width="160">
+          <template #default="{ row }">
+            <template v-if="row.handler">
+              <el-tag
+                v-for="h in row.handler.split(',')"
+                :key="h"
+                size="small"
+                class="handler-tag"
+              >{{ h }}</el-tag>
+            </template>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="related_system" label="关联系统" width="140" show-overflow-tooltip />
         <el-table-column prop="discovery_date" label="发现时间" width="160">
           <template #default="{ row }">
@@ -166,6 +178,11 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
+      </template>
+      <template #actions="{ row }">
+        <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+        <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
+        <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
       </template>
     </DataTable>
 
@@ -230,7 +247,26 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="责任人" prop="handler">
-              <el-input v-model="form.handler" placeholder="责任到人，填姓名" />
+              <el-select
+                v-model="form.handler"
+                multiple
+                filterable
+                placeholder="选择责任人(可多选)"
+                style="width: 100%"
+              >
+                <el-option-group
+                  v-for="g in HANDLER_GROUPS"
+                  :key="g.label"
+                  :label="g.label"
+                >
+                  <el-option
+                    v-for="o in g.options"
+                    :key="o.value"
+                    :label="o.label"
+                    :value="o.value"
+                  />
+                </el-option-group>
+              </el-select>
             </el-form-item>
           </el-col>
         </el-row>
@@ -265,8 +301,8 @@
         <el-form-item label="关联工单" prop="related_ticket_no">
           <el-input v-model="form.related_ticket_no" placeholder="关联开发工单编号" />
         </el-form-item>
-        <el-form-item label="影响范围" prop="impact_scope">
-          <el-input v-model="form.impact_scope" type="textarea" :rows="2" />
+        <el-form-item label="情况说明" prop="situation_desc">
+          <el-input v-model="form.situation_desc" type="textarea" :rows="2" placeholder="影响范围/具体情况说明" />
         </el-form-item>
         <el-form-item label="根因分析" prop="root_cause">
           <el-input v-model="form.root_cause" type="textarea" :rows="3" />
@@ -274,8 +310,22 @@
         <el-form-item label="解决方案" prop="solution">
           <el-input v-model="form.solution" type="textarea" :rows="3" />
         </el-form-item>
-        <el-form-item label="知识沉淀" prop="obsidian_path">
-          <el-input v-model="form.obsidian_path" placeholder="Obsidian 知识条目路径" />
+        <el-form-item label="知识笔记" prop="obsidian_path">
+          <div class="note-picker">
+            <el-input
+              v-model="form.obsidian_path"
+              placeholder="选择关联的 Obsidian 知识笔记"
+              readonly
+              style="flex: 1"
+            />
+            <el-button @click="openNotePicker">选择笔记</el-button>
+            <el-button
+              v-if="form.obsidian_path"
+              link
+              type="danger"
+              @click="form.obsidian_path = ''"
+            >清除</el-button>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -283,6 +333,121 @@
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 关联笔记选择弹窗 -->
+    <el-dialog
+      v-model="notePickerVisible"
+      title="选择关联知识笔记"
+      width="640px"
+      append-to-body
+    >
+      <el-input
+        v-model="noteSearch"
+        placeholder="搜索笔记标题"
+        clearable
+        style="margin-bottom: 12px"
+      />
+      <el-table
+        :data="filteredNotes"
+        height="360"
+        v-loading="notesLoading"
+        highlight-current-row
+        @row-click="(row) => (pickedNote = row)"
+        style="width: 100%"
+      >
+        <el-table-column prop="folder" label="目录" width="220" show-overflow-tooltip />
+        <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+      </el-table>
+      <template #footer>
+        <el-button @click="notePickerVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :disabled="!pickedNote"
+          @click="confirmPickNote"
+        >确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 工单详情抽屉：DB 字段 + 关联知识笔记同屏联动 -->
+    <el-drawer
+      v-model="detailVisible"
+      :title="'工单详情 · ' + (detailRow?.issue_no || '')"
+      size="76%"
+      destroy-on-close
+    >
+      <el-row :gutter="20">
+        <el-col :span="10">
+          <el-descriptions :column="1" border size="small" class="detail-desc">
+            <el-descriptions-item label="编号">{{ detailRow?.issue_no }}</el-descriptions-item>
+            <el-descriptions-item label="标题">{{ detailRow?.title }}</el-descriptions-item>
+            <el-descriptions-item label="大类">
+              {{ categoryMeta[detailRow?.category]?.label || detailRow?.category }}
+            </el-descriptions-item>
+            <el-descriptions-item label="子类">
+              <el-tag :type="issueTypeTagType(detailRow?.issue_type)" size="small">
+                {{ issueTypeText(detailRow?.issue_type) }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <StatusBadge :value="detailRow?.status" :options="statusBadgeOptions" />
+            </el-descriptions-item>
+            <el-descriptions-item label="影响等级">{{ detailRow?.impact_level }}</el-descriptions-item>
+            <el-descriptions-item label="责任人">
+              <template v-if="detailRow?.handler">
+                <el-tag
+                  v-for="h in detailRow.handler.split(',')"
+                  :key="h"
+                  size="small"
+                  class="handler-tag"
+                >{{ h }}</el-tag>
+              </template>
+              <span v-else>-</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="关联系统">{{ detailRow?.related_system || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="发现时间">{{ formatDateTime(detailRow?.discovery_date) }}</el-descriptions-item>
+            <el-descriptions-item label="解决时间">{{ formatDateTime(detailRow?.resolve_date) }}</el-descriptions-item>
+            <el-descriptions-item label="情况说明">{{ detailRow?.situation_desc || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="根因分析">{{ detailRow?.root_cause || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="解决方案">{{ detailRow?.solution || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="关联需求">{{ detailRow?.related_req_id || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="关联工单">{{ detailRow?.related_ticket_no || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="知识笔记">
+              {{ detailRow?.obsidian_path || '未关联' }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-col>
+        <el-col :span="14">
+          <div class="note-head">
+            <span class="note-title">关联知识笔记</span>
+            <div class="note-actions">
+              <template v-if="!noteEditing && detailRow?.obsidian_path">
+                <el-button size="small" @click="startNoteEdit">
+                  <el-icon><Edit /></el-icon><span>编辑笔记</span>
+                </el-button>
+              </template>
+              <template v-else-if="noteEditing">
+                <el-button size="small" type="primary" :loading="noteSaving" @click="saveNoteEdit">保存</el-button>
+                <el-button size="small" :disabled="noteSaving" @click="cancelNoteEdit">取消</el-button>
+              </template>
+            </div>
+          </div>
+          <div v-loading="noteLoading" class="note-body">
+            <template v-if="!noteEditing">
+              <MarkdownRender v-if="noteContent" :content="noteContent" />
+              <el-empty v-else-if="detailRow?.obsidian_path" description="笔记读取失败或为空" />
+              <el-empty v-else description="未关联知识笔记，可在编辑中关联" />
+            </template>
+            <el-input
+              v-else
+              v-model="noteEditContent"
+              type="textarea"
+              class="note-edit"
+              resize="none"
+            />
+          </div>
+        </el-col>
+      </el-row>
+    </el-drawer>
   </div>
 </template>
 
@@ -292,7 +457,10 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DataTable from '@/components/Common/DataTable.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import { operationApi } from '@/api/operation'
+import { obsidianApi } from '@/api/obsidian'
+import { HANDLER_GROUPS } from '@/constants/staff'
 import { formatDateTime } from '@/utils/format'
 
 const route = useRoute()
@@ -300,11 +468,11 @@ const category = computed(() => route.meta.category || 'prod')
 const title = computed(() => route.meta.title || '工单管理')
 
 const categoryMeta = {
-  bug: { prefix: 'BUG', color: 'danger' },
-  data: { prefix: 'DATA', color: 'warning' },
-  prod: { prefix: 'PROD', color: 'primary' },
-  task: { prefix: 'TASK', color: 'success' },
-  complaint: { prefix: 'COMP', color: 'danger' },
+  bug: { prefix: 'BUG', color: 'danger', label: 'BUG管理' },
+  data: { prefix: 'DATA', color: 'warning', label: '数据异常管理' },
+  prod: { prefix: 'PROD', color: 'primary', label: '生产问题分析' },
+  task: { prefix: 'TASK', color: 'success', label: '临时交办任务' },
+  complaint: { prefix: 'COMP', color: 'danger', label: '热点投诉' },
 }
 const categoryColor = computed(() => categoryMeta[category.value]?.color || 'info')
 
@@ -329,11 +497,11 @@ const queryForm = reactive({
 })
 
 const issueTypeOptions = [
-  { value: 'data_error', label: '数据异常' },
-  { value: 'system_failure', label: '系统故障' },
-  { value: 'complaint', label: '客户投诉' },
-  { value: 'process_block', label: '流程阻塞' },
-  { value: 'performance', label: '性能问题' },
+  { value: 'bug', label: 'BUG' },
+  { value: 'data_abnormal', label: '数据异常' },
+  { value: 'topic_analysis', label: '专题分析' },
+  { value: 'spot_event', label: '投点事件' },
+  { value: 'temp_task', label: '临时任务' },
   { value: 'other', label: '其他' },
 ]
 
@@ -364,11 +532,11 @@ const statusBadgeOptions = {
 
 const issueTypeTagType = (type) => {
   const map = {
-    data_error: 'danger',
-    system_failure: 'danger',
-    complaint: 'warning',
-    process_block: 'warning',
-    performance: 'info',
+    bug: 'danger',
+    data_abnormal: 'warning',
+    topic_analysis: 'primary',
+    spot_event: 'info',
+    temp_task: 'success',
     other: 'info',
   }
   return map[type] || 'info'
@@ -388,8 +556,8 @@ const defaultForm = {
   source: 'manual',
   discovery_date: '',
   resolve_date: '',
-  handler: '',
-  impact_scope: '',
+  handler: [],
+  situation_desc: '',
   impact_level: 'P2',
   root_cause: '',
   solution: '',
@@ -473,6 +641,7 @@ const handleAdd = () => {
 const handleEdit = (row) => {
   isEdit.value = true
   Object.assign(form, JSON.parse(JSON.stringify(row)))
+  form.handler = (row.handler || '').split(',').filter(Boolean)
   dialogVisible.value = true
 }
 
@@ -494,6 +663,8 @@ const handleSubmit = async () => {
     if (!valid) return
 
     const payload = { ...form, category: category.value }
+    payload.handler = Array.isArray(payload.handler) ? payload.handler.join(',') : payload.handler
+    delete payload.id
     for (const k of Object.keys(payload)) {
       if (payload[k] === '') payload[k] = null
     }
@@ -526,6 +697,106 @@ const generateIssueNo = () => {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
   const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
   return `${prefix}-${date}-${random}`
+}
+
+// ---- 关联笔记选择 ----
+const notePickerVisible = ref(false)
+const notesList = ref([])
+const notesLoading = ref(false)
+const noteSearch = ref('')
+const pickedNote = ref(null)
+
+const filteredNotes = computed(() => {
+  const kw = noteSearch.value.trim().toLowerCase()
+  if (!kw) return notesList.value
+  return notesList.value.filter((n) => (n.title || '').toLowerCase().includes(kw))
+})
+
+const openNotePicker = async () => {
+  pickedNote.value = null
+  notePickerVisible.value = true
+  notesLoading.value = true
+  try {
+    const res = await obsidianApi.listNotes()
+    notesList.value = res || []
+  } catch (e) {
+    ElMessage.error('加载笔记列表失败')
+    notesList.value = []
+  } finally {
+    notesLoading.value = false
+  }
+}
+
+const confirmPickNote = () => {
+  if (!pickedNote.value) return
+  form.obsidian_path = pickedNote.value.path
+  notePickerVisible.value = false
+}
+
+// ---- 工单详情抽屉 + 笔记联动 ----
+const detailVisible = ref(false)
+const detailRow = ref(null)
+const noteContent = ref('')
+const noteLoading = ref(false)
+const noteEditing = ref(false)
+const noteEditContent = ref('')
+const noteSaving = ref(false)
+
+const openDetail = (row) => {
+  detailRow.value = row
+  noteContent.value = ''
+  noteEditing.value = false
+  detailVisible.value = true
+  if (row.obsidian_path) {
+    loadNote(row.obsidian_path)
+  }
+}
+
+const loadNote = async (path) => {
+  noteLoading.value = true
+  try {
+    const res = await obsidianApi.getNoteContent(path)
+    noteContent.value = res.content || ''
+  } catch (e) {
+    noteContent.value = ''
+    ElMessage.error('笔记读取失败')
+  } finally {
+    noteLoading.value = false
+  }
+}
+
+const startNoteEdit = () => {
+  noteEditContent.value = noteContent.value
+  noteEditing.value = true
+}
+
+const cancelNoteEdit = () => {
+  noteEditing.value = false
+  noteEditContent.value = ''
+}
+
+const saveNoteEdit = async () => {
+  if (!detailRow.value?.obsidian_path) return
+  try {
+    await ElMessageBox.confirm(
+      '保存后将直接覆盖 Obsidian 中的源文件，且不可撤销。确认保存？',
+      '保存确认',
+      { type: 'warning', confirmButtonText: '确认保存', cancelButtonText: '再想想' }
+    )
+  } catch {
+    return
+  }
+  noteSaving.value = true
+  try {
+    await obsidianApi.updateNoteContent(detailRow.value.obsidian_path, noteEditContent.value)
+    noteContent.value = noteEditContent.value
+    noteEditing.value = false
+    ElMessage.success('已保存，Obsidian 文件已更新')
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e?.message || '未知错误'))
+  } finally {
+    noteSaving.value = false
+  }
 }
 
 // 切换分类（同一组件复用不同路由）时重置数据
@@ -625,5 +896,61 @@ onMounted(() => {
 
 .status-loop .stat-value {
   color: #409eff;
+}
+
+.handler-tag {
+  margin: 0 4px 4px 0;
+}
+
+.note-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-desc {
+  margin-bottom: 12px;
+}
+
+.note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.note-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.note-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-body {
+  min-height: 200px;
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 20px 24px;
+}
+
+.note-edit {
+  width: 100%;
+  height: 60vh;
+}
+
+.note-edit :deep(textarea) {
+  height: 100%;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #303133;
+  white-space: pre;
+  overflow: auto;
 }
 </style>

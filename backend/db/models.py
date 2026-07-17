@@ -215,9 +215,9 @@ class PmwbOperationIssue(Base):
         comment="工单大类：BUG管理/数据异常管理/生产问题分析/临时交办任务/热点投诉",
     )
     issue_type = Column(
-        Enum("data_error", "system_failure", "complaint", "process_block", "performance", "other"),
+        Enum("bug", "data_abnormal", "topic_analysis", "spot_event", "temp_task", "other"),
         default="other",
-        comment="问题子类(细分类型)",
+        comment="问题子类(细分类型): BUG/数据异常/专题分析/投点事件/临时任务/其他",
     )
     status = Column(
         Enum("pending", "processing", "verify", "resolved", "closed", "suspended"),
@@ -227,8 +227,8 @@ class PmwbOperationIssue(Base):
     source = Column(String(64), default="manual", comment="来源")
     discovery_date = Column(DateTime, comment="发现时间")
     resolve_date = Column(DateTime, comment="解决时间")
-    handler = Column(String(64), comment="处理人")
-    impact_scope = Column(Text, comment="影响范围")
+    handler = Column(String(512), comment="处理人(多选,逗号分隔)")
+    situation_desc = Column(Text, comment="情况说明")
     impact_level = Column(Enum("P0", "P1", "P2", "P3"), default="P2", comment="影响等级")
     root_cause = Column(Text, comment="根因分析")
     solution = Column(Text, comment="解决方案")

@@ -7,7 +7,7 @@ def test_create_operation_issue(client: TestClient, db):
     payload = {
         "issue_no": "ISSUE-20260713-001",
         "title": "数据异常",
-        "issue_type": "data_error",
+        "issue_type": "data_abnormal",
         "impact_level": "P1",
         "status": "pending",
         "handler": "张三",
