@@ -40,8 +40,10 @@
           <el-progress :percentage="row.progress || 0" :status="row.progress === 100 ? 'success' : ''" />
         </template>
         <template #actions="{ row }">
-          <el-button type="primary" size="small" @click="handleStatus(row)">状态</el-button>
-          <el-button size="small" @click="handleEdit(row)">编辑</el-button>
+          <el-button size="small" @click="handleDetail(row)">详情</el-button>
+          <el-button size="small" @click="handleStatus(row)">状态</el-button>
+          <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
+          <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
         </template>
       </DataTable>
     </div>
@@ -84,6 +86,62 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="detailDialogVisible" title="工单详情" width="720px" destroy-on-close>
+      <el-descriptions v-loading="detailLoading" :column="2" border>
+        <el-descriptions-item label="工单编号">{{ detail.ticket_no || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="关联需求">{{ detail.req_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="涉及系统">{{ detail.system_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="开发团队">{{ detail.dev_team || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="开发负责人">{{ detail.developer || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="联系方式">{{ detail.dev_contact || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="优先级">
+          <StatusBadge :value="detail.priority" :options="priorityOptions" />
+        </el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <StatusBadge :value="detail.status" :options="statusOptions" />
+        </el-descriptions-item>
+        <el-descriptions-item label="进度">
+          <el-progress :percentage="detail.progress || 0" :status="detail.progress === 100 ? 'success' : ''" />
+        </el-descriptions-item>
+        <el-descriptions-item label="创建人">{{ detail.created_by || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="开发内容" :span="2">{{ detail.description || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="风险/延期" :span="2">{{ detail.risk_note || '-' }}</el-descriptions-item>
+      </el-descriptions>
+
+      <el-divider content-position="left">状态变更日志</el-divider>
+      <el-timeline v-if="detailLogs.length">
+        <el-timeline-item
+          v-for="(log, idx) in detailLogs"
+          :key="idx"
+          :timestamp="formatLogTime(log.created_at)"
+        >
+          <span>{{ statusLabel(log.from_status) }} → {{ statusLabel(log.to_status) }}</span>
+          <span v-if="log.operator" class="log-operator">（{{ log.operator }}）</span>
+          <div v-if="log.note" class="log-note">{{ log.note }}</div>
+        </el-timeline-item>
+      </el-timeline>
+      <el-empty v-else description="暂无状态变更记录" />
+
+      <el-divider content-position="left">交付物</el-divider>
+      <el-table v-if="detailDeliverables.length" :data="detailDeliverables" border size="small">
+        <el-table-column prop="deliverable_type" label="类型" width="100">
+          <template #default="{ row }">
+            {{ deliverableTypeLabel(row.deliverable_type) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="file_name" label="文件名" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="obsidian_path" label="Obsidian路径" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="local_path" label="本地路径" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="note" label="备注" min-width="120" show-overflow-tooltip />
+      </el-table>
+      <el-empty v-else description="暂无交付物" />
+
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="openDetailEdit">编辑工单</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="statusDialogVisible" title="状态流转" width="500px">
       <el-form :model="statusForm" label-width="100px">
         <el-form-item label="当前状态">
@@ -114,6 +172,9 @@ import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import {
   getDevTickets,
+  getDevTicket,
+  getDevTicketLogs,
+  getDevTicketDeliverables,
   createDevTicket,
   updateDevTicket,
   updateDevTicketStatus,
@@ -140,6 +201,17 @@ const priorityOptions = {
 const statusSelectOptions = Object.entries(statusOptions).map(([value, item]) => ({ value, label: item.label }))
 const prioritySelectOptions = Object.entries(priorityOptions).map(([value, item]) => ({ value, label: item.label }))
 
+const statusLabel = (s) => (statusOptions[s] || { label: s || '-' }).label
+
+const deliverableTypeMap = {
+  operation_manual: '操作手册',
+  interface_doc: '接口文档',
+  test_case: '测试用例',
+  release_note: '发布说明',
+  other: '其他',
+}
+const deliverableTypeLabel = (t) => deliverableTypeMap[t] || t || '-'
+
 const searchFields = [
   { name: 'keyword', label: '关键字', type: 'input', placeholder: '编号/系统/负责人' },
   { name: 'status', label: '状态', type: 'select', options: [{ label: '全部', value: '' }, ...statusSelectOptions] },
@@ -154,7 +226,7 @@ const columns = [
   { slot: 'priority', label: '优先级', width: 90 },
   { slot: 'status', label: '状态', width: 110 },
   { slot: 'progress', label: '进度', width: 120 },
-  { slot: 'actions', label: '操作', width: 150, fixed: 'right' },
+  { slot: 'actions', label: '操作', width: 280, fixed: 'right' },
 ]
 
 const tableData = ref([])
@@ -175,6 +247,11 @@ const statsItems = computed(() => [
 
 const formDialogVisible = ref(false)
 const statusDialogVisible = ref(false)
+const detailDialogVisible = ref(false)
+const detailLoading = ref(false)
+const detail = ref({})
+const detailLogs = ref([])
+const detailDeliverables = ref([])
 const isEdit = ref(false)
 const form = reactive({ id: null, ticket_no: '', req_id: '', system_name: '', dev_team: '', developer: '', dev_contact: '', priority: 'P2', description: '', risk_note: '' })
 const statusForm = reactive({ id: null, currentStatus: '', status: '', note: '', operator: '当前用户' })
@@ -234,9 +311,28 @@ function handleEdit(row) {
 async function handleSave() {
   try {
     if (isEdit.value) {
-      await updateDevTicket(form.id, { ...form })
+      const updatePayload = {
+        dev_team: form.dev_team,
+        developer: form.developer,
+        dev_contact: form.dev_contact,
+        priority: form.priority,
+        description: form.description,
+        risk_note: form.risk_note,
+      }
+      await updateDevTicket(form.id, updatePayload)
     } else {
-      await createDevTicket({ ...form })
+      const createPayload = {
+        ticket_no: form.ticket_no,
+        req_id: form.req_id,
+        system_name: form.system_name,
+        dev_team: form.dev_team,
+        developer: form.developer,
+        dev_contact: form.dev_contact,
+        priority: form.priority,
+        description: form.description,
+        risk_note: form.risk_note,
+      }
+      await createDevTicket(createPayload)
     }
     ElMessage.success('保存成功')
     formDialogVisible.value = false
@@ -265,6 +361,38 @@ async function handleSaveStatus() {
   } catch (err) {
     ElMessage.error(err.message || '状态更新失败')
   }
+}
+
+async function handleDetail(row) {
+  detailDialogVisible.value = true
+  detailLoading.value = true
+  detailLogs.value = []
+  detailDeliverables.value = []
+  try {
+    const [d, logs, deliverables] = await Promise.all([
+      getDevTicket(row.id),
+      getDevTicketLogs(row.id),
+      getDevTicketDeliverables(row.id),
+    ])
+    detail.value = d || {}
+    detailLogs.value = logs || []
+    detailDeliverables.value = deliverables || []
+  } catch (err) {
+    ElMessage.error(err.message || '获取工单详情失败')
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function formatLogTime(t) {
+  if (!t) return ''
+  return String(t).replace('T', ' ').slice(0, 19)
+}
+
+function openDetailEdit() {
+  if (!detail.value || !detail.value.id) return
+  detailDialogVisible.value = false
+  handleEdit(detail.value)
 }
 
 async function handleDelete(row) {

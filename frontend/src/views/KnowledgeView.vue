@@ -65,6 +65,13 @@
           <el-card shadow="hover" class="knowledge-card">
             <div class="card-header">
               <el-tag size="small">{{ item.category }}</el-tag>
+              <el-tag
+                v-if="item.source_type"
+                size="small"
+                type="warning"
+                class="src-tag"
+                @click="goSource(item)"
+              >{{ sourceLabel(item.source_type) }}</el-tag>
               <span class="card-id">{{ item.item_id }}</span>
             </div>
             <h3 class="card-title" @click="handleViewContent(item)">{{ item.title }}</h3>
@@ -77,6 +84,7 @@
             <div class="card-footer">
               <span class="update-time">{{ formatDateTime(item.updated_at) }}</span>
               <div class="card-actions">
+                <el-button v-if="item.obsidian_path" link type="success" @click="openPreview(item.obsidian_path)">预览笔记</el-button>
                 <el-button link type="primary" @click="handleViewContent(item)">查看</el-button>
                 <el-button link type="primary" @click="handleEdit(item)">编辑</el-button>
                 <el-button link type="danger" @click="handleDelete(item)">删除</el-button>
@@ -168,13 +176,18 @@
         <el-button type="primary" @click="handleSaveContent">保存内容</el-button>
       </template>
     </el-dialog>
+
+    <ObsidianNoteDialog v-model="previewVisible" :path="previewPath" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { knowledgeApi } from '@/api/knowledge'
+import { obsidianApi } from '@/api/obsidian'
+import ObsidianNoteDialog from '@/components/Common/ObsidianNoteDialog.vue'
 import { formatDateTime } from '@/utils/format'
 
 const loading = ref(false)
@@ -183,6 +196,9 @@ const contentDialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
 const tableData = ref([])
+const previewVisible = ref(false)
+const previewPath = ref('')
+const router = useRouter()
 
 const pagination = reactive({
   page: 1,
@@ -292,6 +308,22 @@ const handleReset = () => {
 const splitTags = (tags) => {
   if (!tags) return []
   return tags.split(',').map((t) => t.trim()).filter(Boolean)
+}
+
+const openPreview = (p) => {
+  previewPath.value = p
+  previewVisible.value = true
+}
+
+const sourceLabel = (t) => {
+  if (t === 'operation') return '来源·运营问题'
+  if (t === 'meeting') return '来源·会议'
+  return ''
+}
+
+const goSource = (item) => {
+  if (item.source_type === 'operation') router.push('/operation')
+  else if (item.source_type === 'meeting') router.push('/meetings')
 }
 
 const buildObsidianPath = (item) => {
@@ -440,6 +472,10 @@ onMounted(() => {
 .card-id {
   font-size: 12px;
   color: #909399;
+}
+
+.src-tag {
+  cursor: pointer;
 }
 
 .card-title {

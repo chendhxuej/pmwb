@@ -97,9 +97,19 @@ async function loadData() {
 }
 
 async function fetchAll() {
-  // 导出前拉取全部集团需求（上限 5000）
-  const res = await getRequirements({ priority: '集团需求', page: 1, page_size: 5000 })
-  return (res.items || []).map((r) => ({ ...r, ext: r.ext || {} }))
+  // 后端 page_size 上限为 100，导出前分批拉取全部集团需求
+  const all = []
+  let page = 1
+  const pageSize = 100
+  while (true) {
+    const res = await getRequirements({ priority: '集团需求', page, page_size: pageSize })
+    const items = res.items || []
+    all.push(...items.map((r) => ({ ...r, ext: r.ext || {} })))
+    const total = res.total || 0
+    if (all.length >= total || items.length < pageSize) break
+    page += 1
+  }
+  return all
 }
 
 function handleExport() {

@@ -7,6 +7,7 @@ from core.response import success
 from db.base import get_db
 from schemas.meeting import MeetingCreate, MeetingUpdate
 from services.meeting import meeting_service
+from services.obsidian_link import sediment_meeting
 
 router = APIRouter(prefix="/meetings", tags=["会议管理"])
 
@@ -57,3 +58,9 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
     """删除会议。"""
     ok = meeting_service.delete(db, meeting_id)
     return success(data=ok)
+
+
+@router.post("/{meeting_id}/sediment")
+def sediment_meeting_endpoint(meeting_id: int, db: Session = Depends(get_db)):
+    """一键沉淀：把会议生成知识条目写入 Obsidian 并建双向索引。"""
+    return success(data=sediment_meeting(db, meeting_id))

@@ -100,20 +100,42 @@ class RequirementService:
             func.max(SentEmail.id).label('max_id')
         ).group_by(SentEmail.req_id)
 
-        # 子查询获取每个需求的最新记录 ID
-        from sqlalchemy import text
-        subq = base_query.subquery()
-
+        # 关键字过滤：匹配 req_id / req_name / proposer
         if keyword:
-            subq_filtered = db.query(subq.c.req_id).join(
-                SentEmail, SentEmail.req_id == subq.c.req_id
-            ).filter(
-                (SentEmail.req_id.ilike(f"%{keyword}%"))
-                | (SentEmail.req_name.ilike(f"%{keyword}%"))
-                | (SentEmail.proposer.ilike(f"%{keyword}%"))
+            matched_req_ids = (
+                db.query(SentEmail.req_id)
+                .filter(
+                    (SentEmail.req_id.ilike(f"%{keyword}%"))
+                    | (SentEmail.req_name.ilike(f"%{keyword}%"))
+                    | (SentEmail.proposer.ilike(f"%{keyword}%"))
+                )
+                .distinct()
+                .all()
             )
-            matched_ids = [row[0] for row in subq_filtered.all()]
-            subq = base_query.filter(subq.c.req_id.in_(matched_ids))
+            matched_req_ids = [row[0] for row in matched_req_ids]
+            base_query = base_query.filter(SentEmail.req_id.in_(matched_req_ids))
+
+        # 状态/优先级过滤：只在有扩展记录且匹配的需求中筛选
+        if status or priority:
+            ext_query = db.query(PmwbRequirementExt.req_id)
+            if status:
+                ext_query = ext_query.filter(PmwbRequirementExt.status == status)
+            if priority:
+                ext_query = ext_query.filter(PmwbRequirementExt.priority == priority)
+            matched_req_ids = [row[0] for row in ext_query.all()]
+            if not matched_req_ids:
+                # 无匹配时直接返回空分页，避免无意义的子查询
+                return {
+                    "total": 0,
+                    "page": page,
+                    "page_size": page_size,
+                    "pages": 0,
+                    "items": [],
+                }
+            base_query = base_query.filter(SentEmail.req_id.in_(matched_req_ids))
+
+        # 子查询获取每个需求的最新记录 ID
+        subq = base_query.subquery()
 
         # 获取去重后的总需求条数
         total_query = db.query(func.count()).select_from(subq)
@@ -139,21 +161,10 @@ class RequirementService:
         id_order = {mid: idx for idx, mid in enumerate(max_ids)}
         items = sorted(items_query.all(), key=lambda x: id_order.get(x.id, 0))
 
-        ext_map = {}
-        if status or priority:
-            ext_query = db.query(PmwbRequirementExt)
-            if status:
-                ext_query = ext_query.filter(PmwbRequirementExt.status == status)
-            if priority:
-                ext_query = ext_query.filter(PmwbRequirementExt.priority == priority)
-            ext_rows = ext_query.all()
-            ext_map = {row.req_id: row for row in ext_rows}
-            req_ids = {item.req_id for item in items}
-            ext_map.update({row.req_id: row for row in ext_rows if row.req_id in req_ids})
-        else:
-            req_ids = {item.req_id for item in items}
-            ext_rows = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id.in_(req_ids)).all()
-            ext_map = {row.req_id: row for row in ext_rows}
+        # 加载当前页需求的扩展信息
+        req_ids = {item.req_id for item in items}
+        ext_rows = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id.in_(req_ids)).all()
+        ext_map = {row.req_id: row for row in ext_rows}
 
         # 统计每个需求的团队评估数量（以可编辑评估表为准，无记录时回退到邮件数）
         req_ids = {item.req_id for item in items}

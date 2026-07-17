@@ -79,6 +79,12 @@
             {{ row.actions ? row.actions.length : 0 }}
           </template>
         </el-table-column>
+        <el-table-column label="知识联动" width="150">
+          <template #default="{ row }">
+            <el-button v-if="row.obsidian_path" link type="success" @click="openPreview(row.obsidian_path)">📝 已沉淀</el-button>
+            <el-button link type="primary" @click="handleSediment(row)">沉淀</el-button>
+          </template>
+        </el-table-column>
       </template>
     </DataTable>
 
@@ -178,7 +184,10 @@
           </el-col>
         </el-row>
         <el-form-item label="Obsidian" prop="obsidian_path">
-          <el-input v-model="form.obsidian_path" placeholder="Obsidian 纪要路径" />
+          <div class="obsidian-input-row">
+            <el-input v-model="form.obsidian_path" placeholder="Obsidian 纪要路径（留空可一键沉淀自动生成）" />
+            <el-button v-if="form.obsidian_path" link type="success" @click="openPreview(form.obsidian_path)">预览</el-button>
+          </div>
         </el-form-item>
 
         <!-- 参会人 -->
@@ -245,6 +254,8 @@
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <ObsidianNoteDialog v-model="previewVisible" :path="previewPath" />
   </div>
 </template>
 
@@ -253,7 +264,9 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DataTable from '@/components/Common/DataTable.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import ObsidianNoteDialog from '@/components/Common/ObsidianNoteDialog.vue'
 import { meetingApi } from '@/api/meeting'
+import { obsidianApi } from '@/api/obsidian'
 import { formatDateTime } from '@/utils/format'
 
 const loading = ref(false)
@@ -261,6 +274,8 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
 const tableData = ref([])
+const previewVisible = ref(false)
+const previewPath = ref('')
 
 const pagination = reactive({
   page: 1,
@@ -379,6 +394,27 @@ const handleDelete = (row) => {
   })
 }
 
+const openPreview = (p) => {
+  previewPath.value = p
+  previewVisible.value = true
+}
+
+const handleSediment = async (row) => {
+  try {
+    const res = await obsidianApi.sedimentMeeting(row.id)
+    if (res.created) {
+      ElMessage.success('已沉淀为知识条目并写入 Obsidian')
+    } else {
+      ElMessage.info('知识条目已存在，已定位')
+    }
+    previewPath.value = res.obsidian_path
+    previewVisible.value = true
+    loadData()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '沉淀失败')
+  }
+}
+
 const addAttendee = () => {
   form.attendees.push({ name: '', email: '', dept: '', is_required: 1 })
 }
@@ -480,5 +516,15 @@ onMounted(() => {
 .sub-row {
   margin-bottom: 12px;
   align-items: center;
+}
+
+.obsidian-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.obsidian-input-row .el-input {
+  flex: 1;
 }
 </style>
