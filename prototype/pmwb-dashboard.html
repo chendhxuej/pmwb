@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PMWB 工作台 — 首页看板（设计原型）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  /* ═══════ DESIGN TOKENS ═══════ */
+  :root {
+    --bg-app: #f3f5f9;
+    --sidebar-bg: #1e293b;
+    --sidebar-active: rgba(47,111,237,.14);
+    --surface: #ffffff;
+    --border: #e4e9f0;
+    --border-subtle: #eff2f8;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --accent: #2f6fed;           /* desaturated electric blue */
+    --accent-hover: #2659c9;
+    --accent-soft: #eaf1fe;
+    --success: #0f9d6b;
+    --success-soft: #ecfdf3;
+    --warning: #d98a1f;
+    --warning-soft: #fef7ed;
+    --danger: #d9544d;
+    --danger-soft: #fef2f2;
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 22px;
+    --shadow-card: 0 2px 12px -3px rgba(15,23,42,.08),0 1px 3px -1px rgba(15,23,42,.06);
+    --shadow-elevated: 0 16px 48px -12px rgba(15,23,42,.14);
+    --transition-fast: .18s cubic-bezier(.4,0,.2,1);
+    --font-display: 'Outfit', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+    --sidebar-w: 236px;
+  }
+
+  /* ── RESET & BASE ── */
+  *,*::before,*::after { box-sizing:border-box;margin:0;padding:0 }
+  html { font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color-scheme:normal }
+  body {
+    font-family: var(--font-display); background:var(--bg-app);
+    color:var(--text-primary); display:flex; min-height:100vh; overflow-x:hidden
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width:var(--sidebar-w); flex-shrink:0; height:100vh; position:fixed;left:0;top:0;z-index:100;
+    background:var(--sidebar-bg); color:#cbd5e1;display:flex;flex-direction:column;
+  }
+  .sb-brand { padding:26px 24px 20px; display:flex;align-items:center;gap:11px;border-bottom:1px solid rgba(255,255,255,.07) }
+  .sb-logo { width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2f6fed 30%,#60a5fa);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:14px;letter-spacing:-.5px }
+  .sb-title { font-size:17px;font-weight:700;color:#f1f5f9;letter-spacing:.3px }
+  .sb-nav { flex:1;padding:16px 12px;display:flex;flex-direction:column;gap:3px;overflow-y:auto }
+  .sb-item {
+    display:flex;align-items:center;gap:13px;padding:11px 14px;border-radius:10px;
+    color:#94a3b8;font-size:14px;font-weight:400;cursor:pointer;transition:all var(--transition-fast);
+    position:relative;text-decoration:none;line-height:1.35
+  }
+  .sb-item:hover { background:rgba(255,255,255,.05);color:#e2e8f0 }
+  .sb-item.active { background:var(--sidebar-active); color:#60a5fa;font-weight:500 }
+  .sb-item.active::before { content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:20px;background:#60a5fa;border-radius:0 3px 3px 0 }
+  .sb-icon { width:20px;height:20px;flex-shrink:0;opacity:.75 }
+  .sb-item.active .sb-icon { opacity:1 }
+  .sb-bottom { padding:18px 16px;border-top:1px solid rgba(255,255,255,.07) }
+  .sb-user { display:flex;align-items:center;gap:12px;padding:8px;border-radius:10px;cursor:pointer;transition:background var(--transition-fast) }
+  .sb-user:hover { background:rgba(255,255,255,.04) }
+  .sb-avatar { width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#38bdf8,#2dd4bf);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff }
+  .sb-user-info { display:flex;flex-direction:column }
+  .sb-user-name { font-size:13px;font-weight:500;color:#e2e8f0;line-height:1.25 }
+  .sb-user-role { font-size:11.5px;color:#64748b }
+
+  /* ── MAIN LAYOUT ── */
+  .main { margin-left:var(--sidebar-w); flex:1;min-height:100vh;display:flex;flex-direction:column }
+  .topbar {
+    height:62px;flex-shrink:0;background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(12px);
+    border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;
+    padding:0 32px;position:sticky;top:0;z-index:90
+  }
+  .tb-left { display:flex;align-items:center;gap:14px }
+  .tb-title { font-size:18px;font-weight:700;color:var(--text-primary) }
+  .tb-date { font-size:12.5px;color:var(--text-muted);background:var(--border-subtle);padding:4px 10px;border-radius:6px;font-weight:400 }
+  .tb-right { display:flex;align-items:center;gap:10px }
+  .tb-search {
+    width:260px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--surface);
+    padding:0 14px;font-size:13px;color:var(--text-primary);outline:none;transition:all var(--transition-fast)
+  }
+  .tb-search:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .tb-search::placeholder { color:var(--text-muted) }
+  .tb-icon-btn {
+    width:36px;height:36px;border-radius:9px;border:1px solid transparent;background:transparent;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--transition-fast);
+    color:var(--text-secondary);position:relative
+  }
+  .tb-icon-btn:hover { background:var(--bg-app);border-color:var(--border);color:var(--text-primary) }
+  .tb-icon-btn .badge-dot {
+    position:absolute;top:8px;right:8px;width:7px;height:7px;border-radius:50%;background:var(--danger);border:1.5px solid #fff
+  }
+  .tb-avatar { width:33px;height:33px;border-radius:9px;background:linear-gradient(135deg,#38bdf8,#2dd4bf);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff;cursor:pointer }
+
+  /* ── CONTENT AREA ── */
+  .content { padding:28px 32px 40px;max-width:1440px;width:100% }
+
+  /* ── BENTO GRID ── */
+  .bento-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:18px }
+
+  /* ── CARD BASE ── */
+  .card {
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);
+    box-shadow:var(--shadow-card);overflow:hidden;transition:
+      transform var(--transition-fast),
+      box-shadow var(--transition-fast);
+    animation:bentoIn .45s cubic-bezier(.16,1,.3,1) both
+  }
+  .card:hover { transform:translateY(-2px);box-shadow:var(--shadow-elevated) }
+  @keyframes bentoIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+
+  /* Stagger delays for bento entrance */
+  .card:nth-child(1){animation-delay:.02s} .card:nth-child(2){animation-delay:.06s}
+  .card:nth-child(3){animation-delay:.10s}.card:nth-child(4){animation-delay:.14s}
+  .card:nth-child(5){animation-delay:.18s}.card:nth-child(6){animation-delay:.22s}
+  .card:nth-child(7){animation-delay:.26s}.card:nth-child(8){animation-delay:.30s}
+  .card:nth-child(9){animation-delay:.34s}.card:nth-child(10){animation-delay:.38s}
+
+  .card-header { padding:18px 22px 0;display:flex;align-items:center;justify-content:space-between }
+  .card-label { font-size:13px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em }
+  .card-action { font-size:12px;color:var(--accent);cursor:pointer;font-weight:500;text-decoration:none;transition:color var(--transition-fast) }
+  .card-action:hover { color:var(--accent-hover);text-decoration:underline }
+  .card-body { padding:16px 22px 20px }
+
+  /* ── ROW 1: GREETING + LIVE STATUS ── */
+  .greeting-tile { grid-column:span 8; background:linear-gradient(135deg,#1e293b 0%,#334155 100%);border:none;color:#f8fafc;position:relative;overflow:hidden }
+  .greeting-tile::after {
+    content:'';position:absolute;top:-40%;right:-10%;width:320px;height:320px;border-radius:50%;
+    background:radial-gradient(circle,rgba(47,111,237,.18) 0%,transparent 70%);
+    pointer-events:none
+  }
+  .greeting-inner { position:relative;z-index:1;padding:28px 30px;display:flex;flex-direction:column;gap:18px }
+  .g-top { display:flex;align-items:flex-start;justify-content:space-between }
+  .g-hello { font-size:26px;font-weight:700;letter-spacing:-.3px;line-height:1.25 }
+  .g-hello span { color:#93c5fd }
+  .g-sub { font-size:14px;color:#94a3b8;line-height:1.5;max-width:420px }
+  .g-stats { display:flex;gap:28px;margin-top:4px }
+  .g-stat { display:flex;flex-direction:column }
+  .g-stat-val { font-size:22px;font-weight:700;font-family:var(--font-mono);line-height:1.2 }
+  .g-stat-val.up { color:#4ade80 } .g-stat-val.down { color:#f87171 }
+  .g-stat-key { font-size:11.5px;color:#64748b;margin-top:2px;letter-spacing:.03em }
+  /* command bar inside greeting */
+  .cmd-bar {
+    margin-top:6px;display:flex;align-items:center;gap:10px;
+    background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);
+    border-radius:12px;padding:10px 16px;backdrop-filter:blur(8px)
+  }
+  .cmd-bar-kbd { display:flex;gap:4px }
+  .kbd { font-family:var(--font-mono);font-size:10.5px;font-weight:600;
+    background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);
+    color:#94a3b8;padding:2px 7px;border-radius:5px }
+  .cmd-bar-text { flex:1;font-size:13px;color:#64748b;min-width:0;white-space:nowrap;overflow:hidden }
+  .cmd-cursor { display:inline-block;width:2px;height:15px;background:#60a5fa;vertical-align:text-bottom;animation:blink 1s step-end infinite }
+  @keyframes blink { 50%{opacity:0} }
+
+  .live-status { grid-column:span 4 }
+  .ls-list { list-style:none;padding:0 22px 18px }
+  .ls-item { display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-subtle) }
+  .ls-item:last-child { border-bottom:none }
+  .ls-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0 }
+  .ls-dot.red { background:var(--danger);box-shadow:0 0 6px rgba(217,84,77,.4) }
+  .ls-dot.amber { background:var(--warning);box-shadow:0 0 6px rgba(217,138,31,.35) }
+  .ls-dot.green { background:var(--success) }
+  .ls-text { font-size:13px;color:var(--text-primary);flex:1;min-width:0 }
+  .ls-time { font-size:11.5px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap }
+
+  /* ── ROW 2: KPI STRIP (4 stat cards) ── */
+  .kpi-card { grid-column:span 3;text-align:center;padding:22px 18px!important }
+  .kpi-num { font-size:34px;font-weight:800;font-family:var(--font-mono);line-height:1.1;letter-spacing:-1.5px }
+  .kpi-num.blue { color:var(--accent) }
+  .kpi-num.amber { color:var(--warning) }
+  .kpi-num.green { color:var(--success) }
+  .kpi-num.red { color:var(--danger) }
+  .kpi-label { font-size:12.5px;color:var(--text-secondary);margin-top:6px;font-weight:500 }
+  .kpi-delta { font-size:11.5px;font-weight:600;margin-top:4px;display:inline-flex;align-items:center;gap:3px }
+  .kpi-delta.up { color:var(--success) }
+  .kpi-delta.down { color:var(--danger) }
+  .kpi-delta.neutral { color:var(--text-muted) }
+
+  /* ── ROW 3: TREND CHART + DONUT ── */
+  .trend-chart { grid-column:span 8;min-height:280px }
+  .chart-wrap { padding:8px 4px 4px }
+  .chart-svg { width:100%;height:220px }
+  .chart-legend { display:flex;gap:20px;padding:12px 22px 0;border-top:1px solid var(--border-subtle);margin-top:4px }
+  .legend-item { display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary) }
+  .legend-dot { width:9px;height:9px;border-radius:50%;flex-shrink:0 }
+
+  .donut-card { grid-column:span 4;min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center }
+  .donut-svg { width:180px;height:180px }
+  .donut-legend { margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;width:100%;padding:0 22px 16px }
+  .dl-item { display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-secondary) }
+  .dl-dot { width:9px;height:9px;border-radius:50%;flex-shrink:0 }
+  .dl-val { font-family:var(--font-mono);font-weight:600;color:var(--text-primary);margin-left:auto }
+
+  /* ── ROW 4: TODO LIST + ALERTS + QUICK ACCESS ── */
+  .todo-card { grid-column:span 5;min-height:340px;display:flex;flex-direction:column }
+  .todo-list { list-style:none;padding:0 22px 16px;flex:1;overflow-y:auto }
+  .todo-item { display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--border-subtle);transition:background var(--transition-fast) }
+  .todo-item:last-child { border-bottom:none }
+  .todo-item:hover { background:rgba(47,111,237,.02);margin:0 -22px;padding:11px 22px;border-radius:8px;border-color:transparent }
+  .todo-priority {
+    font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;flex-shrink:0;
+    line-height:1.5;white-space:nowrap;margin-top:1px
+  }
+  .tp-urgent { background:var(--danger-soft);color:var(--danger) }
+  .tp-high   { background:var(--warning-soft);color:var(--warning) }
+  .tp-med    { background:var(--accent-soft);color:var(--accent) }
+  .tp-low    { background:var(--border-subtle);color:var(--text-muted) }
+  .todo-body { flex:1;min-width:0 }
+  .todo-title { font-size:13.5px;color:var(--text-primary);line-height:1.4;word-break:break-word }
+  .todo-meta { font-size:11.5px;color:var(--text-muted);margin-top:3px;display:flex;align-items:center;gap:8px }
+  .todo-deadline { color:var(--danger);font-weight:500 }
+  .todo-overdue { color:var(--danger);background:var(--danger-soft);padding:0 6px;border-radius:4px }
+
+  .alert-card { grid-column:span 4;min-height:340px;display:flex;flex-direction:column }
+  .alert-list { list-style:none;padding:0 22px 16px;flex:1 }
+  .alert-item { display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-subtle) }
+  .alert-item:last-child { border-bottom:none }
+  .alert-sev {
+    font-size:10px;font-weight:700;padding:3px 9px;border-radius:5px;flex-shrink:0;white-space:nowrap
+  }
+  .as-red { background:var(--danger-soft);color:var(--danger) }
+  .as-amber { background:var(--warning-soft);color:var(--warning) }
+  .as-green { background:var(--success-soft);color:var(--success) }
+  .alert-body { flex:1;min-width:0 }
+  .alert-msg { font-size:13px;color:var(--text-primary) }
+  .alert-count { font-size:12px;font-family:var(--font-mono);font-weight:600;margin-top:2px }
+
+  .quick-access { grid-column:span 3;min-height:340px }
+  .qa-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 22px 18px }
+  .qa-btn {
+    display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 8px;
+    border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface);
+    cursor:pointer;transition:all var(--transition-fast);text-decoration:none
+  }
+  .qa-btn:hover { border-color:var(--accent);background:var(--accent-soft);transform:translateY(-1px) }
+  .qa-icon { width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px }
+  .qa-label { font-size:11.5px;color:var(--text-secondary);font-weight:500;text-align:center }
+
+  /* ── ROW 5: RECENT REQ + SCHEDULE ── */
+  .recent-req { grid-column:span 7;min-height:300px;display:flex;flex-direction:column }
+  .req-table { width:100%;border-collapse:collapse;padding:0 22px }
+  .req-table th { text-align:left;font-size:11.5px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:10px 10px 10px 0;border-bottom:1px solid var(--border) }
+  .req-table td { font-size:13px;padding:12px 10px;border-bottom:1px solid var(--border-subtle);color:var(--text-primary);vertical-align:middle }
+  .req-name { font-weight:500;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+  .req-owner { color:var(--text-secondary);font-size:12.5px }
+  .status-tag {
+    font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px;display:inline-block;white-space:nowrap
+  }
+  .st-review { background:var(--accent-soft);color:var(--accent) }
+  .st-dev    { background:var(--warning-soft);color:var(--warning) }
+  .st-backlog{ background:var(--border-subtle);color:var(--text-muted) }
+  .st-live   { background:var(--success-soft);color:var(--success) }
+  .req-date { font-size:12px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap }
+
+  .schedule-card { grid-column:span 5;min-height:300px;display:flex;flex-direction:column }
+  .sched-list { list-style:none;padding:0 22px 16px;flex:1 }
+  .sched-item { display:flex;gap:14px;padding:13px 0;border-bottom:1px solid var(--border-subtle);align-items:flex-start }
+  .sched-item:last-child { border-bottom:none }
+  .sched-time { font-size:13px;font-weight:700;font-family:var(--font-mono);color:var(--accent);width:52px;flex-shrink:0;padding-top:1px }
+  .sched-info { flex:1;min-width:0 }
+  .sched-title { font-size:13.5px;color:var(--text-primary);line-height:1.35 }
+  .sched-loc { font-size:11.5px;color:var(--text-muted);margin-top:3px;display:flex;align-items:center;gap:5px }
+
+  /* ── ACTION BAR (below KPIs) ── */
+  .action-row { display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px 0 4px }
+  .act-btn {
+    display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:9px;
+    font-size:13px;font-weight:600;border:1px solid transparent;cursor:pointer;
+    transition:all var(--transition-fast);text-decoration:none;line-height:1.35
+  }
+  .act-btn.primary { background:var(--accent);color:#fff;border-color:var(--accent) }
+  .act-btn.primary:hover { background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 6px 20px -4px rgba(47,111,237,.35) }
+  .act-btn.success { background:var(--success);color:#fff }
+  .act-btn.success:hover { background:#0c885c;transform:translateY(-1px) }
+  .act-btn.warn { background:var(--warning);color:#fff }
+  .act-btn.warn:hover { background:#c37a16;transform:translateY(-1px) }
+  .act-btn.ghost { background:transparent;color:var(--text-secondary);border-color:var(--border) }
+  .act-btn.ghost:hover { background:var(--bg-app);color:var(--text-primary);border-color:var(--text-muted) }
+  .act-btn svg { width:16px;height:16px;flex-shrink:0 }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width:5px;height:5px }
+  ::-webkit-scrollbar-track { background:transparent }
+  ::-webkit-scrollbar-thumb { background:var(--border);border-radius:3px }
+  ::-webkit-scrollbar-thumb:hover { background:var(--text-muted) }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width:1200px) {
+    :root { --sidebar-w:70px }
+    .sb-brand,.sb-title,.sb-bottom { display:none }
+    .sb-item { justify-content:center;padding:12px }
+    .sb-item span { display:none }
+    .sb-icon { opacity:1!important }
+    .sb-item.active::before { left:0 }
+  }
+</style>
+</head>
+
+<body>
+<!-- ================= SIDEBAR ================= -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-logo">PM</div>
+    <span class="sb-title">PMWB 工作台</span>
+  </div>
+  <nav class="sb-nav">
+    <a class="sb-item active" href="#">
+      <!-- home icon --> <svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>首页看板</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 6h3a3 3 0 013 3v0"/><path d="M9 18h3a3 3 0 003-3"/></svg><span>需求与交付</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82-.33h-.06A2 2 0 0011 21h-1a2 2 0 00-2 2 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00.33-1.82v-.06A2 2 0 003 11v-1a2 2 0 00-2-1.82 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001.82.33H11a2 2 0 002-2h1a2 2 0 002 1.82 1.65 1.65 0 001.82.33l.06.06a2 2 0 012.83-2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-.33 1.82V11a2 2 0 002 1.82z"/></svg><span>运营监控</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg><span>会议日程</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg><span>知识库</span></a>
+  </nav>
+  <div class="sb-bottom">
+    <div class="sb-user">
+      <div class="sb-avatar">陈</div>
+      <div class="sb-user-info"><span class="sb-user-name">陈工</span><span class="sb-user-role">政企产品经理 · 数智化部</span></div>
+    </div>
+  </div>
+</aside>
+
+<!-- ================= MAIN ================= -->
+<div class="main">
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="tb-left">
+      <span class="tb-title">首页看板</span>
+      <span class="tb-date">2026年7月17日 周五</span>
+    </div>
+    <div class="tb-right">
+      <input class="tb-search" placeholder="搜索需求 / 工单 / 知识库…" />
+      <button class="tb-icon-btn" title="通知"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span class="badge-dot"></span></button>
+      <button class="tb-icon-btn" title="设置"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82-.33h-.06A2 2 0 0011 21h-1a2 2 0 00-2 2 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00.33-1.82v-.06A2 2 0 003 11v-1a2 2 0 00-2-1.82 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001.82.33H11a2 2 0 002-2h1a2 2 0 002 1.82 1.65 1.65 0 001.82.33l.06.06a2 2 0 012.83-2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-.33 1.82V11a2 2 0 002 1.82z"/></svg></button>
+      <div class="tb-avatar">陈</div>
+    </div>
+  </header>
+
+  <!-- CONTENT -->
+  <main class="content">
+
+    <!-- ══ ROW 1: GREETING + LIVE STATUS ══ -->
+    <div class="bento-grid">
+      <!-- Greeting tile -->
+      <section class="card greeting-tile">
+        <div class="greeting-inner">
+          <div class="g-top">
+            <div><div class="g-hello">晚上好，<span>陈工</span></div><div class="g-sub">本周共处理 127 条事项，较上周提升 14.3%。运营预警已从 8 条降至 5 条，闭环率 86.7%。</div></div>
+            <div style="text-align:right">
+              <div style="font-size:12px;color:#64748b;margin-bottom:4px">本周效率</div>
+              <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4ade80;letter-spacing:-1px">86.7<span style="font-size:16px;color:#64748b">%</span></div>
+            </div>
+          </div>
+          <div class="g-stats">
+            <div class="g-stat"><span class="g-stat-val up">+14.3%</span><span class="g-stat-key">周环比 ↑</span></div>
+            <div class="g-stat"><span class="g-stat-val up">23</span><span class="g-stat-key">已完成工单</span></div>
+            <div class="g-stat"><span class="g-stat-val down">5</span><span class="g-stat-key">待关注项</span></div>
+            <div class="g-stat"><span class="g-stat-val" style="color:#93c5fd">3</span><span class="g-stat-key">明日截止</span></div>
+          </div>
+          <div class="cmd-bar">
+            <div class="cmd-bar-kbd"><span class="kbd">⌘</span><span class="kbd">K</span></div>
+            <div class="cmd-bar-text" id="typewriter"></div><span class="cmd-cursor"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live status -->
+      <section class="card live-status">
+        <div class="card-header"><span class="card-label">实时动态</span></div>
+        <ul class="ls-list">
+          <li class="ls-item"><span class="ls-dot red"></span><span class="ls-text">超期工单：某园区5G弱覆盖</span><span class="ls-time">12m 前</span></li>
+          <li class="ls-item"><span class="ls-dot amber"></span><span class="ls-text">新需求评审：云MAS扩容</span><span class="ls-time">34m 前</span></li>
+          <li class="ls-item"><span class="ls-dot green"></span><span class="ls-text">知识库同步：极客FAQ 已更新</span><span class="ls-time">1h 前</span></li>
+          <li class="ls-item"><span class="ls-dot red"></span><span class="ls-text">热点投诉升级：南京某园区</span><span class="ls-time">2h 前</span></li>
+          <li class="ls-item"><span class="ls-dot green"></span><span class="ls-text">会议纪要已归档：周例会</span><span class="ls-time">3h 前</span></li>
+        </ul>
+      </section>
+
+      <!-- ══ ROW 2: KPI STRIP ══ -->
+      <div class="card kpi-card"><div class="kpi-num blue">14</div><div class="kpi-label">我的待办</div><div class="kpi-delta up">↑ 3 较昨日</div></div>
+      <div class="card kpi-card"><div class="kpi-num amber">38</div><div class="kpi-label">本周新增需求</div><div class="kpi-delta neutral">评审中 11</div></div>
+      <div class="card kpi-card"><div class="kpi-num blue">9</div><div class="kpi-label">进行中工单</div><div class="kpi-delta up">本周完成 23</div></div>
+      <div class="card kpi-card"><div class="kpi-num red">5</div><div class="kpi-label">运营预警</div><div class="kpi-delta down">超期 2 条</div></div>
+
+      <!-- Action buttons -->
+      <div class="action-row" style="grid-column:1/-1;padding:0 2px">
+        <a class="act-btn primary" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增需求·工单
+        </a>
+        <a class="act-btn success" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增会议
+        </a>
+        <a class="act-btn warn" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增运营问题
+        </a>
+        <a class="act-btn ghost" href="#">知识库 →</a>
+      </div>
+
+      <!-- ══ ROW 3: TREND CHART + DONUT ══ -->
+      <section class="card trend-chart">
+        <div class="card-header"><span class="card-label">近7天 需求处理量趋势</span><a class="card-action" href="#">导出</a></div>
+        <div class="card-body chart-wrap">
+          <svg class="chart-svg" viewBox="0 0 600 220" preserveAspectRatio="xMidYMid meet">
+            <!-- subtle grid lines -->
+            <g stroke="#eef1f6" stroke-width="1">
+              <line x1="40" y1="44" x2="560" y2="44" stroke-dasharray="4,4"/>
+              <line x1="40" y1="89" x2="560" y2="89" stroke-dasharray="4,4"/>
+              <line x1="40" y1="134" x2="560" y2="134" stroke-dasharray="4,4"/>
+              <line x1="40" y1="179" x2="560" y2="179"/>
+            </g>
+            <!-- area fill gradient -->
+            <defs>
+              <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#2f6fed" stop-opacity=".22"/>
+                <stop offset="100%" stop-color="#2f6fed" stop-opacity=".02"/>
+              </linearGradient>
+            </defs>
+            <!-- area path -->
+            <path d="M40,166 L126.7,138 L213.3,152 L300,96 L386.7,115 L473.3,73 L560,54 L560,180 Z"
+                  fill="url(#areaGrad)" />
+            <!-- line -->
+            <polyline points="40,166 126.7,138 213.3,152 300,96 386.7,115 473.3,73 560,54"
+                      fill="none" stroke="#2f6fed" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- dots -->
+            <g fill="#2f6fed">
+              <circle cx="40" cy="166" r="4.5"/><circle cx="126.7" cy="138" r="4.5"/><circle cx="213.3" cy="152" r="4.5"/>
+              <circle cx="300" cy="96" r="4.5"/><circle cx="386.7" cy="115" r="4.5"/><circle cx="473.3" cy="73" r="4.5"/>
+              <circle cx="560" cy="54" r="4.5"/>
+            </g>
+            <!-- dot halos -->
+            <g fill="#ffffff" stroke="#2f6fed" stroke-width="2">
+              <circle cx="40" cy="166" r="2.5"/><circle cx="126.7" cy="138" r="2.5"/><circle cx="213.3" cy="152" r="2.5"/>
+              <circle cx="300" cy="96" r="2.5"/><circle cx="386.7" cy="115" r="2.5"/><circle cx="473.3" cy="73" r="2.5"/>
+              <circle cx="560" cy="54" r="2.5"/>
+            </g>
+            <!-- X labels -->
+            <g fill="#94a3b8" font-size="11" font-family="'Outfit',sans-serif" text-anchor="middle">
+              <text x="40" y="200">周一</text><text x="126.7" y="200">周二</text>
+              <text x="213.3" y="200">周三</text><text x="300" y="200">周四</text>
+              <text x="386.7" y="200">周五</text><text x="473.3" y="200">周六</text>
+              <text x="560" y="200">周日</text>
+            </g>
+            <!-- Y labels -->
+            <g fill="#94a3b8" font-size="10.5" font-family="'Outfit',sans-serif" text-anchor="end">
+              <text x="34" y="47">45</text><text x="34" y="92">35</text><text x="34" y="137">25</text><text x="34" y="182">15</text>
+            </g>
+            <!-- value annotations on hover-like dots -->
+            <g fill="#0f172a" font-size="10.5" font-family="'JetBrains Mono',monospace" font-weight="600" text-anchor="middle">
+              <text x="40" y="156">18</text><text x="126.7" y="128">24</text><text x="213.3" y="142">21</text>
+              <text x="300" y="86">33</text><text x="386.7" y="105">29</text><text x="473.3" y="63">38</text>
+              <text x="560" y="44">42</text>
+            </g>
+          </svg>
+        </div>
+        <div class="chart-legend">
+          <div class="legend-item"><span class="legend-dot" style="background:#2f6fed"></span>已处理需求量</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#e4e9f0"></span>网格参考线</div>
+        </div>
+      </section>
+
+      <section class="card donut-card">
+        <div class="card-header"><span class="card-label">工单状态分布</span><a class="card-action" href="#">详情</a></div>
+        <div class="card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1">
+          <svg class="donut-svg" viewBox="0 0 180 180">
+            <g transform="rotate(-90 90 90)">
+              <!-- 待处理 22% = 96.8 of 439.8 -->
+              <circle cx="90" cy="90" r="68" fill="none" stroke="#d98a1f" stroke-width="20"
+                      stroke-dasharray="96.8 343" stroke-dashoffset="0"/>
+              <!-- 处理中 38% = 167.1 -->
+              <circle cx="90" cy="90" r="68" fill="none" stroke="#2f6fed" stroke-width="20"
+                      stroke-dasharray="167.1 272.7" stroke-dashoffset="-96.8"/>
+              <!-- 已解决 28% = 123.1 -->
+              <circle cx="90" cy="90" r="68" fill="none" stroke="#0f9d6b" stroke-width="20"
+                      stroke-dasharray="123.1 316.7" stroke-dashoffset="-263.9"/>
+              <!-- 已关闭 12% = 52.8 -->
+              <circle cx="90" cy="90" r="68" fill="none" stroke="#94a3b8" stroke-width="20"
+                      stroke-dasharray="52.8 387" stroke-dashoffset="-387.0"/>
+            </g>
+            <!-- center text -->
+            <text x="90" y="85" text-anchor="middle" font-family="'Outfit',sans-serif" font-size="26" font-weight="800" fill="#0f172a">44</text>
+            <text x="90" y="106" text-anchor="middle" font-size="11.5" fill="#94a3b8" font-weight="500">总工单</text>
+          </svg>
+          <div class="donut-legend">
+            <div class="dl-item"><span class="dl-dot" style="background:#d98a1f"></span>待处理<span class="dl-val">22%</span></div>
+            <div class="dl-item"><span class="dl-dot" style="background:#2f6fed"></span>处理中<span class="dl-val">38%</span></div>
+            <div class="dl-item"><span class="dl-dot" style="background:#0f9d6b"></span>已解决<span class="dl-val">28%</span></div>
+            <div class="dl-item"><span class="dl-dot" style="background:#94a3b8"></span>已关闭<span class="dl-val">12%</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ ROW 4: TODO + ALERTS + QA ══ -->
+      <section class="card todo-card">
+        <div class="card-header"><span class="card-label">智能优先级 · 我的待办</span><a class="card-action" href="#">更多</a></div>
+        <ul class="todo-list">
+          <li class="todo-item">
+            <span class="todo-priority tp-urgent">紧急</span>
+            <div class="todo-body">
+              <div class="todo-title">政企宽带续费流程优化需求评审</div>
+              <div class="todo-meta"><span class="todo-deadline">今天 17:00 截止</span> · 负责人 李文倩</div>
+            </div>
+          </li>
+          <li class="todo-item">
+            <span class="todo-priority tp-high">高优</span>
+            <div class="todo-body">
+              <div class="todo-title">热点投诉跟进：某园区5G信号弱</div>
+              <div class="todo-meta"><span class="todo-overdue">超期 1 天</span> · 负责人 王海涛</div>
+            </div>
+          </li>
+          <li class="todo-item">
+            <span class="todo-priority tp-med">中等</span>
+            <div class="todo-body">
+              <div class="todo-title">数据异常核查：B域用户画像校准缺失</div>
+              <div class="todo-meta">周三前完成 · 负责人 张明哲</div>
+            </div>
+          </li>
+          <li class="todo-item">
+            <span class="todo-priority tp-med">中等</span>
+            <div class="todo-body">
+              <div class="todo-title">周报材料汇总（政企业务线 Q3）</div>
+              <div class="todo-meta">周五下班前提交</div>
+            </div>
+          </li>
+          <li class="todo-item">
+            <span class="todo-priority tp-low">低优</span>
+            <div class="todo-body">
+              <div class="todo-title">知识库补充：极客业务常见 FAQ 整理</div>
+              <div class="todo-meta">下周一前</div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="card alert-card">
+        <div class="card-header"><span class="card-label">运营预警中心</span><a class="card-action" href="#">查看全部</a></div>
+        <ul class="alert-list">
+          <li class="alert-item">
+            <span class="alert-sev as-red">严重</span>
+            <div class="alert-body">
+              <div class="alert-msg">超期未处理工单</div>
+              <div class="alert-count">2 条（BUG类）</div>
+            </div>
+          </li>
+          <li class="alert-item">
+            <span class="alert-sev as-red">严重</span>
+            <div class="alert-body">
+              <div class="alert-msg">热点投诉升级中</div>
+              <div class="alert-count">1 起（南京园区）</div>
+            </div>
+          </li>
+          <li class="alert-item">
+            <span class="alert-sev as-amber">警告</span>
+            <div class="alert-body">
+              <div class="alert-msg">数据异常待核查</div>
+              <div class="alert-count">3 起（B域画像）</div>
+            </div>
+          </li>
+          <li class="alert-item">
+            <span class="alert-sev as-green">正常</span>
+            <div class="alert-body">
+              <div class="alert-msg">系统巡检</div>
+              <div class="alert-count">所有服务运行正常</div>
+            </div>
+          </li>
+          <li class="alert-item">
+            <span class="alert-sev as-amber">提醒</span>
+            <div class="alert-body">
+              <div class="alert-msg">本周待办逾期风险</div>
+              <div class="alert-count">3 项临近截止</div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="card quick-access">
+        <div class="card-header"><span class="card-label">模块快捷入口</span></div>
+        <div class="qa-grid">
+          <a class="qa-btn" href="#">
+            <div class="qa-icon" style="background:var(--accent-soft);color:var(--accent)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 6h3a3 3 0 013 3v0"/><path d="M9 18h3a3 3 0 003-3"/></svg>
+            </div>
+            <span class="qa-label">需求与交付</span>
+          </a>
+          <a class="qa-btn" href="#">
+            <div class="qa-icon" style="background:var(--danger-soft);color:var(--danger)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82-.33h-.06A2 2 0 0011 21h-1a2 2 0 00-2 2 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00.33-1.82v-.06A2 2 0 003 11v-1a2 2 0 00-2-1.82 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001.82.33H11a2 2 0 002-2h1a2 2 0 002 1.82 1.65 1.65 0 001.82.33l.06.06a2 2 0 012.83-2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-.33 1.82V11a2 2 0 002 1.82z"/></svg>
+            </div>
+            <span class="qa-label">运营监控</span>
+          </a>
+          <a class="qa-btn" href="#">
+            <div class="qa-icon" style="background:#f0e6ff;color:#7c3aed">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+            <span class="qa-label">会议日程</span>
+          </a>
+          <a class="qa-btn" href="#">
+            <div class="qa-icon" style="background:#ecfdf5;color:#059669">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+            </div>
+            <span class="qa-label">知识库</span>
+          </a>
+        </div>
+      </section>
+
+      <!-- ══ ROW 5: RECENT REQUIREMENTS + SCHEDULE ══ -->
+      <section class="card recent-req">
+        <div class="card-header"><span class="card-label">最近需求</span><a class="card-action" href="#">更多</a></div>
+        <div class="card-body" style="padding:0 22px 16px;overflow-x:auto">
+          <table class="req-table">
+            <thead><tr><th>需求名称</th><th>负责人</th><th>状态</th><th>更新日期</th></tr></thead>
+            <tbody>
+              <tr><td class="req-name" title="政企宽带续费流程优化">政企宽带续费流程优化</td><td class="req-owner">李文倩</td><td><span class="status-tag st-review">评审中</span></td><td class="req-date">07-15</td></tr>
+              <tr><td class="req-name" title="云MAS短信通道容量扩容">云MAS短信通道容量扩容</td><td class="req-owner">王海涛</td><td><span class="status-tag st-dev">开发中</span></td><td class="req-date">07-14</td></tr>
+              <tr><td class="req-name" title="物联网卡实名校验规则增强">物联网卡实名校验规则增强</td><td class="req-owner">张明哲</td><td><span class="status-tag st-backlog">待排期</span></td><td class="req-date">07-12</td></tr>
+              <tr><td class="req-name" title="政企业务APP首页改版 v2.3">政企业务APP首页改版 v2.3</td><td class="req-owner">陈思远</td><td><span class="status-tag st-live">已上线</span></td><td class="req-date">07-10</td></tr>
+              <tr><td class="req-name" title="集团客户电子签章对接（OA集成）">集团客户电子签章对接（OA集成）</td><td class="req-owner">周敏</td><td><span class="status-tag st-review">评审中</span></td><td class="req-date">07-09</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card schedule-card">
+        <div class="card-header"><span class="card-label">今日日程</span><a class="card-action" href="#">日历</a></div>
+        <ul class="sched-list">
+          <li class="sched-item">
+            <span class="sched-time">09:30</span>
+            <div class="sched-info"><div class="sched-title">政企业务线 周例会</div><div class="sched-loc"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg> 会议室 3F-02</div></div>
+          </li>
+          <li class="sched-item">
+            <span class="sched-time">14:00</span>
+            <div class="sched-info"><div class="sched-title">极客业务需求评审（Q3 迭代）</div><div class="sched-loc"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15.5 7.5l-8 8M7.5 7.5l8 8"/></svg> 线上 · Tencent Meeting</div></div>
+          </li>
+          <li class="sched-item">
+            <span class="sched-time">16:30</span>
+            <div class="sched-info"><div class="sched-title">运营问题复盘会（超期工单）</div><div class="sched-loc"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg> 会议室 5F-01</div></div>
+          </li>
+          <li class="sched-item">
+            <span class="sched-time">18:00</span>
+            <div class="sched-info"><div class="sched-title">1对1 导师辅导</div><div class="sched-loc"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg> 茶水间</div></div>
+          </li>
+        </ul>
+      </section>
+
+    </div><!-- end bento-grid -->
+  </main>
+</div>
+
+<!-- ══ TYPWRITER EFFECT ══ -->
+<script>(function(){
+  const phrases=[
+    '搜索需求 / 工单 / 知识库…',
+    '快速创建运营问题记录',
+    '查询「政企宽带」相关需求',
+    '查看今日待办与截止时间',
+    '打开产品圣经 · 极客业务'
+  ];
+  let pi=0,ci=0,erasing=false,el=document.getElementById('typewriter');
+  function tick(){
+    if(!el)return;
+    const ph=phrases[pi];
+    if(!erasing){
+      el.textContent=ph.substring(0,++ci);
+      if(ci>=ph.length){erasing=true;setTimeout(tick,2200);return}
+    }else{
+      el.textContent=ph.substring(0,--ci);
+      if(ci<=0){erasing=false;pi=(pi+1)%phrases.length;setTimeout(tick,400);return}
+    }
+    setTimeout(tick,erasing?35:80)
+  }
+  setTimeout(tick,600)
+})();
+</script>
+</body>
+</html>

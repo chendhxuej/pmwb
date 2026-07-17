@@ -9,32 +9,21 @@
       @sort-change="handleSortChange"
     >
       <!-- 根据 columns prop 动态渲染列 -->
-      <template v-for="(col, index) in columns" :key="index">
-        <!-- 插槽列（如 status、priority、actions） -->
-        <el-table-column
-          v-if="col.slot"
-          :label="col.label"
-          :width="col.width"
-          :min-width="col.minWidth"
-          :fixed="col.fixed"
-          :show-overflow-tooltip="col.showOverflowTooltip !== false"
-        >
-          <template #default="{ row }">
-            <slot :name="col.slot" :row="row" />
-          </template>
-        </el-table-column>
-        <!-- 普通数据列（有 prop） -->
-        <el-table-column
-          v-else-if="col.prop"
-          :prop="col.prop"
-          :label="col.label"
-          :width="col.width"
-          :min-width="col.minWidth"
-          :fixed="col.fixed"
-          :sortable="col.sortable || false"
-          :show-overflow-tooltip="col.showOverflowTooltip !== false"
-        />
-      </template>
+      <el-table-column
+        v-for="(col, index) in columns"
+        :key="col.prop || col.slot || index"
+        :prop="col.prop"
+        :label="col.label"
+        :width="col.width"
+        :min-width="col.minWidth"
+        :fixed="col.fixed"
+        :sortable="col.sortable || false"
+        :show-overflow-tooltip="col.showOverflowTooltip !== false"
+      >
+        <template v-if="col.slot" #default="{ row }">
+          <slot :name="col.slot" :row="row" />
+        </template>
+      </el-table-column>
 
       <!-- 兼容通过 #columns 插槽传入的列（Todo/Ticket/Meeting/Operation 等视图用法） -->
       <slot name="columns" />
