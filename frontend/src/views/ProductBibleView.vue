@@ -9,7 +9,7 @@
           </el-radio-button>
         </el-radio-group>
         <div class="pb-actions">
-          <template v-if="!editing">
+          <template v-if="!editing && format !== 'docx'">
             <el-button size="small" @click="startEdit">
               <el-icon><Edit /></el-icon><span>编辑内容</span>
             </el-button>
@@ -139,6 +139,7 @@ const meta = reactive({
   title: '',
   updated_at: '',
 })
+const format = ref('markdown')
 
 const tocTree = computed(() => {
   const tree = []
@@ -180,6 +181,7 @@ const loadBible = async (key) => {
     meta.name = res.name
     meta.title = res.title
     meta.updated_at = res.updated_at
+    format.value = res.format || 'markdown'
     markdown.value = res.markdown
   } catch (e) {
     ElMessage.error('加载产品圣经内容失败')
@@ -239,6 +241,7 @@ const onSearchClear = () => {
 
 // ---- 编辑 ----
 const startEdit = () => {
+  if (format.value === 'docx') return
   editContent.value = markdown.value
   editing.value = true
   onSearchClear()

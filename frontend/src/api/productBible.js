@@ -15,4 +15,9 @@ export const productBibleApi = {
   updateBible(key, markdown) {
     return request.put(`/product-bible/${key}`, { markdown })
   },
+
+  // docx 内嵌图片的直链（后端 media 路由）
+  getMediaUrl(key, filename) {
+    return `/api/v1/product-bible/${key}/media/${encodeURIComponent(filename)}`
+  },
 }

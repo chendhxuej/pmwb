@@ -78,8 +78,14 @@ async function renderMermaid(root) {
   }
 }
 
+function isHtmlLike(str) {
+  const s = (str || '').trim()
+  return s.startsWith('<') && /<\/?(h[1-6]|table|p|div|span|img)\b/i.test(s)
+}
+
 async function render() {
-  renderedHtml.value = md.render(props.content || '')
+  const raw = props.content || ''
+  renderedHtml.value = isHtmlLike(raw) ? raw : md.render(raw)
   await nextTick()
   const root = contentRef.value
   if (!root) return
