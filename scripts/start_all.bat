@@ -47,7 +47,7 @@ goto :eof
 :ensure_mail
 for /f "tokens=*" %%a in ('netstat -ano 2^>nul ^| findstr /C:":3210 "') do goto :mail_running
 echo [PMWB] starting mail center...
-start "PMWB-Mail" /min /D "D:/项目/个人工作台系统/email-manager" "C:/Users/chend/.workbuddy/binaries/node/versions/22.22.2/node.exe" node_modules/.bin/tsx src/index.ts
+start "PMWB-Mail" /min /D "D:/项目/统一邮件中心/server" "C:/Users/chend/.workbuddy/binaries/node/versions/22.22.2/node.exe" node_modules/.bin/tsx src/index.ts
 goto :eof
 :mail_running
 echo [PMWB] mail center already running
