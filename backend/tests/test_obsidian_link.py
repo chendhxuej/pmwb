@@ -94,6 +94,12 @@ def test_sediment_meeting(client, vault_tmp):
         "title": "周会",
         "meeting_type": "project_weekly",
         "status": "held",
+        "agendas": [
+            {"seq": 1, "topic": "议题一", "conclusion": "结论一", "division": "张三负责"},
+        ],
+        "actions": [
+            {"content": "行动一", "owner": "李四", "category": "operation", "template": "厂家团队待办模板"},
+        ],
     }
     create = client.post("/api/v1/meetings", json=payload)
     assert create.status_code == 200
@@ -103,12 +109,21 @@ def test_sediment_meeting(client, vault_tmp):
     assert res.status_code == 200
     data = res.json()["data"]
     assert data["created"] is True
-    assert data["obsidian_path"].startswith("03-会议资产/")
+    # 落盘到真实 vault 目录 05-会议纪要，命名 【日期】-标题.md
+    assert data["obsidian_path"].startswith("05-会议纪要/")
     assert data["obsidian_path"].endswith(".md")
 
     written = vault_tmp / data["obsidian_path"]
     assert written.exists()
-    assert "周会" in written.read_text(encoding="utf-8")
+    text = written.read_text(encoding="utf-8")
+    assert "周会" in text
+    assert "## 二、会议议题" in text
+    assert "议题一" in text
+    assert "结论一" in text
+    assert "## 四、待办事项" in text
+    assert "李四" in text
+    assert "厂家团队待办模板" in text
 
     know = client.get("/api/v1/knowledge", params={"source_type": "meeting"})
     assert know.json()["data"]["total"] == 1
+    assert know.json()["data"]["items"][0]["category"] == "meeting"

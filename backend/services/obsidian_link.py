@@ -162,6 +162,10 @@ def sediment_operation_issue(db, issue_id: int) -> Dict:
 
 
 def _build_meeting_markdown(meeting) -> str:
+    """按 07-模板/会议纪要模板.md 的真实结构生成纪要 Markdown（静态填充，去 Templater 指令）。"""
+    status_map = {"planned": "待召开", "held": "已召开", "cancelled": "已取消"}
+    mt_status = status_map.get(meeting.status, "待处理")
+
     attendees = meeting.attendees or []
     attendee_lines = (
         "\n".join(
@@ -170,45 +174,81 @@ def _build_meeting_markdown(meeting) -> str:
         )
         or "（无）"
     )
+
+    agendas = sorted(meeting.agendas or [], key=lambda x: (x.seq or 0, x.id or 0))
+    if agendas:
+        agenda_lines = []
+        for i, ag in enumerate(agendas, 1):
+            agenda_lines.append(f"### {i}、{ag.topic}")
+            agenda_lines.append(f"**结论**：{ag.conclusion or '（待补充）'}")
+            if ag.division:
+                agenda_lines.append(f"**分工**：{ag.division}")
+            agenda_lines.append("")
+        agenda_block = "\n".join(agenda_lines)
+    else:
+        agenda_block = "（待补充）\n"
+
     actions = meeting.actions or []
     if actions:
-        action_lines = "| 内容 | 负责人 | 截止日期 | 状态 |\n| --- | --- | --- | --- |\n"
-        action_lines += "\n".join(
-            f"| {a.content} | {a.owner or '—'} | {a.due_date or '—'} | {a.status or '—'} |"
-            for a in actions
-        )
+        action_lines = []
+        for a in actions:
+            owner = a.owner or "待定"
+            cat = f"  （分类：{a.category}）" if a.category else ""
+            tpl = f"  [模板：{a.template}]" if a.template else ""
+            action_lines.append(f"- [ ] **{owner}** - {a.content}{cat}{tpl}")
+        action_block = "\n".join(action_lines)
     else:
-        action_lines = "（无）"
+        action_block = "- [ ] （无）"
+
+    conclusion = meeting.summary or "（见各议题结论）"
 
     lines = [
         "---",
-        f"meeting_id: {meeting.meeting_id}",
-        f"type: {meeting.meeting_type}",
-        f"host: {meeting.host or ''}",
-        "source: meeting",
-        f"created: {_fmt_dt(datetime.now())}",
+        f"创建时间: {_fmt_dt(datetime.now())}",
+        f"更新时间: {_fmt_dt(datetime.now())}",
+        "类型: 会议",
+        f"状态: {mt_status}",
+        "标签:",
+        "  - 业务",
+        "  - 会议",
+        f"会议时间: {_fmt_dt(meeting.start_time)}",
+        "提醒时间: ",
         "---",
         "",
         f"# {meeting.title}",
         "",
-        "## 基本信息",
-        f"- 会议编号：{meeting.meeting_id}",
-        f"- 类型：{meeting.meeting_type}",
-        f"- 主持人：{meeting.host or '—'}",
-        f"- 时间：{_fmt_dt(meeting.start_time)} ~ {_fmt_dt(meeting.end_time)}",
-        f"- 地点/链接：{meeting.location or '—'}",
+        "## 一、会议信息",
         "",
-        "## 参会人",
-        attendee_lines,
+        f"- **主持人**: {meeting.host or '—'}",
+        f"- **召集人**: {meeting.convener or '—'}",
+        f"- **参与人**: {attendee_lines}",
+        f"- **日期/时间**: {_fmt_dt(meeting.start_time)} ~ {_fmt_dt(meeting.end_time)}",
+        f"- **地点/方式**: {meeting.location or '—'}",
+        f"- **参会注意点**: {meeting.attendee_notes or '—'}",
         "",
-        "## 纪要摘要",
-        meeting.summary or "（待补充）",
+        "## 二、会议议题",
         "",
-        "## 行动项",
-        action_lines,
+        agenda_block,
+        "## 三、会议结论",
+        "",
+        conclusion,
+        "",
+        "## 四、待办事项",
+        action_block,
+        "",
+        "## 关联",
+        "- 相关项目: [[]]",
+        "- 相关业务：[[]]",
+        "- 相关会议: [[]]",
+        "- 相关任务：[[]]",
+        "- 相关需求：[[]]",
         "",
     ]
     return "\n".join(lines)
+
+
+# 会议纪要落盘目录（与 Obsidian vault 真实结构一致，修正原 03-会议资产 错路径）
+MEETING_SEDIMENT_DIR = "05-会议纪要"
 
 
 def sediment_meeting(db, meeting_id: int) -> Dict:
@@ -229,9 +269,9 @@ def sediment_meeting(db, meeting_id: int) -> Dict:
             "created": False,
         }
 
-    year = (meeting.start_time or datetime.now()).strftime("%Y")
-    filename = f"{sanitize_filename(meeting.meeting_id)}.md"
-    rel_path = f"03-会议资产/{year}/{filename}"
+    day = (meeting.start_time or datetime.now()).strftime("%Y%m%d")
+    filename = f"【{day}】{sanitize_filename(meeting.title)}.md"
+    rel_path = f"{MEETING_SEDIMENT_DIR}/{filename}"
 
     if not read_markdown(rel_path):
         write_markdown(rel_path, _build_meeting_markdown(meeting))
@@ -242,7 +282,7 @@ def sediment_meeting(db, meeting_id: int) -> Dict:
         {
             "item_id": _gen_item_id(),
             "title": meeting.title,
-            "category": "会议资产",
+            "category": "meeting",
             "sub_category": meeting.meeting_type,
             "tags": "会议纪要",
             "obsidian_path": rel_path,
