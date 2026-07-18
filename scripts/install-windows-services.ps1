@@ -1,44 +1,33 @@
-﻿#Requires -RunAsAdministrator
+﻿﻿#Requires -RunAsAdministrator
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Install PMWB four services as Windows services for auto-start and auto-restart.
-.DESCRIPTION
-    Requires NSSM. If not installed, it will be downloaded to C:\nssm.
-    Run as Administrator.
-.NOTES
-    Services: MySQL-PMWB / PMWB-Backend / PMWB-Frontend / PMWB-Mail
+    Install PMWB services for Windows auto-start (no login needed) + crash-restart.
+      - MySQL-PMWB  : NATIVE Windows service (mysqld --install) - most reliable for mysqld
+      - PMWB-Backend / PMWB-Frontend / PMWB-Mail : NSSM services
+    Run as Administrator (right-click the desktop .bat -> Run as administrator).
 #>
 
 $ErrorActionPreference = "Stop"
 
-# Marker to confirm the script was invoked
 try {
-    $startMarker = "C:\pmwb-logs\install-script-started.marker"
     if (-not (Test-Path "C:\pmwb-logs")) { New-Item -ItemType Directory -Path "C:\pmwb-logs" -Force | Out-Null }
-    "$([DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) install-windows-services.ps1 started" | Out-File -FilePath $startMarker -Encoding UTF8 -Force
-} catch {
-}
+    "$([DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) install-windows-services.ps1 started" | Out-File -FilePath "C:\pmwb-logs\install-script-started.marker" -Encoding UTF8 -Force
+} catch {}
 
 # ========================== Config ==========================
-$NssmDir        = "C:\nssm"
-$NssmExe        = Join-Path $NssmDir "nssm.exe"
-$LogDir         = "C:\pmwb-logs"
-$MySqlBase      = "C:\mysql\mysql-8.0.46-winx64"
-$PmwbBase       = "D:\项目\个人工作台系统"
-$MailBase       = "D:\项目\统一邮件中心\server"
-$NodePath       = "C:\Users\chend\.workbuddy\binaries\node\versions\22.22.2\node.exe"
+$NssmDir  = "C:\nssm"
+$NssmExe  = Join-Path $NssmDir "nssm.exe"
+$LogDir   = "C:\pmwb-logs"
+$MySqlBase = "C:\mysql\mysql-8.0.46-winx64"
+$MysqlServiceName = "MySQL-PMWB"
+$MysqldExe = "$MySqlBase\bin\mysqld.exe"
+$PmwbBase  = "D:\项目\个人工作台系统"
+$MailBase  = "D:\项目\统一邮件中心\server"
+$NodePath  = "C:\Users\chend\.workbuddy\binaries\node\versions\22.22.2\node.exe"
 
+# NSSM-managed services. MySQL is installed as a NATIVE service (see below).
 $Services = @(
-    @{
-        Name        = "MySQL-PMWB"
-        DisplayName = "PMWB MySQL 8.0"
-        Description = "PMWB MySQL 8.0.46 database service"
-        Program     = "$MySqlBase\bin\mysqld.exe"
-        Arguments   = "--defaults-file=$MySqlBase\my.ini"
-        WorkDir     = $MySqlBase
-        DependOn    = @()
-    },
     @{
         Name        = "PMWB-Backend"
         DisplayName = "PMWB FastAPI Backend"
@@ -61,8 +50,9 @@ $Services = @(
         Name        = "PMWB-Mail"
         DisplayName = "PMWB Mail Center"
         Description = "PMWB mail center on 127.0.0.1:3210"
+        # IMPORTANT: tsx.cmd (NOT tsx) - tsx is a bash script that node.exe cannot run on Windows.
         Program     = $NodePath
-        Arguments   = "node_modules/.bin/tsx src/index.ts"
+        Arguments   = "node_modules/.bin/tsx.cmd src/index.ts"
         WorkDir     = $MailBase
         DependOn    = @()
     }
@@ -81,9 +71,7 @@ function Write-Log {
 
 function Ensure-Dir {
     param([string]$dir)
-    if (-not (Test-Path $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 }
 
 function Test-Port {
@@ -144,7 +132,6 @@ if (-not (Test-Path $NssmExe)) {
         Read-Host "Press Enter to exit"
         exit 1
     }
-
     $tmp = Join-Path $NssmDir "_tmp"
     Expand-Archive -Path $zip -DestinationPath $tmp -Force
     $arch = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
@@ -158,14 +145,43 @@ if (-not (Test-Path $NssmExe)) {
 }
 
 # ========================== Stop old processes ==========================
-Write-Log "Stopping old processes..."
-$procsToKill = @("mysqld", "uvicorn", "node", "vite")
+Write-Log "Stopping old processes (so ports are free)..."
+$procsToKill = @("mysqld", "uvicorn", "node", "vite", "tsx")
 foreach ($proc in $procsToKill) {
     Get-Process -Name $proc -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 Start-Sleep -Seconds 3
 
-# ========================== Install / reinstall services ==========================
+# ========================== MySQL : NATIVE Windows service ==========================
+Write-Log "Setting up native MySQL service: $MysqlServiceName"
+# Remove any prior MySQL-PMWB (NSSM-managed or native) so we start clean.
+$existingMy = Get-Service -Name $MysqlServiceName -ErrorAction SilentlyContinue
+if ($existingMy) {
+    try { Stop-Service -Name $MysqlServiceName -Force -ErrorAction Stop } catch { Write-Log "  stop failed: $($_.Exception.Message)" "WARN" }
+    Start-Sleep -Seconds 2
+    # If it was NSSM-managed, remove via nssm; otherwise via sc.
+    try {
+        $img = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$MysqlServiceName" -Name ImagePath -ErrorAction Stop).ImagePath
+    } catch { $img = "" }
+    if ($img -like "*nssm*") {
+        & $NssmExe remove $MysqlServiceName confirm 2>$null
+    }
+    # Always attempt sc delete to guarantee a clean slate before mysqld --install.
+    & sc.exe delete $MysqlServiceName 2>$null
+    Start-Sleep -Seconds 2
+}
+
+Write-Log "  mysqld --install $MysqlServiceName ..."
+& $MysqldExe --install $MysqlServiceName --defaults-file="$MySqlBase\my.ini" | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Log "  mysqld --install returned code $LASTEXITCODE (may already exist; continuing)" "WARN"
+}
+# Auto-start + restart on failure.
+& sc.exe config $MysqlServiceName start= auto 2>$null
+& sc.exe failure $MysqlServiceName reset= 0 actions= restart/5000/restart/10000/restart/60000 2>$null
+Write-Log "  native MySQL service configured (auto-start, restart-on-failure)"
+
+# ========================== Install / reinstall NSSM services ==========================
 foreach ($svc in $Services) {
     $name = $svc.Name
     Write-Log "Processing service: $name"
@@ -206,19 +222,30 @@ foreach ($svc in $Services) {
     Write-Log "  Service $name installed"
 }
 
-# ========================== Start services ==========================
-Write-Log "Starting services..."
+# ========================== Start MySQL first, wait for 3306 ==========================
+Write-Log "Starting MySQL native service (with retry)..."
+$mysqlOk = $false
+for ($i = 1; $i -le 3; $i++) {
+    & sc.exe start $MysqlServiceName 2>$null
+    $mysqlOk = Wait-ForPort -port 3306 -timeoutSec 30
+    if ($mysqlOk) { Write-Log "  MySQL 3306 ready (attempt $i)" "OK"; break }
+    Write-Log "  MySQL not ready on attempt $i, retrying..." "WARN"
+    Start-Sleep -Seconds 3
+}
+if (-not $mysqlOk) { Write-Log "  WARNING: MySQL did not come up; backends may fail until it does." "ERROR" }
+
+# ========================== Start NSSM services ==========================
+Write-Log "Starting NSSM services..."
 foreach ($svc in $Services) {
     $name = $svc.Name
     Start-Service -Name $name -ErrorAction SilentlyContinue
     Write-Log "  Started: $name"
 }
-
 Write-Log "Waiting for services to be ready..."
 Start-Sleep -Seconds 3
 
 # ========================== Verify ==========================
-$ports = @{3306 = "MySQL-PMWB"; 8000 = "PMWB-Backend"; 5173 = "PMWB-Frontend"; 3210 = "PMWB-Mail"}
+$ports = @{3306 = "MySQL-PMWB (native)"; 8000 = "PMWB-Backend"; 5173 = "PMWB-Frontend"; 3210 = "PMWB-Mail"}
 $allOk = $true
 foreach ($port in $ports.Keys) {
     $ready = Wait-ForPort -port $port -timeoutSec 60
@@ -232,6 +259,7 @@ foreach ($port in $ports.Keys) {
 
 Write-Log ""
 Write-Log "Service summary:"
+try { & sc.exe query $MysqlServiceName 2>$null | Select-String "STATE" | ForEach-Object { Write-Log "  $MysqlServiceName : $_" } } catch {}
 Get-Service -Name @($Services.Name) | ForEach-Object {
     Write-Log "  $($_.Name) : $($_.Status)"
 }
@@ -241,7 +269,8 @@ if ($allOk) {
     Write-Log "Open http://127.0.0.1:5173" "OK"
 } else {
     Write-Log "===== Some services not ready, check logs =====" "ERROR"
-    Write-Log "Log directory: $LogDir" "ERROR"
+    Write-Log "  - MySQL error log: $MySqlBase\data\*.err" "ERROR"
+    Write-Log "  - Service logs: $LogDir" "ERROR"
 }
 
 Read-Host "Press Enter to exit"
