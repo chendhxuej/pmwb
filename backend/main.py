@@ -23,6 +23,7 @@ from routers import (
     product_bible,
     reminder,
     requirement,
+    requirement_delivery,
     todo,
 )
 
@@ -94,6 +95,7 @@ app.include_router(plugin.router, prefix="/api/v1", tags=["插件接入"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["首页看板"])
 app.include_router(todo.router, prefix="/api/v1", tags=["待办中心"])
 app.include_router(requirement.router, prefix="/api/v1", tags=["需求管理"])
+app.include_router(requirement_delivery.router, prefix="/api/v1", tags=["需求交付"])
 app.include_router(dev_ticket.router, prefix="/api/v1", tags=["开发工单"])
 app.include_router(reminder.router, prefix="/api/v1", tags=["邮件催办"])
 app.include_router(product_bible.router, prefix="/api/v1", tags=["产品圣经"])

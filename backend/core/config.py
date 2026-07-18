@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 
 
@@ -18,6 +20,13 @@ class Settings(BaseSettings):
 
     EMAIL_CENTER_URL: str = "http://localhost:3210"
     OBSIDIAN_VAULT_PATH: str = "D:\\项目\\知识图谱"
+
+    # 需求交付：附件 / 分析说明书 归档目录（基于 Obsidian vault 派生）
+    REQUIREMENT_ATTACHMENT_DIR: str = "业务建设\\需求附件"
+    REQUIREMENT_DOC_DIR: str = "业务建设\\需求分析说明书"
+    REQUIREMENT_DOC_TEMPLATE: str = str(
+        Path(__file__).resolve().parent.parent / "templates" / "需求分析说明书.docx"
+    )
 
     # 产品圣经：业务大类 -> Obsidian vault 内相对路径（新增业务只需加一项）
     PRODUCT_BIBLE: list = [
