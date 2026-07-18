@@ -9,9 +9,9 @@
           :collapse="collapsed"
           :collapse-transition="false"
           router
-          background-color="#304156"
-          text-color="#bfcbd9"
-          active-text-color="#409eff"
+          background-color="#1e293b"
+          text-color="#94a3b8"
+          active-text-color="#2f6fed"
         >
           <template v-for="item in menuItems" :key="item.path">
             <el-sub-menu v-if="item.children && item.children.length" :index="item.path">

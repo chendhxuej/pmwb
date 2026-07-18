@@ -1,0 +1,455 @@
+/* ============================================================
+   PMWB Design System — 统一设计语言（适配 Ardot 高保真原型）
+   单一蓝系强调色 · Bento 网格 · 无纯黑 · 精致阴影
+   ============================================================ */
+
+:root {
+  --bg-app: #f3f5f9;
+  --sidebar-bg: #1e293b;
+  --sidebar-active: rgba(47, 111, 237, .14);
+  --surface: #ffffff;
+  --border: #e4e9f0;
+  --border-subtle: #eff2f8;
+  --text-primary: #0f172a;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --accent: #2f6fed;           /* desaturated electric blue */
+  --accent-hover: #2659c9;
+  --accent-soft: #eaf1fe;
+  --success: #0f9d6b;
+  --success-soft: #ecfdf3;
+  --warning: #d98a1f;
+  --warning-soft: #fef7ed;
+  --danger: #d9544d;
+  --danger-soft: #fef2f2;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --shadow-card: 0 2px 12px -3px rgba(15, 23, 42, .08), 0 1px 3px -1px rgba(15, 23, 42, .06);
+  --shadow-elevated: 0 16px 48px -12px rgba(15, 23, 42, .14);
+  --transition-fast: .18s cubic-bezier(.4, 0, .2, 1);
+  --font-display: 'Outfit', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', monospace;
+  --sidebar-w: 220px;
+}
+
+/* ── RESET & BASE ── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: normal;
+}
+
+body {
+  font-family: var(--font-display);
+  background: var(--bg-app);
+  color: var(--text-primary);
+}
+
+/* 全局强调色对齐设计系统（Element Plus 主色） */
+:root {
+  --el-color-primary: #2f6fed;
+  --el-color-primary-light-3: #5b8af1;
+  --el-color-primary-light-5: #86a9f5;
+  --el-color-primary-light-7: #b9ccfa;
+  --el-color-primary-light-8: #d2e0fc;
+  --el-color-primary-light-9: #eaf1fe;
+  --el-color-primary-dark-2: #2659c9;
+  --el-border-radius-base: 10px;
+}
+
+/* 让 Element Plus 卡片更贴合设计语言 */
+.el-card {
+  border-radius: var(--radius-md) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+/* ── BENTO GRID ── */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 18px;
+}
+
+/* ── CARD BASE ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  animation: bentoIn .45s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elevated);
+}
+
+@keyframes bentoIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.card:nth-child(1) {
+  animation-delay: .02s;
+}
+
+.card:nth-child(2) {
+  animation-delay: .06s;
+}
+
+.card:nth-child(3) {
+  animation-delay: .10s;
+}
+
+.card:nth-child(4) {
+  animation-delay: .14s;
+}
+
+.card:nth-child(5) {
+  animation-delay: .18s;
+}
+
+.card:nth-child(6) {
+  animation-delay: .22s;
+}
+
+.card:nth-child(7) {
+  animation-delay: .26s;
+}
+
+.card:nth-child(8) {
+  animation-delay: .30s;
+}
+
+.card-header {
+  padding: 18px 22px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.card-action {
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.card-action:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.card-body {
+  padding: 16px 22px 20px;
+}
+
+/* ── KPI STRIP ── */
+.kpi-card {
+  grid-column: span 3;
+  text-align: center;
+  padding: 22px 18px !important;
+}
+
+.kpi-num {
+  font-size: 34px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  line-height: 1.1;
+  letter-spacing: -1.5px;
+  color: var(--text-primary);
+}
+
+.kpi-num.blue {
+  color: var(--accent);
+}
+
+.kpi-num.amber {
+  color: var(--warning);
+}
+
+.kpi-num.green {
+  color: var(--success);
+}
+
+.kpi-num.red {
+  color: var(--danger);
+}
+
+.kpi-label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  font-weight: 400;
+}
+
+.kpi-trend {
+  font-size: 11px;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+}
+
+.kpi-trend.up {
+  color: var(--success);
+}
+
+.kpi-trend.down {
+  color: var(--danger);
+}
+
+/* ── STEP PERCH (步骤条) ── */
+.pm-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+}
+
+.pm-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.pm-step-dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--border-subtle);
+  color: var(--text-muted);
+  border: 2px solid transparent;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.pm-step.active .pm-step-dot {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.pm-step.done .pm-step-dot {
+  background: var(--success);
+  color: #fff;
+}
+
+.pm-step-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.pm-step.active .pm-step-label {
+  color: var(--text-primary);
+}
+
+.pm-step-line {
+  width: 38px;
+  height: 2px;
+  background: var(--border);
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+
+.pm-step-line.done {
+  background: var(--success);
+}
+
+/* ── BADGES / TAGS ── */
+.pm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.pm-tag.blue {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pm-tag.green {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.pm-tag.amber {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.pm-tag.red {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.pm-tag.gray {
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+/* 状态点 */
+.pm-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.pm-dot.red {
+  background: var(--danger);
+}
+
+.pm-dot.amber {
+  background: var(--warning);
+}
+
+.pm-dot.green {
+  background: var(--success);
+}
+
+/* ── BUTTONS (轻量文字/线型) ── */
+.pm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.pm-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pm-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.pm-btn.primary:hover {
+  background: var(--accent-hover);
+  color: #fff;
+}
+
+/* ── DRAWER / PANEL helpers ── */
+.pm-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pm-drawer-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.pm-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin: 4px 0 12px;
+}
+
+/* ── FORM LABEL ── */
+.pm-field-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  display: block;
+}
+
+/* ── TABLE wrapper ── */
+.pm-table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+/* ── scrollbar ── */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ── 通用间距工具 ── */
+.mt-8 { margin-top: 8px }
+.mt-12 { margin-top: 12px }
+.mt-16 { margin-top: 16px }
+.mt-20 { margin-top: 20px }
+.mb-12 { margin-bottom: 12px }
+.mb-16 { margin-bottom: 16px }
+.flex { display: flex }
+.flex-between { display: flex; align-items: center; justify-content: space-between }
+.flex-center { display: flex; align-items: center; justify-content: center }
+.gap-8 { gap: 8px }
+.gap-12 { gap: 12px }
+.gap-16 { gap: 16px }
+.text-muted { color: var(--text-muted) }
+.text-secondary { color: var(--text-secondary) }
+.font-mono { font-family: var(--font-mono) }

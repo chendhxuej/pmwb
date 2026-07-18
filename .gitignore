@@ -64,3 +64,6 @@ scripts/screenshot_*.py
 
 # Session temp files（会话开发时随手建的临时脚本/测试产物，非源码，永不被提交）
 tmp_*
+
+# 临时构建验证产物
+frontend/dist-tmp/
