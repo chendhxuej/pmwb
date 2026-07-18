@@ -15,40 +15,10 @@ const routes = [
         meta: { title: '首页看板', icon: 'House' },
       },
       {
-        path: 'todo',
-        name: 'Todo',
-        component: () => import('@/views/TodoView.vue'),
-        meta: { title: '待办中心', icon: 'Check' },
-      },
-      {
-        path: 'requirement',
-        name: 'Requirement',
-        component: () => import('@/views/RequirementView.vue'),
-        meta: { title: '需求管理', icon: 'Document' },
-      },
-      {
-        path: 'requirement-group',
-        name: 'RequirementGroup',
-        component: () => import('@/views/RequirementGroupView.vue'),
-        meta: { title: '集团需求', icon: 'Postcard' },
-      },
-      {
-        path: 'reminder-center',
-        name: 'ReminderCenter',
-        component: () => import('@/views/ReminderCenterView.vue'),
-        meta: { title: '催办中心', icon: 'Bell' },
-      },
-      {
-        path: 'mail-records',
-        name: 'MailRecords',
-        component: () => import('@/views/MailRecordsView.vue'),
-        meta: { title: '邮件记录', icon: 'Message' },
-      },
-      {
-        path: 'ticket',
-        name: 'Ticket',
-        component: () => import('@/views/TicketView.vue'),
-        meta: { title: '开发工单', icon: 'Tickets' },
+        path: 'requirement-delivery',
+        name: 'RequirementDelivery',
+        component: () => import('@/views/RequirementDeliveryView.vue'),
+        meta: { title: '需求与交付', icon: 'Connection' },
       },
       {
         path: 'operation',
@@ -110,7 +80,7 @@ const routes = [
         path: 'meeting',
         name: 'Meeting',
         component: () => import('@/views/MeetingView.vue'),
-        meta: { title: '会议管理', icon: 'Calendar' },
+        meta: { title: '会议日程', icon: 'Calendar' },
       },
       {
         path: 'knowledge',
@@ -118,11 +88,43 @@ const routes = [
         component: () => import('@/views/KnowledgeView.vue'),
         meta: { title: '知识库', icon: 'Collection' },
       },
+      // ── 保留的独立能力模块 ──
       {
         path: 'product-bible',
         name: 'ProductBible',
         component: () => import('@/views/ProductBibleView.vue'),
         meta: { title: '产品圣经', icon: 'Notebook' },
+      },
+      {
+        path: 'reminder-center',
+        name: 'ReminderCenter',
+        component: () => import('@/views/ReminderCenterView.vue'),
+        meta: { title: '催办中心', icon: 'Bell' },
+      },
+      {
+        path: 'mail-records',
+        name: 'MailRecords',
+        component: () => import('@/views/MailRecordsView.vue'),
+        meta: { title: '邮件记录', icon: 'Message' },
+      },
+      // 已并入「需求与交付」的旧路由，保留深链兼容（隐藏于菜单）
+      {
+        path: 'requirement',
+        name: 'RequirementLegacy',
+        component: () => import('@/views/RequirementDeliveryView.vue'),
+        meta: { hidden: true },
+      },
+      {
+        path: 'ticket',
+        name: 'TicketLegacy',
+        component: () => import('@/views/WorkOrderView.vue'),
+        meta: { hidden: true },
+      },
+      {
+        path: 'requirement-group',
+        name: 'RequirementGroup',
+        component: () => import('@/views/RequirementGroupView.vue'),
+        meta: { hidden: true },
       },
     ],
   },
