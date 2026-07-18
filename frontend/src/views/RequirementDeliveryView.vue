@@ -181,7 +181,7 @@
               <div class="card-body">
                 <div class="folder-path">
                   <el-icon><Folder /></el-icon>
-                  <code>{{ attachmentFolder }}</code>
+                  <code>{{ attachmentFolder || '（打开需求后初始化）' }}</code>
                 </div>
                 <div class="attachment-list">
                   <div v-for="(f, idx) in attachments" :key="idx" class="attachment-item">
@@ -189,14 +189,15 @@
                     <span class="att-name">{{ f.name }}</span>
                     <span class="att-size text-muted">{{ f.size }}</span>
                     <el-button link type="primary" size="small" @click="downloadAttachment(f)">下载</el-button>
-                    <el-button link type="danger" size="small" @click="attachments.splice(idx, 1)">删除</el-button>
+                    <el-button link type="danger" size="small" @click="removeAttachment(f)">删除</el-button>
                   </div>
-                  <div v-if="!attachments.length" class="text-muted" style="padding: 8px 0">暂无附件</div>
+                  <div v-if="!attachments.length" class="text-muted" style="padding: 8px 0">暂无附件，可上传或生成说明书</div>
                 </div>
-                <el-button class="mt-12" size="small" @click="addAttachment">
+                <input ref="fileInput" type="file" style="display:none" @change="handleFileChange" />
+                <el-button class="mt-12" size="small" @click="triggerUpload">
                   <el-icon><Upload /></el-icon> 上传附件
                 </el-button>
-                <div class="hint-text mt-8">分析说明书生成后将自动归入此文件夹。</div>
+                <div class="hint-text mt-8">需求文件夹随需求打开自动创建；说明书归档在「需求分析说明书」同级目录。</div>
               </div>
             </div>
 
@@ -286,10 +287,10 @@
               <div class="card-header mt-16"><span class="card-label">DDD 领域视角</span></div>
               <div class="card-body">
                 <div class="ddd-chips">
-                  <span class="pm-tag blue">领域：政企需求交付</span>
-                  <span class="pm-tag gray">子域：需求评估 / 工单履约</span>
-                  <span class="pm-tag gray">聚合：需求-评估-工单</span>
-                  <span class="pm-tag gray">实体：需求、系统评估、用户故事</span>
+                  <span class="pm-tag blue">领域：{{ dddView.domain }}</span>
+                  <span class="pm-tag gray">子域：{{ dddView.subdomain }}</span>
+                  <span class="pm-tag gray">聚合：{{ dddView.aggregate }}</span>
+                  <span class="pm-tag gray">实体：{{ dddView.entity }}</span>
                 </div>
               </div>
             </div>
@@ -366,7 +367,7 @@
                 <div v-for="(g, i) in genHistory" :key="i" class="gen-item">
                   <el-icon><DocumentChecked /></el-icon>
                   <div class="gen-meta"><b>{{ g.file }}</b><div class="text-muted" style="font-size:11px">{{ g.time }} · {{ g.path }}</div></div>
-                  <el-button link type="primary" size="small">下载</el-button>
+                  <el-button link type="primary" size="small" @click="openGen(g)">打开</el-button>
                 </div>
                 <div v-if="!genHistory.length" class="text-muted">暂无生成记录</div>
               </div>
@@ -429,6 +430,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getRequirements,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
+  initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
+  deleteRequirementAttachment, generateUserStories, generateRequirementDoc,
 } from '@/api/requirement'
 import {
   getDevTickets, createDevTicket, updateDevTicket, deleteDevTicket,
@@ -494,18 +497,15 @@ const stories = ref([])
 const docTemplate = ref('std')
 const docFileName = ref('')
 const genHistory = ref([])
+const dddView = ref({ domain: '政企需求交付', subdomain: '需求评估与履约', aggregate: '需求-评估-交付', entity: '需求、用户故事、开发工单' })
 
-// 每需求本地工作流态（用户故事/澄清/附件，后端扩展前暂存）
+// 真实路径（来自后端 init-folder）
+const attachmentFolder = ref('')
+const docFolder = ref('')
+
+// 每需求本地工作流态（用户故事/澄清，后端扩展前暂存）
 const localStore = reactive({})
 
-const attachmentFolder = computed(() => {
-  const name = (current.value.req_name || 'requirement').replace(/[\\/:*?"<>|]/g, '_')
-  return `D:\\项目\\知识图谱\\业务建设\\需求附件\\${current.value.req_id}_${name}\\`
-})
-const docFolder = computed(() => {
-  const name = (current.value.req_name || 'requirement').replace(/[\\/:*?"<>|]/g, '_')
-  return `D:\\项目\\知识图谱\\业务建设\\需求分析说明书\\${current.value.req_id}_${name}\\`
-})
 const totalWorkload = computed(() => evaluations.value.reduce((s, e) => s + (Number(e.workload) || 0), 0).toFixed(1))
 const totalReview = computed(() => evaluations.value.reduce((s, e) => s + (Number(e.review_workload) || 0), 0).toFixed(1))
 
@@ -524,10 +524,20 @@ async function openWorkflow(row) {
   docFileName.value = `关于${row.req_name || '需求'}的需求分析说明书`
   const key = row.req_id
   const cached = localStore[key] || {}
-  attachments.value = cached.attachments || []
   stories.value = cached.stories || []
   genHistory.value = cached.genHistory || []
   wfVisible.value = true
+  // 真实创建/读取需求文件夹，并拉取真实附件列表
+  try {
+    const folder = await initRequirementFolder(key)
+    attachmentFolder.value = folder.attachment_folder || ''
+    docFolder.value = folder.doc_folder || ''
+    attachments.value = folder.attachments || []
+  } catch (e) {
+    attachmentFolder.value = ''
+    docFolder.value = ''
+    attachments.value = []
+  }
   await loadEvaluations(key)
 }
 
@@ -542,7 +552,6 @@ async function loadEvaluations(reqId) {
 
 function cacheLocal() {
   localStore[current.value.req_id] = {
-    attachments: attachments.value,
     stories: stories.value,
     genHistory: genHistory.value,
   }
@@ -555,16 +564,40 @@ function saveClarification() {
   ElMessage.success('澄清内容已暂存（待后端持久化）')
 }
 
-/* 附件（前端态） */
-function addAttachment() {
-  ElMessageBox.prompt('输入附件文件名', '上传附件', { inputValue: '附件.docx' })
-    .then(({ value }) => {
-      attachments.value.push({ name: value, size: '0.4 MB' })
-      cacheLocal()
-    }).catch(() => {})
+/* 附件（真实端点：上传 / 下载 / 删除） */
+const fileInput = ref(null)
+function triggerUpload() {
+  fileInput.value?.click()
+}
+async function handleFileChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  try {
+    await uploadRequirementAttachment(current.value.req_id, file)
+    const list = await listRequirementAttachments(current.value.req_id)
+    attachments.value = list || []
+    ElMessage.success(`已上传：${file.name}`)
+  } catch (err) {
+    ElMessage.error('上传失败')
+  } finally {
+    e.target.value = ''
+  }
 }
 function downloadAttachment(f) {
-  ElMessage.info(`下载：${f.name}（后端附件端点接入后生效）`)
+  const url = `/api/v1/requirements/${current.value.req_id}/delivery/attachments/download?filename=${encodeURIComponent(f.name)}`
+  window.open(url, '_blank')
+}
+function openGen(g) {
+  if (g.url) window.open(g.url)
+}
+async function removeAttachment(f) {
+  try {
+    await deleteRequirementAttachment(current.value.req_id, f.name)
+    attachments.value = attachments.value.filter((x) => x.name !== f.name)
+    ElMessage.success('已删除')
+  } catch (err) {
+    ElMessage.error('删除失败')
+  }
 }
 
 /* 评估弹层 */
@@ -594,36 +627,58 @@ async function removeEval(row) {
   await loadEvaluations(current.value.req_id)
 }
 
-/* 用户故事 */
+/* 用户故事（真实端点：基于 DDD 生成固定 4 段模板） */
 function addStory() {
   stories.value.push({ title: '', desc: '', scene: '', acceptance: [''], finalized: false })
   cacheLocal()
 }
-function generateStories() {
+async function generateStories() {
   if (!clarification.value.trim()) {
     ElMessage.warning('请先填写澄清后需求内容')
     return
   }
-  const base = clarification.value.slice(0, 20)
-  stories.value = [
-    { title: `查看${base}进度`, desc: `作为政企产品经理，我想要查看${base}的处理进度，以便及时跟进排期。`, scene: `进入需求详情页，切换至「用户故事」标签查看进度看板。`, acceptance: [`验证${base}进度展示功能是否成功实现`, `验证进度按系统维度拆分是否成功实现`], finalized: false },
-    { title: `导出${base}清单`, desc: `作为运营人员，我想要导出${base}相关清单，以便线下跟进。`, scene: `在列表勾选目标需求，点击导出按钮。`, acceptance: [`验证${base}清单导出功能是否成功实现`, `验证导出字段完整性是否成功实现`], finalized: false },
-  ]
-  cacheLocal()
-  ElMessage.success('已基于澄清内容生成用户故事')
+  try {
+    const res = await generateUserStories(current.value.req_id, clarification.value)
+    dddView.value = res.ddd || dddView.value
+    stories.value = (res.stories || []).map((s) => ({
+      title: s.title,
+      desc: s.desc,
+      scene: s.scene,
+      acceptance: s.acceptance && s.acceptance.length ? s.acceptance : [''],
+      finalized: false,
+    }))
+    cacheLocal()
+    ElMessage.success(`已基于 DDD 生成 ${stories.value.length} 条用户故事`)
+  } catch (err) {
+    ElMessage.error('生成失败，请重试')
+  }
 }
 watch(stories, cacheLocal, { deep: true })
 
-/* 文档生成 */
-function generateDoc() {
-  const file = `${docFileName.value || '需求分析说明书'}.docx`
-  genHistory.value.unshift({
-    file,
-    path: docFolder.value,
-    time: new Date().toLocaleString('zh-CN'),
-  })
-  cacheLocal()
-  ElMessage.success(`已生成并归档：${file}`)
+/* 文档生成（真实端点：按固定模板生成 docx 并落盘） */
+async function generateDoc() {
+  if (!stories.value.length) {
+    ElMessage.warning('请先生成用户故事')
+    return
+  }
+  try {
+    const res = await generateRequirementDoc(
+      current.value.req_id,
+      stories.value.map((s) => ({ title: s.title, desc: s.desc, scene: s.scene, acceptance: s.acceptance, seq: s.seq })),
+      clarification.value,
+    )
+    genHistory.value.unshift({
+      file: res.file,
+      path: res.path,
+      time: new Date().toLocaleString('zh-CN'),
+      url: res.url,
+    })
+    cacheLocal()
+    ElMessage.success(`已生成并归档：${res.file}`)
+    // 刷新附件列表（说明书包归档在 doc 目录，这里仅提示路径）
+  } catch (err) {
+    ElMessage.error('生成失败，请重试')
+  }
 }
 
 /* 工单弹层 */

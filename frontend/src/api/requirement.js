@@ -35,3 +35,32 @@ export function createEvaluation(reqId, data) {
 export function deleteEvaluation(reqId, evalId) {
   return request.delete(`/requirements/${reqId}/evaluations/${evalId}`)
 }
+
+// ---- 需求交付（附件文件夹 / 用户故事 / 分析说明书） ----
+export function initRequirementFolder(reqId) {
+  return request.post(`/requirements/${reqId}/delivery/init-folder`)
+}
+
+export function listRequirementAttachments(reqId) {
+  return request.get(`/requirements/${reqId}/delivery/attachments`)
+}
+
+export function uploadRequirementAttachment(reqId, file) {
+  const form = new FormData()
+  form.append('file', file)
+  return request.post(`/requirements/${reqId}/delivery/attachments/upload`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+export function deleteRequirementAttachment(reqId, filename) {
+  return request.post(`/requirements/${reqId}/delivery/attachments/delete`, { filename })
+}
+
+export function generateUserStories(reqId, content) {
+  return request.post(`/requirements/${reqId}/delivery/generate-user-stories`, { content })
+}
+
+export function generateRequirementDoc(reqId, stories, clarification) {
+  return request.post(`/requirements/${reqId}/delivery/generate-doc`, { stories, clarification })
+}
