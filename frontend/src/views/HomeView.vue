@@ -220,8 +220,7 @@ const plotLeft = 40
 const plotRight = 560
 const plotTop = 44
 const plotBottom = 179
-const yMin = 15
-const yMax = 45
+const yMin = 0
 
 /* ───────────────── Demo 有机数据（默认渲染） ───────────────── */
 const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -255,6 +254,12 @@ const kpis = ref([
 
 const trendValues = ref([18, 24, 21, 33, 29, 38, 42])
 const trendLabels = ref([...dayLabels])
+
+// 趋势图 Y 轴自适应：避免真实小数值被固定 15–45 轴裁到图底
+const yMax = computed(() => {
+  const m = Math.max(0, ...trendValues.value)
+  return m <= 5 ? 5 : m <= 10 ? 10 : Math.ceil(m * 1.25)
+})
 
 const donutTotal = ref(44)
 const donutSegments = ref([
@@ -339,20 +344,22 @@ const helloText = computed(() => {
 })
 
 /* ───────────────── 派生：趋势图几何 ───────────────── */
-const trendGrid = computed(() =>
-  [45, 35, 25, 15].map((v) => ({
-    value: v,
-    y: plotBottom - ((v - yMin) / (yMax - yMin)) * (plotBottom - plotTop),
-  }))
-)
+const trendGrid = computed(() => {
+  const max = yMax.value
+  const steps = 4
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const v = Math.round((max / steps) * (steps - i))
+    return { value: v, y: plotBottom - ((v - yMin) / (max - yMin || 1)) * (plotBottom - plotTop) }
+  })
+})
 
 const trendGeom = computed(() => {
   const vals = trendValues.value
   const n = vals.length || 1
   const xs = vals.map((_, i) => (n === 1 ? plotLeft : plotLeft + (i * (plotRight - plotLeft)) / (n - 1)))
   const ys = vals.map((v) => {
-    const clamped = Math.max(yMin, Math.min(yMax, v))
-    return plotBottom - ((clamped - yMin) / (yMax - yMin)) * (plotBottom - plotTop)
+    const clamped = Math.max(yMin, Math.min(yMax.value, v))
+    return plotBottom - ((clamped - yMin) / (yMax.value - yMin || 1)) * (plotBottom - plotTop)
   })
   const pts = xs.map((x, i) => ({ x, y: ys[i], label: trendLabels.value[i] || dayLabels[i], value: vals[i] }))
   const polyPoints = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
