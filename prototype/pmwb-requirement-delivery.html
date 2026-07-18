@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PMWB 工作台 — 需求与交付（设计原型）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-app: #f3f5f9;
+    --sidebar-bg: #1e293b;
+    --sidebar-active: rgba(47,111,237,.14);
+    --surface: #ffffff;
+    --border: #e4e9f0;
+    --border-subtle: #eff2f8;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --accent: #2f6fed;
+    --accent-hover: #2659c9;
+    --accent-soft: #eaf1fe;
+    --success: #0f9d6b;
+    --success-soft: #ecfdf3;
+    --warning: #d98a1f;
+    --warning-soft: #fef7ed;
+    --danger: #d9544d;
+    --danger-soft: #fef2f2;
+    --info: #3b82f6;
+    --info-soft: #eff6ff;
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 22px;
+    --shadow-card: 0 2px 12px -3px rgba(15,23,42,.08),0 1px 3px -1px rgba(15,23,42,.06);
+    --shadow-elevated: 0 16px 48px -12px rgba(15,23,42,.14);
+    --transition-fast: .18s cubic-bezier(.4,0,.2,1);
+    --font-display: 'Outfit', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+    --sidebar-w: 236px;
+  }
+
+  *,*::before,*::after { box-sizing:border-box;margin:0;padding:0 }
+  html { font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color-scheme:normal }
+  body { font-family: var(--font-display); background:var(--bg-app); color:var(--text-primary); display:flex; min-height:100vh; overflow-x:hidden }
+
+  .sidebar { width:var(--sidebar-w); flex-shrink:0; height:100vh; position:fixed;left:0;top:0;z-index:100; background:var(--sidebar-bg); color:#cbd5e1;display:flex;flex-direction:column; }
+  .sb-brand { padding:26px 24px 20px; display:flex;align-items:center;gap:11px;border-bottom:1px solid rgba(255,255,255,.07) }
+  .sb-logo { width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2f6fed 30%,#60a5fa);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:14px;letter-spacing:-.5px }
+  .sb-title { font-size:17px;font-weight:700;color:#f1f5f9;letter-spacing:.3px }
+  .sb-nav { flex:1;padding:16px 12px;display:flex;flex-direction:column;gap:3px;overflow-y:auto }
+  .sb-item { display:flex;align-items:center;gap:13px;padding:11px 14px;border-radius:10px; color:#94a3b8;font-size:14px;font-weight:400;cursor:pointer;transition:all var(--transition-fast); position:relative;text-decoration:none;line-height:1.35 }
+  .sb-item:hover { background:rgba(255,255,255,.05);color:#e2e8f0 }
+  .sb-item.active { background:var(--sidebar-active); color:#60a5fa;font-weight:500 }
+  .sb-item.active::before { content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:20px;background:#60a5fa;border-radius:0 3px 3px 0 }
+  .sb-icon { width:20px;height:20px;flex-shrink:0;opacity:.75 }
+  .sb-item.active .sb-icon { opacity:1 }
+  .sb-bottom { padding:18px 16px;border-top:1px solid rgba(255,255,255,.07) }
+  .sb-user { display:flex;align-items:center;gap:12px;padding:8px;border-radius:10px;cursor:pointer;transition:background var(--transition-fast) }
+  .sb-user:hover { background:rgba(255,255,255,.04) }
+  .sb-avatar { width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#38bdf8,#2dd4bf);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff }
+  .sb-user-info { display:flex;flex-direction:column }
+  .sb-user-name { font-size:13px;font-weight:500;color:#e2e8f0;line-height:1.25 }
+  .sb-user-role { font-size:11.5px;color:#64748b }
+
+  .main { margin-left:var(--sidebar-w); flex:1;min-height:100vh;display:flex;flex-direction:column }
+  .topbar { height:62px;flex-shrink:0;background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(12px); border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between; padding:0 32px;position:sticky;top:0;z-index:90 }
+  .tb-left { display:flex;align-items:center;gap:14px }
+  .tb-title { font-size:18px;font-weight:700;color:var(--text-primary) }
+  .tb-crumb { font-size:12.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px }
+  .tb-crumb a { color:var(--text-muted);text-decoration:none }
+  .tb-crumb a:hover { color:var(--accent) }
+  .tb-right { display:flex;align-items:center;gap:10px }
+  .tb-search { width:260px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--surface); padding:0 14px;font-size:13px;color:var(--text-primary);outline:none;transition:all var(--transition-fast) }
+  .tb-search:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .tb-search::placeholder { color:var(--text-muted) }
+  .tb-btn { height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);display:inline-flex;align-items:center;gap:6px;color:var(--text-primary) }
+  .tb-btn:hover { border-color:var(--accent);color:var(--accent) }
+  .tb-btn-primary { background:var(--accent);border-color:var(--accent);color:#fff }
+  .tb-btn-primary:hover { background:var(--accent-hover);border-color:var(--accent-hover);color:#fff }
+
+  .content { padding:28px 32px 40px;max-width:1600px;width:100% }
+  .bento-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:18px;align-items:start }
+
+  .card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md); box-shadow:var(--shadow-card);overflow:hidden;transition: transform var(--transition-fast), box-shadow var(--transition-fast); animation:bentoIn .45s cubic-bezier(.16,1,.3,1) both }
+  @keyframes bentoIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+  .card-head { padding:18px 20px 0; display:flex;align-items:center;justify-content:space-between }
+  .card-title { font-size:16px;font-weight:700;color:var(--text-primary) }
+  .card-sub { font-size:12.5px;color:var(--text-muted);margin-top:3px }
+
+  .list-col { grid-column:span 3; min-width:280px }
+  .list-search { padding:14px 16px; border-bottom:1px solid var(--border-subtle) }
+  .list-search input { width:100%;height:36px;border-radius:9px;border:1px solid var(--border);padding:0 12px;font-size:13px;outline:none }
+  .list-search input:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .list-filter { display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-subtle);overflow-x:auto }
+  .filter-chip { flex-shrink:0; padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface);font-size:12px;color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast) }
+  .filter-chip:hover, .filter-chip.active { background:var(--accent-soft);border-color:var(--accent);color:var(--accent) }
+  .req-list { max-height:calc(100vh - 240px);overflow-y:auto }
+  .req-item { padding:14px 16px;border-bottom:1px solid var(--border-subtle);cursor:pointer;transition:background var(--transition-fast);position:relative }
+  .req-item:hover { background:#f8fafc }
+  .req-item.active { background:var(--accent-soft); border-left:3px solid var(--accent) }
+  .req-item-head { display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px }
+  .req-id { font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);background:#f1f5f9;padding:2px 6px;border-radius:4px }
+  .req-status { font-size:11px;padding:3px 8px;border-radius:12px;font-weight:500 }
+  .st-draft { background:var(--warning-soft);color:var(--warning) }
+  .st-eval { background:var(--info-soft);color:var(--info) }
+  .st-story { background:#f3e8ff;color:#7c3aed }
+  .st-done { background:var(--success-soft);color:var(--success) }
+  .req-title { font-size:13.5px;font-weight:600;color:var(--text-primary);line-height:1.35;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden }
+  .req-meta { display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-muted) }
+  .req-meta svg { width:13px;height:13px }
+
+  .workspace-col { grid-column:span 9 }
+  .workspace-card { padding:22px 24px 28px }
+  .ws-header { display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px }
+  .ws-title { font-size:18px;font-weight:700;line-height:1.35 }
+  .ws-status { display:flex;align-items:center;gap:8px }
+  .status-tag { font-size:12px;padding:5px 12px;border-radius:20px;font-weight:500;background:var(--warning-soft);color:var(--warning) }
+  .ws-actions { display:flex;gap:10px }
+  .btn { height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);display:inline-flex;align-items:center;gap:7px }
+  .btn:hover { border-color:var(--accent);color:var(--accent) }
+  .btn-primary { background:var(--accent);border-color:var(--accent);color:#fff }
+  .btn-primary:hover { background:var(--accent-hover);border-color:var(--accent-hover);color:#fff }
+  .btn-success { background:var(--success);border-color:var(--success);color:#fff }
+  .btn-success:hover { background:#0d8558;border-color:#0d8558;color:#fff }
+  .btn-ghost { border-color:transparent;background:transparent;color:var(--text-secondary) }
+  .btn-ghost:hover { background:var(--border-subtle);color:var(--text-primary) }
+  .btn-sm { height:30px;padding:0 12px;font-size:12px }
+  .btn[disabled] { opacity:.55;cursor:not-allowed }
+  .btn-danger { color:var(--danger);border-color:transparent }
+  .btn-danger:hover { background:var(--danger-soft);border-color:var(--danger-soft) }
+
+  .step-bar { display:flex;align-items:center;gap:8px;margin-bottom:24px;padding:14px 16px;background:var(--bg-app);border-radius:var(--radius-sm);border:1px solid var(--border-subtle) }
+  .step { display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:10px;cursor:pointer;transition:all var(--transition-fast);border:1px solid transparent }
+  .step:hover { background:#fff }
+  .step-num { width:24px;height:24px;border-radius:50%;background:#e2e8f0;color:var(--text-secondary);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;transition:all var(--transition-fast) }
+  .step.active .step-num { background:var(--accent);color:#fff }
+  .step.done .step-num { background:var(--success);color:#fff }
+  .step-label { font-size:13px;font-weight:500;color:var(--text-secondary);white-space:nowrap }
+  .step.active .step-label { color:var(--accent);font-weight:600 }
+  .step-arrow { color:var(--text-muted);font-size:12px }
+  .step-divider { flex:1;height:1px;background:var(--border-subtle);margin:0 4px }
+
+  .step-panel { display:none;animation:fadeIn .25s ease both }
+  .step-panel.active { display:block }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  .panel-title { font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:10px }
+  .panel-title svg { color:var(--accent) }
+  .panel-desc { font-size:13px;color:var(--text-secondary);margin-bottom:18px;line-height:1.6 }
+
+  .form-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:16px 20px }
+  .form-group { display:flex;flex-direction:column;gap:6px }
+  .form-group.full { grid-column:1/-1 }
+  .form-label { font-size:12.5px;font-weight:600;color:var(--text-secondary) }
+  .form-label .required { color:var(--danger);margin-left:2px }
+  .form-input, .form-select, .form-textarea { height:38px;border:1px solid var(--border);border-radius:9px;padding:0 12px;font-size:13px;color:var(--text-primary);outline:none;background:var(--surface);transition:all var(--transition-fast);font-family:inherit }
+  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .form-textarea { height:auto;min-height:90px;padding:10px 12px;resize:vertical;line-height:1.6 }
+  .form-readonly { background:#f8fafc;color:var(--text-secondary);border-style:dashed }
+  .form-hint { font-size:11.5px;color:var(--text-muted) }
+
+  .tag-list { display:flex;flex-wrap:wrap;gap:8px }
+  .tag { padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;background:var(--accent-soft);color:var(--accent);border:1px solid transparent }
+  .tag-outline { background:transparent;border-color:var(--border);color:var(--text-secondary) }
+  .file-chip { display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:8px;background:#f8fafc;border:1px solid var(--border);font-size:12.5px;color:var(--text-secondary) }
+  .file-chip svg { width:15px;height:15px;color:var(--accent) }
+
+  /* Attachment manager */
+  .attach-box { background:#f8fafc;border:1px dashed var(--border);border-radius:var(--radius-sm);padding:18px }
+  .attach-head { display:flex;align-items:center;justify-content:space-between;margin-bottom:12px }
+  .attach-path { display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);background:#fff;border:1px solid var(--border);padding:6px 10px;border-radius:8px;flex:1;margin-right:10px }
+  .attach-path code { font-family:var(--font-mono);color:var(--text-primary) }
+  .attach-list { display:grid;gap:8px }
+  .attach-item { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#fff;border:1px solid var(--border);border-radius:8px;transition:all var(--transition-fast) }
+  .attach-item:hover { border-color:var(--accent) }
+  .attach-info { display:flex;align-items:center;gap:10px }
+  .attach-icon { width:32px;height:32px;border-radius:8px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent) }
+  .attach-name { font-size:13px;font-weight:500;color:var(--text-primary) }
+  .attach-meta { font-size:11.5px;color:var(--text-muted);margin-top:1px }
+  .attach-actions { display:flex;gap:6px }
+
+  /* System evaluation table */
+  .sys-table { width:100%;border-collapse:separate;border-spacing:0;font-size:13px }
+  .sys-table th { text-align:left;padding:12px 14px;background:#f8fafc;color:var(--text-secondary);font-weight:600;border-bottom:1px solid var(--border) }
+  .sys-table td { padding:12px 14px;border-bottom:1px solid var(--border-subtle);vertical-align:top }
+  .sys-table tr:hover td { background:#f8fafc }
+  .sys-table .sys-name { font-weight:700;color:var(--text-primary) }
+  .sys-table .sys-sa { font-size:12px;color:var(--text-secondary) }
+  .sys-table input, .sys-table select, .sys-table textarea { width:100%;border:1px solid transparent;border-radius:6px;padding:6px 8px;font-size:13px;background:transparent;outline:none;transition:all var(--transition-fast);font-family:inherit }
+  .sys-table input:focus, .sys-table select:focus, .sys-table textarea:focus { background:#fff;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft) }
+  .sys-table input:hover, .sys-table select:hover, .sys-table textarea:hover { background:#f1f5f9 }
+  .sys-table td:hover input, .sys-table td:hover select, .sys-table td:hover textarea { background:#fff;border-color:var(--border) }
+  .sys-effort { width:80px }
+  .sys-review { width:110px }
+  .sys-status { display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 8px;border-radius:10px;background:var(--warning-soft);color:var(--warning);font-weight:500 }
+  .sys-status.done { background:var(--success-soft);color:var(--success) }
+  .sys-total-bar { display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding:14px 16px;background:var(--accent-soft);border-radius:var(--radius-sm) }
+  .sys-total-label { font-size:13px;font-weight:600;color:var(--accent) }
+  .sys-total-val { font-size:16px;font-weight:700;color:var(--accent) }
+
+  /* Story cards fixed template */
+  .story-editor { background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px }
+  .editor-head { font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px;color:var(--text-primary) }
+  .editor-head .badge { font-size:10px;padding:2px 7px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600 }
+  .story-area { width:100%;min-height:240px;border:1px solid var(--border);border-radius:9px;padding:12px;font-size:13px;line-height:1.7;color:var(--text-primary);resize:vertical;outline:none;background:#fff }
+  .story-area:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .story-template { display:flex;flex-direction:column;gap:16px }
+  .story-card { border:1px solid var(--border);border-radius:var(--radius-sm);padding:0;background:#fff;transition:all var(--transition-fast);overflow:hidden }
+  .story-card:hover { border-color:var(--accent);box-shadow:var(--shadow-card) }
+  .story-card.editing { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .story-card-header { background:#f8fafc;padding:12px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;gap:10px }
+  .story-card-id { font-family:var(--font-mono);font-size:12px;color:var(--text-muted);background:#fff;padding:2px 8px;border-radius:6px;border:1px solid var(--border) }
+  .story-card-title-input { flex:1;font-size:14px;font-weight:700;border:none;background:transparent;outline:none;color:var(--text-primary) }
+  .story-card-body { padding:16px;display:flex;flex-direction:column;gap:16px }
+  .story-field { display:flex;flex-direction:column;gap:6px }
+  .story-field-label { font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted) }
+  .story-field-text { font-size:13px;line-height:1.7;color:var(--text-primary);padding:10px 12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;min-height:60px;outline:none }
+  .story-field-text:focus { background:#fff;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .story-field-text[contenteditable]:empty:before { content:attr(data-placeholder);color:var(--text-muted) }
+  .ac-inline { display:flex;flex-wrap:wrap;gap:8px;margin-top:4px }
+  .ac-item { display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;background:#fff;border:1px solid var(--border);font-size:12.5px;color:var(--text-secondary) }
+  .ac-item::before { content:'✓';color:var(--success);font-weight:700 }
+  .story-actions { display:flex;gap:8px;justify-content:flex-end;padding:0 16px 16px }
+  .add-story-btn { width:100%;justify-content:center;border-style:dashed;padding:12px }
+
+  /* DDD blocks */
+  .ddd-bar { display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px }
+  .ddd-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px }
+  .ddd-card h4 { font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);margin-bottom:8px;font-weight:700 }
+  .ddd-card ul { list-style:none;font-size:12.5px;color:var(--text-primary);line-height:1.8 }
+  .ddd-card li::before { content:'·';color:var(--accent);margin-right:6px;font-weight:700 }
+
+  /* Document generator */
+  .doc-grid { display:grid;grid-template-columns:1.2fr 1fr;gap:20px }
+  .doc-options { background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:18px }
+  .doc-preview { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:18px;min-height:360px }
+  .preview-title { font-size:13px;font-weight:700;margin-bottom:12px;color:var(--text-primary) }
+  .doc-row { display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle);font-size:13px }
+  .doc-row:last-child { border-bottom:none }
+  .doc-row .k { color:var(--text-secondary) }
+  .doc-row .v { color:var(--text-primary);font-weight:500 }
+  .chapter-list { display:flex;flex-direction:column;gap:8px;margin-top:10px }
+  .chapter-item { display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:#fff }
+  .chapter-item.auto { background:var(--accent-soft);border-color:var(--accent) }
+  .chapter-item.reuse { background:#f8fafc }
+  .chapter-item .chapter-num { width:22px;height:22px;border-radius:50%;background:var(--text-muted);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700 }
+  .chapter-item.auto .chapter-num { background:var(--accent) }
+  .chapter-item .chapter-status { margin-left:auto;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--success-soft);color:var(--success);font-weight:500 }
+  .chapter-item.reuse .chapter-status { background:#e2e8f0;color:var(--text-muted) }
+  .doc-history { margin-top:18px }
+  .history-item { display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border-subtle);font-size:12.5px }
+  .history-item:last-child { border-bottom:none }
+  .history-meta { display:flex;align-items:center;gap:8px;color:var(--text-secondary) }
+  .history-dot { width:8px;height:8px;border-radius:50%;background:var(--success) }
+  .history-link { color:var(--accent);text-decoration:none }
+  .history-link:hover { text-decoration:underline }
+
+  .console { background:#0f172a;border-radius:var(--radius-sm);padding:14px 16px;font-family:var(--font-mono);font-size:12px;color:#a3e635;max-height:140px;overflow-y:auto;margin-top:16px }
+  .console-line { line-height:1.6 }
+  .console-time { color:#64748b;margin-right:8px }
+  .console-info { color:#38bdf8 }
+  .console-success { color:#4ade80 }
+  .console-warn { color:#fbbf24 }
+
+  @media (max-width:1280px) {
+    .doc-grid { grid-template-columns:1fr }
+    .form-grid { grid-template-columns:1fr }
+    .ddd-bar { grid-template-columns:repeat(2,1fr) }
+  }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-logo">PM</div>
+    <div class="sb-title">PMWB</div>
+  </div>
+  <nav class="sb-nav">
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>首页看板</span></a>
+    <a class="sb-item active" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>需求与交付</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82-.33h-.06A2 2 0 0011 21h-1a2 2 0 00-2 2 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00.33-1.82v-.06A2 2 0 003 11v-1a2 2 0 00-2-1.82 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001.82.33H11a2 2 0 002-2h1a2 2 0 002 1.82 1.65 1.65 0 001.82.33l.06.06a2 2 0 012.83-2.83l-.06-.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-.33 1.82V11a2 2 0 002 1.82z"/></svg><span>运营监控</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg><span>会议日程</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg><span>知识库</span></a>
+  </nav>
+  <div class="sb-bottom">
+    <div class="sb-user">
+      <div class="sb-avatar">陈</div>
+      <div class="sb-user-info">
+        <span class="sb-user-name">产品经理</span>
+        <span class="sb-user-role">政企 · 数智化部</span>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <header class="topbar">
+    <div class="tb-left">
+      <div>
+        <div class="tb-title">需求与交付</div>
+        <div class="tb-crumb"><a href="#">首页</a> <span>/</span> 需求与交付</div>
+      </div>
+    </div>
+    <div class="tb-right">
+      <input class="tb-search" placeholder="搜索需求编号、标题、关键词…" />
+      <button class="tb-btn tb-btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新建需求
+      </button>
+    </div>
+  </header>
+
+  <section class="content">
+    <div class="bento-grid">
+
+      <!-- LEFT: Requirement List -->
+      <div class="card list-col">
+        <div class="card-head" style="padding:16px 16px 8px">
+          <div>
+            <div class="card-title">需求列表</div>
+            <div class="card-sub">共 38 条 · 本周期 7 条</div>
+          </div>
+        </div>
+        <div class="list-search">
+          <input type="text" placeholder="搜索需求…" />
+        </div>
+        <div class="list-filter">
+          <div class="filter-chip active">全部</div>
+          <div class="filter-chip">待评估</div>
+          <div class="filter-chip">用户故事</div>
+          <div class="filter-chip">已结项</div>
+        </div>
+        <div class="req-list">
+          <div class="req-item active">
+            <div class="req-item-head">
+              <span class="req-id">REQ-2026-0718</span>
+              <span class="req-status st-story">用户故事</span>
+            </div>
+            <div class="req-title">跨省宽带流失预警模型看板建设</div>
+            <div class="req-meta">
+              <span>07-18</span>
+              <span>政企客户部</span>
+            </div>
+          </div>
+          <div class="req-item">
+            <div class="req-item-head">
+              <span class="req-id">REQ-2026-0715</span>
+              <span class="req-status st-eval">评估中</span>
+            </div>
+            <div class="req-title">LAN 网关设备被动销户追缴流程优化</div>
+            <div class="req-meta">
+              <span>07-15</span>
+              <span>BOSS 维护</span>
+            </div>
+          </div>
+          <div class="req-item">
+            <div class="req-item-head">
+              <span class="req-id">REQ-2026-0712</span>
+              <span class="req-status st-draft">待采集</span>
+            </div>
+            <div class="req-title">集团短信实名制二次校验接口改造</div>
+            <div class="req-meta">
+              <span>07-12</span>
+              <span>电子协议</span>
+            </div>
+          </div>
+          <div class="req-item">
+            <div class="req-item-head">
+              <span class="req-id">REQ-2026-0708</span>
+              <span class="req-status st-done">已结项</span>
+            </div>
+            <div class="req-title">CIP00066 接口异常数据修复工具</div>
+            <div class="req-meta">
+              <span>07-08</span>
+              <span>订单中心</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Workflow Workspace -->
+      <div class="card workspace-col">
+        <div class="workspace-card">
+          <div class="ws-header">
+            <div>
+              <div class="ws-title">REQ-2026-0718 · 跨省宽带流失预警模型看板建设</div>
+              <div class="card-sub" style="margin-top:4px">来源：政企客户部 · 提出人：邵建 · 期望上线：2026-08-15</div>
+            </div>
+            <div class="ws-actions">
+              <span class="status-tag">用户故事</span>
+              <button class="btn btn-sm btn-ghost">查看工单</button>
+              <button class="btn btn-sm btn-primary">下一步</button>
+            </div>
+          </div>
+
+          <!-- STEP BAR -->
+          <div class="step-bar" id="stepBar">
+            <div class="step done" data-step="1"><div class="step-num">1</div><span class="step-label">需求采集</span></div>
+            <div class="step-arrow">›</div>
+            <div class="step done" data-step="2"><div class="step-num">2</div><span class="step-label">团队评估</span></div>
+            <div class="step-arrow">›</div>
+            <div class="step active" data-step="3"><div class="step-num">3</div><span class="step-label">用户故事</span></div>
+            <div class="step-arrow">›</div>
+            <div class="step" data-step="4"><div class="step-num">4</div><span class="step-label">生成文档</span></div>
+            <div class="step-divider"></div>
+          </div>
+
+          <!-- STEP 1: COLLECTION + ATTACHMENTS -->
+          <div class="step-panel" id="panel-1">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              原始需求采集与附件管理
+            </div>
+            <div class="panel-desc">插件已自动从邮件/工单系统完成信息采集，并触发评估邮件。本页所有附件（含后续生成的分析说明书）统一归档到下方指定文件夹。</div>
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">需求编号</label>
+                <input class="form-input form-readonly" value="REQ-2026-0718" readonly />
+              </div>
+              <div class="form-group">
+                <label class="form-label">来源工单</label>
+                <input class="form-input form-readonly" value="政企工单-2026-0718-003" readonly />
+              </div>
+              <div class="form-group">
+                <label class="form-label">需求标题</label>
+                <input class="form-input form-readonly" value="跨省宽带流失预警模型看板建设" readonly />
+              </div>
+              <div class="form-group">
+                <label class="form-label">提出部门</label>
+                <input class="form-input form-readonly" value="政企客户部" readonly />
+              </div>
+              <div class="form-group">
+                <label class="form-label">业务联系人</label>
+                <input class="form-input form-readonly" value="邵建 / 顾宏明" readonly />
+              </div>
+              <div class="form-group">
+                <label class="form-label">期望上线日期</label>
+                <input class="form-input form-readonly" value="2026-08-15" readonly />
+              </div>
+              <div class="form-group full">
+                <label class="form-label">需求背景</label>
+                <textarea class="form-textarea form-readonly" readonly>目前跨省宽带流失情况缺乏可视化监控手段，省分运营经理无法及时掌握流失规模、原因分布及潜在挽回对象，影响政企市场精准运营决策。需要建设统一看板支撑数据运营。</textarea>
+              </div>
+              <div class="form-group full">
+                <label class="form-label">原始需求描述</label>
+                <textarea class="form-textarea form-readonly" readonly>需要建设一套跨省宽带流失预警模型看板，能够按省分、按业务线实时展示流失用户规模、流失原因聚类及潜在挽回名单。要求与生产运营平台数据打通，支持 T+1 更新，并提供下钻到用户明细的能力。</textarea>
+              </div>
+              <div class="form-group full">
+                <label class="form-label">评估邮件发送记录</label>
+                <div class="console">
+                  <div class="console-line"><span class="console-time">07-18 09:42</span><span class="console-success">已发送</span> 评估邮件 → 戴晓飞（生产运营平台 SA）</div>
+                  <div class="console-line"><span class="console-time">07-18 09:42</span><span class="console-success">已发送</span> 评估邮件 → 郑文东（CRM SA）</div>
+                  <div class="console-line"><span class="console-time">07-18 09:43</span><span class="console-info">已读</span> 戴晓飞 已打开邮件</div>
+                </div>
+              </div>
+              <div class="form-group full">
+                <label class="form-label">需求附件文件夹</label>
+                <div class="attach-box">
+                  <div class="attach-head">
+                    <div class="attach-path"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg><code>D:\项目\知识图谱\业务建设\需求附件\REQ-2026-0718_跨省宽带流失预警模型看板建设</code></div>
+                    <button class="btn btn-sm">打开文件夹</button>
+                    <button class="btn btn-sm btn-primary">上传附件</button>
+                  </div>
+                  <div class="attach-list">
+                    <div class="attach-item">
+                      <div class="attach-info">
+                        <div class="attach-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                        <div><div class="attach-name">跨省宽带流失预警_业务说明.docx</div><div class="attach-meta">原始需求 · 78 KB · 07-18 09:30</div></div>
+                      </div>
+                      <div class="attach-actions"><button class="btn btn-sm btn-ghost">下载</button><button class="btn btn-sm btn-ghost btn-danger">删除</button></div>
+                    </div>
+                    <div class="attach-item">
+                      <div class="attach-info">
+                        <div class="attach-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></div>
+                        <div><div class="attach-name">数据字段清单_v2.xlsx</div><div class="attach-meta">原始需求 · 45 KB · 07-18 09:31</div></div>
+                      </div>
+                      <div class="attach-actions"><button class="btn btn-sm btn-ghost">下载</button><button class="btn btn-sm btn-ghost btn-danger">删除</button></div>
+                    </div>
+                    <div class="attach-item" style="opacity:.75">
+                      <div class="attach-info">
+                        <div class="attach-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                        <div><div class="attach-name">REQ-2026-0718_跨省宽带流失预警模型看板建设_需求分析说明书.docx</div><div class="attach-meta">待生成 · 将自动归档至此</div></div>
+                      </div>
+                      <div class="attach-actions"><button class="btn btn-sm btn-ghost" disabled>下载</button></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- STEP 2: SYSTEM-WISE EVALUATION -->
+          <div class="step-panel" id="panel-2">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+              团队评估（按系统拆分）
+            </div>
+            <div class="panel-desc">按需求涉及系统分别评估。每个系统由对应 SA 完成工作量初评与复核，填写评估意见/风险。支持新增或删除系统行。</div>
+
+            <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+              <button class="btn btn-sm btn-primary">+ 新增系统</button>
+            </div>
+
+            <div style="overflow-x:auto;margin-bottom:8px">
+              <table class="sys-table">
+                <thead>
+                  <tr>
+                    <th style="width:120px">涉及系统</th>
+                    <th style="width:110px">SA 负责人</th>
+                    <th style="width:100px">工作量评估</th>
+                    <th style="width:100px">工作量复核</th>
+                    <th>评估意见 / 风险</th>
+                    <th style="width:80px">状态</th>
+                    <th style="width:70px">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span class="sys-name">生产运营平台</span><div class="sys-sa">数据看板</div></td>
+                    <td><input value="戴晓飞" /></td>
+                    <td><input class="sys-effort" value="8" /></td>
+                    <td><input class="sys-review" value="8" /></td>
+                    <td><textarea rows="2">T+1 调度无压力；需提前申请跨省数据权限。</textarea></td>
+                    <td><span class="sys-status done">已完成</span></td>
+                    <td><button class="btn btn-sm btn-ghost btn-danger" title="删除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td><span class="sys-name">CRM</span><div class="sys-sa">前台/工单</div></td>
+                    <td><input value="郑文东" /></td>
+                    <td><input class="sys-effort" value="5" /></td>
+                    <td><input class="sys-review" value="5" /></td>
+                    <td><textarea rows="2">仅需配置导出权限，无需改造核心受理流程。</textarea></td>
+                    <td><span class="sys-status done">已完成</span></td>
+                    <td><button class="btn btn-sm btn-ghost btn-danger" title="删除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td><span class="sys-name">数据仓库</span><div class="sys-sa">模型/ETL</div></td>
+                    <td><input value="李瑞" /></td>
+                    <td><input class="sys-effort" value="7" /></td>
+                    <td><input class="sys-review" value="" placeholder="待复核" /></td>
+                    <td><textarea rows="2">流失原因聚类需与经分侧确认标签口径。</textarea></td>
+                    <td><span class="sys-status">评估中</span></td>
+                    <td><button class="btn btn-sm btn-ghost btn-danger" title="删除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td><span class="sys-name">BOSS</span><div class="sys-sa">计费/用户</div></td>
+                    <td><input value="凌玉祥" /></td>
+                    <td><input class="sys-effort" value="3" /></td>
+                    <td><input class="sys-review" value="" placeholder="待复核" /></td>
+                    <td><textarea rows="2">仅提供用户状态快照接口，无需改造。</textarea></td>
+                    <td><span class="sys-status">评估中</span></td>
+                    <td><button class="btn btn-sm btn-ghost btn-danger" title="删除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="sys-total-bar">
+              <div class="sys-total-label">预计总工作量</div>
+              <div class="sys-total-val">23 人天（已复核 13 / 待复核 10）</div>
+            </div>
+
+            <div class="form-grid" style="margin-top:18px">
+              <div class="form-group">
+                <label class="form-label">整体优先级</label>
+                <select class="form-select">
+                  <option>P0 - 立刻启动</option>
+                  <option selected>P1 - 本周期</option>
+                  <option>P2 - 排队</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">技术可行性</label>
+                <select class="form-select">
+                  <option selected>高</option>
+                  <option>中</option>
+                  <option>低</option>
+                </select>
+              </div>
+              <div class="form-group full">
+                <label class="form-label">整体评估结论</label>
+                <textarea class="form-textarea">建议分两阶段：第一阶段先做省分维度流失规模看板（MVP），第二阶段补充原因聚类与下钻明细。整体技术可行，但需前置确认数据权限。</textarea>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">
+              <button class="btn">暂存</button>
+              <button class="btn btn-primary">保存评估并进入下一步</button>
+            </div>
+          </div>
+
+          <!-- STEP 3: USER STORY FIXED TEMPLATE -->
+          <div class="step-panel active" id="panel-3">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              用户故事创建与定稿（固定模板）
+            </div>
+            <div class="panel-desc">在左侧录入“澄清后最终需求内容”，系统自动基于 DDD 生成用户故事。每个故事严格按模板展示：故事标题、故事描述、故事场景、验收标准。</div>
+
+            <div class="ddd-bar">
+              <div class="ddd-card"><h4>领域 / Domain</h4><ul><li>跨省宽带运营</li><li>用户流失分析</li></ul></div>
+              <div class="ddd-card"><h4>子域 / Subdomain</h4><ul><li>核心域：流失预警</li><li>支撑域：数据看板</li></ul></div>
+              <div class="ddd-card"><h4>聚合 / Aggregate</h4><ul><li>流失用户聚合</li><li>预警规则聚合</li><li>看板视图聚合</li></ul></div>
+              <div class="ddd-card"><h4>实体 / Entity</h4><ul><li>跨省宽带用户</li><li>流失预警记录</li><li>挽回任务单</li></ul></div>
+            </div>
+
+            <div class="story-layout">
+              <div class="story-editor">
+                <div class="editor-head">澄清后需求内容 <span class="badge">可编辑</span></div>
+                <textarea class="story-area" id="clarifiedInput">需要为跨省宽带业务建设流失预警模型看板，支持：
+1. 按省分、业务线维度展示近 30 天流失用户规模；
+2. 基于流失原因聚类（价格敏感、竞争流失、服务投诉等）形成 TOP 5 原因占比；
+3. 给出高概率流失用户的潜在挽回名单，并支持下钻到用户明细；
+4. 数据 T+1 更新，与生产运营平台打通，看板访问权限按省分隔离。</textarea>
+                <div style="display:flex;gap:10px;margin-top:12px">
+                  <button class="btn btn-primary" onclick="regenerateStories()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                    基于 DDD 重新生成
+                  </button>
+                  <button class="btn btn-ghost">重置</button>
+                </div>
+                <div class="console" style="margin-top:12px">
+                  <div class="console-line"><span class="console-time">12:48:05</span><span class="console-info">AI</span> 已解析需求内容，识别领域 2 个、子域 3 个、聚合 3 个</div>
+                  <div class="console-line"><span class="console-time">12:48:06</span><span class="console-info">AI</span> 生成用户故事 3 条，验收标准 10 条</div>
+                </div>
+              </div>
+
+              <div class="story-template" id="storyPreview">
+                <div class="story-card" data-id="US-001">
+                  <div class="story-card-header">
+                    <span class="story-card-id">US-001</span>
+                    <input class="story-card-title-input" value="作为省分运营经理，我希望查看跨省宽带流失规模趋势" />
+                  </div>
+                  <div class="story-card-body">
+                    <div class="story-field">
+                      <span class="story-field-label">故事描述</span>
+                      <div class="story-field-text" contenteditable="true">背景：目前省分运营经理无法实时掌握跨省宽带流失用户的规模与趋势，难以针对性制定运营策略。<br/><br/>作为省分运营经理，我希望查看跨省宽带流失规模趋势，以便快速定位高流失区域，并制定相应的运营策略。</div>
+                    </div>
+                    <div class="story-field">
+                      <span class="story-field-label">故事场景</span>
+                      <div class="story-field-text" contenteditable="true">1. 运营经理登录生产运营平台，进入跨省宽带流失预警模块；<br/>2. 默认展示近 30 天流失用户规模趋势图，支持按省分、业务线维度筛选；<br/>3. 点击趋势图可下钻至对应省分的详细数据面板。</div>
+                    </div>
+                    <div class="story-field">
+                      <span class="story-field-label">验收标准</span>
+                      <div class="ac-inline">
+                        <span class="ac-item">验证近 30 天流失规模趋势展示功能是否成功实现</span>
+                        <span class="ac-item">验证省分/业务线维度筛选功能是否成功实现</span>
+                        <span class="ac-item">验证数据 T+1 更新功能是否成功实现</span>
+                        <span class="ac-item">验证省分权限隔离功能是否成功实现</span>
+                        <span class="tag-outline">+ 新增</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="story-actions">
+                    <button class="btn btn-sm btn-ghost">删除</button>
+                    <button class="btn btn-sm btn-primary">确认定稿</button>
+                  </div>
+                </div>
+
+                <div class="story-card" data-id="US-002">
+                  <div class="story-card-header">
+                    <span class="story-card-id">US-002</span>
+                    <input class="story-card-title-input" value="作为数据分析师，我希望获得流失原因聚类 TOP5 报表" />
+                  </div>
+                  <div class="story-card-body">
+                    <div class="story-field">
+                      <span class="story-field-label">故事描述</span>
+                      <div class="story-field-text" contenteditable="true">背景：现有离网数据分析维度单一，无法识别流失主因，难以反哺产品策略。<br/><br/>作为数据分析师，我希望基于历史离网数据按原因标签聚类，输出占比与环比，以便识别主要流失驱动因素。</div>
+                    </div>
+                    <div class="story-field">
+                      <span class="story-field-label">故事场景</span>
+                      <div class="story-field-text" contenteditable="true">1. 数据分析师进入流失原因聚类页面；<br/>2. 系统展示 TOP5 流失原因占比及环比变化；<br/>3. 支持按原因标签下钻至用户明细列表。</div>
+                    </div>
+                    <div class="story-field">
+                      <span class="story-field-label">验收标准</span>
+                      <div class="ac-inline">
+                        <span class="ac-item">验证 TOP5 流失原因占比计算功能是否成功实现</span>
+                        <span class="ac-item">验证环比变化展示功能是否成功实现</span>
+                        <span class="ac-item">验证按原因标签下钻明细功能是否成功实现</span>
+                        <span class="tag-outline">+ 新增</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="story-actions">
+                    <button class="btn btn-sm btn-ghost">删除</button>
+                    <button class="btn btn-sm btn-primary">确认定稿</button>
+                  </div>
+                </div>
+
+                <div class="story-card" data-id="US-003">
+                  <div class="story-card-header">
+                    <span class="story-card-id">US-003</span>
+                    <input class="story-card-title-input" value="作为客户经理，我希望下载潜在挽回用户明细" />
+                  </div>
+                  <div class="story-card-body">
+                    <div class="story-field">
+                      <span class="story-field-label">故事描述</span>
+                      <div class="story-field-text" contenteditable="true">背景：客户经理缺乏高流失风险用户的精准清单，难以开展定向挽留。<br/><br/>作为客户经理，我希望从高概率流失名单中一键导出用户明细，以便开展定向挽留触达。</div>
+                    </div>
+                    <div class="story-field">
+                      <span class="story-field-label">故事场景</span>
+                      <div class="story-field-text" contenteditable="true">1. 客户经理在挽回名单页面勾选目标用户；<br/>2. 点击导出按钮，生成包含联系方式、业务状态、流失标签的 Excel；<br/>3. 导出记录可在个人下载中心查看。</div>
+                    </div>
+                    <div class="story-field">
+                      <span class="story-field-label">验收标准</span>
+                      <div class="ac-inline">
+                        <span class="ac-item">验证用户明细导出字段完整性功能是否成功实现</span>
+                        <span class="ac-item">验证批量勾选导出功能是否成功实现</span>
+                        <span class="ac-item">验证下载记录追溯功能是否成功实现</span>
+                        <span class="tag-outline">+ 新增</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="story-actions">
+                    <button class="btn btn-sm btn-ghost">删除</button>
+                    <button class="btn btn-sm btn-primary">确认定稿</button>
+                  </div>
+                </div>
+
+                <button class="btn btn-ghost add-story-btn">+ 手工新增用户故事</button>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:22px">
+              <button class="btn">保存草稿</button>
+              <button class="btn btn-primary">全部确认定稿</button>
+              <button class="btn btn-success">进入生成文档</button>
+            </div>
+          </div>
+
+          <!-- STEP 4: DOCUMENT GENERATION (fixed template, only first 2 chapters) -->
+          <div class="step-panel" id="panel-4">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              生成需求分析说明书（固定模板）
+            </div>
+            <div class="panel-desc">基于固定 Word 模板生成《需求分析说明书》。系统自动填充前三章节：① 基本信息、② 原始需求内容、③ 用户故事（取自上一步定稿的用户故事），其余章节（需求检查项、版本历史）直接复用模板内容，无需维护。</div>
+            <div class="doc-grid">
+              <div class="doc-options">
+                <div class="form-group" style="margin-bottom:16px">
+                  <label class="form-label">选择模板</label>
+                  <select class="form-select">
+                    <option selected>需求分析说明书（政企标准模板）.docx</option>
+                    <option>需求分析说明书（数据类模板）.docx</option>
+                    <option>需求分析说明书（接口改造模板）.docx</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom:16px">
+                  <label class="form-label">文档名称</label>
+                  <input class="form-input" value="REQ-2026-0718_跨省宽带流失预警模型看板建设_需求分析说明书" />
+                </div>
+                <div class="form-group" style="margin-bottom:16px">
+                  <label class="form-label">归档路径</label>
+                  <input class="form-input" value="D:\项目\知识图谱\业务建设\需求分析说明书\REQ-2026-0718_跨省宽带流失预警模型看板建设\" />
+                  <div class="form-hint">Word 文档与需求附件统一存放在同一需求文件夹下</div>
+                </div>
+
+                <div class="preview-title" style="margin-top:4px">章节填充策略</div>
+                <div class="chapter-list">
+                  <div class="chapter-item auto">
+                    <span class="chapter-num">1</span>
+                    <div>
+                      <div style="font-weight:600">基本信息</div>
+                      <div style="font-size:11.5px;color:var(--text-muted)">需求编号、提出单位、提出人、上线时间等</div>
+                    </div>
+                    <span class="chapter-status">自动填充</span>
+                  </div>
+                  <div class="chapter-item auto">
+                    <span class="chapter-num">2</span>
+                    <div>
+                      <div style="font-weight:600">原始需求内容</div>
+                      <div style="font-size:11.5px;color:var(--text-muted)">采集页面的原始需求描述与附件清单</div>
+                    </div>
+                    <span class="chapter-status">自动填充</span>
+                  </div>
+                  <div class="chapter-item auto">
+                    <span class="chapter-num">3</span>
+                    <div>
+                      <div style="font-weight:600">用户故事</div>
+                      <div style="font-size:11.5px;color:var(--text-muted)">取自上一步定稿的 US-001~US-003：故事标题、故事描述、故事场景、验收标准</div>
+                    </div>
+                    <span class="chapter-status">自动填充</span>
+                  </div>
+                  <div class="chapter-item reuse">
+                    <span class="chapter-num">4</span>
+                    <div>
+                      <div style="font-weight:600">需求检查项</div>
+                      <div style="font-size:11.5px;color:var(--text-muted)">涉及系统、非功能、风险、用户体验等</div>
+                    </div>
+                    <span class="chapter-status">复用模板</span>
+                  </div>
+                  <div class="chapter-item reuse">
+                    <span class="chapter-num">5</span>
+                    <div>
+                      <div style="font-weight:600">版本历史</div>
+                    </div>
+                    <span class="chapter-status">复用模板</span>
+                  </div>
+                </div>
+
+                <div style="display:flex;gap:10px;margin-top:18px">
+                  <button class="btn btn-primary" style="flex:1" onclick="generateDoc()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    生成 Word 文档
+                  </button>
+                  <button class="btn">预览内容</button>
+                </div>
+                <div class="console" id="docConsole" style="display:none"></div>
+              </div>
+
+              <div class="doc-preview">
+                <div class="preview-title">生成结果预览</div>
+                <div class="doc-row"><span class="k">需求编号</span><span class="v">REQ-2026-0718</span></div>
+                <div class="doc-row"><span class="k">文档标题</span><span class="v">跨省宽带流失预警模型看板建设 — 需求分析说明书</span></div>
+                <div class="doc-row"><span class="k">模板来源</span><span class="v">需求分析说明书（政企标准模板）.docx</span></div>
+                <div class="doc-row"><span class="k">版本</span><span class="v">V1.0</span></div>
+                <div class="doc-row"><span class="k">作者</span><span class="v">产品经理</span></div>
+                <div class="doc-row"><span class="k">生成时间</span><span class="v">2026-07-18 13:00</span></div>
+                <div class="doc-row"><span class="k">自动填充章节</span><span class="v">第 1、2、3 章</span></div>
+                <div class="doc-row"><span class="k">复用模板章节</span><span class="v">第 4、5 章</span></div>
+                <div class="doc-row"><span class="k">归档状态</span><span class="v" style="color:var(--warning)">待生成</span></div>
+
+                <div class="doc-history">
+                  <div class="preview-title">历史生成记录</div>
+                  <div class="history-item">
+                    <div class="history-meta"><span class="history-dot"></span> REQ-2026-0708_CIP00066 接口异常数据修复工具</div>
+                    <a class="history-link" href="#">打开</a>
+                  </div>
+                  <div class="history-item">
+                    <div class="history-meta"><span class="history-dot"></span> REQ-2026-0702_FTTR 业务线上受理流程打通</div>
+                    <a class="history-link" href="#">打开</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<script>
+  const stepBar = document.getElementById('stepBar');
+  const steps = stepBar.querySelectorAll('.step');
+  steps.forEach(step => {
+    step.addEventListener('click', () => {
+      const n = step.dataset.step;
+      document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('panel-' + n).classList.add('active');
+      steps.forEach(s => s.classList.remove('active'));
+      step.classList.add('active');
+    });
+  });
+
+  function regenerateStories() {
+    const btn = event.currentTarget;
+    const original = btn.innerHTML;
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> 生成中…';
+    setTimeout(() => {
+      btn.innerHTML = original;
+      alert('已基于 DDD 重新生成用户故事（演示）。');
+    }, 900);
+  }
+
+  function generateDoc() {
+    const consoleEl = document.getElementById('docConsole');
+    consoleEl.style.display = 'block';
+    consoleEl.innerHTML = '<div class="console-line"><span class="console-time">13:00:01</span><span class="console-info">生成</span> 加载政企标准模板…</div>';
+    setTimeout(() => {
+      consoleEl.innerHTML += '<div class="console-line"><span class="console-time">13:00:02</span><span class="console-info">生成</span> 填充第 1 章：基本信息、第 2 章：原始需求内容、第 3 章：用户故事（US-001~003）</div>';
+    }, 500);
+    setTimeout(() => {
+      consoleEl.innerHTML += '<div class="console-line"><span class="console-time">13:00:02</span><span class="console-info">生成</span> 复用模板第 4-5 章内容</div>';
+    }, 800);
+    setTimeout(() => {
+      consoleEl.innerHTML += '<div class="console-line"><span class="console-time">13:00:03</span><span class="console-success">完成</span> Word 已保存至 D:\\项目\\知识图谱\\业务建设\\需求分析说明书\\REQ-2026-0718_跨省宽带流失预警模型看板建设\\</div>';
+      document.querySelector('.doc-row .v[style*="warning"]').textContent = '已归档';
+      document.querySelector('.doc-row .v[style*="warning"]').style.color = 'var(--success)';
+    }, 1200);
+  }
+</script>
+</body>
+</html>
