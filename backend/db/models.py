@@ -270,7 +270,9 @@ class PmwbMeeting(Base):
     start_time = Column(DateTime, comment="开始时间")
     end_time = Column(DateTime, comment="结束时间")
     location = Column(String(255), comment="会议地点/线上链接")
-    host = Column(String(64), comment="主持人")
+    host = Column(String(64), comment="主持人/组织者")
+    convener = Column(String(64), comment="召集人")
+    attendee_notes = Column(Text, comment="参会注意点（会议通知补充事项）")
     summary = Column(Text, comment="会议纪要摘要")
     obsidian_path = Column(String(512), comment="Obsidian 纪要路径")
     related_req_id = Column(String(64), comment="关联需求编号")
@@ -285,12 +287,38 @@ class PmwbMeeting(Base):
     )
 
     attendees = relationship("PmwbMeetingAttendee", backref="meeting", lazy="selectin", cascade="all, delete-orphan")
+    agendas = relationship("PmwbMeetingAgenda", backref="meeting", lazy="selectin", cascade="all, delete-orphan", order_by="PmwbMeetingAgenda.seq")
     actions = relationship("PmwbMeetingAction", backref="meeting", lazy="selectin", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_meeting_start_time", "start_time"),
         Index("idx_meeting_related_req", "related_req_id"),
         {"comment": "会议表"},
+    )
+
+
+class PmwbMeetingAgenda(Base):
+    """会议议题表（每个议题记录商讨结论与分工说明）。"""
+
+    __tablename__ = "pmwb_meeting_agenda"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    meeting_id = Column(Integer, ForeignKey("pmwb_meeting.id"), nullable=False, comment="关联会议ID")
+    seq = Column(Integer, default=1, comment="议题序号（用于排序）")
+    topic = Column(String(255), nullable=False, comment="议题标题")
+    conclusion = Column(Text, comment="商讨结论")
+    division = Column(Text, comment="分工说明")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_agenda_meeting_id", "meeting_id"),
+        {"comment": "会议议题表"},
     )
 
 
@@ -321,6 +349,11 @@ class PmwbMeetingAction(Base):
     owner = Column(String(64), comment="负责人")
     due_date = Column(Date, comment="截止日期")
     status = Column(Enum("pending", "done", "cancelled"), default="pending", comment="状态")
+    category = Column(
+        String(64),
+        comment="待办分类（对应 pmwb_todo.category）：requirement/ticket/operation/meeting/study/other",
+    )
+    template = Column(String(128), comment="Obsidian 待办模板名（仅元数据标签，如 个人普通待办模板）")
     related_todo_id = Column(Integer, comment="关联 pmwb_todo.id")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(

@@ -19,5 +19,13 @@ export const meetingApi = {
 
   deleteMeeting(id) {
     return request.delete(`/meetings/${id}`)
+  },
+
+  sedimentMeeting(id) {
+    return request.post(`/meetings/${id}/sediment`)
+  },
+
+  syncActionTodo(meetingId, actionId) {
+    return request.post(`/meetings/${meetingId}/actions/${actionId}/sync-todo`)
   }
 }

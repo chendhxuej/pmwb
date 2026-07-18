@@ -211,7 +211,7 @@
               <span class="font-mono">{{ formatTime(row.start_time) }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="title" label="会议主题" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="title" label="会议主题" min-width="180" show-overflow-tooltip />
           <el-table-column label="类型" width="120">
             <template #default="{ row }">
               <span class="pm-tag" :class="typeTagCls(row.meeting_type)">{{
@@ -219,9 +219,10 @@
               }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="host" label="组织者" width="120" />
-          <el-table-column prop="location" label="地点" min-width="150" show-overflow-tooltip />
-          <el-table-column label="参会人" width="90">
+          <el-table-column prop="host" label="组织者" width="100" />
+          <el-table-column prop="convener" label="召集人" width="100" />
+          <el-table-column prop="location" label="地点" min-width="140" show-overflow-tooltip />
+          <el-table-column label="参会人" width="80">
             <template #default="{ row }">{{ (row.attendees || []).length }} 人</template>
           </el-table-column>
           <el-table-column label="状态" width="110">
@@ -264,8 +265,9 @@
               <span class="font-mono">{{ formatTime(row.start_time) }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="title" label="会议主题" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="location" label="地点" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="title" label="会议主题" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="convener" label="召集人" width="100" />
+          <el-table-column prop="location" label="地点" min-width="140" show-overflow-tooltip />
           <el-table-column label="类型" width="120">
             <template #default="{ row }">
               <span class="pm-tag" :class="typeTagCls(row.meeting_type)">{{
@@ -290,110 +292,187 @@
       </div>
     </div>
 
-    <!-- 会议详情抽屉 -->
-    <el-drawer v-model="detailVisible" :title="detailMeeting?.title || '会议详情'" size="520px" direction="rtl">
-      <div v-loading="detailLoading" class="dw-body">
-        <template v-if="detailMeeting">
-          <div class="detail-block">
-            <div class="pm-section-title">基本信息</div>
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-k">时间</span>
-                <span class="info-v">{{ formatDateTime(detailMeeting.start_time) }} ·
-                  {{ durationText(detailMeeting) }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-k">地点</span>
-                <span class="info-v">{{ detailMeeting.location || '—' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-k">类型</span>
-                <span class="info-v">{{ typeText(detailMeeting.meeting_type) }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-k">状态</span>
-                <span class="info-v">
-                  <span class="pm-tag" :class="statusMetaOf(detailMeeting.status).cls">{{
-                    statusMetaOf(detailMeeting.status).label
-                  }}</span>
-                </span>
-              </div>
-              <div class="info-item">
-                <span class="info-k">组织者</span>
-                <span class="info-v">{{ detailMeeting.host || '—' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-k">参会人</span>
-                <span class="info-v">{{ (detailMeeting.attendees || []).length }} 人</span>
-              </div>
-            </div>
+    <!-- 会议详情抽屉（完整纪要编辑器） -->
+    <el-drawer
+      v-model="detailVisible"
+      :title="detailMeeting?.title || '会议详情'"
+      size="680px"
+      direction="rtl"
+    >
+      <div v-loading="detailLoading" class="dw-body" v-if="detailMeeting">
+        <!-- 1. 基础信息 -->
+        <div class="dw-section">
+          <div class="pm-section-title">
+            基础信息
+            <el-button link type="primary" class="sec-act" @click="editFromDetail">编辑</el-button>
           </div>
-
-          <div class="detail-block">
-            <div class="pm-section-title">参会人</div>
-            <div class="attendee-wrap">
-              <span
-                v-for="(a, i) in detailMeeting.attendees || []"
-                :key="i"
-                class="attendee-chip"
-              >
-                <span class="av" :style="{ background: avColors[i % avColors.length] }">{{
-                  avatarChar(a.name)
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-k">时间</span>
+              <span class="info-v">{{ formatDateTime(detailMeeting.start_time) }} ·
+                {{ durationText(detailMeeting) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-k">地点</span>
+              <span class="info-v">{{ detailMeeting.location || '—' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-k">类型</span>
+              <span class="info-v">{{ typeText(detailMeeting.meeting_type) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-k">状态</span>
+              <span class="info-v">
+                <span class="pm-tag" :class="statusMetaOf(detailMeeting.status).cls">{{
+                  statusMetaOf(detailMeeting.status).label
                 }}</span>
-                {{ a.name }}
               </span>
-              <span v-if="!(detailMeeting.attendees || []).length" class="empty-hint">暂无参会人</span>
+            </div>
+            <div class="info-item">
+              <span class="info-k">组织者</span>
+              <span class="info-v">{{ detailMeeting.host || '—' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-k">召集人</span>
+              <span class="info-v">{{ detailMeeting.convener || '—' }}</span>
+            </div>
+            <div class="info-item info-span2">
+              <span class="info-k">参会人</span>
+              <span class="info-v">{{ (detailMeeting.attendees || []).map(a => a.name).join('、') || '—' }}</span>
+            </div>
+            <div class="info-item info-span2" v-if="detailMeeting.attendee_notes">
+              <span class="info-k">参会注意点</span>
+              <span class="info-v note-text">{{ detailMeeting.attendee_notes }}</span>
             </div>
           </div>
+        </div>
 
-          <div class="detail-block">
-            <div class="pm-section-title">议程要点</div>
-            <div
-              v-for="(act, i) in detailMeeting.actions || []"
-              :key="i"
-              class="agenda-item"
-            >
-              <span class="agenda-idx">{{ i + 1 }}</span>
-              <span class="agenda-txt">{{ act.content }}</span>
+        <!-- 2. 会议议题 -->
+        <div class="dw-section">
+          <div class="pm-section-title">
+            会议议题
+            <span class="sec-sub">（议题 / 商讨结论 / 分工说明）</span>
+            <el-button link type="primary" class="sec-act" @click="addAgenda">＋ 添加议题</el-button>
+          </div>
+          <div v-if="!(detailMeeting.agendas || []).length" class="empty-hint">暂无议题，点击右上添加</div>
+          <div v-for="(ag, i) in detailMeeting.agendas" :key="i" class="ag-card">
+            <div class="ag-head">
+              <span class="ag-idx">议题 {{ i + 1 }}</span>
+              <el-button link type="danger" @click="removeAgenda(i)">移除</el-button>
             </div>
-            <div v-if="!(detailMeeting.actions || []).length" class="empty-hint">暂无议程</div>
+            <el-input v-model="ag.topic" placeholder="议题标题" class="ag-input" />
+            <div class="ag-row">
+              <div class="ag-col">
+                <label class="ag-label">商讨结论</label>
+                <el-input v-model="ag.conclusion" type="textarea" :rows="2" placeholder="本议题的结论/决议" />
+              </div>
+              <div class="ag-col">
+                <label class="ag-label">分工说明</label>
+                <el-input v-model="ag.division" type="textarea" :rows="2" placeholder="谁负责什么" />
+              </div>
+            </div>
           </div>
+        </div>
 
-          <div class="detail-block">
-            <div class="pm-section-title">关联需求 / 工单</div>
-            <span
-              v-for="(l, i) in relatedLinks(detailMeeting)"
-              :key="i"
-              class="link-chip"
-              @click="ElMessage.info('跳转到 ' + l)"
-            >🔗 {{ l }}</span>
-            <span v-if="!relatedLinks(detailMeeting).length" class="empty-hint">无关联</span>
+        <!-- 3. 待办事项 -->
+        <div class="dw-section">
+          <div class="pm-section-title">
+            待办事项
+            <span class="sec-sub">（指定分类 / 模板 → 创建待办任务跟踪）</span>
+            <el-button link type="primary" class="sec-act" @click="addAction">＋ 添加待办</el-button>
           </div>
+          <div v-if="!(detailMeeting.actions || []).length" class="empty-hint">暂无待办事项</div>
+          <div v-for="(act, i) in detailMeeting.actions" :key="i" class="act-card">
+            <div class="act-head">
+              <span class="act-idx">待办 {{ i + 1 }}</span>
+              <el-button link type="danger" @click="removeAction(i)">移除</el-button>
+            </div>
+            <el-input v-model="act.content" type="textarea" :rows="2" placeholder="待办事项内容" class="act-input" />
+            <div class="act-grid">
+              <div>
+                <label class="ag-label">负责人</label>
+                <el-input v-model="act.owner" placeholder="负责人" />
+              </div>
+              <div>
+                <label class="ag-label">截止日期</label>
+                <el-date-picker v-model="act.due_date" type="date" value-format="YYYY-MM-DD" placeholder="截止" style="width:100%" />
+              </div>
+            </div>
+            <div class="act-grid">
+              <div>
+                <label class="ag-label">待办分类</label>
+                <el-select v-model="act.category" placeholder="选择分类" clearable style="width:100%">
+                  <el-option v-for="c in actionCategoryOptions" :key="c.value" :label="c.label" :value="c.value" />
+                </el-select>
+              </div>
+              <div>
+                <label class="ag-label">待办模板</label>
+                <el-select v-model="act.template" placeholder="选择模板" clearable style="width:100%">
+                  <el-option v-for="t in actionTemplateOptions" :key="t.value" :label="t.label" :value="t.value" />
+                </el-select>
+              </div>
+            </div>
+            <div class="act-foot">
+              <el-tag v-if="act.related_todo_id" type="success" size="small">
+                已建待办 #{{ act.related_todo_id }}
+              </el-tag>
+              <el-tag v-else type="info" size="small">未建待办</el-tag>
+              <div class="act-ops">
+                <el-button size="small" @click="syncTodo(act)" :loading="act._syncing">创建待办任务</el-button>
+                <el-button
+                  v-if="act.related_todo_id"
+                  size="small"
+                  type="primary"
+                  link
+                  @click="goTodoCenter"
+                >跳转待办中心 ›</el-button>
+              </div>
+            </div>
+          </div>
+        </div>
 
-          <div class="detail-block">
-            <div class="pm-section-title">会议纪要（Obsidian）</div>
-            <div
-              v-if="detailMeeting.obsidian_path"
-              class="link-chip"
-              @click="ElMessage.info('打开 ' + detailMeeting.obsidian_path)"
-            >📝 {{ detailMeeting.obsidian_path }}</div>
-            <span v-else class="empty-hint">尚未生成纪要</span>
+        <!-- 4. 纪要摘要 -->
+        <div class="dw-section">
+          <div class="pm-section-title">会议纪要摘要</div>
+          <el-input
+            v-model="detailMeeting.summary"
+            type="textarea"
+            :rows="3"
+            placeholder="整体纪要摘要（各议题结论的概括）"
+          />
+        </div>
+
+        <!-- 5. 知识备忘 -->
+        <div class="dw-section">
+          <div class="pm-section-title">
+            会议纪要知识备忘
+            <el-button
+              type="primary"
+              size="small"
+              class="sec-act"
+              :loading="sedimenting"
+              @click="generateMemo"
+            >生成 Obsidian 备忘</el-button>
           </div>
-        </template>
+          <div v-if="detailMeeting.obsidian_path" class="memo-path">
+            <span class="memo-ico">📝</span>
+            <code class="memo-code">{{ detailMeeting.obsidian_path }}</code>
+            <el-button link type="primary" size="small" @click="copyPath">复制路径</el-button>
+          </div>
+          <div v-else class="empty-hint">尚未生成，点击右上按钮按会议模板写入 05-会议纪要</div>
+        </div>
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button @click="ElMessage.info('已复制会议链接')">🔗 分享</el-button>
-        <el-button @click="ElMessage.success('会议通知已发送给参会人')">📧 发送通知</el-button>
-        <el-button type="primary" @click="editFromDetail">编辑</el-button>
+        <el-button type="primary" :loading="saving" @click="saveMinutes">保存纪要</el-button>
       </template>
     </el-drawer>
 
-    <!-- 新增 / 编辑会议弹层 -->
+    <!-- 新增 / 编辑会议弹层（会议登记 / 通知基础信息） -->
     <el-dialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑会议' : '新增会议'"
-      width="640px"
+      width="680px"
       destroy-on-close
     >
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
@@ -438,12 +517,17 @@
           </el-col>
         </el-row>
         <el-row :gutter="14">
-          <el-col :span="12">
+          <el-col :span="8">
             <el-form-item label="组织者" prop="host">
               <el-input v-model="form.host" placeholder="组织者" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :span="8">
+            <el-form-item label="召集人">
+              <el-input v-model="form.convener" placeholder="召集人" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
             <el-form-item label="状态" prop="status">
               <el-select v-model="form.status" style="width: 100%">
                 <el-option
@@ -470,6 +554,14 @@
             />
           </div>
         </el-form-item>
+        <el-form-item label="参会注意点">
+          <el-input
+            v-model="form.attendee_notes"
+            type="textarea"
+            :rows="2"
+            placeholder="会议通知的补充事项 / 参会注意点"
+          />
+        </el-form-item>
         <el-row :gutter="14">
           <el-col :span="12">
             <el-form-item label="关联需求">
@@ -482,18 +574,18 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="议程要点">
+        <el-form-item label="初始议题" v-if="!isEdit">
           <el-input
             v-model="agendaText"
             type="textarea"
             :rows="3"
-            placeholder="每行一条议程"
+            placeholder="每行一条议题（可在纪要编辑器中补充结论/分工）"
           />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">创建并通知</el-button>
+        <el-button type="primary" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -501,9 +593,11 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
 
+const router = useRouter()
 const currentUser = '陈大虾'
 
 const loading = ref(false)
@@ -516,6 +610,8 @@ const currentDate = ref(new Date())
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailMeeting = ref(null)
+const saving = ref(false)
+const sedimenting = ref(false)
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -544,6 +640,21 @@ const statusOptions = [
   { value: 'planned', label: '计划中' },
   { value: 'held', label: '已召开' },
   { value: 'cancelled', label: '已取消' },
+]
+
+const actionCategoryOptions = [
+  { value: 'requirement', label: '需求' },
+  { value: 'ticket', label: '开发工单' },
+  { value: 'operation', label: '运营' },
+  { value: 'meeting', label: '会议' },
+  { value: 'study', label: '学习' },
+  { value: 'other', label: '其他' },
+]
+
+const actionTemplateOptions = [
+  { value: '个人普通待办模板', label: '个人普通待办模板' },
+  { value: '厂家团队待办模板', label: '厂家团队待办模板' },
+  { value: '领导交办待办模板', label: '领导交办待办模板' },
 ]
 
 const statusMeta = {
@@ -602,6 +713,11 @@ const durationText = (m) => {
   if (mins < 60) return mins + ' 分钟'
   return Math.floor(mins / 60) + ' 小时' + (mins % 60 ? ' ' + (mins % 60) + ' 分' : '')
 }
+const toIso = (v) => {
+  if (!v) return null
+  const d = toDate(v)
+  return d && !isNaN(d.getTime()) ? d.toISOString() : null
+}
 
 /* ── 派生数据 ── */
 const filteredMeetings = computed(() => {
@@ -612,6 +728,7 @@ const filteredMeetings = computed(() => {
       const hay = [
         m.title,
         m.host,
+        m.convener,
         m.location,
         m.meeting_id,
         ...((m.attendees || []).map((a) => a.name)),
@@ -632,12 +749,15 @@ const mineMeetings = computed(() =>
   filteredMeetings.value.filter(
     (m) =>
       m.host === currentUser ||
+      m.convener === currentUser ||
       (m.attendees || []).some((a) => a.name === currentUser)
   )
 )
 
 const isMine = (m) =>
-  m.host === currentUser || (m.attendees || []).some((a) => a.name === currentUser)
+  m.host === currentUser ||
+  m.convener === currentUser ||
+  (m.attendees || []).some((a) => a.name === currentUser)
 
 /* 周范围 */
 const weekRange = computed(() => {
@@ -729,8 +849,7 @@ const roomUsage = [
 
 const lineCls = (status) =>
   status === 'held' ? 'green' : status === 'planned' ? 'amber' : ''
-const relatedLinks = (m) =>
-  [m?.related_req_id, m?.related_ticket_no].filter(Boolean)
+const relatedLinks = (m) => [m?.related_req_id, m?.related_ticket_no].filter(Boolean)
 
 /* ── API 调用 ── */
 const loadMeetings = async () => {
@@ -751,6 +870,8 @@ const openDetail = async (id) => {
   detailMeeting.value = null
   try {
     const m = await meetingApi.getMeeting(id)
+    if (!m.agendas) m.agendas = []
+    if (!m.actions) m.actions = []
     detailMeeting.value = m
   } catch (e) {
     ElMessage.error('加载会议详情失败')
@@ -791,7 +912,122 @@ const onCellClick = (cell) => {
   else if (cell.dayMeetings.length > 1) ElMessage.info(`${cell.key} 有 ${cell.dayMeetings.length} 场会议`)
 }
 
-/* ── 新增 / 编辑 ── */
+/* ── 纪要编辑器：议题 / 待办 ── */
+const addAgenda = () => {
+  if (!detailMeeting.value.agendas) detailMeeting.value.agendas = []
+  detailMeeting.value.agendas.push({
+    seq: detailMeeting.value.agendas.length + 1,
+    topic: '',
+    conclusion: '',
+    division: '',
+  })
+}
+const removeAgenda = (i) => detailMeeting.value.agendas.splice(i, 1)
+
+const addAction = () => {
+  if (!detailMeeting.value.actions) detailMeeting.value.actions = []
+  detailMeeting.value.actions.push({
+    content: '',
+    owner: '',
+    due_date: null,
+    status: 'pending',
+    category: 'meeting',
+    template: '',
+    related_todo_id: null,
+  })
+}
+const removeAction = (i) => detailMeeting.value.actions.splice(i, 1)
+
+const syncTodo = async (act) => {
+  if (act.id == null) {
+    ElMessage.warning('请先「保存纪要」再创建待办任务')
+    return
+  }
+  act._syncing = true
+  try {
+    const res = await meetingApi.syncActionTodo(detailMeeting.value.id, act.id)
+    act.related_todo_id = res.todo_id
+    ElMessage.success(res.created ? '已创建待办任务' : '待办任务已存在')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '创建待办失败')
+  } finally {
+    act._syncing = false
+  }
+}
+
+const goTodoCenter = () => router.push('/reminder-center')
+
+/* 生成 Obsidian 纪要备忘 */
+const generateMemo = async () => {
+  if (!detailMeeting.value?.id) return
+  sedimenting.value = true
+  try {
+    const res = await meetingApi.sedimentMeeting(detailMeeting.value.id)
+    detailMeeting.value.obsidian_path = res.obsidian_path
+    ElMessage.success('已按会议模板写入 05-会议纪要')
+    loadMeetings()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '生成备忘失败')
+  } finally {
+    sedimenting.value = false
+  }
+}
+const copyPath = async () => {
+  try {
+    await navigator.clipboard.writeText(detailMeeting.value.obsidian_path)
+    ElMessage.success('路径已复制')
+  } catch {
+    ElMessage.info(detailMeeting.value.obsidian_path)
+  }
+}
+
+/* 保存纪要（议题 / 待办 / 摘要） */
+const saveMinutes = async () => {
+  if (!detailMeeting.value?.id) return
+  saving.value = true
+  const m = detailMeeting.value
+  const payload = {
+    title: m.title,
+    meeting_type: m.meeting_type,
+    status: m.status,
+    start_time: toIso(m.start_time),
+    end_time: toIso(m.end_time),
+    location: m.location || null,
+    host: m.host || null,
+    convener: m.convener || null,
+    attendee_notes: m.attendee_notes || null,
+    summary: m.summary || null,
+    related_req_id: m.related_req_id || null,
+    related_ticket_no: m.related_ticket_no || null,
+    agendas: (m.agendas || []).map((a, i) => ({
+      seq: i + 1,
+      topic: a.topic || '',
+      conclusion: a.conclusion || null,
+      division: a.division || null,
+    })),
+    actions: (m.actions || []).map((a) => ({
+      id: a.id,
+      content: a.content,
+      owner: a.owner || null,
+      due_date: a.due_date || null,
+      status: a.status || 'pending',
+      category: a.category || null,
+      template: a.template || null,
+    })),
+  }
+  try {
+    await meetingApi.updateMeeting(m.id, payload)
+    ElMessage.success('纪要已保存')
+    await openDetail(m.id)
+    loadMeetings()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+/* ── 新增 / 编辑（会议登记） ── */
 const defaultForm = {
   id: null,
   title: '',
@@ -800,7 +1036,9 @@ const defaultForm = {
   start_time: '',
   duration: 60,
   host: currentUser,
+  convener: '',
   location: '',
+  attendee_notes: '',
   related_req_id: '',
   related_ticket_no: '',
   obsidian_path: '',
@@ -845,7 +1083,9 @@ const handleEdit = (row) => {
     start_time: row.start_time ? row.start_time.slice(0, 19).replace('T', ' ') : '',
     duration: 60,
     host: row.host || currentUser,
+    convener: row.convener || '',
     location: row.location || '',
+    attendee_notes: row.attendee_notes || '',
     related_req_id: row.related_req_id || '',
     related_ticket_no: row.related_ticket_no || '',
     obsidian_path: row.obsidian_path || '',
@@ -856,7 +1096,7 @@ const handleEdit = (row) => {
     if (!isNaN(s) && !isNaN(e)) form.duration = Math.max(5, Math.round((e - s) / 60000))
   }
   attendeeChips.value = (row.attendees || []).map((a) => a.name).filter(Boolean)
-  agendaText.value = (row.actions || []).map((a) => a.content).filter(Boolean).join('\n')
+  agendaText.value = ''
   dialogVisible.value = true
 }
 
@@ -877,17 +1117,22 @@ const handleSubmit = () => {
       end_time: end.toISOString(),
       location: form.location || null,
       host: form.host,
+      convener: form.convener || null,
+      attendee_notes: form.attendee_notes || null,
       related_req_id: form.related_req_id || null,
       related_ticket_no: form.related_ticket_no || null,
       obsidian_path: form.obsidian_path || null,
       attendees: attendeeChips.value
         .filter((n) => n.trim())
         .map((n) => ({ name: n.trim(), is_required: 1 })),
-      actions: agendaText.value
+    }
+    // 仅新增时带初始议题；编辑时议题在纪要编辑器中维护，避免覆盖
+    if (!isEdit.value) {
+      payload.agendas = agendaText.value
         .split('\n')
         .map((s) => s.trim())
         .filter(Boolean)
-        .map((c) => ({ content: c, status: 'pending' })),
+        .map((t, i) => ({ seq: i + 1, topic: t, conclusion: null, division: null }))
     }
     try {
       if (isEdit.value) {
@@ -895,7 +1140,7 @@ const handleSubmit = () => {
         ElMessage.success('更新成功')
       } else {
         await meetingApi.createMeeting(payload)
-        ElMessage.success('创建成功，通知已发送')
+        ElMessage.success('创建成功')
       }
       dialogVisible.value = false
       loadMeetings()
@@ -1011,7 +1256,6 @@ onMounted(() => {
   color: var(--accent);
 }
 
-/* 卡片标题（design.css 无 card-title，这里补） */
 .card-title {
   font-size: 16px;
   font-weight: 700;
@@ -1120,7 +1364,6 @@ onMounted(() => {
   line-height: 1.3;
 }
 
-/* 今日 / 待开 / 会议室 */
 .today-card,
 .up-card,
 .room-card,
@@ -1295,7 +1538,6 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 
-/* 列表 */
 .list-head {
   padding: 18px 20px;
 }
@@ -1304,22 +1546,47 @@ onMounted(() => {
   gap: 8px;
 }
 
-/* 抽屉 */
+/* 抽屉纪要编辑器 */
 .dw-body {
   padding: 4px 4px 8px;
 }
-.detail-block {
-  margin-bottom: 20px;
+.dw-section {
+  margin-bottom: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+}
+.pm-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pm-section-title .sec-act {
+  margin-left: auto;
+  font-weight: 600;
+}
+.pm-section-title .sec-sub {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-muted);
 }
 .info-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 12px 18px;
 }
 .info-item {
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+.info-item.info-span2 {
+  grid-column: span 2;
 }
 .info-k {
   font-size: 11.5px;
@@ -1329,77 +1596,88 @@ onMounted(() => {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--text-primary);
+  word-break: break-all;
 }
-.attendee-wrap {
+.note-text {
+  font-weight: 400;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.ag-card,
+.act-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--bg-soft, #f7f9fc);
+}
+.ag-head,
+.act-head {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.ag-idx,
+.act-idx {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.ag-input,
+.act-input {
+  margin-bottom: 10px;
+}
+.ag-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ag-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.act-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+.act-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
   flex-wrap: wrap;
   gap: 8px;
 }
-.attendee-chip {
-  display: inline-flex;
+.act-ops {
+  display: flex;
+  gap: 8px;
   align-items: center;
-  gap: 7px;
-  font-size: 12.5px;
-  font-weight: 600;
-  background: var(--border-subtle);
-  padding: 5px 11px;
-  border-radius: 9px;
 }
-.av {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
+.memo-path {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 700;
-  color: #fff;
-}
-.agenda-item {
-  display: flex;
-  gap: 11px;
-  padding: 9px 0;
-  border-bottom: 1px dashed var(--border);
-}
-.agenda-item:last-child {
-  border-bottom: none;
-}
-.agenda-idx {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
+  gap: 8px;
   background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  flex-wrap: wrap;
 }
-.agenda-txt {
-  font-size: 13px;
-  color: var(--text-primary);
-  line-height: 1.5;
+.memo-ico {
+  font-size: 14px;
 }
-.link-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.memo-code {
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-weight: 600;
-  padding: 5px 11px;
-  border-radius: 9px;
-  background: var(--border-subtle);
-  color: var(--text-secondary);
-  cursor: pointer;
-  margin: 0 6px 6px 0;
-  transition: all var(--transition-fast);
-}
-.link-chip:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--text-primary);
+  word-break: break-all;
+  flex: 1;
+  min-width: 200px;
 }
 
 /* 弹层 chip 多选 */

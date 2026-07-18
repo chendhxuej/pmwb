@@ -64,3 +64,9 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
 def sediment_meeting_endpoint(meeting_id: int, db: Session = Depends(get_db)):
     """一键沉淀：把会议生成知识条目写入 Obsidian 并建双向索引。"""
     return success(data=sediment_meeting(db, meeting_id))
+
+
+@router.post("/{meeting_id}/actions/{action_id}/sync-todo")
+def sync_action_todo_endpoint(meeting_id: int, action_id: int, db: Session = Depends(get_db)):
+    """把会议行动项同步为 PMWB 待办任务（带分类/模板元数据，source=meeting）。"""
+    return success(data=meeting_service.sync_action_todo(db, meeting_id, action_id))
