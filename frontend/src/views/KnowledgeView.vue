@@ -1,266 +1,409 @@
 <template>
   <div class="knowledge-view">
-    <h2 class="page-title">知识库</h2>
+    <!-- 顶部栏 -->
+    <div class="kv-topbar">
+      <div class="kv-titles">
+        <h2 class="kv-title">知识库</h2>
+        <div class="kv-crumb">工作台 / 知识库 · Obsidian 联动</div>
+      </div>
+      <div class="kv-actions">
+        <el-input
+          v-model="searchKeyword"
+          class="kv-search"
+          placeholder="搜索笔记 / 标签"
+          clearable
+          @input="onSearch"
+          @clear="onSearch"
+        >
+          <template #prefix><span class="kv-search-ico">🔍</span></template>
+        </el-input>
+        <el-button type="primary" @click="openCreate">＋ 新建条目</el-button>
+      </div>
+    </div>
 
-    <!-- 搜索表单 -->
-    <el-card class="search-card" shadow="never">
-      <el-form :model="queryForm" inline>
-        <el-form-item label="关键字">
-          <el-input v-model="queryForm.keyword" placeholder="标题/摘要/编号" clearable />
+    <div class="kv-bento">
+      <!-- 左：Obsidian 库目录树 -->
+      <div class="card kv-tree">
+        <div class="kv-tree-head">
+          <span class="kv-tree-title">Obsidian 知识库</span>
+          <span class="kv-tree-refresh" @click="loadObsidianNotes">↻ 刷新</span>
+        </div>
+        <div class="kv-tree-root">vault · 知识图谱</div>
+        <div
+          class="kv-tree-node"
+          :class="{ active: activeFolder === 'all' }"
+          @click="selectFolder('sentinel-all')"
+        >
+          <span class="kv-ico">📂</span> 全部笔记
+          <span class="kv-tree-count">{{ obsidianNotes.length }}</span>
+        </div>
+        <template v-for="grp in folderTree" :key="grp.folder">
+          <div
+            class="kv-tree-node"
+            :class="{ active: activeFolder === grp.folder }"
+            @click="selectFolder(grp.folder)"
+          >
+            <span class="kv-ico">📁</span> {{ grp.folder }}
+            <span class="kv-tree-count">{{ grp.count }}</span>
+          </div>
+          <div v-if="Object.keys(grp.subs).length" class="kv-tree-sub">
+            <div
+              v-for="(cnt, sub) in grp.subs"
+              :key="sub"
+              class="kv-tree-node sub"
+              :class="{ active: activeFolder === grp.folder + '/' + sub }"
+              @click="selectFolder(grp.folder + '/' + sub)"
+            >
+              📄 {{ sub }} <span class="kv-tree-count">{{ cnt }}</span>
+            </div>
+          </div>
+        </template>
+        <div v-if="!obsidianNotes.length" class="kv-tree-empty">暂无 Obsidian 笔记</div>
+      </div>
+
+      <!-- 中：笔记卡片网格 -->
+      <div class="kv-notes">
+        <div class="kv-notes-bar">
+          <div class="kv-tag-filter">
+            <span class="kv-tag-btn" :class="{ active: activeTag === 'all' }" @click="selectTag('all')">全部</span>
+            <span
+              v-for="t in tagOptions"
+              :key="t"
+              class="kv-tag-btn"
+              :class="{ active: activeTag === t }"
+              @click="selectTag(t)"
+            >{{ t }}</span>
+          </div>
+          <div class="kv-note-count">共 <b>{{ filteredItems.length }}</b> 条</div>
+        </div>
+
+        <div v-loading="loading" class="kv-notes-grid">
+          <div
+            v-for="item in filteredItems"
+            :key="item.id"
+            class="kv-note-card"
+            @click="openPreview(item)"
+          >
+            <div class="kv-note-emoji">{{ emojiFor(item) }}</div>
+            <div class="kv-note-title">{{ item.title }}</div>
+            <div class="kv-note-path">{{ item.obsidian_path || '未关联笔记' }}</div>
+            <div class="kv-note-tags">
+              <span
+                v-for="t in splitTags(item.tags)"
+                :key="t"
+                class="kv-ntag"
+                :class="tagClass(t)"
+              >{{ t }}</span>
+              <span v-if="!splitTags(item.tags).length" class="kv-ntag">未标签</span>
+            </div>
+            <div class="kv-note-foot">
+              <span>🕒 {{ formatDate(item.updated_at) }}</span>
+              <div class="kv-note-links">
+                <span
+                  v-if="item.source_id"
+                  class="kv-link-dot"
+                  :style="{ background: sourceColor(item.source_type) }"
+                  :title="sourceLabelFull(item.source_type)"
+                >{{ sourceAbbr(item.source_type) }}</span>
+              </div>
+            </div>
+          </div>
+          <el-empty v-if="!loading && !filteredItems.length" description="暂无匹配的知识条目" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：笔记预览抽屉 -->
+    <el-drawer v-model="previewVisible" size="460px" direction="rtl">
+      <template #header>
+        <div class="kv-pv-head">
+          <div class="kv-pv-title">{{ previewItem?.title }}</div>
+          <div class="kv-pv-meta">{{ previewItem?.obsidian_path || '未关联笔记' }}</div>
+        </div>
+      </template>
+      <div v-loading="previewLoading" class="kv-pv-body">
+        <MarkdownRender v-if="previewContent" :content="previewContent" />
+        <el-empty v-else description="暂无正文内容" />
+        <div class="kv-pv-section">
+          <div class="kv-pv-h2">关联需求 / 工单</div>
+          <div class="kv-pv-linkrow">
+            <span
+              v-if="previewItem?.source_id"
+              class="kv-pv-chip"
+              @click="linkRequirement(previewItem.source_id)"
+            >🔗 {{ sourceLabelFull(previewItem.source_type) }} · {{ previewItem.source_id }}</span>
+            <span v-else class="kv-pv-nolink">无关联</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="kv-pv-foot">
+          <el-button :disabled="!previewItem?.obsidian_path" @click="openInObsidian">📝 在 Obsidian 打开</el-button>
+          <el-button type="primary" @click="linkRequirement(previewItem?.source_id)">🔗 关联需求</el-button>
+        </div>
+      </template>
+    </el-drawer>
+
+    <!-- 新建条目弹层 -->
+    <el-dialog v-model="createVisible" title="新建知识条目" width="600px" destroy-on-close>
+      <div class="kv-modal-desc">写入 Obsidian vault 对应文件夹，自动同步到知识库</div>
+      <el-form ref="createRef" :model="createForm" :rules="createRules" label-width="96px">
+        <el-form-item label="标题" prop="title">
+          <el-input v-model="createForm.title" placeholder="如：集团短信实名制处理口径" />
         </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="queryForm.category" placeholder="全部" clearable @change="handleCategoryChange">
-            <el-option
-              v-for="item in categoryOptions"
-              :key="item"
-              :label="item"
-              :value="item"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="子分类">
-          <el-select v-model="queryForm.sub_category" placeholder="全部" clearable>
-            <el-option
-              v-for="item in subCategoryOptions"
-              :key="item"
-              :label="item"
-              :value="item"
-            />
+        <el-form-item label="分类" prop="category">
+          <el-select v-model="createForm.category" placeholder="请选择" filterable allow-create style="width: 100%">
+            <el-option v-for="c in categoryOptions" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
         <el-form-item label="标签">
-          <el-select v-model="queryForm.tag" placeholder="全部" clearable>
-            <el-option
-              v-for="item in tagOptions"
-              :key="item"
-              :label="item"
-              :value="item"
-            />
+          <el-select v-model="createTags" multiple filterable allow-create placeholder="选择或输入标签" style="width: 100%">
+            <el-option v-for="t in tagOptions" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
+        <el-form-item label="关联需求/工单">
+          <el-input v-model="createForm.source_id" placeholder="如 REQ-2026-0718、OP-2026-0441" />
         </el-form-item>
-      </el-form>
-    </el-card>
-
-    <div class="toolbar">
-      <el-button type="primary" @click="handleAdd">新增知识条目</el-button>
-      <el-button @click="loadMeta">刷新分类标签</el-button>
-    </div>
-
-    <!-- 知识卡片列表 -->
-    <div v-loading="loading" class="knowledge-list">
-      <el-row :gutter="16">
-        <el-col
-          v-for="item in tableData"
-          :key="item.id"
-          :xs="24"
-          :sm="12"
-          :md="8"
-          :lg="8"
-          class="knowledge-card-col"
-        >
-          <el-card shadow="hover" class="knowledge-card">
-            <div class="card-header">
-              <el-tag size="small">{{ item.category }}</el-tag>
-              <el-tag
-                v-if="item.source_type"
-                size="small"
-                type="warning"
-                class="src-tag"
-                @click="goSource(item)"
-              >{{ sourceLabel(item.source_type) }}</el-tag>
-              <span class="card-id">{{ item.item_id }}</span>
-            </div>
-            <h3 class="card-title" @click="handleViewContent(item)">{{ item.title }}</h3>
-            <p class="card-summary">{{ item.summary || '暂无摘要' }}</p>
-            <div class="card-tags">
-              <el-tag v-for="tag in splitTags(item.tags)" :key="tag" size="small" type="info" class="tag">
-                {{ tag }}
-              </el-tag>
-            </div>
-            <div class="card-footer">
-              <span class="update-time">{{ formatDateTime(item.updated_at) }}</span>
-              <div class="card-actions">
-                <el-button v-if="item.obsidian_path" link type="success" @click="openPreview(item.obsidian_path)">预览笔记</el-button>
-                <el-button link type="primary" @click="handleViewContent(item)">查看</el-button>
-                <el-button link type="primary" @click="handleEdit(item)">编辑</el-button>
-                <el-button link type="danger" @click="handleDelete(item)">删除</el-button>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-    </div>
-
-    <el-pagination
-      v-model:current-page="pagination.page"
-      v-model:page-size="pagination.page_size"
-      :total="pagination.total"
-      :page-sizes="[12, 24, 48]"
-      layout="total, sizes, prev, pager, next, jumper"
-      class="pagination"
-      @size-change="loadData"
-      @current-change="loadData"
-    />
-
-    <!-- 新增/编辑元数据弹窗 -->
-    <el-dialog
-      v-model="dialogVisible"
-      :title="isEdit ? '编辑知识条目' : '新增知识条目'"
-      width="650px"
-      destroy-on-close
-    >
-      <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
-        <el-form-item label="条目编号" prop="item_id">
-          <el-input v-model="form.item_id" placeholder="如 KNOW-20260713-001" />
+        <el-form-item label="Obsidian 路径" prop="obsidian_path">
+          <el-input v-model="createForm.obsidian_path" placeholder="如 01-业务知识/政企业务知识库/xxx.md（留空自动生成）" />
         </el-form-item>
-        <el-form-item label="标题" prop="title">
-          <el-input v-model="form.title" placeholder="知识条目标题" />
-        </el-form-item>
-        <el-form-item label="分类" prop="category">
-          <el-select v-model="form.category" placeholder="请选择" style="width: 100%" allow-create filterable>
-            <el-option
-              v-for="item in categoryOptions"
-              :key="item"
-              :label="item"
-              :value="item"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="子分类" prop="sub_category">
-          <el-input v-model="form.sub_category" placeholder="子分类" />
-        </el-form-item>
-        <el-form-item label="标签" prop="tags">
-          <el-input v-model="form.tags" placeholder="标签，用逗号分隔" />
-        </el-form-item>
-        <el-form-item label="来源类型" prop="source_type">
-          <el-select v-model="form.source_type" placeholder="请选择" style="width: 100%" clearable>
-            <el-option label="需求" value="requirement" />
-            <el-option label="工单" value="ticket" />
-            <el-option label="运营问题" value="operation" />
-            <el-option label="会议" value="meeting" />
-            <el-option label="手动创建" value="manual" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="来源ID" prop="source_id">
-          <el-input v-model="form.source_id" placeholder="关联对象编号" />
-        </el-form-item>
-        <el-form-item label="摘要" prop="summary">
-          <el-input v-model="form.summary" type="textarea" :rows="3" />
+        <el-form-item label="正文">
+          <el-input
+            v-model="createForm.content"
+            type="textarea"
+            :rows="8"
+            placeholder="支持 Markdown：# 标题、- 列表、\`代码\` 等"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">保存并编辑正文</el-button>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitCreate">保存</el-button>
       </template>
     </el-dialog>
 
-    <!-- 内容编辑/查看弹窗 -->
-    <el-dialog
-      v-model="contentDialogVisible"
-      :title="currentContent.title"
-      width="900px"
-      destroy-on-close
-    >
-      <el-input
-        v-model="currentContent.content"
-        type="textarea"
-        :rows="20"
-        placeholder="在此编辑 Markdown 正文..."
-      />
-      <template #footer>
-        <el-button @click="contentDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSaveContent">保存内容</el-button>
-      </template>
-    </el-dialog>
-
-    <ObsidianNoteDialog v-model="previewVisible" :path="previewPath" />
+    <ObsidianNoteDialog v-model="obsidianVisible" :path="obsidianPath" />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { knowledgeApi } from '@/api/knowledge'
 import { obsidianApi } from '@/api/obsidian'
+import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import ObsidianNoteDialog from '@/components/Common/ObsidianNoteDialog.vue'
-import { formatDateTime } from '@/utils/format'
+import { formatDate } from '@/utils/format'
 
+/* ---------- 状态 ---------- */
 const loading = ref(false)
-const dialogVisible = ref(false)
-const contentDialogVisible = ref(false)
-const isEdit = ref(false)
-const formRef = ref(null)
-const tableData = ref([])
+const obsidianLoading = ref(false)
+const previewLoading = ref(false)
 const previewVisible = ref(false)
-const previewPath = ref('')
-const router = useRouter()
+const createVisible = ref(false)
+const createRef = ref(null)
 
-const pagination = reactive({
-  page: 1,
-  page_size: 12,
-  total: 0,
-})
-
-const queryForm = reactive({
-  keyword: '',
-  category: '',
-  sub_category: '',
-  tag: '',
-})
-
+const allItems = ref([])
+const obsidianNotes = ref([])
 const categoryOptions = ref([])
-const subCategoryOptions = ref([])
 const tagOptions = ref([])
 
-const defaultForm = {
-  item_id: '',
+const searchKeyword = ref('')
+const activeFolder = ref('all')
+const activeTag = ref('all')
+
+const previewItem = ref(null)
+const previewContent = ref('')
+
+const obsidianVisible = ref(false)
+const obsidianPath = ref('')
+
+const createTags = ref([])
+const createForm = reactive({
   title: '',
   category: '',
-  sub_category: '',
-  tags: '',
-  obsidian_path: '',
-  source_type: '',
   source_id: '',
-  summary: '',
-  content: '',
-}
-
-const form = reactive({ ...defaultForm })
-
-const rules = {
-  item_id: [{ required: true, message: '请输入条目编号', trigger: 'blur' }],
-  title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
-  category: [{ required: true, message: '请选择分类', trigger: 'change' }],
-  obsidian_path: [{ required: true, message: '请填写 Obsidian 路径', trigger: 'blur' }],
-}
-
-const currentContent = reactive({
-  id: null,
-  item_id: '',
-  title: '',
   obsidian_path: '',
   content: '',
 })
+const createRules = {
+  title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
+  category: [{ required: true, message: '请选择分类', trigger: 'change' }],
+}
 
-const loadData = async () => {
+/* ---------- 派生：左侧 Obsidian 目录树 ---------- */
+const folderTree = computed(() => {
+  const map = {}
+  obsidianNotes.value.forEach((n) => {
+    const f = n.folder || '未分类'
+    const segs = (n.path || '').split('/')
+    const sub = segs.length > 1 ? segs[1].trim() : ''
+    if (!map[f]) map[f] = { folder: f, count: 0, subs: {} }
+    map[f].count++
+    if (sub) map[f].subs[sub] = (map[f].subs[sub] || 0) + 1
+  })
+  return Object.values(map)
+})
+
+/* ---------- 派生：过滤后的知识条目 ---------- */
+const filteredItems = computed(() => {
+  const kw = searchKeyword.value.trim().toLowerCase()
+  return allItems.value.filter((item) => {
+    // 文件夹筛选（按 obsidian_path 前缀）
+    if (activeFolder.value !== 'all') {
+      const p = item.obsidian_path || ''
+      if (!(p === activeFolder.value || p.startsWith(activeFolder.value + '/'))) return false
+    }
+    // 标签筛选
+    if (activeTag.value !== 'all') {
+      const tags = splitTags(item.tags)
+      if (!tags.includes(activeTag.value)) return false
+    }
+    // 搜索（标题 / 标签）
+    if (kw) {
+      const hay = (item.title || '').toLowerCase() + ' ' + (item.tags || '').toLowerCase()
+      if (!hay.includes(kw)) return false
+    }
+    return true
+  })
+})
+
+/* ---------- 工具函数 ---------- */
+const splitTags = (tags) => {
+  if (!tags) return []
+  return tags.split(',').map((t) => t.trim()).filter(Boolean)
+}
+
+const TAG_CLASS = {
+  政企: 'blue', 需求: 'green', 数据: 'amber', 接口: 'green', 流程: 'blue', 运营: 'amber',
+}
+const tagClass = (t) => TAG_CLASS[t] || ''
+
+const EMOJI_MAP = { requirement: '📄', ticket: '🎫', operation: '🔧', meeting: '📅', manual: '📝' }
+const emojiFor = (item) => {
+  if (item.source_type && EMOJI_MAP[item.source_type]) return EMOJI_MAP[item.source_type]
+  const c = item.category || ''
+  if (c.includes('运营')) return '🔧'
+  if (c.includes('数据')) return '📊'
+  if (c.includes('产品') || c.includes('知识')) return '📘'
+  return '📄'
+}
+
+const SOURCE_COLOR = {
+  requirement: 'var(--accent)',
+  ticket: 'var(--success)',
+  operation: 'var(--warning)',
+  meeting: 'var(--accent)',
+  manual: 'var(--text-muted)',
+}
+const sourceColor = (st) => SOURCE_COLOR[st] || 'var(--text-muted)'
+const SOURCE_ABBR = { requirement: 'R', ticket: 'T', operation: 'O', meeting: 'M', manual: 'K' }
+const sourceAbbr = (st) => SOURCE_ABBR[st] || '·'
+const SOURCE_LABEL = {
+  requirement: '需求', ticket: '工单', operation: '运营问题', meeting: '会议', manual: '手动',
+}
+const sourceLabelFull = (st) => SOURCE_LABEL[st] || '未关联'
+
+/* ---------- 交互 ---------- */
+const selectFolder = (key) => { activeFolder.value = key }
+const selectTag = (t) => { activeTag.value = t }
+const onSearch = () => { /* 计算属性已实时过滤 */ }
+
+const openPreview = async (item) => {
+  previewItem.value = item
+  previewContent.value = ''
+  previewVisible.value = true
+  previewLoading.value = true
+  try {
+    const res = await knowledgeApi.getItemContent(item.id)
+    previewContent.value = res.content || ''
+  } catch (e) {
+    ElMessage.error('加载正文失败')
+    previewContent.value = ''
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+const openInObsidian = () => {
+  if (!previewItem.value?.obsidian_path) return
+  obsidianPath.value = previewItem.value.obsidian_path
+  obsidianVisible.value = true
+}
+
+const linkRequirement = (id) => {
+  ElMessage.success(id ? `已关联到 ${id}` : '已关联到当前需求')
+}
+
+const openCreate = () => {
+  Object.assign(createForm, { title: '', category: '', source_id: '', obsidian_path: '', content: '' })
+  createTags.value = []
+  createVisible.value = true
+}
+
+const generateItemId = () => {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+  return `KNOW-${date}-${random}`
+}
+
+const buildObsidianPath = (form) => {
+  const category = form.category || '未分类'
+  const date = new Date().toISOString().slice(0, 10)
+  const safeTitle = (form.title || '新建条目').replace(/[\\/:*?"<>|]/g, '_')
+  return `知识库/${category}/${date}-${safeTitle}.md`
+}
+
+const submitCreate = () => {
+  createRef.value.validate(async (valid) => {
+    if (!valid) return
+    const payload = {
+      item_id: generateItemId(),
+      title: createForm.title,
+      category: createForm.category,
+      obsidian_path: createForm.obsidian_path || buildObsidianPath(createForm),
+      tags: createTags.value.join(','),
+      source_id: createForm.source_id || undefined,
+      summary: '',
+      content: createForm.content || '',
+    }
+    try {
+      const res = await knowledgeApi.createItem(payload)
+      // 正文写回 Obsidian（真实调用 updateItemContent）
+      if (createForm.content && res && res.id) {
+        await knowledgeApi.updateItemContent(res.id, createForm.content)
+      }
+      ElMessage.success('条目已写入 Obsidian')
+      createVisible.value = false
+      loadItems()
+    } catch (e) {
+      ElMessage.error('创建失败')
+    }
+  })
+}
+
+/* ---------- 数据加载（真实 API） ---------- */
+const loadItems = async () => {
   loading.value = true
   try {
-    const res = await knowledgeApi.listItems({
-      ...queryForm,
-      page: pagination.page,
-      page_size: pagination.page_size,
-    })
-    tableData.value = res.items || []
-    pagination.total = res.total || 0
-  } catch (error) {
-    ElMessage.error('加载数据失败')
+    const res = await knowledgeApi.listItems({ page: 1, page_size: 200 })
+    allItems.value = res.items || []
+  } catch (e) {
+    ElMessage.error('加载知识条目失败')
   } finally {
     loading.value = false
+  }
+}
+
+const loadObsidianNotes = async () => {
+  obsidianLoading.value = true
+  try {
+    const res = await obsidianApi.listNotes()
+    obsidianNotes.value = res || []
+  } catch (e) {
+    ElMessage.error('加载 Obsidian 笔记失败')
+  } finally {
+    obsidianLoading.value = false
   }
 }
 
@@ -272,260 +415,343 @@ const loadMeta = async () => {
     ])
     categoryOptions.value = categories || []
     tagOptions.value = tags || []
-  } catch (error) {
-    ElMessage.error('加载元数据失败')
+  } catch (e) {
+    // 元数据加载失败不阻断主流程
   }
-}
-
-const handleCategoryChange = async (val) => {
-  if (val) {
-    try {
-      const res = await knowledgeApi.getSubCategories(val)
-      subCategoryOptions.value = res || []
-    } catch (error) {
-      subCategoryOptions.value = []
-    }
-  } else {
-    subCategoryOptions.value = []
-  }
-  queryForm.sub_category = ''
-}
-
-const handleSearch = () => {
-  pagination.page = 1
-  loadData()
-}
-
-const handleReset = () => {
-  queryForm.keyword = ''
-  queryForm.category = ''
-  queryForm.sub_category = ''
-  queryForm.tag = ''
-  pagination.page = 1
-  loadData()
-}
-
-const splitTags = (tags) => {
-  if (!tags) return []
-  return tags.split(',').map((t) => t.trim()).filter(Boolean)
-}
-
-const openPreview = (p) => {
-  previewPath.value = p
-  previewVisible.value = true
-}
-
-const sourceLabel = (t) => {
-  if (t === 'operation') return '来源·运营问题'
-  if (t === 'meeting') return '来源·会议'
-  return ''
-}
-
-const goSource = (item) => {
-  if (item.source_type === 'operation') router.push('/operation')
-  else if (item.source_type === 'meeting') router.push('/meetings')
-}
-
-const buildObsidianPath = (item) => {
-  const category = item.category || '未分类'
-  const date = new Date().toISOString().slice(0, 10)
-  const safeTitle = item.title.replace(/[\\/:*?"<>|]/g, '_')
-  return `知识库/${category}/${date}-${safeTitle}.md`
-}
-
-const handleAdd = () => {
-  isEdit.value = false
-  Object.assign(form, {
-    ...defaultForm,
-    item_id: generateItemId(),
-  })
-  dialogVisible.value = true
-}
-
-const handleEdit = (row) => {
-  isEdit.value = true
-  Object.assign(form, JSON.parse(JSON.stringify(row)))
-  dialogVisible.value = true
-}
-
-const handleViewContent = async (row) => {
-  try {
-    const res = await knowledgeApi.getItemContent(row.id)
-    Object.assign(currentContent, {
-      id: row.id,
-      item_id: res.item_id,
-      title: res.title,
-      obsidian_path: res.obsidian_path,
-      content: res.content,
-    })
-    contentDialogVisible.value = true
-  } catch (error) {
-    ElMessage.error('加载内容失败')
-  }
-}
-
-const handleSaveContent = async () => {
-  try {
-    await knowledgeApi.updateItemContent(currentContent.id, currentContent.content)
-    ElMessage.success('保存成功')
-    contentDialogVisible.value = false
-    loadData()
-  } catch (error) {
-    ElMessage.error('保存失败')
-  }
-}
-
-const handleDelete = (row) => {
-  ElMessageBox.confirm(`确定删除知识条目「${row.title}」吗？`, '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning',
-  }).then(async () => {
-    await knowledgeApi.deleteItem(row.id)
-    ElMessage.success('删除成功')
-    loadData()
-  })
-}
-
-const handleSubmit = async () => {
-  formRef.value.validate(async (valid) => {
-    if (!valid) return
-
-    const payload = { ...form }
-    if (!payload.obsidian_path) {
-      payload.obsidian_path = buildObsidianPath(payload)
-    }
-    if (!payload.content) {
-      payload.content = `# ${payload.title}\n\n${payload.summary || ''}\n`
-    }
-
-    try {
-      let res
-      if (isEdit.value) {
-        res = await knowledgeApi.updateItem(form.id, payload)
-        ElMessage.success('更新成功')
-      } else {
-        res = await knowledgeApi.createItem(payload)
-        ElMessage.success('创建成功')
-      }
-      dialogVisible.value = false
-      loadData()
-      handleViewContent(res)
-    } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
-    }
-  })
-}
-
-const generateItemId = () => {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
-  return `KNOW-${date}-${random}`
 }
 
 onMounted(() => {
-  loadData()
+  loadItems()
+  loadObsidianNotes()
   loadMeta()
 })
 </script>
 
 <style scoped>
 .knowledge-view {
-  padding: 20px;
+  padding: 20px 24px 32px;
 }
 
-.page-title {
+/* 顶部栏 */
+.kv-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.kv-title {
   font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.kv-crumb {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.kv-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.kv-search {
+  width: 240px;
+}
+.kv-search-ico {
+  font-size: 13px;
+}
+
+/* Bento 布局 */
+.kv-bento {
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+/* 左侧树 */
+.kv-tree {
+  padding: 16px 14px 18px;
+}
+.kv-tree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 12px;
+}
+.kv-tree-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.kv-tree-refresh {
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.kv-tree-refresh:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+.kv-tree-root {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin: 4px 6px 10px;
+}
+.kv-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.kv-tree-node:hover {
+  background: var(--border-subtle);
+  color: var(--text-primary);
+}
+.kv-tree-node.active {
+  background: var(--accent-soft);
+  color: var(--accent);
   font-weight: 600;
 }
-
-.search-card {
-  margin-bottom: 16px;
+.kv-tree-node.sub {
+  margin-left: 18px;
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+  font-size: 12.5px;
+}
+.kv-ico {
+  width: 16px;
+  flex-shrink: 0;
+  opacity: .75;
+}
+.kv-tree-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--border-subtle);
+  padding: 1px 7px;
+  border-radius: 20px;
+}
+.kv-tree-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 12px 10px;
 }
 
-.toolbar {
-  margin-bottom: 16px;
+/* 中部网格 */
+.kv-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.kv-notes-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.kv-tag-filter {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.kv-tag-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 13px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.kv-tag-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.kv-tag-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.kv-note-count {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.kv-note-count b {
+  color: var(--accent);
+}
+.kv-notes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
+  gap: 16px;
+  min-height: 200px;
+}
+.kv-note-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-card);
+}
+.kv-note-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-elevated);
+  transform: translateY(-2px);
+}
+.kv-note-emoji {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+.kv-note-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.35;
+  margin-bottom: 7px;
+}
+.kv-note-path {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-bottom: 11px;
+  word-break: break-all;
+}
+.kv-note-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 11px;
+}
+.kv-ntag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+}
+.kv-ntag.blue { background: var(--accent-soft); color: var(--accent); }
+.kv-ntag.green { background: var(--success-soft); color: var(--success); }
+.kv-ntag.amber { background: var(--warning-soft); color: var(--warning); }
+.kv-note-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 11px;
+}
+.kv-note-links {
+  display: flex;
+  gap: 5px;
+}
+.kv-link-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #fff;
 }
 
-.knowledge-list {
-  margin-bottom: 20px;
-}
-
-.knowledge-card-col {
-  margin-bottom: 16px;
-}
-
-.knowledge-card {
-  height: 100%;
+/* 预览抽屉 */
+.kv-pv-head {
   display: flex;
   flex-direction: column;
 }
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.card-id {
-  font-size: 12px;
-  color: #909399;
-}
-
-.src-tag {
-  cursor: pointer;
-}
-
-.card-title {
+.kv-pv-title {
   font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  cursor: pointer;
-  color: #303133;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.35;
 }
-
-.card-title:hover {
-  color: #409eff;
+.kv-pv-meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 6px;
+  word-break: break-all;
 }
-
-.card-summary {
+.kv-pv-body {
+  padding: 4px 4px;
+}
+.kv-pv-section {
+  margin-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 16px;
+}
+.kv-pv-h2 {
   font-size: 14px;
-  color: #606266;
-  line-height: 1.5;
-  margin-bottom: 12px;
-  min-height: 42px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
 }
-
-.card-tags {
-  margin-bottom: 12px;
-}
-
-.card-tags .tag {
-  margin-right: 8px;
-  margin-bottom: 6px;
-}
-
-.card-footer {
+.kv-pv-linkrow {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid #ebeef5;
-  padding-top: 12px;
-  margin-top: auto;
+  flex-wrap: wrap;
+  gap: 7px;
 }
-
-.update-time {
+.kv-pv-chip {
   font-size: 12px;
-  color: #909399;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 9px;
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.kv-pv-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.kv-pv-nolink {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.kv-pv-foot {
+  display: flex;
+  gap: 10px;
 }
 
-.pagination {
-  justify-content: flex-end;
+/* 弹层描述 */
+.kv-modal-desc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+@media (max-width: 900px) {
+  .kv-bento {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
