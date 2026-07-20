@@ -19,7 +19,7 @@ def list_items(
     tag: Optional[str] = Query(None, description="标签"),
     source_type: Optional[str] = Query(None, description="来源类型"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    page_size: int = Query(20, ge=1, le=1000, description="每页条数"),
     db: Session = Depends(get_db),
 ):
     """查询知识条目。"""

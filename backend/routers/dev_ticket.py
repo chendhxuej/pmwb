@@ -19,7 +19,7 @@ def list_tickets(
     system_name: Optional[str] = Query(None, description="系统名称"),
     req_id: Optional[str] = Query(None, description="关联需求编号"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    page_size: int = Query(20, ge=1, le=1000, description="每页条数"),
     db: Session = Depends(get_db),
 ):
     """查询开发工单列表。"""

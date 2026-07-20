@@ -18,7 +18,7 @@ def list_meetings(
     meeting_type: Optional[str] = Query(None, description="会议类型"),
     status: Optional[str] = Query(None, description="状态"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    page_size: int = Query(20, ge=1, le=1000, description="每页条数"),
     db: Session = Depends(get_db),
 ):
     """查询会议列表。"""
