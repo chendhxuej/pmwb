@@ -54,7 +54,7 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
 
         offset = (page - 1) * page_size
         items = (
-            query.order_by(self.model.updated_at.desc())
+            query.order_by(self.model.created_at.desc())
             .offset(offset)
             .limit(page_size)
             .all()

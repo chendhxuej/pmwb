@@ -199,7 +199,7 @@
           </div>
         </div>
         <el-table
-          :data="listMeetings"
+          :data="pagedListMeetings"
           v-loading="loading"
           @row-click="(row) => openDetail(row.id)"
         >
@@ -240,6 +240,16 @@
             </template>
           </el-table-column>
         </el-table>
+        <el-pagination
+          v-if="listMeetings.length > listPageSize"
+          v-model:current-page="listPage"
+          v-model:page-size="listPageSize"
+          :total="listMeetings.length"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          class="mt-pagination"
+          @size-change="() => (listPage = 1)"
+        />
       </div>
     </div>
 
@@ -253,7 +263,7 @@
           </div>
         </div>
         <el-table
-          :data="mineMeetings"
+          :data="pagedMineMeetings"
           v-loading="loading"
           @row-click="(row) => openDetail(row.id)"
         >
@@ -289,6 +299,16 @@
             </template>
           </el-table-column>
         </el-table>
+        <el-pagination
+          v-if="mineMeetings.length > minePageSize"
+          v-model:current-page="minePage"
+          v-model:page-size="minePageSize"
+          :total="mineMeetings.length"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          class="mt-pagination"
+          @size-change="() => (minePage = 1)"
+        />
       </div>
     </div>
 
@@ -592,7 +612,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
@@ -753,6 +773,27 @@ const mineMeetings = computed(() =>
       (m.attendees || []).some((a) => a.name === currentUser)
   )
 )
+
+/* 列表 / 我的会议 客户端分页（月历仍需全量数据，故分页仅作用于表格展示） */
+const listPage = ref(1)
+const listPageSize = ref(20)
+const minePage = ref(1)
+const minePageSize = ref(20)
+const pagedListMeetings = computed(() => {
+  const arr = listMeetings.value
+  const start = (listPage.value - 1) * listPageSize.value
+  return arr.slice(start, start + listPageSize.value)
+})
+const pagedMineMeetings = computed(() => {
+  const arr = mineMeetings.value
+  const start = (minePage.value - 1) * minePageSize.value
+  return arr.slice(start, start + minePageSize.value)
+})
+// 过滤条件变化时回到第一页
+watch(filteredMeetings, () => {
+  listPage.value = 1
+  minePage.value = 1
+})
 
 const isMine = (m) =>
   m.host === currentUser ||
@@ -1544,6 +1585,10 @@ onMounted(() => {
 .list-filters {
   display: flex;
   gap: 8px;
+}
+.mt-pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
 }
 
 /* 抽屉纪要编辑器 */

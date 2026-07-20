@@ -59,7 +59,7 @@ class MeetingService(BaseService[PmwbMeeting]):
         offset = (page - 1) * page_size
         items = (
             query.options(joinedload(self.model.attendees), joinedload(self.model.actions))
-            .order_by(self.model.start_time.desc())
+            .order_by(self.model.created_at.desc())
             .offset(offset)
             .limit(page_size)
             .all()

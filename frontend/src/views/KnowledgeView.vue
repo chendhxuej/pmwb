@@ -79,7 +79,7 @@
 
         <div v-loading="loading" class="kv-notes-grid">
           <div
-            v-for="item in filteredItems"
+            v-for="item in pagedItems"
             :key="item.id"
             class="kv-note-card"
             @click="openPreview(item)"
@@ -110,6 +110,16 @@
           </div>
           <el-empty v-if="!loading && !filteredItems.length" description="暂无匹配的知识条目" />
         </div>
+        <el-pagination
+          v-if="filteredItems.length > kvPageSize"
+          v-model:current-page="kvPage"
+          v-model:page-size="kvPageSize"
+          :total="filteredItems.length"
+          :page-sizes="[12, 24, 48, 96]"
+          layout="total, sizes, prev, pager, next"
+          class="kv-pagination"
+          @size-change="() => (kvPage = 1)"
+        />
       </div>
     </div>
 
@@ -187,7 +197,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { knowledgeApi } from '@/api/knowledge'
 import { obsidianApi } from '@/api/obsidian'
@@ -204,6 +214,7 @@ const createVisible = ref(false)
 const createRef = ref(null)
 
 const allItems = ref([])
+
 const obsidianNotes = ref([])
 const categoryOptions = ref([])
 const tagOptions = ref([])
@@ -266,6 +277,19 @@ const filteredItems = computed(() => {
     }
     return true
   })
+})
+
+/* 卡片网格客户端分页（筛选在本地完成，故对筛选结果切片） */
+const kvPage = ref(1)
+const kvPageSize = ref(24)
+const pagedItems = computed(() => {
+  const arr = filteredItems.value
+  const start = (kvPage.value - 1) * kvPageSize.value
+  return arr.slice(start, start + kvPageSize.value)
+})
+// 筛选条件变化时回到第一页
+watch(filteredItems, () => {
+  kvPage.value = 1
 })
 
 /* ---------- 工具函数 ---------- */
@@ -555,6 +579,10 @@ onMounted(() => {
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+.kv-pagination {
+  margin-top: 4px;
+  justify-content: flex-end;
 }
 .kv-notes-bar {
   display: flex;

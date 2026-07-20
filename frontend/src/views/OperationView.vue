@@ -270,7 +270,7 @@ import { formatDate } from '@/utils/format'
 const router = useRouter()
 
 const CATEGORIES = [
-  { key: 'bug', label: 'BUG 管理', icon: Bug, bg: '#fef2f2', fg: '#d9544d' },
+  { key: 'bug', label: 'BUG 管理', icon: Warning, bg: '#fef2f2', fg: '#d9544d' },
   { key: 'data', label: '数据异常管理', icon: DataLine, bg: '#eff6ff', fg: '#3b82f6' },
   { key: 'prod', label: '生产问题分析', icon: Cpu, bg: '#fef7ed', fg: '#d98a1f' },
   { key: 'task', label: '临时交办任务', icon: List, bg: '#f3e8ff', fg: '#7c3aed' },

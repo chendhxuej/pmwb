@@ -68,7 +68,7 @@ class DevTicketService:
             query = query.filter(PmwbDevTicket.req_id == req_id)
 
         total = query.count()
-        items = query.order_by(PmwbDevTicket.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        items = query.order_by(PmwbDevTicket.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
         pages = (total + page_size - 1) // page_size if page_size > 0 else 1
         return {
             "total": total,

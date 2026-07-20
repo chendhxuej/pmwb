@@ -49,7 +49,7 @@ class TodoService(BaseService[PmwbTodo]):
         total = query.count()
         offset = (page - 1) * page_size
         items = (
-            query.order_by(self.model.is_overdue.desc(), self.model.priority.asc(), self.model.due_date.asc())
+            query.order_by(self.model.created_at.desc())
             .offset(offset)
             .limit(page_size)
             .all()
