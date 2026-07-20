@@ -20,6 +20,10 @@ export function getRequirementSystems() {
   return request.get('/requirements/meta/systems')
 }
 
+export function deleteRequirement(reqId) {
+  return request.delete(`/requirements/${reqId}`)
+}
+
 export function getEvaluations(reqId) {
   return request.get(`/requirements/${reqId}/evaluations`)
 }
@@ -59,6 +63,14 @@ export function deleteRequirementAttachment(reqId, filename) {
 
 export function generateUserStories(reqId, content) {
   return request.post(`/requirements/${reqId}/delivery/generate-user-stories`, { content })
+}
+
+export function getUserStories(reqId) {
+  return request.get(`/requirements/${reqId}/delivery/stories`)
+}
+
+export function saveUserStories(reqId, stories) {
+  return request.put(`/requirements/${reqId}/delivery/stories`, stories)
 }
 
 export function generateRequirementDoc(reqId, stories, clarification) {

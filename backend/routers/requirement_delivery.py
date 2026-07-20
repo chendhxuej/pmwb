@@ -17,6 +17,8 @@ from schemas.requirement_delivery import (
     GenerateDocOut,
     UserStoryGenIn,
     UserStoryGenOut,
+    UserStoryItem,
+    UserStoryListOut,
 )
 from services import requirement_delivery as svc
 
@@ -70,17 +72,36 @@ def download_attachment(
     filename: str = Query(..., description="附件文件名"),
     db: Session = Depends(get_db),
 ):
-    """下载需求附件文件夹内的一个文件。"""
+    """下载统一文件夹内的一个文件。"""
     from db.models import SentEmail
 
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     paths = svc._resolve_paths(req_id, item.req_name if item else None)
-    fp = os.path.join(paths["att_folder"], os.path.basename(filename))
-    if not os.path.abspath(fp).startswith(os.path.abspath(paths["att_folder"])):
+    fp = os.path.join(paths["folder"], os.path.basename(filename))
+    if not os.path.abspath(fp).startswith(os.path.abspath(paths["folder"])):
         raise HTTPException(status_code=403, detail="非法路径")
     if not os.path.isfile(fp):
         raise HTTPException(status_code=404, detail="文件不存在")
     return FileResponse(fp, filename=os.path.basename(fp))
+
+
+@router.get("/{req_id}/delivery/stories")
+def list_user_stories(req_id: str, db: Session = Depends(get_db)):
+    """读取需求下已持久化的用户故事。"""
+    data = svc.get_user_stories(db, req_id)
+    return success(data=UserStoryListOut(**data).model_dump())
+
+
+@router.put("/{req_id}/delivery/stories")
+def save_user_stories(
+    req_id: str,
+    payload: List[UserStoryItem],
+    db: Session = Depends(get_db),
+):
+    """全量保存需求下的用户故事。"""
+    stories = [p.model_dump() for p in payload]
+    data = svc.save_user_stories(db, req_id, stories)
+    return success(data=UserStoryListOut(**data).model_dump())
 
 
 @router.post("/{req_id}/delivery/generate-user-stories")

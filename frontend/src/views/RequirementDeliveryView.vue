@@ -24,19 +24,19 @@
               placeholder="搜索需求编号 / 名称 / 提出人"
               style="width: 280px"
               clearable
-              @keyup.enter="loadRequirements"
-              @clear="loadRequirements"
+              @keyup.enter="handleReqSearch"
+              @clear="handleReqSearch"
             >
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
-            <el-select v-model="reqStatus" placeholder="跟踪状态" clearable style="width: 140px" @change="loadRequirements">
+            <el-select v-model="reqStatus" placeholder="跟踪状态" clearable style="width: 140px" @change="handleReqSearch">
               <el-option label="建议中" value="proposed" />
               <el-option label="已采纳" value="accepted" />
               <el-option label="开发中" value="dev" />
               <el-option label="已关闭" value="closed" />
               <el-option label="暂停" value="paused" />
             </el-select>
-            <el-select v-model="reqPriority" placeholder="优先级" clearable style="width: 120px" @change="loadRequirements">
+            <el-select v-model="reqPriority" placeholder="优先级" clearable style="width: 120px" @change="handleReqSearch">
               <el-option label="P0" value="P0" />
               <el-option label="P1" value="P1" />
               <el-option label="P2" value="P2" />
@@ -49,39 +49,57 @@
             :data="requirements"
             stripe
             class="req-table"
+            scrollbar-always-on
             @row-click="openWorkflow"
           >
-            <el-table-column prop="req_id" label="需求编号" width="160" />
-            <el-table-column prop="req_name" label="需求名称" min-width="220" show-overflow-tooltip>
+            <el-table-column prop="req_id" label="需求编号" width="150" show-overflow-tooltip />
+            <el-table-column prop="req_name" label="需求名称" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="link-text">{{ row.req_name || '（未命名）' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="proposer" label="提出人" width="100" />
-            <el-table-column prop="system_name" label="涉及系统" width="130" show-overflow-tooltip />
-            <el-table-column label="优先级" width="90" align="center">
+            <el-table-column prop="proposer" label="提出人" width="90" />
+            <el-table-column label="录入时间" width="105" align="center">
+              <template #default="{ row }">
+                <span class="text-muted">{{ formatDate(row.created_at || row.send_datetime || row.propose_time) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="eval_systems" label="涉及系统" width="140" show-overflow-tooltip />
+            <el-table-column label="优先级" width="70" align="center">
               <template #default="{ row }">
                 <span class="pm-tag" :class="priorityClass(row.ext?.priority || row.priority)">{{ row.ext?.priority || row.priority || 'P2' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="跟踪状态" width="100" align="center">
+            <el-table-column label="跟踪状态" width="90" align="center">
               <template #default="{ row }">
                 <el-tag size="small" :type="statusType(row.ext?.status)">{{ statusLabel(row.ext?.status) }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="工作量(人天)" width="110" align="center">
               <template #default="{ row }">
-                <span class="font-mono">{{ row.workload || '—' }}</span>
+                <span class="font-mono">{{ row.eval_workload != null ? row.eval_workload : '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="90" align="center" fixed="right">
+            <el-table-column label="操作" width="120" align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click.stop="openWorkflow(row)">工作流</el-button>
+                <el-button link type="primary" size="small" @click.stop="openReqDialog(row)">编辑</el-button>
+                <el-button link type="danger" size="small" @click.stop="removeReq(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
           <div class="table-footer">
             <span class="text-muted">共 {{ reqTotal }} 条</span>
+            <el-pagination
+              v-model:current-page="reqPage"
+              v-model:page-size="reqPageSize"
+              :total="reqTotal"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              small
+              background
+              @size-change="loadRequirements"
+              @current-change="loadRequirements"
+            />
           </div>
         </div>
       </el-tab-pane>
@@ -90,36 +108,54 @@
       <el-tab-pane label="开发工单" name="ticket">
         <div class="pm-table-wrap">
           <div class="table-toolbar">
-            <el-input v-model="ticketKeyword" placeholder="搜索工单号 / 系统 / 开发团队" style="width: 280px" clearable @keyup.enter="loadTickets" @clear="loadTickets">
+            <el-input v-model="ticketKeyword" placeholder="搜索工单号 / 系统 / 开发团队" style="width: 280px" clearable @keyup.enter="handleTicketSearch" @clear="handleTicketSearch">
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
             <el-button @click="loadTickets"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
-          <el-table v-loading="ticketLoading" :data="tickets" stripe>
-            <el-table-column prop="ticket_no" label="工单号" width="170" />
-            <el-table-column prop="req_id" label="关联需求" width="160" />
-            <el-table-column prop="system_name" label="涉及系统" width="130" />
-            <el-table-column prop="dev_team" label="开发团队" width="120" />
-            <el-table-column prop="developer" label="开发负责人" width="110" />
-            <el-table-column label="优先级" width="80" align="center">
+          <el-table v-loading="ticketLoading" :data="tickets" stripe scrollbar-always-on>
+            <el-table-column prop="ticket_no" label="工单号" width="150" show-overflow-tooltip />
+            <el-table-column prop="req_id" label="关联需求" width="140" show-overflow-tooltip />
+            <el-table-column prop="system_name" label="涉及系统" width="110" show-overflow-tooltip />
+            <el-table-column prop="dev_team" label="开发团队" width="100" show-overflow-tooltip />
+            <el-table-column prop="developer" label="开发负责人" width="100" />
+            <el-table-column label="优先级" width="70" align="center">
               <template #default="{ row }"><span class="pm-tag" :class="priorityClass(row.priority)">{{ row.priority }}</span></template>
             </el-table-column>
-            <el-table-column label="状态" width="110" align="center">
+            <el-table-column label="状态" width="90" align="center">
               <template #default="{ row }"><el-tag size="small" :type="ticketStatusType(row.status)">{{ ticketStatusLabel(row.status) }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="进度" width="160">
+            <el-table-column label="进度" width="140">
               <template #default="{ row }">
                 <el-progress :percentage="row.progress || 0" :stroke-width="8" />
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140" align="center" fixed="right">
+            <el-table-column label="创建时间" width="105" align="center">
+              <template #default="{ row }">
+                <span class="text-muted">{{ formatDate(row.created_at || row.send_datetime) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openTicketDialog(row)">编辑</el-button>
                 <el-button link type="danger" size="small" @click.stop="removeTicket(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
-          <div class="table-footer"><span class="text-muted">共 {{ ticketTotal }} 条</span></div>
+          <div class="table-footer">
+            <span class="text-muted">共 {{ ticketTotal }} 条</span>
+            <el-pagination
+              v-model:current-page="ticketPage"
+              v-model:page-size="ticketPageSize"
+              :total="ticketTotal"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              small
+              background
+              @size-change="loadTickets"
+              @current-change="loadTickets"
+            />
+          </div>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -159,29 +195,64 @@
         <div v-show="step === 'collect'" class="wf-step-panel">
           <div class="bento-grid">
             <div class="card" style="grid-column: span 7">
-              <div class="card-header"><span class="card-label">需求基本信息</span></div>
+              <div class="card-header flex-between">
+                <span class="card-label">需求基本信息（可直接修改）</span>
+                <el-button size="small" type="primary" @click="saveDetail">保存</el-button>
+              </div>
               <div class="card-body">
-                <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="来源工单号">{{ current.req_id }}</el-descriptions-item>
-                  <el-descriptions-item label="提出人">{{ current.proposer || '—' }}</el-descriptions-item>
-                  <el-descriptions-item label="提出时间">{{ current.propose_time || '—' }}</el-descriptions-item>
-                  <el-descriptions-item label="期望版本">{{ current.ext?.version_required_date || '未设置' }}</el-descriptions-item>
-                  <el-descriptions-item label="涉及系统">{{ current.system_name || '—' }}</el-descriptions-item>
-                  <el-descriptions-item label="评估SA">{{ current.sa_name || '—' }}</el-descriptions-item>
-                  <el-descriptions-item label="是否涉及开发">
-                    <el-tag size="small" :type="current.is_involved ? 'warning' : 'info'">{{ current.is_involved ? '涉及开发' : '不涉及' }}</el-tag>
-                  </el-descriptions-item>
-                  <el-descriptions-item label="发送评估邮件">{{ current.send_datetime || '—' }}</el-descriptions-item>
-                </el-descriptions>
+                <el-form :model="current" label-width="100px" size="small">
+                  <div class="bento-grid" style="gap: 8px">
+                    <div style="grid-column: span 6">
+                      <el-form-item label="需求名称"><el-input v-model="current.req_name" /></el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="涉及系统"><el-input v-model="current.system_name" /></el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="评估 SA"><el-input v-model="current.sa_name" /></el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="优先级">
+                        <el-select v-model="current.priority" style="width:100%">
+                          <el-option label="P0" value="P0" /><el-option label="P1" value="P1" />
+                          <el-option label="P2" value="P2" /><el-option label="P3" value="P3" />
+                        </el-select>
+                      </el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="跟踪状态">
+                        <el-select v-model="current.status" style="width:100%">
+                          <el-option label="建议中" value="proposed" /><el-option label="已采纳" value="accepted" />
+                          <el-option label="开发中" value="dev" /><el-option label="已关闭" value="closed" />
+                          <el-option label="暂停" value="paused" />
+                        </el-select>
+                      </el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="期望版本日">
+                        <el-date-picker v-model="current.version_required_date" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="选择日期" />
+                      </el-form-item>
+                    </div>
+                    <div style="grid-column: span 12">
+                      <el-form-item label="负责人备忘"><el-input v-model="current.owner_note" type="textarea" :rows="2" /></el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="个人标签"><el-input v-model="current.tags" placeholder="逗号分隔" /></el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="个人备注"><el-input v-model="current.personal_note" type="textarea" :rows="2" /></el-form-item>
+                    </div>
+                  </div>
+                </el-form>
               </div>
             </div>
 
             <div class="card" style="grid-column: span 5">
-              <div class="card-header"><span class="card-label">需求附件（统一文件夹）</span></div>
+              <div class="card-header"><span class="card-label">需求分析说明书文件夹</span></div>
               <div class="card-body">
                 <div class="folder-path">
                   <el-icon><Folder /></el-icon>
-                  <code>{{ attachmentFolder || '（打开需求后初始化）' }}</code>
+                  <code>{{ folder || '（打开需求后初始化）' }}</code>
                 </div>
                 <div class="attachment-list">
                   <div v-for="(f, idx) in attachments" :key="idx" class="attachment-item">
@@ -191,34 +262,38 @@
                     <el-button link type="primary" size="small" @click="downloadAttachment(f)">下载</el-button>
                     <el-button link type="danger" size="small" @click="removeAttachment(f)">删除</el-button>
                   </div>
-                  <div v-if="!attachments.length" class="text-muted" style="padding: 8px 0">暂无附件，可上传或生成说明书</div>
+                  <div v-if="!attachments.length" class="text-muted" style="padding: 8px 0">暂无文件，可上传附件或生成说明书</div>
                 </div>
                 <input ref="fileInput" type="file" style="display:none" @change="handleFileChange" />
                 <el-button class="mt-12" size="small" @click="triggerUpload">
-                  <el-icon><Upload /></el-icon> 上传附件
+                  <el-icon><Upload /></el-icon> 上传文件
                 </el-button>
-                <div class="hint-text mt-8">需求文件夹随需求打开自动创建；说明书归档在「需求分析说明书」同级目录。</div>
+                <div class="hint-text mt-8">附件与生成文档统一归档在「需求分析说明书」文件夹。</div>
               </div>
             </div>
 
             <div class="card" style="grid-column: span 12">
-              <div class="card-header"><span class="card-label">需求背景</span></div>
+              <div class="card-header flex-between">
+                <span class="card-label">需求背景</span>
+                <el-button size="small" type="primary" @click="saveDetail">保存</el-button>
+              </div>
               <div class="card-body">
-                <p class="readonly-text">{{ current.background || '（暂无背景说明）' }}</p>
+                <el-input v-model="current.background" type="textarea" :rows="4" placeholder="可覆盖原始背景…" />
               </div>
             </div>
 
             <div class="card" style="grid-column: span 12">
-              <div class="card-header">
+              <div class="card-header flex-between">
                 <span class="card-label">原始需求描述</span>
+                <el-button size="small" type="primary" @click="saveDetail">保存</el-button>
               </div>
               <div class="card-body">
-                <p class="readonly-text">{{ current.description || '（暂无描述）' }}</p>
+                <el-input v-model="current.description" type="textarea" :rows="4" placeholder="可覆盖原始描述…" />
               </div>
             </div>
 
             <div class="card" style="grid-column: span 12">
-              <div class="card-header">
+              <div class="card-header flex-between">
                 <span class="card-label">澄清后需求内容（用于生成用户故事）</span>
                 <el-button size="small" type="primary" @click="saveClarification">保存澄清</el-button>
               </div>
@@ -229,7 +304,7 @@
                   :rows="5"
                   placeholder="录入经评审澄清后的最终需求内容…"
                 />
-                <div class="hint-text mt-8">澄清内容本地暂存，后端扩展持久化接口后自动落库。</div>
+                <div class="hint-text mt-8">澄清内容已接入后端持久化。</div>
               </div>
             </div>
           </div>
@@ -298,7 +373,10 @@
             <div class="card" style="grid-column: span 7">
               <div class="card-header">
                 <span class="card-label">用户故事（固定模板）</span>
-                <el-button size="small" @click="addStory"><el-icon><Plus /></el-icon> 新增</el-button>
+                <div class="flex gap-8">
+                  <el-button size="small" type="primary" @click="saveStories">保存</el-button>
+                  <el-button size="small" @click="addStory"><el-icon><Plus /></el-icon> 新增</el-button>
+                </div>
               </div>
               <div class="card-body">
                 <div v-for="(st, i) in stories" :key="i" class="story-card" :class="{ finalized: st.finalized }">
@@ -345,7 +423,7 @@
                 <div class="pm-field-label mt-16">文件名</div>
                 <el-input v-model="docFileName" placeholder="需求分析说明书" />
                 <div class="pm-field-label mt-16">归档路径</div>
-                <div class="folder-path"><el-icon><Folder /></el-icon><code>{{ docFolder }}</code></div>
+                <div class="folder-path"><el-icon><Folder /></el-icon><code>{{ folder }}</code></div>
                 <el-button class="mt-16" type="primary" @click="generateDoc">
                   <el-icon><DocumentChecked /></el-icon> 生成并归档
                 </el-button>
@@ -393,6 +471,39 @@
       </template>
     </el-dialog>
 
+    <!-- 需求编辑弹层 -->
+    <el-dialog v-model="reqDialog" title="编辑需求跟踪信息" width="560px">
+      <el-form :model="reqForm" label-width="110px">
+        <el-form-item label="需求名称"><el-input v-model="reqForm.req_name" placeholder="覆盖 sent_emails 原始名称" /></el-form-item>
+        <el-form-item label="涉及系统"><el-input v-model="reqForm.system_name" placeholder="覆盖原始系统" /></el-form-item>
+        <el-form-item label="SA"><el-input v-model="reqForm.sa_name" /></el-form-item>
+        <el-form-item label="优先级">
+          <el-select v-model="reqForm.priority" style="width:100%">
+            <el-option label="P0" value="P0" /><el-option label="P1" value="P1" />
+            <el-option label="P2" value="P2" /><el-option label="P3" value="P3" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="跟踪状态">
+          <el-select v-model="reqForm.status" style="width:100%">
+            <el-option label="建议中" value="proposed" /><el-option label="已采纳" value="accepted" />
+            <el-option label="开发中" value="dev" /><el-option label="已关闭" value="closed" />
+            <el-option label="暂停" value="paused" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="期望版本日"><el-date-picker v-model="reqForm.version_required_date" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="选择日期" /></el-form-item>
+        <el-form-item label="需求背景"><el-input v-model="reqForm.background" type="textarea" :rows="3" placeholder="覆盖原始背景" /></el-form-item>
+        <el-form-item label="需求描述"><el-input v-model="reqForm.description" type="textarea" :rows="3" placeholder="覆盖原始描述" /></el-form-item>
+        <el-form-item label="澄清内容"><el-input v-model="reqForm.clarification" type="textarea" :rows="3" placeholder="经评审后的澄清内容" /></el-form-item>
+        <el-form-item label="负责人备忘"><el-input v-model="reqForm.owner_note" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="个人标签"><el-input v-model="reqForm.tags" placeholder="逗号分隔" /></el-form-item>
+        <el-form-item label="个人备注"><el-input v-model="reqForm.personal_note" type="textarea" :rows="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="reqDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveReq">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 开发工单弹层 -->
     <el-dialog v-model="ticketDialog" :title="ticketForm.id ? '编辑开发工单' : '新增开发工单'" width="560px">
       <el-form :model="ticketForm" label-width="110px">
@@ -427,11 +538,12 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatDate } from '@/utils/format'
 import {
-  getRequirements,
+  getRequirements, getRequirement, updateRequirement, deleteRequirement,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
-  deleteRequirementAttachment, generateUserStories, generateRequirementDoc,
+  deleteRequirementAttachment, generateUserStories, getUserStories, saveUserStories, generateRequirementDoc,
 } from '@/api/requirement'
 import {
   getDevTickets, createDevTicket, updateDevTicket, deleteDevTicket,
@@ -445,6 +557,8 @@ const reqPriority = ref('')
 const reqLoading = ref(false)
 const requirements = ref([])
 const reqTotal = ref(0)
+const reqPage = ref(1)
+const reqPageSize = ref(20)
 
 async function loadRequirements() {
   reqLoading.value = true
@@ -453,7 +567,8 @@ async function loadRequirements() {
       keyword: reqKeyword.value || undefined,
       status: reqStatus.value || undefined,
       priority: reqPriority.value || undefined,
-      page: 1, page_size: 50,
+      page: reqPage.value,
+      page_size: reqPageSize.value,
     })
     requirements.value = res.items || []
     reqTotal.value = res.total || 0
@@ -462,21 +577,104 @@ async function loadRequirements() {
   }
 }
 
+function handleReqSearch() {
+  reqPage.value = 1
+  loadRequirements()
+}
+
+/* 需求编辑/删除 */
+const reqDialog = ref(false)
+const reqForm = reactive({
+  req_id: '',
+  req_name: '',
+  system_name: '',
+  sa_name: '',
+  priority: 'P2',
+  status: 'proposed',
+  version_required_date: '',
+  background: '',
+  description: '',
+  clarification: '',
+  owner_note: '',
+  tags: '',
+  personal_note: '',
+})
+function openReqDialog(row) {
+  Object.assign(reqForm, {
+    req_id: row.req_id,
+    req_name: row.req_name || '',
+    system_name: row.system_name || '',
+    sa_name: row.sa_name || '',
+    priority: row.ext?.priority || 'P2',
+    status: row.ext?.status || 'proposed',
+    version_required_date: row.ext?.version_required_date || '',
+    background: row.background || '',
+    description: row.description || '',
+    clarification: row.clarification || '',
+    owner_note: row.ext?.owner_note || '',
+    tags: row.ext?.tags || '',
+    personal_note: row.ext?.personal_note || '',
+  })
+  reqDialog.value = true
+}
+async function saveReq() {
+  const payload = { ...reqForm }
+  await updateRequirement(reqForm.req_id, payload)
+  ElMessage.success('需求信息已保存')
+  reqDialog.value = false
+  await loadRequirements()
+  // 若当前正在看工作流，同步刷新 current
+  if (current.value.req_id === reqForm.req_id) {
+    await refreshCurrent(reqForm.req_id)
+  }
+}
+async function removeReq(row) {
+  await ElMessageBox.confirm(`确认删除需求 ${row.req_id} 的工作台数据？（只读源数据保留）`, '提示', { type: 'warning' })
+  await deleteRequirement(row.req_id)
+  ElMessage.success('已删除')
+  await loadRequirements()
+}
+async function refreshCurrent(reqId) {
+  try {
+    const res = await getRequirement(reqId)
+    if (res) {
+      current.value = res
+      current.value.priority = res.ext?.priority || 'P2'
+      current.value.status = res.ext?.status || 'proposed'
+      current.value.version_required_date = res.ext?.version_required_date || ''
+      current.value.owner_note = res.ext?.owner_note || ''
+      current.value.tags = res.ext?.tags || ''
+      current.value.personal_note = res.ext?.personal_note || ''
+    }
+  } catch (e) { /* ignore */ }
+}
+
 /* ─────────────── 工单标签 ─────────────── */
 const ticketKeyword = ref('')
 const ticketLoading = ref(false)
 const tickets = ref([])
 const ticketTotal = ref(0)
+const ticketPage = ref(1)
+const ticketPageSize = ref(20)
 
 async function loadTickets() {
   ticketLoading.value = true
   try {
-    const res = await getDevTickets({ keyword: ticketKeyword.value || undefined, page: 1, page_size: 50 })
+    const res = await getDevTickets({
+      keyword: ticketKeyword.value || undefined,
+      page: ticketPage.value,
+      page_size: ticketPageSize.value,
+    })
     tickets.value = res.items || []
     ticketTotal.value = res.total || 0
   } finally {
     ticketLoading.value = false
   }
+}
+
+function handleTicketSearch() {
+  ticketPage.value = 1
+  loadTickets()
 }
 
 /* ─────────────── 4步工作流抽屉 ─────────────── */
@@ -500,11 +698,13 @@ const genHistory = ref([])
 const dddView = ref({ domain: '政企需求交付', subdomain: '需求评估与履约', aggregate: '需求-评估-交付', entity: '需求、用户故事、开发工单' })
 
 // 真实路径（来自后端 init-folder）
-const attachmentFolder = ref('')
-const docFolder = ref('')
+const folder = ref('')
 
-// 每需求本地工作流态（用户故事/澄清，后端扩展前暂存）
+// 生成文档历史本地暂存
 const localStore = reactive({})
+function cacheLocal() {
+  localStore[current.value.req_id] = { genHistory: genHistory.value }
+}
 
 const totalWorkload = computed(() => evaluations.value.reduce((s, e) => s + (Number(e.workload) || 0), 0).toFixed(1))
 const totalReview = computed(() => evaluations.value.reduce((s, e) => s + (Number(e.review_workload) || 0), 0).toFixed(1))
@@ -519,7 +719,13 @@ function isStepDone(i) {
 
 async function openWorkflow(row) {
   current.value = row
-  step.value = 'collect'
+  // 把 ext 跟踪字段铺平到 current，方便表单直接绑定
+  current.value.priority = row.ext?.priority || 'P2'
+  current.value.status = row.ext?.status || 'proposed'
+  current.value.version_required_date = row.ext?.version_required_date || ''
+  current.value.owner_note = row.ext?.owner_note || ''
+  current.value.tags = row.ext?.tags || ''
+  current.value.personal_note = row.ext?.personal_note || ''
   clarification.value = row.clarification || ''
   docFileName.value = `关于${row.req_name || '需求'}的需求分析说明书`
   const key = row.req_id
@@ -529,16 +735,15 @@ async function openWorkflow(row) {
   wfVisible.value = true
   // 真实创建/读取需求文件夹，并拉取真实附件列表
   try {
-    const folder = await initRequirementFolder(key)
-    attachmentFolder.value = folder.attachment_folder || ''
-    docFolder.value = folder.doc_folder || ''
-    attachments.value = folder.attachments || []
+    const res = await initRequirementFolder(key)
+    folder.value = res.folder || ''
+    attachments.value = res.attachments || []
   } catch (e) {
-    attachmentFolder.value = ''
-    docFolder.value = ''
+    folder.value = ''
     attachments.value = []
   }
   await loadEvaluations(key)
+  await loadStories(key)
 }
 
 async function loadEvaluations(reqId) {
@@ -550,18 +755,71 @@ async function loadEvaluations(reqId) {
   }
 }
 
-function cacheLocal() {
-  localStore[current.value.req_id] = {
-    stories: stories.value,
-    genHistory: genHistory.value,
+async function loadStories(reqId) {
+  try {
+    const res = await getUserStories(reqId)
+    stories.value = (res.stories || []).map((s) => ({
+      id: s.id,
+      seq: s.seq,
+      title: s.title,
+      desc: s.desc,
+      scene: s.scene,
+      acceptance: s.acceptance && s.acceptance.length ? s.acceptance : [''],
+      finalized: s.finalized,
+    }))
+  } catch (err) {
+    stories.value = []
   }
 }
 
-function saveClarification() {
-  // 后端 RequirementExtUpdate 暂不含 clarification 字段，先本地暂存
-  current.value.clarification = clarification.value
-  cacheLocal()
-  ElMessage.success('澄清内容已暂存（待后端持久化）')
+async function saveStories() {
+  try {
+    const payload = stories.value.map((s, idx) => ({
+      seq: s.seq || idx + 1,
+      title: s.title,
+      desc: s.desc,
+      scene: s.scene,
+      acceptance: s.acceptance || [],
+      finalized: s.finalized,
+    }))
+    await saveUserStories(current.value.req_id, payload)
+    ElMessage.success('用户故事已保存')
+  } catch (err) {
+    ElMessage.error('保存失败')
+  }
+}
+
+async function saveClarification() {
+  try {
+    await updateRequirement(current.value.req_id, { clarification: clarification.value })
+    current.value.clarification = clarification.value
+    ElMessage.success('澄清内容已保存')
+  } catch (err) {
+    ElMessage.error('保存失败')
+  }
+}
+
+async function saveDetail() {
+  try {
+    const payload = {
+      req_name: current.value.req_name,
+      system_name: current.value.system_name,
+      sa_name: current.value.sa_name,
+      priority: current.value.priority,
+      status: current.value.status,
+      version_required_date: current.value.version_required_date || null,
+      owner_note: current.value.owner_note,
+      tags: current.value.tags,
+      personal_note: current.value.personal_note,
+      background: current.value.background,
+      description: current.value.description,
+    }
+    await updateRequirement(current.value.req_id, payload)
+    ElMessage.success('需求信息已保存')
+    await refreshCurrent(current.value.req_id)
+  } catch (err) {
+    ElMessage.error('保存失败')
+  }
 }
 
 /* 附件（真实端点：上传 / 下载 / 删除） */
@@ -627,10 +885,9 @@ async function removeEval(row) {
   await loadEvaluations(current.value.req_id)
 }
 
-/* 用户故事（真实端点：基于 DDD 生成固定 4 段模板） */
+/* 用户故事（真实端点：基于 DDD 生成固定 4 段模板，落库） */
 function addStory() {
   stories.value.push({ title: '', desc: '', scene: '', acceptance: [''], finalized: false })
-  cacheLocal()
 }
 async function generateStories() {
   if (!clarification.value.trim()) {
@@ -641,19 +898,19 @@ async function generateStories() {
     const res = await generateUserStories(current.value.req_id, clarification.value)
     dddView.value = res.ddd || dddView.value
     stories.value = (res.stories || []).map((s) => ({
+      id: s.id,
+      seq: s.seq,
       title: s.title,
       desc: s.desc,
       scene: s.scene,
       acceptance: s.acceptance && s.acceptance.length ? s.acceptance : [''],
       finalized: false,
     }))
-    cacheLocal()
-    ElMessage.success(`已基于 DDD 生成 ${stories.value.length} 条用户故事`)
+    ElMessage.success(`已基于 DDD 生成 ${stories.value.length} 条用户故事并落库`)
   } catch (err) {
     ElMessage.error('生成失败，请重试')
   }
 }
-watch(stories, cacheLocal, { deep: true })
 
 /* 文档生成（真实端点：按固定模板生成 docx 并落盘） */
 async function generateDoc() {
@@ -742,7 +999,15 @@ loadTickets()
 .wf-head { display: flex; align-items: center; justify-content: space-between; width: 100% }
 .wf-req-id { font-size: 12px; color: var(--text-muted) }
 .wf-req-name { font-size: 17px; font-weight: 700; color: var(--text-primary); margin-top: 2px }
-.wf-steps { padding: 18px 24px; border-bottom: 1px solid var(--border-subtle) }
+.wf-steps { display: flex; align-items: center; padding: 18px 24px; border-bottom: 1px solid var(--border-subtle); gap: 8px }
+.pm-step { display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1; min-width: 0 }
+.pm-step-dot { width: 26px; height: 26px; border-radius: 50%; background: var(--bg-app); border: 2px solid var(--border); color: var(--text-secondary); font-size: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0 }
+.pm-step.active .pm-step-dot { background: var(--accent); border-color: var(--accent); color: #fff }
+.pm-step.done .pm-step-dot { background: var(--success); border-color: var(--success); color: #fff }
+.pm-step-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); white-space: nowrap }
+.pm-step.active .pm-step-label { color: var(--accent) }
+.pm-step-line { flex: 1; height: 2px; background: var(--border-subtle); margin: 0 10px; min-width: 20px }
+.pm-step-line.done { background: var(--success) }
 .wf-body { padding: 22px 24px 40px }
 .wf-step-panel { animation: fadeIn .25s ease }
 @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }

@@ -5,6 +5,7 @@ REQUIREMENT_DOC_DIR），与知识库同源，便于 Obsidian 直接索引。
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -14,7 +15,7 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 
-from db.models import SentEmail
+from db.models import PmwbUserStory, SentEmail
 from core.config import settings
 
 
@@ -38,32 +39,40 @@ def _requirement_base(req_id: str) -> str:
 
 
 def _resolve_paths(req_id: str, req_name: Optional[str] = None) -> Dict[str, str]:
+    """需求归档统一目录：所有附件与生成文档均放在「需求分析说明书」下同一子文件夹。"""
     vault = settings.OBSIDIAN_VAULT_PATH
-    att_base = os.path.join(vault, settings.REQUIREMENT_ATTACHMENT_DIR)
-    doc_base = os.path.join(vault, settings.REQUIREMENT_DOC_DIR)
+    folder_base = os.path.join(vault, settings.REQUIREMENT_DOC_DIR)
     sub = f"{req_id}_{_safe_name(req_name or req_id)}"
-    att_folder = os.path.join(att_base, sub)
-    doc_folder = os.path.join(doc_base, sub)
+    folder = os.path.join(folder_base, sub)
+    # 旧附件目录（若存在则迁移）
+    old_att_base = os.path.join(vault, settings.REQUIREMENT_ATTACHMENT_DIR)
+    old_att_folder = os.path.join(old_att_base, sub)
     return {
-        "att_base": att_base,
-        "doc_base": doc_base,
-        "att_folder": att_folder,
-        "doc_folder": doc_folder,
+        "folder_base": folder_base,
+        "folder": folder,
+        "old_att_folder": old_att_folder,
     }
 
 
 def init_folder(db, req_id: str) -> Dict[str, Any]:
-    """创建附件文件夹与说明书归档文件夹（幂等），返回路径与当前附件列表。"""
+    """创建需求分析说明书文件夹（幂等），并迁移旧附件目录，返回路径与当前文件列表。"""
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     req_name = item.req_name if item else None
     paths = _resolve_paths(req_id, req_name)
-    os.makedirs(paths["att_folder"], exist_ok=True)
-    os.makedirs(paths["doc_folder"], exist_ok=True)
-    attachments = _list_attachments_from(paths["att_folder"])
+    folder = paths["folder"]
+    old_att_folder = paths["old_att_folder"]
+    os.makedirs(folder, exist_ok=True)
+    # 兼容迁移：旧「需求附件」文件夹存在时，把文件搬到新统一目录
+    if os.path.isdir(old_att_folder) and not os.path.samefile(old_att_folder, folder):
+        for fn in os.listdir(old_att_folder):
+            src = os.path.join(old_att_folder, fn)
+            dst = os.path.join(folder, fn)
+            if os.path.isfile(src) and not os.path.exists(dst):
+                shutil.move(src, dst)
+    attachments = _list_attachments_from(folder)
     return {
         "req_id": req_id,
-        "attachment_folder": paths["att_folder"],
-        "doc_folder": paths["doc_folder"],
+        "folder": folder,
         "attachments": attachments,
     }
 
@@ -91,15 +100,15 @@ def _list_attachments_from(folder: str) -> List[Dict[str, Any]]:
 def list_attachments(db, req_id: str) -> List[Dict[str, Any]]:
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     paths = _resolve_paths(req_id, item.req_name if item else None)
-    return _list_attachments_from(paths["att_folder"])
+    return _list_attachments_from(paths["folder"])
 
 
 def upload_attachment(db, req_id: str, filename: str, content: bytes) -> Dict[str, Any]:
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     paths = _resolve_paths(req_id, item.req_name if item else None)
-    os.makedirs(paths["att_folder"], exist_ok=True)
+    os.makedirs(paths["folder"], exist_ok=True)
     safe_fn = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", filename)
-    fp = os.path.join(paths["att_folder"], safe_fn)
+    fp = os.path.join(paths["folder"], safe_fn)
     with open(fp, "wb") as f:
         f.write(content)
     return {"name": safe_fn, "bytes": len(content), "size": _human_size(len(content))}
@@ -108,9 +117,9 @@ def upload_attachment(db, req_id: str, filename: str, content: bytes) -> Dict[st
 def delete_attachment(db, req_id: str, filename: str) -> bool:
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     paths = _resolve_paths(req_id, item.req_name if item else None)
-    fp = os.path.join(paths["att_folder"], os.path.basename(filename))
-    # 防止路径穿越：必须落在附件文件夹内
-    if not os.path.abspath(fp).startswith(os.path.abspath(paths["att_folder"])):
+    fp = os.path.join(paths["folder"], os.path.basename(filename))
+    # 防止路径穿越：必须落在统一文件夹内
+    if not os.path.abspath(fp).startswith(os.path.abspath(paths["folder"])):
         return False
     if os.path.isfile(fp):
         os.remove(fp)
@@ -178,8 +187,51 @@ def _split_features(text: str) -> List[str]:
     return uniq[:6]
 
 
+def _story_to_dict(st: PmwbUserStory) -> Dict[str, Any]:
+    return {
+        "id": st.id,
+        "seq": st.seq,
+        "title": st.title or "",
+        "desc": st.desc or "",
+        "scene": st.scene or "",
+        "acceptance": json.loads(st.acceptance) if st.acceptance else [],
+        "finalized": bool(st.finalized),
+    }
+
+
+def get_user_stories(db, req_id: str) -> Dict[str, Any]:
+    """从数据库读取需求下的用户故事列表。"""
+    rows = (
+        db.query(PmwbUserStory)
+        .filter(PmwbUserStory.req_id == req_id)
+        .order_by(PmwbUserStory.seq.asc())
+        .all()
+    )
+    return {"req_id": req_id, "stories": [_story_to_dict(r) for r in rows]}
+
+
+def save_user_stories(db, req_id: str, stories: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """全量替换需求下的用户故事。"""
+    # 删除旧记录
+    db.query(PmwbUserStory).filter(PmwbUserStory.req_id == req_id).delete()
+    # 插入新记录
+    for i, s in enumerate(stories, start=1):
+        st = PmwbUserStory(
+            req_id=req_id,
+            seq=i,
+            title=s.get("title", ""),
+            desc=s.get("desc", ""),
+            scene=s.get("scene", ""),
+            acceptance=json.dumps(s.get("acceptance") or [], ensure_ascii=False),
+            finalized=1 if s.get("finalized") else 0,
+        )
+        db.add(st)
+    db.commit()
+    return get_user_stories(db, req_id)
+
+
 def generate_user_stories(db, req_id: str, content: str) -> Dict[str, Any]:
-    """基于澄清内容 + DDD 理念生成固定 4 段模板用户故事。"""
+    """基于澄清内容 + DDD 理念生成固定 4 段模板用户故事，并落库。"""
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     req_name = item.req_name if item else req_id
     system_name = item.system_name if item else None
@@ -221,10 +273,12 @@ def generate_user_stories(db, req_id: str, content: str) -> Dict[str, Any]:
             "desc": desc,
             "scene": scene,
             "acceptance": acceptance,
-            "ddd": ddd,
+            "finalized": False,
         })
 
-    return {"req_id": req_id, "ddd": ddd, "proposer": proposer, "stories": stories}
+    # 落库并返回持久化后的完整数据
+    saved = save_user_stories(db, req_id, stories)
+    return {"req_id": req_id, "ddd": ddd, "proposer": proposer, "stories": saved["stories"]}
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +322,7 @@ def generate_doc(db, req_id: str, stories: List[Dict[str, Any]], clarification: 
     req_name = item.req_name if item else req_id
     proposer = item.proposer if item else ""
     paths = _resolve_paths(req_id, req_name)
-    os.makedirs(paths["doc_folder"], exist_ok=True)
+    os.makedirs(paths["folder"], exist_ok=True)
 
     template = settings.REQUIREMENT_DOC_TEMPLATE
     if not os.path.isfile(template):
@@ -310,7 +364,7 @@ def generate_doc(db, req_id: str, stories: List[Dict[str, Any]], clarification: 
 
     # ---- 落盘 ----
     out_name = f"{req_name or req_id}需求分析说明书.docx"
-    out_path = os.path.join(paths["doc_folder"], out_name)
+    out_path = os.path.join(paths["folder"], out_name)
     doc.save(out_path)
 
     rel = os.path.relpath(out_path, settings.OBSIDIAN_VAULT_PATH)

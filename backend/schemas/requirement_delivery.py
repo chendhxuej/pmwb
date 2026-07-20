@@ -23,6 +23,23 @@ class StorySection(BaseModel):
     ddd: DDDView
 
 
+class UserStoryItem(BaseModel):
+    """用户故事持久化项（入/出）。"""
+
+    id: Optional[int] = None
+    seq: int
+    title: str
+    desc: str
+    scene: str
+    acceptance: List[str] = []
+    finalized: bool = False
+
+
+class UserStoryListOut(BaseModel):
+    req_id: str
+    stories: List[UserStoryItem]
+
+
 class UserStoryGenIn(BaseModel):
     """用户故事生成入参：澄清后的需求内容。"""
 
@@ -32,7 +49,7 @@ class UserStoryGenIn(BaseModel):
 class UserStoryGenOut(BaseModel):
     req_id: str
     ddd: DDDView
-    stories: List[StorySection]
+    stories: List[UserStoryItem]
 
 
 class DocGenIn(BaseModel):
@@ -50,8 +67,7 @@ class AttachmentOut(BaseModel):
 
 class FolderInitOut(BaseModel):
     req_id: str
-    attachment_folder: str
-    doc_folder: str
+    folder: str
     attachments: List[AttachmentOut]
 
 

@@ -36,6 +36,7 @@ class RequirementService:
             "is_involved": item.is_involved,
             "dev_ticket_no": item.dev_ticket_no,
             "involve_dev": item.involve_dev,
+            "created_at": item.created_at,
             "eval_count": eval_count,  # 团队评估记录数
             "ext": None,
         }
@@ -108,7 +109,8 @@ class RequirementService:
         # 基础查询：从 sent_emails 中按需求数号去重（同一需求只取最新一条）
         base_query = db.query(
             SentEmail.req_id,
-            func.max(SentEmail.id).label('max_id')
+            func.max(SentEmail.id).label('max_id'),
+            func.max(SentEmail.created_at).label('max_created_at'),
         ).group_by(SentEmail.req_id)
 
         # 关键字过滤：匹配 req_id / req_name / proposer
@@ -152,10 +154,10 @@ class RequirementService:
         total_query = db.query(func.count()).select_from(subq)
         total = total_query.scalar() or 0
 
-        # 分页取最新记录 ID
+        # 分页取最新记录 ID（按创建时间倒序）
         paginated = (
             db.query(subq.c.req_id, subq.c.max_id)
-            .order_by(subq.c.max_id.desc())
+            .order_by(subq.c.max_created_at.desc(), subq.c.max_id.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
