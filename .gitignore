@@ -73,4 +73,5 @@ shot_econtract.mjs
 tmp_*
 
 # 临时构建验证产物
+frontend/dist_verify*/
 frontend/dist-tmp/
