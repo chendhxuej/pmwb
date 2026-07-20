@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, PmwbDevTicket, SentEmail
+from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, PmwbUserStory, PmwbDevTicket, SentEmail
 from schemas.common import PaginationParams, PaginationResponse
 
 
@@ -40,16 +40,27 @@ class RequirementService:
             "ext": None,
         }
         if ext:
+            # ext 中可编辑字段覆盖 sent_emails 只读字段
+            for field in ("req_name", "background", "description", "clarification", "system_name", "sa_name"):
+                val = getattr(ext, field)
+                if val is not None:
+                    data[field] = val
             data["ext"] = {
                 "id": ext.id,
                 "req_id": ext.req_id,
                 "status": ext.status,
                 "tags": ext.tags,
                 "personal_note": ext.personal_note,
-            "priority": ext.priority,
-            "owner_note": ext.owner_note,
-            "version_required_date": ext.version_required_date,
-            "created_at": ext.created_at,
+                "priority": ext.priority,
+                "owner_note": ext.owner_note,
+                "version_required_date": ext.version_required_date,
+                "req_name": ext.req_name,
+                "background": ext.background,
+                "description": ext.description,
+                "clarification": ext.clarification,
+                "system_name": ext.system_name,
+                "sa_name": ext.sa_name,
+                "created_at": ext.created_at,
                 "updated_at": ext.updated_at,
             }
         return data
@@ -186,6 +197,25 @@ class RequirementService:
         for rid in req_ids:
             eval_count_map[rid] = eval_row_map.get(rid, 0) or sent_count_map.get(rid, 0)
 
+        # 按需求聚合团队评估：涉及系统集合、复核工作量汇总
+        eval_agg = (
+            db.query(
+                PmwbRequirementEvaluation.req_id,
+                func.group_concat(PmwbRequirementEvaluation.system_name.distinct()).label("systems"),
+                func.sum(PmwbRequirementEvaluation.review_workload).label("review_total"),
+            )
+            .filter(PmwbRequirementEvaluation.req_id.in_(req_ids))
+            .group_by(PmwbRequirementEvaluation.req_id)
+            .all()
+        )
+        eval_agg_map = {}
+        for row in eval_agg:
+            systems = [s for s in (row.systems or "").split(",") if s.strip()]
+            eval_agg_map[row.req_id] = {
+                "systems": systems,
+                "review_total": float(row.review_total) if row.review_total is not None else None,
+            }
+
         # 批量查询关联开发工单，用于计算「跟踪状态」
         dev_tickets_all = (
             db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id.in_(req_ids)).all()
@@ -202,6 +232,10 @@ class RequirementService:
             vr = ext.version_required_date if ext else None
             tickets = dev_by_req.get(item.req_id, [])
             d = self._merge_ext(item, ext, eval_count_map.get(item.req_id, 0))
+            agg = eval_agg_map.get(item.req_id, {})
+            systems = agg.get("systems") or ([d.get("system_name")] if d.get("system_name") else [])
+            d["eval_systems"] = ",".join(systems) if systems else "—"
+            d["eval_workload"] = agg.get("review_total") if agg.get("review_total") is not None else d.get("workload")
             d["tracking_status"] = self._aggregate_tracking(tickets, vr, today)
             merged.append(d)
         return PaginationResponse.create(
@@ -255,6 +289,16 @@ class RequirementService:
         db.commit()
         db.refresh(ext)
         return self._merge_ext(item, ext)
+
+    def delete_requirement(self, db: Session, req_id: str) -> bool:
+        """删除需求的个人工作台数据（扩展、团队评估、用户故事），保留只读 sent_emails 源。"""
+        ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+        if ext:
+            db.delete(ext)
+        db.query(PmwbRequirementEvaluation).filter(PmwbRequirementEvaluation.req_id == req_id).delete()
+        db.query(PmwbUserStory).filter(PmwbUserStory.req_id == req_id).delete()
+        db.commit()
+        return True
 
     def get_stats(self, db: Session) -> Dict[str, int]:
         # 按需求文号去重统计（同一需求多次发邮件只算 1 条）

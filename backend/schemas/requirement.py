@@ -27,6 +27,12 @@ class RequirementExtBase(BaseModel):
     personal_note: Optional[str] = Field(None, description="个人备注")
     priority: str = Field("P2", description="个人优先级")
     owner_note: Optional[str] = Field(None, description="负责人备忘")
+    req_name: Optional[str] = Field(None, description="需求名称（可编辑覆盖）")
+    background: Optional[str] = Field(None, description="需求背景（可编辑覆盖）")
+    description: Optional[str] = Field(None, description="需求描述（可编辑覆盖）")
+    clarification: Optional[str] = Field(None, description="澄清内容（可编辑覆盖）")
+    system_name: Optional[str] = Field(None, description="涉及系统（可编辑覆盖）")
+    sa_name: Optional[str] = Field(None, description="SA（可编辑覆盖）")
 
 
 class RequirementExtUpdate(BaseModel):
@@ -36,6 +42,12 @@ class RequirementExtUpdate(BaseModel):
     priority: Optional[str] = None
     owner_note: Optional[str] = None
     version_required_date: Optional[date] = None
+    req_name: Optional[str] = None
+    background: Optional[str] = None
+    description: Optional[str] = None
+    clarification: Optional[str] = None
+    system_name: Optional[str] = None
+    sa_name: Optional[str] = None
 
 
 class EvaluationUpdate(BaseModel):
@@ -104,6 +116,10 @@ class RequirementBase(BaseModel):
     is_involved: Optional[int] = 1
     dev_ticket_no: Optional[str] = None
     involve_dev: Optional[str] = None
+    eval_count: Optional[int] = Field(None, description="团队评估记录数")
+    eval_systems: Optional[str] = Field(None, description="团队评估涉及系统汇总")
+    eval_workload: Optional[float] = Field(None, description="团队评估复核工作量汇总")
+    tracking_status: Optional[str] = Field(None, description="开发工单跟踪状态")
 
 
 class RequirementOut(RequirementBase):

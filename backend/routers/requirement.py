@@ -19,7 +19,7 @@ def list_requirements(
     system_name: Optional[str] = Query(None, description="系统名称"),
     is_involved: Optional[int] = Query(None, description="是否涉及开发"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    page_size: int = Query(20, ge=1, le=1000, description="每页条数"),
     db: Session = Depends(get_db),
 ):
     """查询需求列表。"""
@@ -88,3 +88,10 @@ def update_requirement(req_id: str, obj_in: RequirementExtUpdate, db: Session = 
     """更新需求个人跟踪信息。"""
     data = requirement_service.update_ext(db, req_id, obj_in.model_dump(exclude_unset=True))
     return success(data=data)
+
+
+@router.delete("/{req_id}")
+def delete_requirement(req_id: str, db: Session = Depends(get_db)):
+    """从我的工作台移除需求（删除扩展、团队评估、用户故事；保留只读 sent_emails）。"""
+    ok = requirement_service.delete_requirement(db, req_id)
+    return success(data={"deleted": ok})

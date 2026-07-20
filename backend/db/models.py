@@ -35,6 +35,12 @@ class PmwbRequirementExt(Base):
     priority = Column(String(64), default="P2", comment="个人优先级：P0/P1/P2/P3/集团需求/紧急需求等")
     owner_note = Column(Text, comment="负责人备忘")
     version_required_date = Column(Date, comment="版本要求(需求管理要求的上线时间)")
+    req_name = Column(String(500), comment="需求名称（可编辑覆盖）")
+    background = Column(Text, comment="需求背景（可编辑覆盖）")
+    description = Column(Text, comment="需求描述（可编辑覆盖）")
+    clarification = Column(Text, comment="澄清内容（可编辑覆盖）")
+    system_name = Column(String(255), comment="涉及系统（可编辑覆盖）")
+    sa_name = Column(String(255), comment="SA（可编辑覆盖）")
     eval_seeded = Column(Integer, default=0, comment="团队评估是否已从 sent_emails 播种(避免删除后复活)")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
@@ -47,6 +53,37 @@ class PmwbRequirementExt(Base):
     __table_args__ = (
         Index("idx_req_status", "status"),
         {"comment": "需求管理扩展表"},
+    )
+
+
+class PmwbUserStory(Base):
+    """需求用户故事表。
+
+    与需求编号（req_id）唯一关联：同一需求可有多条用户故事，按 seq 排序。
+    """
+
+    __tablename__ = "pmwb_user_story"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号")
+    seq = Column(Integer, default=1, comment="故事序号")
+    title = Column(String(500), comment="故事标题")
+    desc = Column(Text, comment="故事描述")
+    scene = Column(Text, comment="故事场景")
+    acceptance = Column(Text, comment="验收标准(JSON数组)")
+    finalized = Column(Integer, default=0, comment="是否已定稿(0:草稿 1:定稿)")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("req_id", "seq", name="uk_user_story_req_seq"),
+        Index("idx_user_story_req_id", "req_id"),
+        {"comment": "需求用户故事表"},
     )
 
 
