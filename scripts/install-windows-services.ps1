@@ -1,276 +1,209 @@
-﻿﻿#Requires -RunAsAdministrator
-#Requires -Version 5.1
-<#
-.SYNOPSIS
-    Install PMWB services for Windows auto-start (no login needed) + crash-restart.
-      - MySQL-PMWB  : NATIVE Windows service (mysqld --install) - most reliable for mysqld
-      - PMWB-Backend / PMWB-Frontend / PMWB-Mail : NSSM services
-    Run as Administrator (right-click the desktop .bat -> Run as administrator).
-#>
+﻿$ErrorActionPreference = 'Continue'
+# install-windows-services.ps1
+# 以管理员身份运行。将 PMWB 四件套注册为开机自启（无需登录）。
+# 设计要点：
+#   - MySQL 用「任务计划程序」以 SYSTEM 身份 detached 启动 mysqld。
+#     服务模式在本机必失败：原生 Windows 服务报 1053、NSSM 包 mysqld 都 PAUSED；
+#     只有普通控制台进程（=平时手动/脚本能跑的命令）才能稳定起来。
+#   - 后端/邮件/前端 用 NSSM 包装普通进程（已验证 AppParameters 正确即可正常起）。
+#   - 后端经 backend-launch.ps1 等待 3306 就绪再起 uvicorn，消除开机启动竞态。
+#   - 邮件用 cmd /c tsx.cmd（node 不能直接跑 .cmd）；前端用 node node_modules/vite/bin/vite.js。
+#   - 启动前先杀相关进程释放句柄/数据目录锁，避免 1072 与残留。
 
-$ErrorActionPreference = "Stop"
+$logDir = "C:\pmwb-logs"
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+$logFile = Join-Path $logDir "install-services.log"
 
-try {
-    if (-not (Test-Path "C:\pmwb-logs")) { New-Item -ItemType Directory -Path "C:\pmwb-logs" -Force | Out-Null }
-    "$([DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) install-windows-services.ps1 started" | Out-File -FilePath "C:\pmwb-logs\install-script-started.marker" -Encoding UTF8 -Force
-} catch {}
-
-# ========================== Config ==========================
-$NssmDir  = "C:\nssm"
-$NssmExe  = Join-Path $NssmDir "nssm.exe"
-$LogDir   = "C:\pmwb-logs"
-$MySqlBase = "C:\mysql\mysql-8.0.46-winx64"
-$MysqlServiceName = "MySQL-PMWB"
-$MysqldExe = "$MySqlBase\bin\mysqld.exe"
-$PmwbBase  = "D:\项目\个人工作台系统"
-$MailBase  = "D:\项目\统一邮件中心\server"
-$NodePath  = "C:\Users\chend\.workbuddy\binaries\node\versions\22.22.2\node.exe"
-
-# NSSM-managed services. MySQL is installed as a NATIVE service (see below).
-$Services = @(
-    @{
-        Name        = "PMWB-Backend"
-        DisplayName = "PMWB FastAPI Backend"
-        Description = "PMWB FastAPI backend on 0.0.0.0:8000"
-        Program     = "$PmwbBase\backend\venv\Scripts\python.exe"
-        Arguments   = "-m uvicorn main:app --host 0.0.0.0 --port 8000"
-        WorkDir     = "$PmwbBase\backend"
-        DependOn    = @("MySQL-PMWB")
-    },
-    @{
-        Name        = "PMWB-Frontend"
-        DisplayName = "PMWB Vite Frontend"
-        Description = "PMWB Vite frontend on 127.0.0.1:5173"
-        Program     = $NodePath
-        Arguments   = "node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173"
-        WorkDir     = "$PmwbBase\frontend"
-        DependOn    = @("PMWB-Backend")
-    },
-    @{
-        Name        = "PMWB-Mail"
-        DisplayName = "PMWB Mail Center"
-        Description = "PMWB mail center on 127.0.0.1:3210"
-        # IMPORTANT: tsx.cmd (NOT tsx) - tsx is a bash script that node.exe cannot run on Windows.
-        Program     = $NodePath
-        Arguments   = "node_modules/.bin/tsx.cmd src/index.ts"
-        WorkDir     = $MailBase
-        DependOn    = @()
-    }
-)
-
-$NssmDownloadUrl = "https://nssm.cc/release/nssm-2.24.zip"
-
-# ========================== Logging helpers ==========================
-function Write-Log {
-    param([string]$msg, [string]$level = "INFO")
+function Write-Log($msg) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $line = "[$ts] [$level] $msg"
+    $line = "[$ts] $msg"
     Write-Host $line
-    Add-Content -Path (Join-Path $LogDir "install-services.log") -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
+    try { Add-Content -Path $logFile -Value $line -Encoding UTF8 } catch {}
 }
 
-function Ensure-Dir {
-    param([string]$dir)
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-}
-
-function Test-Port {
-    param([int]$port)
-    try {
-        $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-        return ($conn -ne $null)
-    } catch { return $false }
-}
-
-function Wait-ForPort {
-    param([int]$port, [int]$timeoutSec = 60)
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($sw.Elapsed.TotalSeconds -lt $timeoutSec) {
-        if (Test-Port $port) { return $true }
-        Start-Sleep -Seconds 1
+function Wait-ForPort($port, $timeout = 90) {
+    $t = 0
+    while ($t -lt $timeout) {
+        try {
+            $c = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+            if ($c) { return $true }
+        } catch {}
+        Start-Sleep -Seconds 1; $t++
     }
     return $false
 }
 
-# ========================== Pre-checks ==========================
-Ensure-Dir $LogDir
+function Stop-PortProcess($port) {
+    try {
+        $pids = (Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue).OwningProcess | Sort-Object -Unique
+        foreach ($pid in $pids) {
+            if ($pid -and $pid -ne 0) {
+                Write-Log "  killing stale pid $pid on :$port"
+                taskkill.exe /F /PID $pid /T 2>$null | Out-Null
+            }
+        }
+    } catch {}
+}
+
+function Kill-ByName($img) {
+    try { taskkill.exe /F /IM $img 2>$null | Out-Null } catch {}
+}
+
 Write-Log "===== PMWB Windows service install started ====="
 
-$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Log "ERROR: Run this script as Administrator." "ERROR"
-    Read-Host "Press Enter to exit"
+# 0. admin check
+$id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$princ = New-Object System.Security.Principal.WindowsPrincipal($id)
+if (-not $princ.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Log "[ERROR] 需要管理员权限。请右键 pmwb-install-services.bat -> 以管理员身份运行"
+    Write-Log "===== Install FAILED (no admin) ====="
     exit 1
 }
 Write-Log "Admin check: OK"
 
-$pathsOk = $true
-foreach ($p in @($MySqlBase, $PmwbBase, $MailBase, $NodePath)) {
-    if (-not (Test-Path $p)) {
-        Write-Log "Path not found: $p" "ERROR"
-        $pathsOk = $false
-    }
-}
-if (-not $pathsOk) {
-    Write-Log "ERROR: Please check the paths in the script config." "ERROR"
-    Read-Host "Press Enter to exit"
-    exit 1
+# paths
+$NssmExe    = "C:\nssm\nssm.exe"
+$MysqlBin   = "C:\mysql\mysql-8.0.46-winx64\bin\mysqld.exe"
+$MysqlIni   = "C:\mysql\mysql-8.0.46-winx64\my.ini"
+$NodePath   = "C:\Users\chend\.workbuddy\binaries\node\versions\22.22.2\node.exe"
+$BackendDir  = "D:\项目\个人工作台系统\backend"
+$FrontendDir = "D:\项目\个人工作台系统\frontend"
+$MailDir    = "D:\项目\统一邮件中心\server"
+$BackendPy  = "$BackendDir\venv\Scripts\python.exe"
+$MailTsx    = "$MailDir\node_modules\.bin\tsx.cmd"
+$BackendLaunch = "C:\pmwb-scripts\backend-launch.ps1"
+
+$MysqlTask  = "PMWB-MySQL"
+$svcBackend  = "PMWB-Backend"
+$svcFrontend = "PMWB-Frontend"
+$svcMail     = "PMWB-Mail"
+
+foreach ($p in @($NssmExe, $MysqlBin, $MysqlIni, $NodePath, $BackendPy, $FrontendDir, $MailDir, $MailTsx, $BackendLaunch)) {
+    if (-not (Test-Path $p)) { Write-Log "[ERROR] Path missing: $p"; Write-Log "===== Install FAILED (path) ====="; exit 1 }
 }
 Write-Log "Path check: OK"
 
-# ========================== Install NSSM ==========================
-if (-not (Test-Path $NssmExe)) {
-    Write-Log "NSSM not found, downloading..."
-    Ensure-Dir $NssmDir
-    $zip = Join-Path $NssmDir "nssm.zip"
-    try {
-        Invoke-WebRequest -Uri $NssmDownloadUrl -OutFile $zip -UseBasicParsing -TimeoutSec 120
-        Write-Log "Downloaded: $zip"
-    } catch {
-        Write-Log "Failed to download NSSM: $($_.Exception.Message)" "ERROR"
-        Write-Log "Please download $NssmDownloadUrl and extract nssm.exe to $NssmDir" "ERROR"
-        Read-Host "Press Enter to exit"
-        exit 1
-    }
-    $tmp = Join-Path $NssmDir "_tmp"
-    Expand-Archive -Path $zip -DestinationPath $tmp -Force
-    $arch = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
-    $src = Join-Path $tmp "nssm-2.24\$arch\nssm.exe"
-    Copy-Item -Path $src -Destination $NssmExe -Force
-    Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path $zip -Force -ErrorAction SilentlyContinue
-    Write-Log "NSSM installed at: $NssmExe"
-} else {
-    Write-Log "NSSM already exists: $NssmExe"
-}
+# 1. 杀掉所有相关进程，释放句柄（避免 1072）与 MySQL 数据目录锁
+Write-Log "Killing related processes to release handles ..."
+Kill-ByName "nssm.exe"
+Kill-ByName "mysqld.exe"
+Kill-ByName "node.exe"
+foreach ($port in @(3306, 8000, 5173, 3210)) { Stop-PortProcess $port }
+Start-Sleep -Seconds 2
 
-# ========================== Stop old processes ==========================
-Write-Log "Stopping old processes (so ports are free)..."
-$procsToKill = @("mysqld", "uvicorn", "node", "vite", "tsx")
-foreach ($proc in $procsToKill) {
-    Get-Process -Name $proc -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-Start-Sleep -Seconds 3
-
-# ========================== MySQL : NATIVE Windows service ==========================
-Write-Log "Setting up native MySQL service: $MysqlServiceName"
-# Remove any prior MySQL-PMWB (NSSM-managed or native) so we start clean.
-$existingMy = Get-Service -Name $MysqlServiceName -ErrorAction SilentlyContinue
-if ($existingMy) {
-    try { Stop-Service -Name $MysqlServiceName -Force -ErrorAction Stop } catch { Write-Log "  stop failed: $($_.Exception.Message)" "WARN" }
-    Start-Sleep -Seconds 2
-    # If it was NSSM-managed, remove via nssm; otherwise via sc.
-    try {
-        $img = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$MysqlServiceName" -Name ImagePath -ErrorAction Stop).ImagePath
-    } catch { $img = "" }
+# 2. 删除所有相关服务/任务（旧的 + 本次已创建的），保证每次都是干净重装
+Write-Log "Removing old/new services ..."
+$AllSvcs = @("MySQLPMWB", $svcBackend, $svcFrontend, $svcMail, "MySQL-PMWB")
+foreach ($s in $AllSvcs) {
+    $key = "HKLM:\SYSTEM\CurrentControlSet\Services\$s"
+    $img = $null
+    try { $img = (Get-ItemProperty $key -ErrorAction SilentlyContinue).ImagePath } catch {}
     if ($img -like "*nssm*") {
-        & $NssmExe remove $MysqlServiceName confirm 2>$null
+        & $NssmExe stop $s 2>$null
+        & $NssmExe remove $s confirm 2>$null
+    } else {
+        & sc.exe stop $s 2>$null
     }
-    # Always attempt sc delete to guarantee a clean slate before mysqld --install.
-    & sc.exe delete $MysqlServiceName 2>$null
-    Start-Sleep -Seconds 2
+    & sc.exe delete $s 2>$null
+    Start-Sleep -Seconds 1
+    $still = $null
+    try { $still = Get-Service -Name $s -ErrorAction SilentlyContinue } catch {}
+    if ($still) {
+        Write-Log "  [WARN] $s 仍处于待删除状态"
+        Write-Log "[ERROR] 检测到服务处于'待删除'状态，请先【重启电脑】，再重新运行本安装脚本。"
+        Write-Log "===== Install FAILED (reboot required) ====="
+        exit 1
+    } else {
+        Write-Log "  removed: $s"
+    }
 }
+# 删除旧的 MySQL 计划任务（若有）
+try {
+    $mt = Get-ScheduledTask -TaskName $MysqlTask -ErrorAction SilentlyContinue
+    if ($mt) { Unregister-ScheduledTask -TaskName $MysqlTask -Confirm:$false; Write-Log "  removed task: $MysqlTask" }
+} catch {}
 
-Write-Log "  mysqld --install $MysqlServiceName ..."
-& $MysqldExe --install $MysqlServiceName --defaults-file="$MySqlBase\my.ini" | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Log "  mysqld --install returned code $LASTEXITCODE (may already exist; continuing)" "WARN"
-}
-# Auto-start + restart on failure.
-& sc.exe config $MysqlServiceName start= auto 2>$null
-& sc.exe failure $MysqlServiceName reset= 0 actions= restart/5000/restart/10000/restart/60000 2>$null
-Write-Log "  native MySQL service configured (auto-start, restart-on-failure)"
-
-# ========================== Install / reinstall NSSM services ==========================
-foreach ($svc in $Services) {
-    $name = $svc.Name
+# 3. 安装 3 个 NSSM 服务（应用进程）
+function Install-Nssm($name, $exe, $appArgs, $appDir, $depend) {
     Write-Log "Processing service: $name"
-
-    $existing = Get-Service -Name $name -ErrorAction SilentlyContinue
-    if ($existing) {
-        Write-Log "  Service exists, stopping and removing..."
-        try { Stop-Service -Name $name -Force -ErrorAction Stop } catch { Write-Log "  Stop failed: $($_.Exception.Message)" "WARN" }
-        Start-Sleep -Seconds 2
-        & $NssmExe remove $name confirm | Out-Null
-        Start-Sleep -Seconds 1
+    & $NssmExe install $name $exe 2>&1 | ForEach-Object { Write-Log "  nssm install: $_" }
+    if ($appArgs) {
+        & $NssmExe set $name AppParameters "$appArgs" 2>&1 | ForEach-Object { Write-Log "  nssm set args: $_" }
     }
-
-    Write-Log "  Installing service..."
-    & $NssmExe install $name $svc.Program | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "nssm install $name failed" }
-
-    & $NssmExe set $name DisplayName $svc.DisplayName | Out-Null
-    & $NssmExe set $name Description $svc.Description | Out-Null
-    & $NssmExe set $name Application $svc.Program | Out-Null
-    & $NssmExe set $name AppParameters $svc.Arguments | Out-Null
-    & $NssmExe set $name AppDirectory $svc.WorkDir | Out-Null
-    & $NssmExe set $name Start SERVICE_AUTO_START | Out-Null
-    & $NssmExe set $name AppStdout (Join-Path $LogDir "$name-stdout.log") | Out-Null
-    & $NssmExe set $name AppStderr (Join-Path $LogDir "$name-stderr.log") | Out-Null
-    & $NssmExe set $name AppStdoutCreationDisposition 2 | Out-Null
-    & $NssmExe set $name AppStderrCreationDisposition 2 | Out-Null
-    & $NssmExe set $name AppRotateFiles 1 | Out-Null
-    & $NssmExe set $name AppRotateBytes 10485760 | Out-Null
-    & $NssmExe set $name AppExit Default Restart | Out-Null
-    & $NssmExe set $name AppRestartDelay 5000 | Out-Null
-
-    if ($svc.DependOn.Count -gt 0) {
-        $dep = $svc.DependOn -join "/"
-        & $NssmExe set $name DependOnService $dep | Out-Null
-    }
-
+    if ($appDir) { & $NssmExe set $name AppDirectory "$appDir" 2>$null }
+    & $NssmExe set $name AppStdout "$logDir\$name-stdout.log" 2>$null
+    & $NssmExe set $name AppStderr "$logDir\$name-stderr.log" 2>$null
+    & $NssmExe set $name AppExit Default Restart 2>$null
+    & $NssmExe set $name Start SERVICE_AUTO_START 2>$null
+    if ($depend) { & $NssmExe set $name DependOnService $depend 2>$null }
+    & sc.exe failure $name reset= 0 actions= restart/1000/restart/1000/restart/1000 2>$null
     Write-Log "  Service $name installed"
 }
 
-# ========================== Start MySQL first, wait for 3306 ==========================
-Write-Log "Starting MySQL native service (with retry)..."
-$mysqlOk = $false
-for ($i = 1; $i -le 3; $i++) {
-    & sc.exe start $MysqlServiceName 2>$null
-    $mysqlOk = Wait-ForPort -port 3306 -timeoutSec 30
-    if ($mysqlOk) { Write-Log "  MySQL 3306 ready (attempt $i)" "OK"; break }
-    Write-Log "  MySQL not ready on attempt $i, retrying..." "WARN"
-    Start-Sleep -Seconds 3
-}
-if (-not $mysqlOk) { Write-Log "  WARNING: MySQL did not come up; backends may fail until it does." "ERROR" }
+# 后端：经 backend-launch.ps1 等待 3306 再起 uvicorn（靠脚本等待，无需服务级依赖）
+Install-Nssm $svcBackend "powershell.exe" "-ExecutionPolicy Bypass -File `"$BackendLaunch`"" $null $null
+# 邮件：cmd /c tsx.cmd
+$mailArgs = "/c `"$MailTsx`" src/index.ts"
+Install-Nssm $svcMail "cmd.exe" $mailArgs $MailDir $null
+# 前端：vite
+Install-Nssm $svcFrontend $NodePath "node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173" $FrontendDir $null
 
-# ========================== Start NSSM services ==========================
-Write-Log "Starting NSSM services..."
-foreach ($svc in $Services) {
-    $name = $svc.Name
-    Start-Service -Name $name -ErrorAction SilentlyContinue
-    Write-Log "  Started: $name"
-}
-Write-Log "Waiting for services to be ready..."
-Start-Sleep -Seconds 3
-
-# ========================== Verify ==========================
-$ports = @{3306 = "MySQL-PMWB (native)"; 8000 = "PMWB-Backend"; 5173 = "PMWB-Frontend"; 3210 = "PMWB-Mail"}
-$allOk = $true
-foreach ($port in $ports.Keys) {
-    $ready = Wait-ForPort -port $port -timeoutSec 60
-    if ($ready) {
-        Write-Log "  :$port ready [$($ports[$port])]" "OK"
+# 3b. 校验 AppParameters 已写入（防止 PowerShell $args 自动变量吞参的坑导致空参数服务）
+Write-Log "Verifying AppParameters ..."
+foreach ($s in @($svcBackend, $svcMail, $svcFrontend)) {
+    $ap = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$s\Parameters" -ErrorAction SilentlyContinue).AppParameters
+    if ([string]::IsNullOrWhiteSpace($ap)) {
+        Write-Log "[ERROR] $s AppParameters 为空，安装中止（参数未被 NSSM 接收）"
+        Write-Log "===== Install FAILED (empty args) ====="
+        exit 1
     } else {
-        Write-Log "  :$port not ready [$($ports[$port])]" "ERROR"
-        $allOk = $false
+        Write-Log "  $s AppParameters OK: $ap"
     }
 }
 
+# 3c. 安装 MySQL 计划任务（SYSTEM，开机自启，无需登录；崩溃自动重启 3 次/间隔 1 分钟）
+Write-Log "Installing MySQL startup task ($MysqlTask) ..."
+try {
+    $mtAction = New-ScheduledTaskAction -Execute $MysqlBin -Argument "--defaults-file=$MysqlIni"
+    $mtTrigger = New-ScheduledTaskTrigger -AtStartup
+    $mtSettings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 3650)
+    Register-ScheduledTask -TaskName $MysqlTask -Action $mtAction -Trigger $mtTrigger -User "SYSTEM" -RunLevel Highest -Settings $mtSettings -Force | Out-Null
+    Write-Log "  MySQL task registered (SYSTEM, at startup)"
+} catch {
+    Write-Log "  [ERROR] register MySQL task failed: $_"
+    Write-Log "===== Install FAILED (mysql task) ====="
+    exit 1
+}
+
+# 4. 按顺序启动：先 MySQL 任务，等 3306，再起 3 个 NSSM 服务
+Write-Log "Starting MySQL task ..."
+try { Start-ScheduledTask -TaskName $MysqlTask -ErrorAction Stop } catch { Write-Log "  [WARN] start MySQL task: $_" }
+if (-not (Wait-ForPort 3306 90)) {
+    Write-Log "[ERROR] MySQL :3306 not ready"
+} else {
+    Write-Log "[OK] MySQL :3306 ready"
+}
+
+& $NssmExe start $svcBackend 2>&1 | ForEach-Object { Write-Log "  nssm start backend: $_" }
+& $NssmExe start $svcMail 2>&1 | ForEach-Object { Write-Log "  nssm start mail: $_" }
+& $NssmExe start $svcFrontend 2>&1 | ForEach-Object { Write-Log "  nssm start frontend: $_" }
+
+# 5. 校验
+Start-Sleep -Seconds 3
+$b = Wait-ForPort 8000 40
+$m = Wait-ForPort 3210 40
+$f = Wait-ForPort 5173 40
+
 Write-Log ""
 Write-Log "Service summary:"
-try { & sc.exe query $MysqlServiceName 2>$null | Select-String "STATE" | ForEach-Object { Write-Log "  $MysqlServiceName : $_" } } catch {}
-Get-Service -Name @($Services.Name) | ForEach-Object {
-    Write-Log "  $($_.Name) : $($_.Status)"
-}
+Write-Log "  $MysqlTask : $((Get-ScheduledTask -TaskName $MysqlTask -ErrorAction SilentlyContinue).State)  (:3306 $(Wait-ForPort 3306 1))"
+Write-Log "  $svcBackend : $((Get-Service $svcBackend -ErrorAction SilentlyContinue).Status)  (:8000 $b)"
+Write-Log "  $svcMail : $((Get-Service $svcMail -ErrorAction SilentlyContinue).Status)  (:3210 $m)"
+Write-Log "  $svcFrontend : $((Get-Service $svcFrontend -ErrorAction SilentlyContinue).Status)  (:5173 $f)"
 
-if ($allOk) {
-    Write-Log "===== Install successful, all services ready =====" "OK"
-    Write-Log "Open http://127.0.0.1:5173" "OK"
+if ((Wait-ForPort 3306 1) -and $b -and $m -and $f) {
+    Write-Log "===== Install successful, all services ready ====="
+    Write-Log "Open http://127.0.0.1:5173"
 } else {
-    Write-Log "===== Some services not ready, check logs =====" "ERROR"
-    Write-Log "  - MySQL error log: $MySqlBase\data\*.err" "ERROR"
-    Write-Log "  - Service logs: $LogDir" "ERROR"
+    Write-Log "===== Some services not ready, check $logDir ====="
 }
-
-Read-Host "Press Enter to exit"
