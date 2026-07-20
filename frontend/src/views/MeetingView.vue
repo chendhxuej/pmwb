@@ -1151,6 +1151,7 @@ const handleSubmit = () => {
     }
     const end = new Date(start.getTime() + form.duration * 60000)
     const payload = {
+      meeting_id: form.meeting_id,
       title: form.title,
       meeting_type: form.meeting_type,
       status: form.status,
