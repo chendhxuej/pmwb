@@ -6,8 +6,8 @@ from tests.factories import MeetingFactory
 def test_create_meeting(client: TestClient, db):
     payload = {
         "meeting_id": "MEET-20260713-001",
-        "title": "项目周会",
-        "meeting_type": "project_weekly",
+        "title": "内部例会",
+        "meeting_type": "internal_regular",
         "status": "planned",
         "host": "李四",
         "attendees": [{"name": "张三", "email": "zs@example.com", "is_required": 1}],
@@ -64,8 +64,8 @@ def test_create_meeting_with_agenda_and_action_meta(client: TestClient, db):
     """会议可携带议题（结论/分工）与带分类、模板的行动项。"""
     payload = {
         "meeting_id": "MEET-AG-001",
-        "title": "需求评审会",
-        "meeting_type": "requirement_review",
+        "title": "需求讨论会",
+        "meeting_type": "requirement_discussion",
         "status": "planned",
         "host": "老大",
         "convener": "邵建",

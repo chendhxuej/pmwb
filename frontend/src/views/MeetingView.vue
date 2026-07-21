@@ -364,6 +364,10 @@
               <span class="info-k">召集人</span>
               <span class="info-v">{{ detailMeeting.convener || '—' }}</span>
             </div>
+            <div class="info-item">
+              <span class="info-k">记录人</span>
+              <span class="info-v">{{ detailMeeting.recorder || '—' }}</span>
+            </div>
             <div class="info-item info-span2">
               <span class="info-k">参会人</span>
               <span class="info-v">{{ (detailMeeting.attendees || []).map(a => a.name).join('、') || '—' }}</span>
@@ -371,6 +375,10 @@
             <div class="info-item info-span2" v-if="detailMeeting.attendee_notes">
               <span class="info-k">参会注意点</span>
               <span class="info-v note-text">{{ detailMeeting.attendee_notes }}</span>
+            </div>
+            <div class="info-item info-span2" v-if="detailMeeting.absentees">
+              <span class="info-k">缺席人/请假</span>
+              <span class="info-v note-text">{{ detailMeeting.absentees }}</span>
             </div>
           </div>
         </div>
@@ -536,8 +544,14 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="时长(分钟)">
-              <el-input-number v-model="form.duration" :min="5" :step="5" style="width: 100%" />
+            <el-form-item label="结束时间">
+              <el-date-picker
+                v-model="form.end_time"
+                type="datetime"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                placeholder="选填，留空按时长推算"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -561,17 +575,22 @@
           </el-col>
         </el-row>
         <el-row :gutter="14">
-          <el-col :span="8">
+          <el-col :span="6">
             <el-form-item label="组织者" prop="host">
               <el-input v-model="form.host" placeholder="组织者" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
             <el-form-item label="召集人">
               <el-input v-model="form.convener" placeholder="召集人" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
+            <el-form-item label="记录人">
+              <el-input v-model="form.recorder" placeholder="记录人" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
             <el-form-item label="状态" prop="status">
               <el-select v-model="form.status" style="width: 100%">
                 <el-option
@@ -581,6 +600,13 @@
                   :value="s.value"
                 />
               </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <el-form-item label="时长(分钟)">
+              <el-input-number v-model="form.duration" :min="5" :step="5" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -606,6 +632,14 @@
             placeholder="会议通知的补充事项 / 参会注意点"
           />
         </el-form-item>
+        <el-form-item label="缺席人/请假">
+          <el-input
+            v-model="form.absentees"
+            type="textarea"
+            :rows="2"
+            placeholder="未能参会的人员及原因（选填）"
+          />
+        </el-form-item>
         <el-row :gutter="14">
           <el-col :span="12">
             <el-form-item label="关联需求">
@@ -618,12 +652,12 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="初始议题" v-if="!isEdit">
+        <el-form-item label="议题">
           <el-input
             v-model="agendaText"
             type="textarea"
-            :rows="3"
-            placeholder="每行一条议题（可在纪要编辑器中补充结论/分工）"
+            :rows="4"
+            placeholder="每行一条议题；可用「议题 | 结论」补充结论，自动忽略 1. / ① / 【1】 等序号"
           />
         </el-form-item>
       </el-form>
@@ -738,10 +772,12 @@ const viewDefs = [
 ]
 
 const meetingTypeOptions = [
-  { value: 'requirement_review', label: '需求评审' },
-  { value: 'project_weekly', label: '项目周报' },
-  { value: 'troubleshooting', label: '问题排查' },
-  { value: 'training', label: '培训' },
+  { value: 'requirement_discussion', label: '需求讨论' },
+  { value: 'problem_analysis', label: '问题分析' },
+  { value: 'internal_regular', label: '内部例会' },
+  { value: 'external_sync', label: '外部对接' },
+  { value: 'party_meeting', label: '党会' },
+  { value: 'group_meeting', label: '集团会议' },
   { value: 'other', label: '其他' },
 ]
 
@@ -774,10 +810,12 @@ const statusMeta = {
 const statusMetaOf = (s) => statusMeta[s] || { label: s || '—', cls: 'gray' }
 
 const typeTagMap = {
-  requirement_review: 'amber',
-  project_weekly: 'blue',
-  troubleshooting: 'red',
-  training: 'green',
+  requirement_discussion: 'amber',
+  problem_analysis: 'red',
+  internal_regular: 'blue',
+  external_sync: 'green',
+  party_meeting: 'red',
+  group_meeting: 'blue',
   other: 'gray',
 }
 const typeTagCls = (t) => typeTagMap[t] || 'blue'
@@ -826,6 +864,51 @@ const toIso = (v) => {
   if (!v) return null
   const d = toDate(v)
   return d && !isNaN(d.getTime()) ? d.toISOString() : null
+}
+
+/* 本地时间（Asia/Shanghai, UTC+8）naive 字符串：全链路统一用本地时间，避免时区偏移 bug */
+const formatLocal = (v) => {
+  const d = toDate(v)
+  if (!d || isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+/* 议题文本解析：去序号前缀、支持「议题 | 结论」行内结论、空行分段、多行议题；
+   新增与编辑都生效。返回 [{seq, topic, conclusion, division}] */
+const parseAgendas = (text) => {
+  if (!text || !text.trim()) return []
+  const chunks = text.replace(/\r/g, '').split(/\n\s*\n/)
+  const out = []
+  for (const chunk of chunks) {
+    const lines = chunk
+      .split('\n')
+      .map((l) => l.replace(/^\s*(?:\d+[.、)）]|[①-⑳]|【\d+】|[-*·•])\s*/, '').trim())
+      .filter(Boolean)
+    if (!lines.length) continue
+    let topic = lines[0]
+    let conclusion = null
+    let division = null
+    const m = topic.match(/^(.*?)\s*(?:\|\||\||──|——|:|：|-)\s*(.*)$/)
+    if (m) {
+      topic = m[1].trim()
+      conclusion = m[2].trim() || null
+    }
+    if (lines.length > 1) division = lines.slice(1).join(' ').trim() || null
+    out.push({ seq: out.length + 1, topic, conclusion, division })
+  }
+  return out
+}
+
+/* 把已有议题转回可编辑文本（编辑态回填，支持重解析） */
+const agendasToText = (agendas) => {
+  return (agendas || [])
+    .map((a) => {
+      let s = a.topic || ''
+      if (a.conclusion) s += ' | ' + a.conclusion
+      if (a.division) s += '\n' + a.division
+      return s
+    })
+    .join('\n')
 }
 
 /* ── 派生数据 ── */
@@ -1133,11 +1216,13 @@ const saveMinutes = async () => {
     title: m.title,
     meeting_type: m.meeting_type,
     status: m.status,
-    start_time: toIso(m.start_time),
-    end_time: toIso(m.end_time),
+    start_time: formatLocal(m.start_time),
+    end_time: formatLocal(m.end_time),
     location: m.location || null,
     host: m.host || null,
     convener: m.convener || null,
+    recorder: m.recorder || null,
+    absentees: m.absentees || null,
     attendee_notes: m.attendee_notes || null,
     summary: m.summary || null,
     related_req_id: m.related_req_id || null,
@@ -1211,7 +1296,9 @@ const buildNoticeBody = (m) => {
     `- 地点/方式：${m.location || '—'}`,
     `- 组织者：${m.host || '—'}`,
     `- 召集人：${m.convener || '—'}`,
+    `- 记录人：${m.recorder || '—'}`,
     `- 参会人：${names.join('、') || '—'}`,
+    `- 缺席：${m.absentees || '（无）'}`,
     `- 会议类型：${typeText(m.meeting_type)}`,
     '',
     '会议议题：',
@@ -1260,7 +1347,9 @@ const buildMinutesBody = (m) => {
     `- 时间：${fmtFullDateTime(m.start_time)} ~ ${fmtEndTimeHM(m.end_time)}`,
     `- 地点/方式：${m.location || '—'}`,
     `- 组织者：${m.host || '—'}`,
+    `- 记录人：${m.recorder || '—'}`,
     `- 参会人：${names.join('、') || '—'}`,
+    `- 缺席：${m.absentees || '（无）'}`,
     '',
     '二、议题与结论',
     agendaBlock,
@@ -1407,12 +1496,15 @@ const sendMail = async () => {
 const defaultForm = {
   id: null,
   title: '',
-  meeting_type: 'requirement_review',
+  meeting_type: 'requirement_discussion',
   status: 'planned',
   start_time: '',
+  end_time: '',
   duration: 60,
   host: currentUser,
   convener: '',
+  recorder: '',
+  absentees: '',
   location: '',
   attendee_notes: '',
   related_req_id: '',
@@ -1430,7 +1522,7 @@ const rules = {
 }
 
 const generateMeetingId = () => {
-  const d = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  const d = formatLocal(new Date()).slice(0, 10).replace(/-/g, '')
   const r = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
   return `MEET-${d}-${r}`
 }
@@ -1456,10 +1548,13 @@ const handleEdit = (row) => {
     title: row.title || '',
     meeting_type: row.meeting_type || 'other',
     status: row.status || 'planned',
-    start_time: row.start_time ? row.start_time.slice(0, 19).replace('T', ' ') : '',
+    start_time: row.start_time ? formatLocal(row.start_time) : '',
+    end_time: row.end_time ? formatLocal(row.end_time) : '',
     duration: 60,
     host: row.host || currentUser,
     convener: row.convener || '',
+    recorder: row.recorder || '',
+    absentees: row.absentees || '',
     location: row.location || '',
     attendee_notes: row.attendee_notes || '',
     related_req_id: row.related_req_id || '',
@@ -1472,7 +1567,7 @@ const handleEdit = (row) => {
     if (!isNaN(s) && !isNaN(e)) form.duration = Math.max(5, Math.round((e - s) / 60000))
   }
   attendeeChips.value = (row.attendees || []).map((a) => a.name).filter(Boolean)
-  agendaText.value = ''
+  agendaText.value = agendasToText(row.agendas)
   dialogVisible.value = true
 }
 
@@ -1484,17 +1579,21 @@ const handleSubmit = () => {
       ElMessage.error('开始时间无效')
       return
     }
-    const end = new Date(start.getTime() + form.duration * 60000)
+    const end = form.end_time
+      ? toDate(form.end_time)
+      : new Date(start.getTime() + form.duration * 60000)
     const payload = {
       meeting_id: form.meeting_id,
       title: form.title,
       meeting_type: form.meeting_type,
       status: form.status,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
+      start_time: formatLocal(form.start_time),
+      end_time: formatLocal(end),
       location: form.location || null,
       host: form.host,
       convener: form.convener || null,
+      recorder: form.recorder || null,
+      absentees: form.absentees || null,
       attendee_notes: form.attendee_notes || null,
       related_req_id: form.related_req_id || null,
       related_ticket_no: form.related_ticket_no || null,
@@ -1503,14 +1602,8 @@ const handleSubmit = () => {
         .filter((n) => n.trim())
         .map((n) => ({ name: n.trim(), is_required: 1 })),
     }
-    // 仅新增时带初始议题；编辑时议题在纪要编辑器中维护，避免覆盖
-    if (!isEdit.value) {
-      payload.agendas = agendaText.value
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((t, i) => ({ seq: i + 1, topic: t, conclusion: null, division: null }))
-    }
+    // 议题：新增与编辑都按文本重新解析（含结论/分工），编辑态覆盖既有议题
+    payload.agendas = parseAgendas(agendaText.value)
     try {
       if (isEdit.value) {
         await meetingApi.updateMeeting(form.id, payload)

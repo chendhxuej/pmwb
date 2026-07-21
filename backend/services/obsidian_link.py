@@ -162,89 +162,128 @@ def sediment_operation_issue(db, issue_id: int) -> Dict:
 
 
 def _build_meeting_markdown(meeting) -> str:
-    """按 07-模板/会议纪要模板.md 的真实结构生成纪要 Markdown（静态填充，去 Templater 指令）。"""
+    """生成会议纪要 Markdown（行业通用五段式 + 标准 YAML frontmatter）。"""
     status_map = {"planned": "待召开", "held": "已召开", "cancelled": "已取消"}
     mt_status = status_map.get(meeting.status, "待处理")
+    type_map = {
+        "requirement_discussion": "需求讨论",
+        "problem_analysis": "问题分析",
+        "internal_regular": "内部例会",
+        "external_sync": "外部对接",
+        "party_meeting": "党会",
+        "group_meeting": "集团会议",
+        "other": "其他",
+    }
+    tlabel = type_map.get(meeting.meeting_type, "其他")
 
+    def fdt(v):
+        return v.strftime("%Y-%m-%d %H:%M") if v else "—"
+
+    def fdate(v):
+        return v.strftime("%Y-%m-%d") if v else "—"
+
+    # 参会人
     attendees = meeting.attendees or []
-    attendee_lines = (
+    att_lines = (
         "\n".join(
-            f"- {a.name}（{a.dept or '—'}，{'必到' if a.is_required else '可选'}）"
+            f"- {a.name}（{a.dept or '—'}{'，必到' if a.is_required else '，可选'}）"
             for a in attendees
         )
         or "（无）"
     )
+    absent = (meeting.absentees or "").strip() or "（无）"
 
+    # 议程与讨论
     agendas = sorted(meeting.agendas or [], key=lambda x: (x.seq or 0, x.id or 0))
     if agendas:
-        agenda_lines = []
+        blocks = []
         for i, ag in enumerate(agendas, 1):
-            agenda_lines.append(f"### {i}、{ag.topic}")
-            agenda_lines.append(f"**结论**：{ag.conclusion or '（待补充）'}")
+            b = [
+                f"### {i}. {ag.topic}",
+                "- 讨论要点：",
+                f"- 结论/决议：{ag.conclusion or '（待补充）'}",
+            ]
             if ag.division:
-                agenda_lines.append(f"**分工**：{ag.division}")
-            agenda_lines.append("")
-        agenda_block = "\n".join(agenda_lines)
+                b.append(f"- 分工：{ag.division}")
+            blocks.append("\n".join(b))
+        agenda_block = "\n\n".join(blocks)
     else:
-        agenda_block = "（待补充）\n"
+        agenda_block = "（待补充）"
 
+    # 待办事项表
     actions = meeting.actions or []
     if actions:
-        action_lines = []
-        for a in actions:
-            owner = a.owner or "待定"
-            cat = f"  （分类：{a.category}）" if a.category else ""
-            tpl = f"  [模板：{a.template}]" if a.template else ""
-            action_lines.append(f"- [ ] **{owner}** - {a.content}{cat}{tpl}")
-        action_block = "\n".join(action_lines)
+        rows = [
+            "| 序号 | 任务 | 负责人 | 截止日期 | 优先级 | 状态 | 模板 |",
+            "|------|------|--------|----------|--------|------|------|",
+        ]
+        for i, a in enumerate(actions, 1):
+            due = fdate(a.due_date) if a.due_date else "—"
+            rows.append(
+                f"| {i} | {a.content or '—'} | {a.owner or '待定'} | {due} | {a.category or '—'} | {a.status or 'pending'} | {a.template or '—'} |"
+            )
+        action_block = "\n".join(rows)
     else:
-        action_block = "- [ ] （无）"
+        action_block = "（无）"
 
     conclusion = meeting.summary or "（见各议题结论）"
 
-    lines = [
+    # 动态标签
+    tags = ["会议", tlabel]
+    if meeting.related_req_id:
+        tags.append("需求")
+    tags_str = ", ".join(tags)
+
+    # 标准 YAML frontmatter（ascii 键、引号值）
+    fm = [
         "---",
-        f"创建时间: {_fmt_dt(datetime.now())}",
-        f"更新时间: {_fmt_dt(datetime.now())}",
-        "类型: 会议",
-        f"状态: {mt_status}",
-        "标签:",
-        "  - 业务",
-        "  - 会议",
-        f"会议时间: {_fmt_dt(meeting.start_time)}",
-        "提醒时间: ",
+        f'meeting_title: "{meeting.title}"',
+        f'meeting_type: "{tlabel}"',
+        f"status: {meeting.status}",
+        f"date: {fdate(meeting.start_time)}",
+        f"start_time: {fdt(meeting.start_time)}",
+        f"end_time: {fdt(meeting.end_time)}",
+        "timezone: Asia/Shanghai",
+        f'host: "{meeting.host or ""}"',
+        f'recorder: "{meeting.recorder or ""}"',
+        f'location: "{meeting.location or ""}"',
+        f"tags: [{tags_str}]",
+        f'related_req_id: "{meeting.related_req_id or ""}"',
+        f'related_ticket_no: "{meeting.related_ticket_no or ""}"',
         "---",
-        "",
+    ]
+
+    body = [
         f"# {meeting.title}",
         "",
         "## 一、会议信息",
+        f"- 主持人：{meeting.host or '—'}",
+        f"- 记录人：{meeting.recorder or '—'}",
+        f"- 时间：{fdt(meeting.start_time)} ~ {fdt(meeting.end_time)}",
+        f"- 地点/方式：{meeting.location or '—'}",
+        f"- 参会人：\n{att_lines}",
+        f"- 缺席人：{absent}",
+        f"- 参会注意点：{meeting.attendee_notes or '—'}",
         "",
-        f"- **主持人**: {meeting.host or '—'}",
-        f"- **召集人**: {meeting.convener or '—'}",
-        f"- **参与人**: {attendee_lines}",
-        f"- **日期/时间**: {_fmt_dt(meeting.start_time)} ~ {_fmt_dt(meeting.end_time)}",
-        f"- **地点/方式**: {meeting.location or '—'}",
-        f"- **参会注意点**: {meeting.attendee_notes or '—'}",
-        "",
-        "## 二、会议议题",
-        "",
+        "## 二、会议议程与讨论",
         agenda_block,
-        "## 三、会议结论",
         "",
+        "## 三、会议决议（核心）",
         conclusion,
         "",
-        "## 四、待办事项",
+        "## 四、待办事项（行动项）",
         action_block,
         "",
+        "## 五、下次会议",
+        "- 时间：",
+        "- 待跟进议题：",
+        "",
         "## 关联",
-        "- 相关项目: [[]]",
-        "- 相关业务：[[]]",
-        "- 相关会议: [[]]",
-        "- 相关任务：[[]]",
-        "- 相关需求：[[]]",
+        f"- 需求：[[{meeting.related_req_id}]]" if meeting.related_req_id else "- 需求：",
+        f"- 工单：[[{meeting.related_ticket_no}]]" if meeting.related_ticket_no else "- 工单：",
         "",
     ]
-    return "\n".join(lines)
+    return "\n".join(fm + [""] + body)
 
 
 # 会议纪要落盘目录（与 Obsidian vault 真实结构一致，修正原 03-会议资产 错路径）

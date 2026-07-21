@@ -54,7 +54,7 @@ class MeetingFactory:
         db: Session,
         meeting_id: str = "MEET-TEST-001",
         title: str = "测试会议",
-        meeting_type: str = "project_weekly",
+        meeting_type: str = "internal_regular",
         status: str = "planned",
         host: str = "主持人",
         start_time: datetime = None,

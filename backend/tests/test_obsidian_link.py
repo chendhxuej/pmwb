@@ -92,7 +92,7 @@ def test_sediment_meeting(client, vault_tmp):
     payload = {
         "meeting_id": "MEET-20260716-001",
         "title": "周会",
-        "meeting_type": "project_weekly",
+        "meeting_type": "internal_regular",
         "status": "held",
         "agendas": [
             {"seq": 1, "topic": "议题一", "conclusion": "结论一", "division": "张三负责"},
@@ -117,10 +117,10 @@ def test_sediment_meeting(client, vault_tmp):
     assert written.exists()
     text = written.read_text(encoding="utf-8")
     assert "周会" in text
-    assert "## 二、会议议题" in text
+    assert "## 二、会议议程与讨论" in text
     assert "议题一" in text
     assert "结论一" in text
-    assert "## 四、待办事项" in text
+    assert "## 四、待办事项（行动项）" in text
     assert "李四" in text
     assert "厂家团队待办模板" in text
 

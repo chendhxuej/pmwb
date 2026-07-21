@@ -6,10 +6,12 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class MeetingType(str, Enum):
-    requirement_review = "requirement_review"
-    project_weekly = "project_weekly"
-    troubleshooting = "troubleshooting"
-    training = "training"
+    requirement_discussion = "requirement_discussion"
+    problem_analysis = "problem_analysis"
+    internal_regular = "internal_regular"
+    external_sync = "external_sync"
+    party_meeting = "party_meeting"
+    group_meeting = "group_meeting"
     other = "other"
 
 
@@ -94,6 +96,8 @@ class MeetingBase(BaseModel):
     location: Optional[str] = Field(None, max_length=255, description="会议地点/线上链接")
     host: Optional[str] = Field(None, max_length=64, description="主持人")
     convener: Optional[str] = Field(None, max_length=64, description="召集人")
+    recorder: Optional[str] = Field(None, max_length=64, description="记录人")
+    absentees: Optional[str] = Field(None, description="缺席人/请假说明")
     attendee_notes: Optional[str] = Field(None, description="参会注意点")
     summary: Optional[str] = Field(None, description="会议纪要摘要")
     obsidian_path: Optional[str] = Field(None, max_length=512, description="Obsidian 纪要路径")
@@ -121,6 +125,8 @@ class MeetingUpdate(BaseModel):
     location: Optional[str] = Field(None, max_length=255)
     host: Optional[str] = Field(None, max_length=64)
     convener: Optional[str] = Field(None, max_length=64)
+    recorder: Optional[str] = Field(None, max_length=64)
+    absentees: Optional[str] = None
     attendee_notes: Optional[str] = None
     summary: Optional[str] = None
     obsidian_path: Optional[str] = Field(None, max_length=512)
