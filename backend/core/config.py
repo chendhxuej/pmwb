@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # 需求交付：附件 / 分析说明书 归档目录（基于 Obsidian vault 派生）
     REQUIREMENT_ATTACHMENT_DIR: str = "业务建设\\需求附件"
     REQUIREMENT_DOC_DIR: str = "业务建设\\需求分析说明书"
+
+    # 重点工作交付物归档目录（Obsidian vault 内相对目录，落在 08-工作任务 与 10-业务建设 之间）
+    KEY_WORK_VAULT_DIR: str = "09-重点工作"
     REQUIREMENT_DOC_TEMPLATE: str = str(
         Path(__file__).resolve().parent.parent / "templates" / "需求分析说明书.docx"
     )

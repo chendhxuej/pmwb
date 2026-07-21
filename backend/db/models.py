@@ -547,3 +547,336 @@ class SaInfo(Base):
         Index("uk_sa_info_system", "sa_name", "system_name"),
         {"comment": "SA收件人信息表"},
     )
+
+
+# ===========================================================================
+# 重点工作模块（KeyWork）：总部试点 / 年度任务 / 专题工作 三类合一
+# ===========================================================================
+class PmwbKeyWork(Base):
+    """重点工作主表（三类共用：总部试点/年度任务/专题工作，由 category 区分）。"""
+
+    __tablename__ = "pmwb_key_work"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    work_no = Column(String(64), nullable=False, unique=True, comment="重点工作编号 KW-YYYYMMDD-XXX")
+    category = Column(
+        Enum("hq_pilot", "annual_task", "special_topic", name="kw_category"),
+        nullable=False,
+        default="annual_task",
+        comment="分类：总部试点/年度任务/专题工作",
+    )
+    title = Column(String(500), nullable=False, comment="工作标题")
+    background = Column(Text, comment="工作背景")
+    current_status = Column(Text, comment="现状说明")
+    content = Column(Text, comment="工作内容")
+    owner = Column(String(128), comment="牵头人/负责人")
+    priority = Column(
+        Enum("P0", "P1", "P2", "P3", name="kw_priority"),
+        default="P2",
+        comment="优先级",
+    )
+    status = Column(
+        Enum("planning", "in_progress", "completed", "paused", "cancelled", name="kw_status"),
+        default="planning",
+        comment="生命周期状态",
+    )
+    planned_finish_date = Column(Date, comment="计划完成时间")
+    acceptance_criteria = Column(Text, comment="验收标准(JSON数组)")
+
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    goals = relationship(
+        "PmwbKeyWorkGoal",
+        backref="key_work",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="PmwbKeyWorkGoal.seq",
+    )
+    milestones = relationship(
+        "PmwbKeyWorkMilestone",
+        backref="key_work",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="PmwbKeyWorkMilestone.seq",
+    )
+    members = relationship(
+        "PmwbKeyWorkMember",
+        backref="key_work",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+    monthly_plans = relationship(
+        "PmwbKeyWorkMonthlyPlan",
+        backref="key_work",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+    weekly_plans = relationship(
+        "PmwbKeyWorkWeeklyPlan",
+        backref="key_work",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+    progresses = relationship(
+        "PmwbKeyWorkProgress",
+        backref="key_work",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="PmwbKeyWorkProgress.record_date.desc()",
+    )
+    member_tasks = relationship(
+        "PmwbKeyWorkMemberTask",
+        backref="key_work",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+    deliverables = relationship(
+        "PmwbKeyWorkDeliverable",
+        backref="key_work",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("idx_kw_category", "category"),
+        Index("idx_kw_status", "status"),
+        Index("idx_kw_owner", "owner"),
+        {"comment": "重点工作主表"},
+    )
+
+
+class PmwbKeyWorkGoal(Base):
+    """重点工作目标指标表。"""
+
+    __tablename__ = "pmwb_key_work_goal"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    seq = Column(Integer, default=1, comment="指标序号")
+    indicator = Column(String(255), comment="指标名称")
+    target_value = Column(String(255), comment="目标值")
+    current_value = Column(String(255), comment="当前值")
+    unit = Column(String(32), comment="单位")
+    description = Column(Text, comment="说明")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kwg_kw_id", "key_work_id"),
+        {"comment": "重点工作目标指标表"},
+    )
+
+
+class PmwbKeyWorkMilestone(Base):
+    """重点工作里程碑表。"""
+
+    __tablename__ = "pmwb_key_work_milestone"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    seq = Column(Integer, default=1, comment="序号")
+    name = Column(String(255), nullable=False, comment="里程碑名称")
+    due_date = Column(Date, comment="计划完成日期")
+    status = Column(
+        Enum("pending", "in_progress", "done", "delayed", name="kw_milestone_status"),
+        default="pending",
+        comment="状态",
+    )
+    note = Column(Text, comment="说明")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kwm_kw_id", "key_work_id"),
+        {"comment": "重点工作里程碑表"},
+    )
+
+
+class PmwbKeyWorkMember(Base):
+    """重点工作团队成员及分工表。"""
+
+    __tablename__ = "pmwb_key_work_member"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    name = Column(String(64), nullable=False, comment="成员姓名")
+    role = Column(String(128), comment="角色")
+    division_desc = Column(Text, comment="分工说明")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kwmbr_kw_id", "key_work_id"),
+        {"comment": "重点工作团队成员及分工表"},
+    )
+
+
+class PmwbKeyWorkMonthlyPlan(Base):
+    """重点工作月度计划表。"""
+
+    __tablename__ = "pmwb_key_work_monthly_plan"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    month = Column(String(7), nullable=False, comment="月份 YYYY-MM")
+    content = Column(Text, comment="计划内容")
+    status = Column(
+        Enum("pending", "done", name="kw_plan_status"),
+        default="pending",
+        comment="状态",
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kwmp_kw_id", "key_work_id"),
+        Index("idx_kwmp_month", "month"),
+        {"comment": "重点工作月度计划表"},
+    )
+
+
+class PmwbKeyWorkWeeklyPlan(Base):
+    """重点工作周计划表。"""
+
+    __tablename__ = "pmwb_key_work_weekly_plan"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    week = Column(String(10), nullable=False, comment="周次 YYYY-Www")
+    content = Column(Text, comment="计划内容")
+    status = Column(
+        Enum("pending", "done", name="kw_plan_status"),
+        default="pending",
+        comment="状态",
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kwwp_kw_id", "key_work_id"),
+        Index("idx_kwwp_week", "week"),
+        {"comment": "重点工作周计划表"},
+    )
+
+
+class PmwbKeyWorkProgress(Base):
+    """重点工作进展日志表。"""
+
+    __tablename__ = "pmwb_key_work_progress"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    record_date = Column(Date, comment="进展日期")
+    reporter = Column(String(64), comment="汇报人")
+    content = Column(Text, comment="进展内容")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kwp_kw_id", "key_work_id"),
+        {"comment": "重点工作进展日志表"},
+    )
+
+
+class PmwbKeyWorkMemberTask(Base):
+    """重点工作成员待办表（模块内专属，不复用全局 pmwb_todo）。"""
+
+    __tablename__ = "pmwb_key_work_member_task"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    title = Column(String(500), nullable=False, comment="待办标题")
+    assignee = Column(String(64), comment="负责人(成员姓名)")
+    due_date = Column(Date, comment="截止日期")
+    status = Column(
+        Enum("todo", "in_progress", "done", "cancelled", name="kw_task_status"),
+        default="todo",
+        comment="状态",
+    )
+    link_type = Column(
+        Enum("none", "milestone", "monthly_plan", "weekly_plan", name="kw_task_link"),
+        default="none",
+        comment="关联对象类型",
+    )
+    link_id = Column(Integer, comment="关联对象ID")
+    note = Column(Text, comment="备注")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kwt_kw_id", "key_work_id"),
+        Index("idx_kwt_assignee", "assignee"),
+        Index("idx_kwt_due", "due_date"),
+        {"comment": "重点工作成员待办表"},
+    )
+
+
+class PmwbKeyWorkDeliverable(Base):
+    """重点工作交付物表（DB 存元数据，文件落 Obsidian vault）。"""
+
+    __tablename__ = "pmwb_key_work_deliverable"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    deliverable_type = Column(
+        Enum("doc", "report", "data", "code", "other", name="kw_deliverable_type"),
+        default="other",
+        comment="交付物类型",
+    )
+    file_name = Column(String(255), nullable=False, comment="文件名")
+    original_name = Column(String(255), comment="原始文件名")
+    file_size = Column(Integer, comment="文件大小(字节)")
+    file_type = Column(String(64), comment="文件类型")
+    obsidian_path = Column(String(512), comment="Obsidian归档完整路径")
+    local_path = Column(String(512), comment="本地路径")
+    source = Column(String(32), default="upload", comment="来源")
+    source_url = Column(String(1024), comment="来源URL")
+    note = Column(Text, comment="备注")
+    uploaded_by = Column(String(64), comment="上传人")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+
+    __table_args__ = (
+        Index("idx_kwd_kw_id", "key_work_id"),
+        {"comment": "重点工作交付物表"},
+    )

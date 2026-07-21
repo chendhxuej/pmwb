@@ -88,6 +88,12 @@ const routes = [
         component: () => import('@/views/KnowledgeView.vue'),
         meta: { title: '知识库', icon: 'Collection' },
       },
+      {
+        path: 'key-works',
+        name: 'KeyWork',
+        component: () => import('@/views/KeyWorkView.vue'),
+        meta: { title: '重点工作', icon: 'Files' },
+      },
       // ── 保留的独立能力模块 ──
       {
         path: 'product-bible',
