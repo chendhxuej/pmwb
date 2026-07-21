@@ -63,12 +63,6 @@ const routes = [
             meta: { title: '热点投诉', category: 'complaint' },
           },
           {
-            path: 'notes',
-            name: 'OperationNotes',
-            component: () => import('@/views/OperationNotesView.vue'),
-            meta: { title: '知识沉淀', icon: 'Notebook' },
-          },
-          {
             path: 'monitor',
             name: 'ProductionMonitor',
             component: () => import('@/views/ProductionMonitorPlaceholder.vue'),
@@ -83,23 +77,44 @@ const routes = [
         meta: { title: '会议日程', icon: 'Calendar' },
       },
       {
-        path: 'knowledge',
-        name: 'Knowledge',
-        component: () => import('@/views/KnowledgeView.vue'),
-        meta: { title: '知识库', icon: 'Collection' },
-      },
-      {
         path: 'key-works',
         name: 'KeyWork',
         component: () => import('@/views/KeyWorkView.vue'),
         meta: { title: '重点工作', icon: 'Files' },
       },
-      // ── 保留的独立能力模块 ──
+      // ── 知识中心：聚合知识类子模块 ──
       {
-        path: 'product-bible',
-        name: 'ProductBible',
-        component: () => import('@/views/ProductBibleView.vue'),
-        meta: { title: '产品圣经', icon: 'Notebook' },
+        path: 'knowledge-center',
+        name: 'KnowledgeCenter',
+        component: () => import('@/views/KnowledgeCenterView.vue'),
+        redirect: '/knowledge-center/knowledge',
+        meta: { title: '知识中心', icon: 'Reading' },
+        children: [
+          {
+            path: 'knowledge',
+            name: 'KcKnowledge',
+            component: () => import('@/views/KnowledgeView.vue'),
+            meta: { title: '知识库', icon: 'Collection' },
+          },
+          {
+            path: 'product-bible',
+            name: 'KcProductBible',
+            component: () => import('@/views/ProductBibleView.vue'),
+            meta: { title: '产品圣经', icon: 'Notebook' },
+          },
+          {
+            path: 'notes',
+            name: 'KcNotes',
+            component: () => import('@/views/OperationNotesView.vue'),
+            meta: { title: '知识沉淀', icon: 'Files' },
+          },
+          {
+            path: 'sql-scripts',
+            name: 'KcSqlScripts',
+            component: () => import('@/views/SqlScriptView.vue'),
+            meta: { title: 'SQL脚本库', icon: 'Document' },
+          },
+        ],
       },
       {
         path: 'reminder-center',

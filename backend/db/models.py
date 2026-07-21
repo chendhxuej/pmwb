@@ -300,7 +300,7 @@ class PmwbMeeting(Base):
     meeting_id = Column(String(64), nullable=False, unique=True, comment="会议编号")
     title = Column(String(255), nullable=False, comment="会议主题")
     meeting_type = Column(
-        Enum("requirement_review", "project_weekly", "troubleshooting", "training", "other"),
+        String(32),
         default="other",
         comment="会议类型",
     )
@@ -309,6 +309,8 @@ class PmwbMeeting(Base):
     location = Column(String(255), comment="会议地点/线上链接")
     host = Column(String(64), comment="主持人/组织者")
     convener = Column(String(64), comment="召集人")
+    recorder = Column(String(64), comment="记录人")
+    absentees = Column(Text, comment="缺席人/请假说明")
     attendee_notes = Column(Text, comment="参会注意点（会议通知补充事项）")
     summary = Column(Text, comment="会议纪要摘要")
     obsidian_path = Column(String(512), comment="Obsidian 纪要路径")
@@ -879,4 +881,35 @@ class PmwbKeyWorkDeliverable(Base):
     __table_args__ = (
         Index("idx_kwd_kw_id", "key_work_id"),
         {"comment": "重点工作交付物表"},
+    )
+
+
+class PmwbSqlScript(Base):
+    """SQL脚本库：归档常用业务统计脚本。
+
+    每条脚本记录说明、SQL 文本、创建时间，以及结构化的输出字段样例清单。
+    output_fields 以 JSON 字符串存储：[{"name": 字段名, "type": 类型, "desc": 说明}, ...]
+    """
+
+    __tablename__ = "pmwb_sql_script"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    script_no = Column(String(64), nullable=False, unique=True, comment="脚本编号 SQL-YYYYMMDD-XXX")
+    title = Column(String(500), nullable=False, comment="脚本说明/名称")
+    category = Column(String(64), comment="业务线/分类（可空，允许自定义）")
+    description = Column(Text, comment="补充说明")
+    sql_text = Column(Text, nullable=False, comment="SQL 文本")
+    output_fields = Column(Text, comment="输出字段样例(JSON数组: name/type/desc)")
+
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_sql_category", "category"),
+        {"comment": "SQL脚本库表"},
     )
