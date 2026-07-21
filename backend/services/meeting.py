@@ -3,8 +3,9 @@ from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session, joinedload
 
-from core.exceptions import NotFoundException
+from core.exceptions import NotFoundException, ValidationException
 from db.models import (
+    EmailRecord,
     PmwbMeeting,
     PmwbMeetingAction,
     PmwbMeetingAgenda,
@@ -12,6 +13,8 @@ from db.models import (
 )
 from services.base import BaseService
 from services.todo import todo_service
+from utils.email import EmailCenterClient
+from utils.validators import validate_email_strict
 
 
 class MeetingService(BaseService[PmwbMeeting]):
@@ -195,6 +198,76 @@ class MeetingService(BaseService[PmwbMeeting]):
         action.related_todo_id = todo.id
         db.commit()
         return {"todo_id": todo.id, "created": True, "todo": todo}
+
+    def send_mail(
+        self,
+        db: Session,
+        meeting_id: int,
+        to: List[str],
+        cc: Optional[List[str]],
+        subject: str,
+        body: str,
+        mail_type: str = "meeting_notice",
+        recipient_names: Optional[List[str]] = None,
+    ) -> dict:
+        """一键发送会议邮件（通知/纪要），写入 email_records 并走统一邮件中心发信。
+
+        - 邮箱严格校验：非 ASCII 本地名（如中文名@domain）直接 400 拒绝，避免邮件中心 500。
+        - 记录 source='pmwb_meeting'，req_id 复用 meeting_id 编号以便后续按会议追溯。
+        """
+        meeting = self.get(db, meeting_id)
+        if not meeting:
+            raise NotFoundException(f"会议不存在：id={meeting_id}")
+
+        to = to or []
+        cc = cc or []
+        bad = [e for e in to if not validate_email_strict(e)] + [
+            e for e in cc if not validate_email_strict(e)
+        ]
+        if bad:
+            raise ValidationException(
+                "收件人邮箱格式不正确：" + "、".join(bad)
+                + "。请在通讯录按姓名解析或手动填写真实邮箱。"
+            )
+        if not to:
+            raise ValidationException("请至少填写一位收件人")
+
+        record = EmailRecord(
+            req_id=meeting.meeting_id,
+            req_name=meeting.title,
+            email_type=mail_type or "meeting_notice",
+            recipient=",".join(to),
+            recipient_name=",".join(recipient_names or []),
+            subject=subject,
+            content=body,
+            send_status="pending",
+            source="pmwb_meeting",
+            sender="pmwb",
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+
+        try:
+            EmailCenterClient().send_email(
+                to=to,
+                cc=cc or None,
+                subject=subject,
+                body=body,
+                body_format="text",
+            )
+            record.send_status = "success"
+            message = "邮件发送成功"
+            ok = True
+        except Exception as exc:  # noqa: BLE001
+            record.send_status = "failed"
+            record.error_msg = str(exc)
+            message = f"邮件发送失败：{exc}"
+            ok = False
+
+        db.commit()
+        db.refresh(record)
+        return {"success": ok, "record_id": record.id, "message": message}
 
     def delete(self, db: Session, id: int) -> bool:
         db_obj = self.get(db, id)

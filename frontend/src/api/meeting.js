@@ -27,5 +27,9 @@ export const meetingApi = {
 
   syncActionTodo(meetingId, actionId) {
     return request.post(`/meetings/${meetingId}/actions/${actionId}/sync-todo`)
+  },
+
+  sendMeetingMail(meetingId, data) {
+    return request.post(`/meetings/${meetingId}/send-mail`, data)
   }
 }

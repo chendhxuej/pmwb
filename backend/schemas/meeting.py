@@ -155,3 +155,17 @@ class MeetingListResponse(BaseModel):
     page_size: int
     pages: int
     items: List[MeetingOut]
+
+
+class MeetingMailSendRequest(BaseModel):
+    """会议一键发邮件请求（通知/纪要）。"""
+
+    to: List[str] = Field(..., description="收件人邮箱列表")
+    cc: Optional[List[str]] = Field(None, description="抄送人邮箱列表")
+    subject: str = Field(..., max_length=500, description="邮件主题")
+    body: str = Field(..., description="邮件正文（纯文本）")
+    mail_type: str = Field(
+        "meeting_notice",
+        description="邮件类型：meeting_notice(会议通知) / meeting_minutes(会议纪要)",
+    )
+    recipient_names: Optional[List[str]] = Field(None, description="收件人姓名列表（用于记录展示）")

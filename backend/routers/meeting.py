@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
-from schemas.meeting import MeetingCreate, MeetingUpdate
+from schemas.meeting import MeetingCreate, MeetingMailSendRequest, MeetingUpdate
 from services.meeting import meeting_service
 from services.obsidian_link import sediment_meeting
 
@@ -70,3 +70,23 @@ def sediment_meeting_endpoint(meeting_id: int, db: Session = Depends(get_db)):
 def sync_action_todo_endpoint(meeting_id: int, action_id: int, db: Session = Depends(get_db)):
     """把会议行动项同步为 PMWB 待办任务（带分类/模板元数据，source=meeting）。"""
     return success(data=meeting_service.sync_action_todo(db, meeting_id, action_id))
+
+
+@router.post("/{meeting_id}/send-mail")
+def send_meeting_mail(meeting_id: int, obj_in: MeetingMailSendRequest, db: Session = Depends(get_db)):
+    """一键发送会议邮件（通知/纪要）。
+
+    - 计划中(planned)：发送会议通知，mail_type=meeting_notice
+    - 已召开(held)：发送会议纪要，mail_type=meeting_minutes
+    收件人邮箱严格校验，记录入 email_records，走统一邮件中心(3210)发信。
+    """
+    return success(data=meeting_service.send_mail(
+        db,
+        meeting_id,
+        to=obj_in.to,
+        cc=obj_in.cc,
+        subject=obj_in.subject,
+        body=obj_in.body,
+        mail_type=obj_in.mail_type,
+        recipient_names=obj_in.recipient_names,
+    ))

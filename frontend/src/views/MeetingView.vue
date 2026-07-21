@@ -138,18 +138,26 @@
         </div>
       </div>
 
-      <div class="card room-card">
+      <div class="card sediment-card">
         <div class="card-header">
-          <div class="card-title">会议室占用</div>
+          <div class="card-title">待归档纪要</div>
+          <span class="card-badge" v-if="pendingSedimentMeetings.length">{{ pendingSedimentMeetings.length }}</span>
         </div>
-        <div class="card-body room-list">
-          <div v-for="r in roomUsage" :key="r.name" class="room-row">
-            <span class="room-name">{{ r.name }}</span>
-            <div class="room-bar">
-              <div class="room-fill" :class="r.cls" :style="{ width: r.pct + '%' }"></div>
+        <div class="card-body sediment-list">
+          <div
+            v-for="m in pendingSedimentMeetings"
+            :key="m.id"
+            class="sed-item"
+            @click="openDetail(m.id)"
+          >
+            <div class="sed-title">{{ m.title }}</div>
+            <div class="sed-meta">
+              <span>{{ formatDateMD(m.start_time) }}</span>
+              <span class="sed-flag">已召开·待归档</span>
             </div>
-            <span class="room-pct">{{ r.pct }}%</span>
           </div>
+          <div v-if="!pendingSedimentMeetings.length" class="empty-hint">暂无待归档会议</div>
+          <div class="up-tip">已召开未生成 Obsidian 纪要的会议</div>
         </div>
       </div>
 
@@ -472,11 +480,15 @@
               class="sec-act"
               :loading="sedimenting"
               @click="generateMemo"
-            >生成 Obsidian 备忘</el-button>
+            >{{ detailMeeting.obsidian_path ? '重新生成 Obsidian 备忘' : '生成 Obsidian 备忘' }}</el-button>
+          </div>
+          <div v-if="detailMeeting.status === 'held' && !detailMeeting.obsidian_path" class="memo-alert">
+            ⚠️ 该会议已召开但尚未归档纪要，建议尽快补录议题结论与待办后点击「生成 Obsidian 备忘」归档。
           </div>
           <div v-if="detailMeeting.obsidian_path" class="memo-path">
             <span class="memo-ico">📝</span>
             <code class="memo-code">{{ detailMeeting.obsidian_path }}</code>
+            <el-button link type="primary" size="small" @click="openInObsidian">在 Obsidian 中查看</el-button>
             <el-button link type="primary" size="small" @click="copyPath">复制路径</el-button>
           </div>
           <div v-else class="empty-hint">尚未生成，点击右上按钮按会议模板写入 05-会议纪要</div>
@@ -484,6 +496,18 @@
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button
+          v-if="detailMeeting?.status === 'planned'"
+          type="warning"
+          plain
+          @click="openMailDialog('notice')"
+        >✉ 发送会议通知</el-button>
+        <el-button
+          v-if="detailMeeting?.status === 'held'"
+          type="success"
+          plain
+          @click="openMailDialog('minutes')"
+        >✉ 发送会议纪要</el-button>
         <el-button type="primary" :loading="saving" @click="saveMinutes">保存纪要</el-button>
       </template>
     </el-drawer>
@@ -608,6 +632,70 @@
         <el-button type="primary" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 会议邮件弹窗（通知 / 纪要） -->
+    <el-dialog
+      v-model="mailVisible"
+      :title="mailType === 'notice' ? '发送会议通知' : '发送会议纪要'"
+      width="720px"
+      destroy-on-close
+      append-to-body
+    >
+      <div class="mail-body" v-if="detailMeeting">
+        <div class="mail-row">
+          <label class="mail-label">收件人</label>
+          <div class="mail-recipients">
+            <span v-for="(r, i) in mailRecipients" :key="i" class="recp-chip" :class="{ miss: r.miss }">
+              <span class="recp-name">{{ r.name }}</span>
+              <span class="recp-mail" v-if="r.email">✓ {{ r.email }}</span>
+              <span class="recp-mail unres" v-else>未解析</span>
+              <span class="recp-x" @click="removeRecipient(i)">✕</span>
+            </span>
+            <input
+              v-model="recipientInput"
+              class="recp-input"
+              placeholder="姓名或邮箱，回车追加"
+              @keydown.enter.prevent="addRecipient"
+            />
+          </div>
+          <el-button link type="primary" size="small" @click="resolveEmails" :loading="resolving">
+            解析邮箱
+          </el-button>
+        </div>
+        <div class="mail-row">
+          <label class="mail-label">抄送</label>
+          <el-input v-model="mailCc" placeholder="多个邮箱用逗号分隔（可选）" size="default" />
+        </div>
+        <div class="mail-row">
+          <label class="mail-label">主题</label>
+          <el-input v-model="mailSubject" placeholder="邮件主题" />
+        </div>
+        <div class="mail-row mail-tpl-row">
+          <label class="mail-label">正文</label>
+          <div class="mail-tpl-actions">
+            <span class="mail-tpl-hint">模板：</span>
+            <el-button size="small" @click="applyTemplate">重置为模板</el-button>
+          </div>
+        </div>
+        <el-input
+          v-model="mailBody"
+          type="textarea"
+          :rows="12"
+          placeholder="邮件正文（纯文本，换行将被保留）"
+          class="mail-textarea"
+        />
+        <div class="mail-tip" v-if="mailType === 'notice'">
+          · 通知模板：会议信息 + 议题清单 + 参会注意点，用于会前通知参会人。
+        </div>
+        <div class="mail-tip" v-else>
+          · 纪要模板：议题结论 + 待办事项 + 纪要摘要，用于会后同步给参会人。
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="mailVisible = false">取消</el-button>
+        <el-button type="primary" :loading="sendingMail" @click="sendMail">发送邮件</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -616,6 +704,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
+import { resolveContacts } from '@/api/reminder'
 
 const router = useRouter()
 const currentUser = '陈大虾'
@@ -882,11 +971,13 @@ const upcomingMeetings = computed(() =>
     .slice(0, 6)
 )
 
-const roomUsage = [
-  { name: '3F 主会议室', pct: 64, cls: '' },
-  { name: '5F 小间', pct: 38, cls: 'green' },
-  { name: '线上腾讯会议', pct: 82, cls: 'amber' },
-]
+// 待归档纪要：已召开但未生成 Obsidian 纪要的会议（按开始时间倒序，取前 6 条）
+const pendingSedimentMeetings = computed(() =>
+  meetings.value
+    .filter((m) => m.status === 'held' && !m.obsidian_path)
+    .sort((a, b) => (a.start_time < b.start_time ? 1 : -1))
+    .slice(0, 6)
+)
 
 const lineCls = (status) =>
   status === 'held' ? 'green' : status === 'planned' ? 'amber' : ''
@@ -1022,6 +1113,17 @@ const copyPath = async () => {
   }
 }
 
+/* 在 Obsidian 中打开纪要（obsidian:// 协议） */
+const openInObsidian = () => {
+  const p = detailMeeting.value?.obsidian_path
+  if (!p) return
+  // obsidian://open?vault=<vault>&file=<相对路径不含扩展名>
+  const vault = '知识图谱'
+  const file = p.replace(/\.md$/, '')
+  const url = `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`
+  window.open(url, '_blank')
+}
+
 /* 保存纪要（议题 / 待办 / 摘要） */
 const saveMinutes = async () => {
   if (!detailMeeting.value?.id) return
@@ -1065,6 +1167,239 @@ const saveMinutes = async () => {
     ElMessage.error(e?.response?.data?.message || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+/* ── 一键发送会议邮件（通知 / 纪要） ── */
+const mailVisible = ref(false)
+const mailType = ref('notice') // notice | minutes
+const mailRecipients = ref([]) // [{ name, email, miss }]
+const recipientInput = ref('')
+const mailCc = ref('')
+const mailSubject = ref('')
+const mailBody = ref('')
+const resolving = ref(false)
+const sendingMail = ref(false)
+
+const fmtFullDateTime = (v) => {
+  const d = toDate(v)
+  return d && !isNaN(d.getTime())
+    ? `${d.getFullYear()}年${pad(d.getMonth() + 1)}月${pad(d.getDate())}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    : '—'
+}
+const fmtEndTimeHM = (v) => {
+  const d = toDate(v)
+  return d && !isNaN(d.getTime()) ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '—'
+}
+
+/* 会议通知邮件模板（纯文本） */
+const buildNoticeBody = (m) => {
+  const names = (m.attendees || []).map((a) => a.name).filter(Boolean)
+  const greeting = names.length ? names.join('、') + '好：' : '各位好：'
+  const agendaList = (m.agendas || []).length
+    ? (m.agendas || [])
+        .map((a, i) => `${i + 1}. ${a.topic || '（待补充）'}`)
+        .join('\n')
+    : '（待补充）'
+  const lines = [
+    greeting,
+    '',
+    `兹定于 ${fmtFullDateTime(m.start_time)} 召开「${m.title}」会议，敬请拨冗参加。`,
+    '',
+    '会议信息：',
+    `- 时间：${fmtFullDateTime(m.start_time)} ~ ${fmtEndTimeHM(m.end_time)}`,
+    `- 地点/方式：${m.location || '—'}`,
+    `- 组织者：${m.host || '—'}`,
+    `- 召集人：${m.convener || '—'}`,
+    `- 参会人：${names.join('、') || '—'}`,
+    `- 会议类型：${typeText(m.meeting_type)}`,
+    '',
+    '会议议题：',
+    agendaList,
+  ]
+  if (m.attendee_notes) lines.push('', `参会注意点：${m.attendee_notes}`)
+  lines.push(
+    '',
+    '请准时参会，如有冲突请提前告知。谢谢！',
+    '',
+    `${m.host || currentUser}`,
+    '中国移动江苏公司 数智化部'
+  )
+  return lines.join('\n')
+}
+
+/* 会议纪要邮件模板（纯文本） */
+const buildMinutesBody = (m) => {
+  const names = (m.attendees || []).map((a) => a.name).filter(Boolean)
+  const greeting = names.length ? names.join('、') + '好：' : '各位好：'
+  const agendaBlock = (m.agendas || []).length
+    ? (m.agendas || [])
+        .map((a, i) => {
+          let s = `${i + 1}. ${a.topic || '（待补充）'}`
+          s += `\n   结论：${a.conclusion || '（待补充）'}`
+          if (a.division) s += `\n   分工：${a.division}`
+          return s
+        })
+        .join('\n')
+    : '（待补充）'
+  const actionBlock = (m.actions || []).length
+    ? (m.actions || [])
+        .map((a) => {
+          const box = a.status === 'done' ? 'x' : ' '
+          const due = a.due_date ? `（截止 ${a.due_date}）` : ''
+          return `- [${box}] ${a.owner || '待定'}：${a.content || '—'}${due}`
+        })
+        .join('\n')
+    : '（无）'
+  const lines = [
+    greeting,
+    '',
+    `「${m.title}」已于 ${fmtFullDateTime(m.start_time)} 召开，现将会商结论与待办事项同步如下，请按分工推进。`,
+    '',
+    '一、会议信息',
+    `- 时间：${fmtFullDateTime(m.start_time)} ~ ${fmtEndTimeHM(m.end_time)}`,
+    `- 地点/方式：${m.location || '—'}`,
+    `- 组织者：${m.host || '—'}`,
+    `- 参会人：${names.join('、') || '—'}`,
+    '',
+    '二、议题与结论',
+    agendaBlock,
+    '',
+    '三、待办事项',
+    actionBlock,
+    '',
+    '四、纪要摘要',
+    m.summary || '（见各议题结论）',
+  ]
+  if (m.obsidian_path)
+    lines.push('', `完整纪要已归档至 Obsidian：${m.obsidian_path}`)
+  lines.push(
+    '',
+    '如对纪要有补充或修正，请回复邮件或直接联系我。谢谢！',
+    '',
+    `${m.host || currentUser}`,
+    '中国移动江苏公司 数智化部'
+  )
+  return lines.join('\n')
+}
+
+const applyTemplate = () => {
+  const m = detailMeeting.value
+  if (!m) return
+  if (mailType.value === 'notice') {
+    mailSubject.value = `【会议通知】${m.title} · ${formatDateTime(m.start_time)}`
+    mailBody.value = buildNoticeBody(m)
+  } else {
+    mailSubject.value = `【会议纪要】${m.title} · ${formatDateTime(m.start_time)}`
+    mailBody.value = buildMinutesBody(m)
+  }
+}
+
+const openMailDialog = (type) => {
+  mailType.value = type
+  // 默认收件人 = 参会人姓名（去重），未解析邮箱状态
+  const names = (detailMeeting.value?.attendees || [])
+    .map((a) => a.name)
+    .filter(Boolean)
+  const seen = new Set()
+  mailRecipients.value = names
+    .filter((n) => {
+      if (seen.has(n)) return false
+      seen.add(n)
+      return true
+    })
+    .map((n) => ({ name: n, email: '', miss: false }))
+  recipientInput.value = ''
+  mailCc.value = ''
+  applyTemplate()
+  mailVisible.value = true
+  // 自动尝试解析一次邮箱
+  if (mailRecipients.value.length) resolveEmails()
+}
+
+const addRecipient = () => {
+  const v = recipientInput.value.trim()
+  if (!v) return
+  if (mailRecipients.value.some((r) => r.name === v)) {
+    recipientInput.value = ''
+    return
+  }
+  // 输入是邮箱则直接作为 email，姓名留空占位
+  const isEmail = /^[\w.+-]+@[\w.-]+\.\w+$/.test(v)
+  mailRecipients.value.push(
+    isEmail ? { name: v, email: v, miss: false } : { name: v, email: '', miss: true }
+  )
+  recipientInput.value = ''
+}
+
+const removeRecipient = (i) => mailRecipients.value.splice(i, 1)
+
+const resolveEmails = async () => {
+  const names = mailRecipients.value
+    .filter((r) => !r.email || r.miss)
+    .map((r) => r.name)
+    .filter(Boolean)
+  if (!names.length) {
+    ElMessage.info('收件人均已解析邮箱')
+    return
+  }
+  resolving.value = true
+  try {
+    const map = await resolveContacts(names) // {姓名: 邮箱| null}
+    mailRecipients.value = mailRecipients.value.map((r) => {
+      if (r.email && !r.miss) return r
+      const email = map[r.name]
+      return email ? { ...r, email, miss: false } : { ...r, email: '', miss: true }
+    })
+    const ok = mailRecipients.value.filter((r) => r.email).length
+    const miss = mailRecipients.value.filter((r) => !r.email).length
+    if (miss) ElMessage.warning(`已解析 ${ok} 个，${miss} 个未找到邮箱，请手动补填`)
+    else ElMessage.success(`已解析 ${ok} 个收件人邮箱`)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '解析邮箱失败')
+  } finally {
+    resolving.value = false
+  }
+}
+
+const sendMail = async () => {
+  const m = detailMeeting.value
+  if (!m) return
+  const withMail = mailRecipients.value.filter((r) => r.email)
+  if (!withMail.length) {
+    ElMessage.warning('请先解析或填写收件人邮箱')
+    return
+  }
+  if (!mailBody.value.trim()) {
+    ElMessage.warning('请输入邮件正文')
+    return
+  }
+  const to = withMail.map((r) => r.email)
+  const recipientNames = mailRecipients.value.map((r) => r.name)
+  const cc = mailCc.value
+    .split(/[,，;；\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  sendingMail.value = true
+  try {
+    const res = await meetingApi.sendMeetingMail(m.id, {
+      to,
+      cc: cc.length ? cc : null,
+      subject: mailSubject.value,
+      body: mailBody.value,
+      mail_type: mailType.value === 'notice' ? 'meeting_notice' : 'meeting_minutes',
+      recipient_names: recipientNames,
+    })
+    if (res.success) {
+      ElMessage.success(res.message || '邮件发送成功')
+      mailVisible.value = false
+    } else {
+      ElMessage.error(res.message || '邮件发送失败')
+    }
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '发送失败')
+  } finally {
+    sendingMail.value = false
   }
 }
 
@@ -1408,13 +1743,13 @@ onMounted(() => {
 
 .today-card,
 .up-card,
-.room-card,
+.sediment-card,
 .month-card {
   grid-column: span 4;
 }
 .today-list,
 .up-list,
-.room-list,
+.sediment-list,
 .month-stats {
   display: flex;
   flex-direction: column;
@@ -1519,42 +1854,57 @@ onMounted(() => {
   color: var(--text-muted);
   margin-top: 6px;
 }
-.room-row {
+.sediment-card .card-header {
+  align-items: center;
+}
+.card-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 11px;
+  background: var(--danger, #d9544d);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  margin-left: auto;
+}
+.sed-item {
+  padding: 9px 4px;
+  border-bottom: 1px dashed var(--border);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+.sed-item:hover {
+  color: var(--accent);
+}
+.sed-item:last-of-type {
+  border-bottom: none;
+}
+.sed-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sed-meta {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 12.5px;
-  color: var(--text-secondary);
-  padding: 8px 0;
-}
-.room-name {
-  width: 96px;
-  flex-shrink: 0;
-}
-.room-bar {
-  flex: 1;
-  height: 7px;
-  border-radius: 6px;
-  background: #eef2f7;
-  overflow: hidden;
-}
-.room-fill {
-  height: 100%;
-  border-radius: 6px;
-  background: var(--accent);
-}
-.room-fill.green {
-  background: var(--success);
-}
-.room-fill.amber {
-  background: var(--warning);
-}
-.room-pct {
+  font-size: 11.5px;
+  color: var(--text-muted);
   font-family: var(--font-mono);
-  font-weight: 700;
-  color: var(--text-primary);
-  width: 38px;
-  text-align: right;
+}
+.sed-flag {
+  color: var(--warning);
+  font-weight: 600;
+  font-family: inherit;
 }
 .month-stats {
   display: grid;
@@ -1714,6 +2064,15 @@ onMounted(() => {
   padding: 8px 10px;
   flex-wrap: wrap;
 }
+.memo-alert {
+  font-size: 12.5px;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
 .memo-ico {
   font-size: 14px;
 }
@@ -1766,5 +2125,111 @@ onMounted(() => {
   font-size: 13px;
   min-width: 80px;
   background: transparent;
+}
+
+/* 邮件弹窗 */
+.mail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.mail-label {
+  width: 56px;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding-top: 6px;
+}
+.mail-recipients {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-height: 40px;
+}
+.mail-recipients:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.recp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.recp-chip.miss {
+  background: color-mix(in srgb, var(--danger, #d9544d) 12%, transparent);
+  color: var(--danger, #d9544d);
+}
+.recp-name {
+  font-weight: 700;
+}
+.recp-mail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.85;
+}
+.recp-mail.unres {
+  font-style: italic;
+}
+.recp-x {
+  cursor: pointer;
+  opacity: 0.7;
+  font-size: 13px;
+  margin-left: 2px;
+}
+.recp-x:hover {
+  opacity: 1;
+}
+.recp-input {
+  border: none;
+  outline: none;
+  flex: 1;
+  font-size: 13px;
+  min-width: 120px;
+  background: transparent;
+}
+.mail-tpl-row {
+  align-items: center;
+}
+.mail-tpl-actions {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mail-tpl-hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.mail-textarea {
+  width: 100%;
+}
+.mail-textarea :deep(.el-textarea__inner) {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+}
+.mail-tip {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 </style>
