@@ -21,6 +21,13 @@ class MeetingStatus(str, Enum):
     cancelled = "cancelled"
 
 
+class MeetingActionStatus(str, Enum):
+    pending = "pending"
+    in_progress = "in_progress"
+    done = "done"
+    not_attended = "not_attended"
+
+
 class MeetingAttendeeBase(BaseModel):
     name: str = Field(..., max_length=64, description="参会人姓名")
     email: Optional[str] = Field(None, max_length=128, description="邮箱")
@@ -45,7 +52,7 @@ class MeetingActionBase(BaseModel):
     content: str = Field(..., description="行动项内容")
     owner: Optional[str] = Field(None, max_length=64, description="负责人")
     due_date: Optional[str] = Field(None, description="截止日期")
-    status: str = Field("pending", description="状态")
+    status: MeetingActionStatus = Field(MeetingActionStatus.pending, description="状态")
     category: Optional[str] = Field(None, description="待办分类（对应 pmwb_todo.category）")
     template: Optional[str] = Field(None, max_length=128, description="Obsidian 待办模板名（仅元数据标签）")
     related_todo_id: Optional[int] = Field(None, description="关联待办ID")

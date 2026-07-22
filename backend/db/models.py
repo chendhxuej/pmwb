@@ -388,7 +388,7 @@ class PmwbMeetingAction(Base):
     content = Column(Text, nullable=False, comment="行动项内容")
     owner = Column(String(64), comment="负责人")
     due_date = Column(Date, comment="截止日期")
-    status = Column(Enum("pending", "done", "cancelled"), default="pending", comment="状态")
+    status = Column(String(32), default="pending", comment="状态")
     category = Column(
         String(64),
         comment="待办分类（对应 pmwb_todo.category）：requirement/ticket/operation/meeting/study/other",

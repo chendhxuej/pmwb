@@ -421,7 +421,17 @@
           <div v-for="(act, i) in detailMeeting.actions" :key="i" class="act-card">
             <div class="act-head">
               <span class="act-idx">待办 {{ i + 1 }}</span>
-              <el-button link type="danger" @click="removeAction(i)">移除</el-button>
+              <div class="act-head-ops">
+                <el-select v-model="act.status" placeholder="状态" size="small" style="width: 110px">
+                  <el-option
+                    v-for="s in actionStatusOptions"
+                    :key="s.value"
+                    :label="s.label"
+                    :value="s.value"
+                  />
+                </el-select>
+                <el-button link type="danger" size="small" @click="removeAction(i)">移除</el-button>
+              </div>
             </div>
             <el-input v-model="act.content" type="textarea" :rows="2" placeholder="待办事项内容" class="act-input" />
             <div class="act-grid">
@@ -800,6 +810,13 @@ const actionTemplateOptions = [
   { value: '个人普通待办模板', label: '个人普通待办模板' },
   { value: '厂家团队待办模板', label: '厂家团队待办模板' },
   { value: '领导交办待办模板', label: '领导交办待办模板' },
+]
+
+const actionStatusOptions = [
+  { value: 'pending', label: '待办', type: 'info' },
+  { value: 'in_progress', label: '进行中', type: 'warning' },
+  { value: 'done', label: '已完成', type: 'success' },
+  { value: 'not_attended', label: '没参会', type: 'danger' },
 ]
 
 const statusMeta = {
@@ -2107,6 +2124,11 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
+}
+.act-head-ops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .ag-idx,
 .act-idx {
