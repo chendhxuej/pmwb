@@ -13,10 +13,68 @@ from typing import Any, Dict, List, Optional
 
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
-from db.models import PmwbUserStory, SentEmail
+from db.models import PmwbUserStory, PmwbRequirementEvaluation, SentEmail
 from core.config import settings
+
+
+# ---------------------------------------------------------------------------
+# 责任部门推导（替代模板写死的「市场经营部」）
+# 优先按「实际提单人归属部门」（组织分工表），其次按需求涉及系统，最后回退默认。
+# 注：通讯录 SaInfo 无部门字段，提单人→部门采用组织分工表固化映射。
+# ---------------------------------------------------------------------------
+SYSTEM_DEPT_MAP = [
+    ("专线", "政企客户部"),
+    ("短信", "政企客户部"),
+    ("卫星", "政企客户部"),
+    ("国铁", "政企客户部"),
+    ("订单中心", "订单中心"),
+    ("订单", "订单中心"),
+    ("电子协议", "政企客户部"),
+    ("协议", "政企客户部"),
+    ("CRM", "CRM"),
+    ("BOSS", "BOSS"),
+    ("boss", "BOSS"),
+    ("生产运营", "生产运营平台"),
+    ("运营平台", "生产运营平台"),
+    ("经分", "数据资产领域"),
+]
+PROPOSER_DEPT_MAP = {
+    "邵建": "政企客户部", "张舒明": "政企客户部", "张振": "政企客户部",
+    "戴燕": "政企客户部", "黄何": "政企客户部", "金韡": "政企客户部",
+    "顾宏明": "政企客户部", "戴晓飞": "生产运营平台", "秦新": "政企客户部",
+    "郑文东": "CRM", "陈增明": "BOSS", "王辅松": "订单中心",
+    "吴雨霜": "CRM", "叶振宇": "CRM", "张茜": "CRM", "李蕊": "BOSS",
+    "陈山": "订单中心", "方舟": "政企客户部",
+}
+DEFAULT_DEPT = "政企客户部"
+
+
+def _resolve_responsible_dept(item) -> str:
+    """根据需求实际提出人归属部门推导责任部门（需求提出单位）。
+
+    优先级：①提单人固化归属部门 → ②需求涉及系统归属部门 → ③提单人名中的系统线索 → ④默认。
+    """
+    system = (getattr(item, "system_name", "") or "") if item else ""
+    proposer = (getattr(item, "proposer", "") or "") if item else ""
+    # ① 提单人实际归属部门（组织分工表）
+    if proposer and proposer in PROPOSER_DEPT_MAP:
+        return PROPOSER_DEPT_MAP[proposer]
+    # ② 需求涉及系统 → 归属部门
+    for kw, dept in SYSTEM_DEPT_MAP:
+        if kw and kw in system:
+            return dept
+    # ③ 提单人名中的系统线索
+    for kw, dept in SYSTEM_DEPT_MAP:
+        if kw and kw in proposer:
+            return dept
+    return DEFAULT_DEPT
+
+
+# 每 20 人天拆分一个用户故事（拆分参考粒度）
+WORKLOAD_PER_STORY = 20.0
 
 
 # ---------------------------------------------------------------------------
@@ -161,8 +219,12 @@ def _derive_ddd(req_name: str, system_name: Optional[str]) -> Dict[str, str]:
     }
 
 
-def _split_features(text: str) -> List[str]:
-    """把澄清内容拆成若干功能点（每个功能点生成一条用户故事）。"""
+def _coarse_features(text: str) -> List[str]:
+    """把澄清内容按「行」拆为粗粒度功能块（不过度切分长句）。
+
+    每行视为一个相对独立的功能诉求；仅去掉前导编号与过短噪声。
+    这样一条功能块 ≈ 一个用户故事候选，避免原逻辑按句号切碎导致粒度过细。
+    """
     if not text or not text.strip():
         return []
     lines = [l.strip() for l in text.replace("\r", "\n").split("\n")]
@@ -172,19 +234,41 @@ def _split_features(text: str) -> List[str]:
         l = re.sub(r"^[（(]?\d+[.、)）]?\s*", "", l).strip()
         if len(l) < 4:
             continue
-        # 长句按 。；； 再切，并去掉每段可能残留的前导编号（如 2. ② (3)）
-        for part in re.split(r"[。；;]", l):
-            part = re.sub(r"^[（(]?\d+[.、)）]?\s*", "", part).strip()
-            if len(part) >= 6:
-                feats.append(part)
-    # 去重 + 限制最多 6 条
+        feats.append(l)
+    # 去重并保持顺序
     seen = set()
     uniq = []
     for f in feats:
         if f not in seen:
             seen.add(f)
             uniq.append(f)
-    return uniq[:6]
+    return uniq
+
+
+def _chunk(items: List[str], n: int) -> List[List[str]]:
+    """将 items 顺序均匀分成 n 组（前 m 组多 1 个），空组剔除。"""
+    if not items:
+        return []
+    n = max(1, min(n, len(items)))
+    k, m = divmod(len(items), n)
+    groups, idx = [], 0
+    for i in range(n):
+        size = k + (1 if i < m else 0)
+        if size <= 0:
+            continue
+        groups.append(items[idx: idx + size])
+        idx += size
+    return [g for g in groups if g]
+
+
+def _total_workload(db, req_id: str) -> float:
+    """汇总需求团队评估总工作量（人天）。"""
+    rows = (
+        db.query(PmwbRequirementEvaluation)
+        .filter(PmwbRequirementEvaluation.req_id == req_id)
+        .all()
+    )
+    return float(sum(float((r.workload or 0)) for r in rows))
 
 
 def _story_to_dict(st: PmwbUserStory) -> Dict[str, Any]:
@@ -195,6 +279,7 @@ def _story_to_dict(st: PmwbUserStory) -> Dict[str, Any]:
         "desc": st.desc or "",
         "scene": st.scene or "",
         "acceptance": json.loads(st.acceptance) if st.acceptance else [],
+        "rules": json.loads(st.rules) if st.rules else [],
         "finalized": bool(st.finalized),
     }
 
@@ -223,6 +308,7 @@ def save_user_stories(db, req_id: str, stories: List[Dict[str, Any]]) -> Dict[st
             desc=s.get("desc", ""),
             scene=s.get("scene", ""),
             acceptance=json.dumps(s.get("acceptance") or [], ensure_ascii=False),
+            rules=json.dumps(s.get("rules") or [], ensure_ascii=False),
             finalized=1 if s.get("finalized") else 0,
         )
         db.add(st)
@@ -246,33 +332,53 @@ def generate_user_stories(db, req_id: str, content: str) -> Dict[str, Any]:
             "在相关系统中实现受理、配置、查询与监控等闭环功能。"
         )
 
-    features = _split_features(source)
+    features = _coarse_features(source)
     if not features:
         features = [source]
 
+    # 依据团队评估总工作量，推算用户故事条数（约 20 人天 / 条）
+    total_wl = _total_workload(db, req_id)
+    if total_wl and total_wl > 0:
+        target = max(1, round(total_wl / WORKLOAD_PER_STORY))
+    else:
+        # 无评估工作量时，按内容规模粗估：每 2 个功能块并 1 条，至少 1 条
+        target = max(1, (len(features) + 1) // 2)
+    # 上限保护：单需求故事数不超过 8，且不超过功能块数
+    target = min(target, 8, len(features))
+
+    groups = _chunk(features, target)
+    if not groups:
+        groups = [[source]]
+
     role = "业务负责人员"
+    purpose = "支撑政企业务数字化运营，保障业务连续性与客户体验"
     stories = []
-    for i, feat in enumerate(features, start=1):
-        function = feat
-        purpose = "支撑政企业务数字化运营，保障业务连续性与客户体验"
+    for i, group in enumerate(groups, start=1):
+        if len(group) == 1:
+            function = group[0]
+        else:
+            # 多能力合并到一条故事，标题保持精炼
+            function = f"{group[0]}等{len(group)}项能力"
+        feat_text = "；".join(group)
         title = f"US{i}：作为{role}，希望{function}，以便{purpose}"
         desc = (
-            f"【故事描述】{feat}。该需求来源于政企业务实际运营场景，"
+            f"【故事描述】{feat_text}。该需求来源于政企业务实际运营场景，"
             f"需在「{ddd['subdomain']}」相关系统中实现上述能力，"
             "以保障业务连续性与客户体验，并支持端到端的功能验证。"
         )
         scene = (
-            f"【故事场景】当业务人员处理「{feat}」相关操作时，系统应提供对应的功能入口与数据支撑，"
+            f"【故事场景】当业务人员处理「{group[0]}」相关操作时，系统应提供对应的功能入口与数据支撑，"
             "使其能够在一次完整流程内完成目标操作，并获得明确的结果反馈；"
             "若操作失败，应给出可定位的提示。"
         )
-        acceptance = [f"验证{function}功能是否成功实现"]
+        acceptance = [f"验证{x}功能是否成功实现" for x in group]
         stories.append({
             "seq": i,
             "title": title,
             "desc": desc,
             "scene": scene,
             "acceptance": acceptance,
+            "rules": [],
             "finalized": False,
         })
 
@@ -310,12 +416,82 @@ def _insert_after(anchor: Paragraph, text: str, style_name: Optional[str] = None
     return para
 
 
+def _set_font_yh(run) -> None:
+    """把 run 字体设为微软雅黑（含中文 eastAsia / ascii / hAnsi）。"""
+    run.font.name = "微软雅黑"
+    rpr = run._element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = OxmlElement("w:rFonts")
+        rpr.append(rfonts)
+    for attr in ("w:eastAsia", "w:ascii", "w:hAnsi"):
+        rfonts.set(qn(attr), "微软雅黑")
+
+
+def _style_runs_yh(para) -> None:
+    """对段落所有 run 统一设置微软雅黑字体。"""
+    if para is None:
+        return
+    for r in para.runs:
+        _set_font_yh(r)
+
+
+def _insert_table_after(anchor, rows: int, cols: int, doc):
+    """在 anchor 段落之后插入一张表格并返回其对象。"""
+    tbl = doc.add_table(rows=rows, cols=cols)
+    anchor._element.addnext(tbl._element)
+    return tbl
+
+
+def _tables_between(doc, start_el, end_el):
+    """返回文档正文中位于 start_el 与 end_el 之间的所有表格元素（按文档顺序）。"""
+    body = doc.element.body
+    res, collecting = [], False
+    for ch in body.iterchildren():
+        if ch is start_el:
+            collecting = True
+            continue
+        if ch is end_el:
+            break
+        if collecting and ch.tag == qn("w:tbl"):
+            res.append(ch)
+    return res
+
+
+# 规则表表头（与模板《需求分析说明书》一致：7 列，含规则编号双列）
+_RULE_HEADERS = ["用户故事", "规则编号", "规则编号", "领域", "规则描述", "举例", "影响的主要功能"]
+
+
+def _insert_rules_table(anchor, doc, story_title: str, rules):
+    """在每个用户故事下插入规则表（模板要求：表可空但必须有）。"""
+    rules = rules or []
+    nrows = max(1, len(rules))  # 至少 1 行占位，保证表格存在
+    tbl = _insert_table_after(anchor, nrows + 1, len(_RULE_HEADERS), doc)
+    # 表头
+    for ci, h in enumerate(_RULE_HEADERS):
+        cell = tbl.rows[0].cells[ci]
+        cell.text = h
+        _style_runs_yh(cell.paragraphs[0])
+    # 规则行（无规则则留一个占位行）
+    for ri in range(1, nrows + 1):
+        row = tbl.rows[ri]
+        rtext = rules[ri - 1] if ri - 1 < len(rules) else ""
+        rid = f"R{ri:02d}"
+        vals = [story_title, rid, rid, "—", rtext, "—", "—"]
+        for ci, v in enumerate(vals):
+            cell = row.cells[ci]
+            cell.text = v
+            _style_runs_yh(cell.paragraphs[0])
+    return tbl
+
+
 def generate_doc(db, req_id: str, stories: List[Dict[str, Any]], clarification: str = "") -> Dict[str, Any]:
     """基于固定模板生成《需求分析说明书》，仅填充第1/2/3章，其余复用模板。
 
-    第1章 基本信息（表格）：需求单编号、需求提出人
+    第1章 基本信息（表格）：需求单编号、需求责任部门（按实际归属推导）、需求提出人
     第2章 用户故事-背景以及业务总体描述：原始需求内容/澄清
-    第3章 用户故事-用户Story：自动填充 US1/US2...（固定4段模板）
+    第3章 用户故事-用户Story：自动填充 US1/US2...（固定4段模板），每个故事下补规则表
+    补充信息（含表格单元格）统一使用微软雅黑字体
     第4章 需求检查项 / 第5章 版本历史：保持模板原样
     """
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
@@ -334,8 +510,14 @@ def generate_doc(db, req_id: str, stories: List[Dict[str, Any]], clarification: 
     if doc.tables:
         tbl = doc.tables[0]
         if len(tbl.rows) >= 2:
-            tbl.rows[1].cells[0].text = req_id              # 需求单编号
-            tbl.rows[1].cells[2].text = proposer or ""       # 需求提出人
+            c0 = tbl.rows[1].cells[0]   # 需求单编号
+            c1 = tbl.rows[1].cells[1]   # 需求提出单位 / 责任部门
+            c2 = tbl.rows[1].cells[2]   # 需求提出人
+            c0.text = req_id
+            c1.text = _resolve_responsible_dept(item)
+            c2.text = proposer or ""
+            for c in (c0, c1, c2):
+                _style_runs_yh(c.paragraphs[0])
 
     # ---- 第2章 背景以及业务总体描述 ----
     idx_bg = _find_heading_index(paras, "背景以及业务总体描述", "Heading 3")
@@ -345,8 +527,9 @@ def generate_doc(db, req_id: str, stories: List[Dict[str, Any]], clarification: 
         if not bg_text:
             bg_text = req_name
         bg_body.text = f"【原始需求内容】{bg_text}"
+        _style_runs_yh(bg_body)
 
-    # ---- 第3章 用户Story：清除旧 US 区块，按生成结果填充 ----
+    # ---- 第3章 用户Story：清除旧 US 区块（含模板残留规则表），按生成结果填充 ----
     idx_story = _find_heading_index(paras, "用户Story", "Heading 3")
     idx_check = _find_heading_index(paras, "需求检查项", "Heading 2")
     if idx_story >= 0 and idx_check > idx_story:
@@ -354,13 +537,22 @@ def generate_doc(db, req_id: str, stories: List[Dict[str, Any]], clarification: 
         old = [paras[i] for i in range(idx_story + 1, idx_check)]
         for p in old:
             p._element.getparent().remove(p._element)
-        # 链式插入新故事
+        # 移除该区间内模板残留的规则表（table 元素不被段落删除逻辑清除）
+        for t in _tables_between(doc, paras[idx_story]._element, paras[idx_check]._element):
+            t.getparent().remove(t)
+        # 链式插入新故事 + 每个故事下的规则表
         anchor = paras[idx_story]
         for st in stories:
-            anchor = _insert_after(anchor, st["title"], "Heading 4", doc)
-            anchor = _insert_after(anchor, f"Story功能描述\n{st['desc']}", None, doc)
-            anchor = _insert_after(anchor, f"Story场景\n{st['scene']}", None, doc)
-            anchor = _insert_after(anchor, "验收标准\n" + "；".join(st["acceptance"]), None, doc)
+            anchor = _insert_after(anchor, st.get("title", ""), "Heading 4", doc)
+            _style_runs_yh(anchor)
+            anchor = _insert_after(anchor, f"Story功能描述\n{st.get('desc', '')}", None, doc)
+            _style_runs_yh(anchor)
+            anchor = _insert_after(anchor, f"Story场景\n{st.get('scene', '')}", None, doc)
+            _style_runs_yh(anchor)
+            anchor = _insert_after(anchor, "验收标准\n" + "；".join(st.get("acceptance") or []), None, doc)
+            _style_runs_yh(anchor)
+            # 每个故事下插入规则表（模板要求：表可空但必须有）
+            anchor = _insert_rules_table(anchor, doc, st.get("title", ""), st.get("rules"))
 
     # ---- 落盘 ----
     out_name = f"{req_name or req_id}需求分析说明书.docx"

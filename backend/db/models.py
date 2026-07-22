@@ -71,6 +71,7 @@ class PmwbUserStory(Base):
     desc = Column(Text, comment="故事描述")
     scene = Column(Text, comment="故事场景")
     acceptance = Column(Text, comment="验收标准(JSON数组)")
+    rules = Column(Text, comment="业务规则(JSON数组，每条一个规则描述)")
     finalized = Column(Integer, default=0, comment="是否已定稿(0:草稿 1:定稿)")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(

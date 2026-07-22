@@ -32,6 +32,7 @@ class UserStoryItem(BaseModel):
     desc: str
     scene: str
     acceptance: List[str] = []
+    rules: List[str] = []
     finalized: bool = False
 
 

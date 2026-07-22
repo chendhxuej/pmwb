@@ -381,26 +381,37 @@
               <div class="card-body">
                 <div v-for="(st, i) in stories" :key="i" class="story-card" :class="{ finalized: st.finalized }">
                   <div class="story-head">
+                    <span class="story-seq">US{{ i + 1 }}</span>
                     <input v-model="st.title" class="story-title-input" placeholder="故事标题" />
                     <el-switch v-model="st.finalized" active-text="已定稿" inactive-text="草稿" />
                     <el-button link type="danger" size="small" @click="stories.splice(i, 1)">删除</el-button>
                   </div>
                   <div class="story-field">
                     <span class="story-field-label">故事描述</span>
-                    <el-input v-model="st.desc" type="textarea" :rows="2" placeholder="作为…，我想要…，以便…" />
+                    <el-input v-model="st.desc" type="textarea" :autosize="{ minRows: 3, maxRows: 14 }" placeholder="作为…，我想要…，以便…" />
                   </div>
                   <div class="story-field">
                     <span class="story-field-label">故事场景</span>
-                    <el-input v-model="st.scene" type="textarea" :rows="2" placeholder="典型使用场景…" />
+                    <el-input v-model="st.scene" type="textarea" :autosize="{ minRows: 3, maxRows: 14 }" placeholder="典型使用场景…" />
                   </div>
                   <div class="story-field">
                     <span class="story-field-label">验收标准</span>
                     <div class="ac-list">
                       <div v-for="(ac, ai) in st.acceptance" :key="ai" class="ac-row">
-                        <el-input v-model="st.acceptance[ai]" placeholder="验证***功能是否成功实现" />
+                        <el-input v-model="st.acceptance[ai]" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="验证***功能是否成功实现" />
                         <el-button link type="danger" size="small" @click="st.acceptance.splice(ai, 1)">×</el-button>
                       </div>
                       <el-button size="small" link type="primary" @click="st.acceptance.push('')">+ 新增验收标准</el-button>
+                    </div>
+                  </div>
+                  <div class="story-field">
+                    <span class="story-field-label">业务规则（每条一栏，可空，生成文档时每种子下将落规则表）</span>
+                    <div class="ac-list">
+                      <div v-for="(r, ri) in (st.rules || [])" :key="ri" class="ac-row">
+                        <el-input v-model="st.rules[ri]" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="提炼本故事的业务规则…" />
+                        <el-button link type="danger" size="small" @click="st.rules.splice(ri, 1)">×</el-button>
+                      </div>
+                      <el-button size="small" link type="primary" @click="(st.rules || (st.rules = [])).push('')">+ 新增业务规则</el-button>
                     </div>
                   </div>
                 </div>
@@ -765,6 +776,7 @@ async function loadStories(reqId) {
       desc: s.desc,
       scene: s.scene,
       acceptance: s.acceptance && s.acceptance.length ? s.acceptance : [''],
+      rules: s.rules && s.rules.length ? s.rules : [],
       finalized: s.finalized,
     }))
   } catch (err) {
@@ -780,6 +792,7 @@ async function saveStories() {
       desc: s.desc,
       scene: s.scene,
       acceptance: s.acceptance || [],
+      rules: s.rules || [],
       finalized: s.finalized,
     }))
     await saveUserStories(current.value.req_id, payload)
@@ -887,7 +900,7 @@ async function removeEval(row) {
 
 /* 用户故事（真实端点：基于 DDD 生成固定 4 段模板，落库） */
 function addStory() {
-  stories.value.push({ title: '', desc: '', scene: '', acceptance: [''], finalized: false })
+  stories.value.push({ title: '', desc: '', scene: '', acceptance: [''], rules: [], finalized: false })
 }
 async function generateStories() {
   if (!clarification.value.trim()) {
@@ -904,9 +917,10 @@ async function generateStories() {
       desc: s.desc,
       scene: s.scene,
       acceptance: s.acceptance && s.acceptance.length ? s.acceptance : [''],
+      rules: s.rules && s.rules.length ? s.rules : [],
       finalized: false,
     }))
-    ElMessage.success(`已基于 DDD 生成 ${stories.value.length} 条用户故事并落库`)
+    ElMessage.success(`已基于工作量(约20人天/故事)生成 ${stories.value.length} 条用户故事并落库`)
   } catch (err) {
     ElMessage.error('生成失败，请重试')
   }
@@ -921,7 +935,7 @@ async function generateDoc() {
   try {
     const res = await generateRequirementDoc(
       current.value.req_id,
-      stories.value.map((s) => ({ title: s.title, desc: s.desc, scene: s.scene, acceptance: s.acceptance, seq: s.seq })),
+      stories.value.map((s) => ({ title: s.title, desc: s.desc, scene: s.scene, acceptance: s.acceptance, rules: s.rules || [], seq: s.seq })),
       clarification.value,
     )
     genHistory.value.unshift({
@@ -1030,6 +1044,7 @@ loadTickets()
 .story-card { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; transition: all .2s }
 .story-card.finalized { border-color: var(--success); background: var(--success-soft) }
 .story-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
+.story-seq { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; flex-shrink: 0; white-space: nowrap }
 .story-title-input { flex: 1; border: none; border-bottom: 1px dashed var(--border); background: transparent; font-size: 14px; font-weight: 600; color: var(--text-primary); padding: 4px 0; outline: none }
 .story-field { margin-bottom: 10px }
 .story-field-label { font-size: 11.5px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 5px }
