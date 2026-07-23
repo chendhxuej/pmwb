@@ -19,6 +19,7 @@ class MeetingStatus(str, Enum):
     planned = "planned"
     held = "held"
     cancelled = "cancelled"
+    not_attended = "not_attended"
 
 
 class MeetingActionStatus(str, Enum):

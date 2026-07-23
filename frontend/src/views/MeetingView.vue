@@ -585,22 +585,24 @@
           </el-col>
         </el-row>
         <el-row :gutter="14">
-          <el-col :span="6">
+          <el-col :span="8">
             <el-form-item label="组织者" prop="host">
               <el-input v-model="form.host" placeholder="组织者" />
             </el-form-item>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="8">
             <el-form-item label="召集人">
               <el-input v-model="form.convener" placeholder="召集人" />
             </el-form-item>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="8">
             <el-form-item label="记录人">
               <el-input v-model="form.recorder" placeholder="记录人" />
             </el-form-item>
           </el-col>
-          <el-col :span="6">
+        </el-row>
+        <el-row :gutter="14">
+          <el-col :span="8">
             <el-form-item label="状态" prop="status">
               <el-select v-model="form.status" style="width: 100%">
                 <el-option
@@ -612,9 +614,7 @@
               </el-select>
             </el-form-item>
           </el-col>
-        </el-row>
-        <el-row :gutter="14">
-          <el-col :span="12">
+          <el-col :span="8">
             <el-form-item label="时长(分钟)">
               <el-input-number v-model="form.duration" :min="5" :step="5" style="width: 100%" />
             </el-form-item>
@@ -622,16 +622,29 @@
         </el-row>
         <el-form-item label="参会人">
           <div class="chip-input">
-            <span v-for="(c, i) in attendeeChips" :key="i" class="chip">
-              {{ c }}
-              <span class="chip-x" @click="attendeeChips.splice(i, 1)">✕</span>
-            </span>
-            <input
-              v-model="attendeeInput"
-              class="chip-text"
-              placeholder="输入姓名后回车"
-              @keydown.enter.prevent="addChip"
-            />
+            <el-select
+              v-model="attendeeChips"
+              multiple
+              filterable
+              allow-create
+              default-first-option
+              placeholder="选择或输入姓名后回车"
+              style="width: 100%"
+              :reserve-keyword="false"
+              @change="onAttendeeChange"
+            >
+              <el-option
+                v-for="name in commonAttendees"
+                :key="name"
+                :label="name"
+                :value="name"
+              />
+            </el-select>
+          </div>
+          <div class="attendee-extra">
+            <el-button link type="primary" size="small" @click="openAttendeeManager">
+              管理常用参会人
+            </el-button>
           </div>
         </el-form-item>
         <el-form-item label="参会注意点">
@@ -674,6 +687,28 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 常用参会人管理弹窗 -->
+    <el-dialog
+      v-model="attendeeManagerVisible"
+      title="管理常用参会人"
+      width="480px"
+      append-to-body
+    >
+      <p class="text-muted" style="margin: 0 0 8px; font-size: 13px;">
+        用中文顿号、逗号或换行分隔姓名，保存后会作为「参会人」下拉选项。
+      </p>
+      <el-input
+        v-model="attendeeManagerInput"
+        type="textarea"
+        :rows="6"
+        placeholder="例如：张三、李四、王五"
+      />
+      <template #footer>
+        <el-button @click="attendeeManagerVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveAttendeeManager">保存</el-button>
       </template>
     </el-dialog>
 
@@ -771,6 +806,9 @@ const isEdit = ref(false)
 const formRef = ref(null)
 const attendeeInput = ref('')
 const attendeeChips = ref([])
+const commonAttendees = ref([])
+const attendeeManagerVisible = ref(false)
+const attendeeManagerInput = ref('')
 const agendaText = ref('')
 
 const meetings = ref([])
@@ -795,6 +833,7 @@ const statusOptions = [
   { value: 'planned', label: '计划中' },
   { value: 'held', label: '已召开' },
   { value: 'cancelled', label: '已取消' },
+  { value: 'not_attended', label: '没参会' },
 ]
 
 const actionCategoryOptions = [
@@ -823,6 +862,7 @@ const statusMeta = {
   planned: { label: '计划中', cls: 'blue' },
   held: { label: '已召开', cls: 'green' },
   cancelled: { label: '已取消', cls: 'gray' },
+  not_attended: { label: '没参会', cls: 'danger' },
 }
 const statusMetaOf = (s) => statusMeta[s] || { label: s || '—', cls: 'gray' }
 
@@ -1550,6 +1590,43 @@ const addChip = () => {
   attendeeInput.value = ''
 }
 
+const loadCommonAttendees = () => {
+  try {
+    const raw = localStorage.getItem('pmwb_meeting_common_attendees')
+    commonAttendees.value = raw ? JSON.parse(raw) : []
+  } catch {
+    commonAttendees.value = []
+  }
+}
+
+const saveCommonAttendees = () => {
+  localStorage.setItem('pmwb_meeting_common_attendees', JSON.stringify(commonAttendees.value))
+}
+
+const onAttendeeChange = (val) => {
+  // 自动把新输入的姓名加入常用列表
+  const news = val.filter((n) => !commonAttendees.value.includes(n))
+  if (news.length) {
+    commonAttendees.value.push(...news)
+    saveCommonAttendees()
+  }
+}
+
+const openAttendeeManager = () => {
+  attendeeManagerInput.value = commonAttendees.value.join('、')
+  attendeeManagerVisible.value = true
+}
+
+const saveAttendeeManager = () => {
+  const list = attendeeManagerInput.value
+    .split(/[，,、；;\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  commonAttendees.value = [...new Set(list)]
+  saveCommonAttendees()
+  attendeeManagerVisible.value = false
+}
+
 const handleAdd = () => {
   isEdit.value = false
   Object.assign(form, { ...defaultForm, host: currentUser, meeting_id: generateMeetingId() })
@@ -1639,6 +1716,7 @@ const handleSubmit = () => {
 
 onMounted(() => {
   loadMeetings()
+  loadCommonAttendees()
 })
 </script>
 
@@ -2202,44 +2280,17 @@ onMounted(() => {
 
 /* 弹层 chip 多选 */
 .chip-input {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
   width: 100%;
 }
-.chip-input:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+.chip-input :deep(.el-select) {
+  width: 100%;
 }
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 9px;
-  border-radius: 8px;
-  background: var(--accent-soft);
-  color: var(--accent);
+.chip-input :deep(.el-select__tags) {
+  flex-wrap: wrap;
 }
-.chip-x {
-  cursor: pointer;
-  opacity: 0.7;
-}
-.chip-x:hover {
-  opacity: 1;
-}
-.chip-text {
-  border: none;
-  outline: none;
-  flex: 1;
-  font-size: 13px;
-  min-width: 80px;
-  background: transparent;
+.attendee-extra {
+  margin-top: 4px;
+  text-align: right;
 }
 
 /* 邮件弹窗 */

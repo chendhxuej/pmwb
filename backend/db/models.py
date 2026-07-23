@@ -317,7 +317,7 @@ class PmwbMeeting(Base):
     obsidian_path = Column(String(512), comment="Obsidian 纪要路径")
     related_req_id = Column(String(64), comment="关联需求编号")
     related_ticket_no = Column(String(64), comment="关联开发工单编号")
-    status = Column(Enum("planned", "held", "cancelled"), default="planned", comment="状态")
+    status = Column(Enum("planned", "held", "cancelled", "not_attended"), default="planned", comment="状态")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,
