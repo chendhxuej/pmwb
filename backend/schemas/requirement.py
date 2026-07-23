@@ -48,6 +48,7 @@ class RequirementExtUpdate(BaseModel):
     clarification: Optional[str] = None
     system_name: Optional[str] = None
     sa_name: Optional[str] = None
+    dev_ticket_no: Optional[str] = Field(None, description="需求级开发单号")
 
     @field_validator("version_required_date", mode="before")
     @classmethod

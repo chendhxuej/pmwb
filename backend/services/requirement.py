@@ -248,7 +248,13 @@ class RequirementService:
         )
 
     def get(self, db: Session, req_id: str) -> Optional[Dict[str, Any]]:
-        item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
+        # 与 list_with_filters 保持一致：取该需求最新一条 sent_email 作为代表
+        item = (
+            db.query(SentEmail)
+            .filter(SentEmail.req_id == req_id)
+            .order_by(SentEmail.id.desc())
+            .first()
+        )
         if not item:
             return None
         ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
@@ -276,11 +282,21 @@ class RequirementService:
         return data
 
     def update_ext(self, db: Session, req_id: str, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
+        # 与列表展示保持一致：更新最新一条 sent_email 记录
+        item = (
+            db.query(SentEmail)
+            .filter(SentEmail.req_id == req_id)
+            .order_by(SentEmail.id.desc())
+            .first()
+        )
         if not item:
             return None
         ext = self._get_or_create_ext(db, req_id)
         for key, value in obj_in.items():
+            if key == "dev_ticket_no":
+                # 需求级开发单号保存在 sent_emails 源表
+                item.dev_ticket_no = value or None
+                continue
             if not hasattr(ext, key):
                 continue
             if key == "version_required_date":

@@ -80,6 +80,7 @@
                 <span class="font-mono">{{ row.eval_workload != null ? row.eval_workload : '—' }}</span>
               </template>
             </el-table-column>
+            <el-table-column prop="dev_ticket_no" label="开发单号" width="140" show-overflow-tooltip />
             <el-table-column label="操作" width="120" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openReqDialog(row)">编辑</el-button>
@@ -231,6 +232,11 @@
                     <div style="grid-column: span 6">
                       <el-form-item label="期望版本日">
                         <el-date-picker v-model="current.version_required_date" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="选择日期" />
+                      </el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="开发单号">
+                        <el-input v-model="current.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
                       </el-form-item>
                     </div>
                     <div style="grid-column: span 12">
@@ -603,6 +609,7 @@ const reqForm = reactive({
   priority: 'P2',
   status: 'proposed',
   version_required_date: '',
+  dev_ticket_no: '',
   background: '',
   description: '',
   clarification: '',
@@ -619,6 +626,7 @@ function openReqDialog(row) {
     priority: row.ext?.priority || 'P2',
     status: row.ext?.status || 'proposed',
     version_required_date: row.ext?.version_required_date || '',
+    dev_ticket_no: row.dev_ticket_no || '',
     background: row.background || '',
     description: row.description || '',
     clarification: row.clarification || '',
@@ -653,6 +661,7 @@ async function refreshCurrent(reqId) {
       current.value.priority = res.ext?.priority || 'P2'
       current.value.status = res.ext?.status || 'proposed'
       current.value.version_required_date = res.ext?.version_required_date || ''
+      current.value.dev_ticket_no = res.dev_ticket_no || ''
       current.value.owner_note = res.ext?.owner_note || ''
       current.value.tags = res.ext?.tags || ''
       current.value.personal_note = res.ext?.personal_note || ''
@@ -734,6 +743,7 @@ async function openWorkflow(row) {
   current.value.priority = row.ext?.priority || 'P2'
   current.value.status = row.ext?.status || 'proposed'
   current.value.version_required_date = row.ext?.version_required_date || ''
+  current.value.dev_ticket_no = row.dev_ticket_no || ''
   current.value.owner_note = row.ext?.owner_note || ''
   current.value.tags = row.ext?.tags || ''
   current.value.personal_note = row.ext?.personal_note || ''
@@ -821,6 +831,7 @@ async function saveDetail() {
       priority: current.value.priority,
       status: current.value.status,
       version_required_date: current.value.version_required_date || null,
+      dev_ticket_no: current.value.dev_ticket_no || '',
       owner_note: current.value.owner_note,
       tags: current.value.tags,
       personal_note: current.value.personal_note,

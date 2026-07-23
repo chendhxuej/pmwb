@@ -163,6 +163,7 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="dev_ticket_no" label="开发单号" width="130" show-overflow-tooltip />
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="handleEdit(row)">跟踪</el-button>
@@ -218,6 +219,9 @@
         </el-form-item>
         <el-form-item label="个人备注">
           <el-input v-model="form.personal_note" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="开发单号">
+          <el-input v-model="form.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -444,7 +448,7 @@ const evalForm = reactive({
   sa_name: '', system_name: '', workload: null,
   review_workload: null, opinion: '', dev_ticket_no: '',
 })
-const form = reactive({ req_id: '', req_name: '', status: '', priority: '', tags: '', personal_note: '' })
+const form = reactive({ req_id: '', req_name: '', status: '', priority: '', tags: '', personal_note: '', dev_ticket_no: '' })
 const detail = ref({})
 const reminderRecords = ref([])
 const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
@@ -688,6 +692,7 @@ function handleEdit(row) {
   form.priority = row.ext?.priority || 'P2'
   form.tags = row.ext?.tags || ''
   form.personal_note = row.ext?.personal_note || ''
+  form.dev_ticket_no = row.dev_ticket_no || ''
   dialogVisible.value = true
 }
 
@@ -698,6 +703,7 @@ async function handleSave() {
       priority: form.priority,
       tags: form.tags,
       personal_note: form.personal_note,
+      dev_ticket_no: form.dev_ticket_no,
     })
     ElMessage.success('保存成功')
     dialogVisible.value = false
