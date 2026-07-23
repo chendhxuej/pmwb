@@ -127,6 +127,9 @@ class DevTicketService:
         obj = self._get(db, ticket_id)
         if not obj:
             return False
+        # 先删除关联日志和交付物，避免外键约束 1451
+        db.query(PmwbDevTicketLog).filter(PmwbDevTicketLog.ticket_id == ticket_id).delete(synchronize_session=False)
+        db.query(PmwbDevDeliverable).filter(PmwbDevDeliverable.ticket_id == ticket_id).delete(synchronize_session=False)
         db.delete(obj)
         db.commit()
         return True
