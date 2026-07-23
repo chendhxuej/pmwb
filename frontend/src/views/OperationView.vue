@@ -127,9 +127,26 @@
           <el-table-column label="创建" width="120">
             <template #default="{ row }">{{ formatDate(row.created_at, 'MM-DD') }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="150" fixed="right">
+          <el-table-column label="操作" width="190" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
+              <el-dropdown size="small" trigger="click" @command="(cmd) => changeStatus(row, cmd)">
+                <el-button link type="primary" :loading="statusLoadingMap[row.id]">
+                  改状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item
+                      v-for="s in STATUS_OPTIONS"
+                      :key="s.key"
+                      :command="s.key"
+                      :disabled="row.status === s.key"
+                    >
+                      <span :class="['status-dot', 'dot-' + s.key]"></span>{{ s.label }}
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
               <el-button link type="warning" @click.stop="openEmailFromRow(row)">督办</el-button>
             </template>
           </el-table-column>
@@ -260,7 +277,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Document, Warning, DataLine, Cpu, List, ChatDotRound } from '@element-plus/icons-vue'
+import { Plus, Document, Warning, DataLine, Cpu, List, ChatDotRound, ArrowDown } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import { operationApi } from '@/api/operation'
 import { obsidianApi } from '@/api/obsidian'
@@ -300,6 +317,15 @@ const statusBadgeOptions = {
   closed: { label: '已关闭', type: 'info' },
   suspended: { label: '已挂起', type: 'info' },
 }
+
+const STATUS_OPTIONS = [
+  { key: 'pending', label: '待处理' },
+  { key: 'processing', label: '处理中' },
+  { key: 'verify', label: '验证中' },
+  { key: 'resolved', label: '已解决' },
+  { key: 'closed', label: '已关闭' },
+  { key: 'suspended', label: '已挂起' },
+]
 
 const overall = reactive({
   total: 0, processing: 0, resolved: 0, closed: 0, overdue: 0, closed_loop_rate: 0,
@@ -410,6 +436,22 @@ const loadNotes = async () => {
 const selectCategory = (key) => {
   selectedCategory.value = key
   page.value = 1
+}
+
+const statusLoadingMap = ref({})
+const changeStatus = async (row, status) => {
+  if (!row || row.status === status) return
+  statusLoadingMap.value[row.id] = true
+  try {
+    await operationApi.updateIssue(row.id, { status })
+    ElMessage.success('状态已更新')
+    loadStats()
+    loadIssues()
+  } catch (e) {
+    ElMessage.error('状态更新失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    delete statusLoadingMap.value[row.id]
+  }
 }
 
 const onRowClick = (row) => openDetail(row)
@@ -808,4 +850,19 @@ onMounted(() => {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+.dot-pending { background: #f56c6c; }
+.dot-processing { background: #e6a23c; }
+.dot-verify { background: #409eff; }
+.dot-resolved { background: #67c23a; }
+.dot-closed { background: #909399; }
+.dot-suspended { background: #909399; }
+
 </style>

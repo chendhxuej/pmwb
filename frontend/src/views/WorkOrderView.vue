@@ -114,9 +114,26 @@
       <el-table-column label="创建时间" width="130">
         <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="150" fixed="right">
+      <el-table-column label="操作" width="190" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+          <el-dropdown size="small" trigger="click" @command="(cmd) => changeStatus(row, cmd)">
+            <el-button link type="primary" :loading="statusLoadingMap[row.id]">
+              改状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="s in STATUS_OPTIONS"
+                  :key="s.key"
+                  :command="s.key"
+                  :disabled="row.status === s.key"
+                >
+                  <span :class="['status-dot', 'dot-' + s.key]"></span>{{ s.label }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button link type="warning" @click="openEmail(row)">督办</el-button>
         </template>
       </el-table-column>
@@ -217,8 +234,11 @@
       </div>
       <template #footer>
         <div class="drawer-foot">
-          <el-button :loading="advanceLoading" @click="advanceStatus">
-            <el-icon><RefreshRight /></el-icon><span>推进状态</span>
+          <el-select v-model="nextStatus" size="small" style="width:130px" placeholder="选择状态">
+            <el-option v-for="s in STATUS_OPTIONS" :key="s.key" :label="s.label" :value="s.key" />
+          </el-select>
+          <el-button :loading="advanceLoading" :disabled="!nextStatus || nextStatus === detailRow?.status" @click="changeStatusFromDetail">
+            <el-icon><RefreshRight /></el-icon><span>确认变更</span>
           </el-button>
           <el-button @click="openEditFromDetail"><el-icon><Edit /></el-icon><span>编辑</span></el-button>
           <el-button @click="openLinkPicker('detail')"><el-icon><Connection /></el-icon><span>关联知识</span></el-button>
@@ -340,7 +360,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Edit, Promotion, RefreshRight, Connection, Document } from '@element-plus/icons-vue'
+import { Plus, Edit, Promotion, RefreshRight, Connection, Document, ArrowDown } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import { operationApi } from '@/api/operation'
 import { obsidianApi } from '@/api/obsidian'
@@ -382,6 +402,10 @@ const STATUS_FLOW = [
   { key: 'verify', label: '验证中' },
   { key: 'resolved', label: '已解决' },
   { key: 'closed', label: '已关闭' },
+]
+const STATUS_OPTIONS = [
+  ...STATUS_FLOW,
+  { key: 'suspended', label: '已挂起' },
 ]
 const statusBadgeOptions = {
   pending: { label: '待处理', type: 'danger' },
@@ -472,6 +496,7 @@ const detailVisible = ref(false)
 const detailRow = ref(null)
 const detailLoading = ref(false)
 const advanceLoading = ref(false)
+const nextStatus = ref('')
 
 const currentIdx = computed(() => STATUS_FLOW.findIndex((s) => s.key === detailRow.value?.status))
 const stepClass = (idx) => (idx < currentIdx.value ? 'done' : idx === currentIdx.value ? 'active' : '')
@@ -481,11 +506,13 @@ const supervisionList = computed(() => (detailRow.value && supervisionRecords[de
 
 const openDetail = async (row) => {
   detailRow.value = row
+  nextStatus.value = row?.status || ''
   detailVisible.value = true
   detailLoading.value = true
   try {
     const res = await operationApi.getIssue(row.id)
     detailRow.value = res
+    nextStatus.value = res.status || ''
   } catch (e) {
     ElMessage.error('加载详情失败')
   } finally {
@@ -501,21 +528,39 @@ const refreshDetail = async () => {
   } catch (e) { /* 保留旧值 */ }
 }
 
-const advanceStatus = async () => {
-  if (!detailRow.value) return
-  const idx = currentIdx.value
-  if (idx < 0 || idx >= STATUS_FLOW.length - 1) { ElMessage.info('已是最终状态'); return }
-  const next = STATUS_FLOW[idx + 1]
+const changeStatusFromDetail = async () => {
+  if (!detailRow.value || !nextStatus.value || nextStatus.value === detailRow.value.status) return
   advanceLoading.value = true
   try {
-    await operationApi.updateIssue(detailRow.value.id, { status: next.key })
-    ElMessage.success(`状态已推进至「${next.label}」`)
+    await operationApi.updateIssue(detailRow.value.id, { status: nextStatus.value })
+    ElMessage.success('状态已更新')
     await refreshDetail()
+    nextStatus.value = detailRow.value?.status || ''
     loadData(); loadStats()
   } catch (e) {
-    ElMessage.error('推进失败')
+    ElMessage.error('状态更新失败')
   } finally {
     advanceLoading.value = false
+  }
+}
+
+// ---- 列表快速改状态 ----
+const statusLoadingMap = ref({})
+const changeStatus = async (row, status) => {
+  if (!row || row.status === status) return
+  statusLoadingMap.value[row.id] = true
+  try {
+    await operationApi.updateIssue(row.id, { status })
+    ElMessage.success('状态已更新')
+    loadData(); loadStats()
+    if (detailVisible.value && detailRow.value?.id === row.id) {
+      await refreshDetail()
+      nextStatus.value = detailRow.value?.status || ''
+    }
+  } catch (e) {
+    ElMessage.error('状态更新失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    delete statusLoadingMap.value[row.id]
   }
 }
 
@@ -842,6 +887,21 @@ onMounted(() => {
 .drawer-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .note-picker { display: flex; align-items: center; gap: 8px; }
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+.dot-pending { background: #f56c6c; }
+.dot-processing { background: #e6a23c; }
+.dot-verify { background: #409eff; }
+.dot-resolved { background: #67c23a; }
+.dot-closed { background: #909399; }
+.dot-suspended { background: #909399; }
+
 
 /* 邮件督办 */
 .email-body { padding: 2px 4px; }
