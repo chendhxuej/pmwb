@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class RequirementStatus(str):
@@ -48,6 +48,13 @@ class RequirementExtUpdate(BaseModel):
     clarification: Optional[str] = None
     system_name: Optional[str] = None
     sa_name: Optional[str] = None
+
+    @field_validator("version_required_date", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        if v is None or v == "":
+            return None
+        return v
 
 
 class EvaluationUpdate(BaseModel):
