@@ -81,7 +81,9 @@ const { collapsed, toggleCollapsed } = appStore
 
 const menuItems = computed(() => {
   const top = route.matched[0]?.children || []
-  return top.map((child) => {
+  return top
+    .filter((child) => !child.meta?.hidden)
+    .map((child) => {
     const base = {
       path: '/' + child.path,
       title: child.meta?.title || child.name,
