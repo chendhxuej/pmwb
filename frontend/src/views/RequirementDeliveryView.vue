@@ -105,6 +105,85 @@
         </div>
       </el-tab-pane>
 
+      <!-- ════════ 用户故事标签（全局检索） ════════ -->
+      <el-tab-pane label="用户故事" name="story">
+        <div class="pm-table-wrap">
+          <div class="table-toolbar">
+            <el-input
+              v-model="usKeyword"
+              placeholder="模糊搜索：标题 / 描述 / 场景 / 验收标准 / 业务规则 / 需求编号 / 需求名称（空格分词）"
+              style="width: 420px"
+              clearable
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-select v-model="usFinalized" placeholder="定稿状态" clearable style="width: 130px" @change="handleStorySearch">
+              <el-option label="全部" value="" />
+              <el-option label="草稿" :value="0" />
+              <el-option label="已定稿" :value="1" />
+            </el-select>
+            <el-button @click="loadStorySearch"><el-icon><Refresh /></el-icon> 刷新</el-button>
+            <span class="text-muted" style="margin-left:auto;font-size:12px">默认全局展示，按创建时间倒序</span>
+          </div>
+          <el-table
+            v-loading="usLoading"
+            :data="usList"
+            stripe
+            scrollbar-always-on
+            @row-click="openStoryDetail"
+          >
+            <el-table-column prop="req_id" label="需求编号" width="140" show-overflow-tooltip />
+            <el-table-column prop="req_name" label="需求名称" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span>{{ row.req_name || '（未命名）' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="seq" label="序号" width="64" align="center">
+              <template #default="{ row }"><span class="story-seq">US{{ row.seq }}</span></template>
+            </el-table-column>
+            <el-table-column prop="title" label="故事标题" min-width="220" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="link-text">{{ row.title || '（无标题）' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="desc" label="故事描述" min-width="260" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="text-muted">{{ row.desc || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="定稿状态" width="90" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.finalized ? 'success' : 'info'">{{ row.finalized ? '已定稿' : '草稿' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="创建时间" width="150" align="center">
+              <template #default="{ row }">
+                <span class="text-muted">{{ formatDateTime(row.created_at) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90" align="center" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click.stop="openStoryDetail(row)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="table-footer">
+            <span class="text-muted">共 {{ usTotal }} 条</span>
+            <el-pagination
+              v-model:current-page="usPage"
+              v-model:page-size="usPageSize"
+              :total="usTotal"
+              :page-sizes="[20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              small
+              background
+              @size-change="loadStorySearch"
+              @current-change="loadStorySearch"
+            />
+          </div>
+        </div>
+      </el-tab-pane>
+
       <!-- ════════ 开发工单标签 ════════ -->
       <el-tab-pane label="开发工单" name="ticket">
         <div class="pm-table-wrap">
@@ -472,6 +551,57 @@
       </div>
     </el-drawer>
 
+    <!-- ════════ 用户故事只读详情抽屉 ════════ -->
+    <el-drawer v-model="usDetailVisible" size="60%" :title="null" destroy-on-close>
+      <template #header>
+        <div class="wf-head">
+          <div>
+            <div class="wf-req-id font-mono">{{ usDetail.req_id }} · US{{ usDetail.seq }}</div>
+            <div class="wf-req-name">{{ usDetail.req_name || '（未命名需求）' }}</div>
+          </div>
+          <div class="flex gap-8">
+            <el-tag size="small" :type="usDetail.finalized ? 'success' : 'info'">{{ usDetail.finalized ? '已定稿' : '草稿' }}</el-tag>
+            <el-button size="small" type="primary" @click="openSourceRequirement(usDetail)">
+              <el-icon><TopRight /></el-icon> 跳转原需求
+            </el-button>
+          </div>
+        </div>
+      </template>
+      <div class="us-detail">
+        <div class="us-block">
+          <div class="us-label">故事标题</div>
+          <div class="us-value" v-html="highlight(usDetail.title)"></div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">故事描述</div>
+          <div class="us-value pre" v-html="highlight(usDetail.desc)"></div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">故事场景</div>
+          <div class="us-value pre" v-html="highlight(usDetail.scene)"></div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">验收标准</div>
+          <ol v-if="(usDetail.acceptance || []).length" class="us-ol">
+            <li v-for="(ac, i) in usDetail.acceptance" :key="i" v-html="highlight(ac)"></li>
+          </ol>
+          <div v-else class="text-muted">—</div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">业务规则</div>
+          <ol v-if="(usDetail.rules || []).length" class="us-ol">
+            <li v-for="(r, i) in usDetail.rules" :key="i" v-html="highlight(r)"></li>
+          </ol>
+          <div v-else class="text-muted">—</div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">创建时间</div>
+          <div class="us-value">{{ formatDateTime(usDetail.created_at) }}</div>
+        </div>
+        <div class="hint-text">此处为只读视图；如需修改，请点「跳转原需求」在需求工作流的「用户故事」步中编辑。</div>
+      </div>
+    </el-drawer>
+
     <!-- 团队评估弹层 -->
     <el-dialog v-model="evalDialog" :title="evalForm.id ? '编辑系统评估' : '新增系统评估'" width="520px">
       <el-form :model="evalForm" label-width="110px">
@@ -555,12 +685,13 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { formatDate } from '@/utils/format'
+import { formatDate, formatDateTime } from '@/utils/format'
 import {
   getRequirements, getRequirement, updateRequirement, deleteRequirement,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
-  deleteRequirementAttachment, generateUserStories, getUserStories, saveUserStories, generateRequirementDoc,
+  deleteRequirementAttachment, generateUserStories, getUserStories, saveUserStories,
+  generateRequirementDoc, searchUserStories,
 } from '@/api/requirement'
 import {
   getDevTickets, createDevTicket, updateDevTicket, deleteDevTicket,
@@ -667,6 +798,93 @@ async function refreshCurrent(reqId) {
       current.value.personal_note = res.ext?.personal_note || ''
     }
   } catch (e) { /* ignore */ }
+}
+
+/* ─────────────── 用户故事标签（全局检索） ─────────────── */
+const usKeyword = ref('')
+const usFinalized = ref('')
+const usLoading = ref(false)
+const usList = ref([])
+const usTotal = ref(0)
+const usPage = ref(1)
+const usPageSize = ref(20)
+let usDebounce = null
+
+async function loadStorySearch() {
+  usLoading.value = true
+  try {
+    const res = await searchUserStories({
+      keyword: usKeyword.value.trim(),
+      finalized: usFinalized.value,
+      page: usPage.value,
+      pageSize: usPageSize.value,
+    })
+    usList.value = res.items || []
+    usTotal.value = res.total || 0
+  } finally {
+    usLoading.value = false
+  }
+}
+
+function handleStorySearch() {
+  usPage.value = 1
+  loadStorySearch()
+}
+
+// 输入即查（防抖 300ms）
+watch(usKeyword, () => {
+  if (usDebounce) clearTimeout(usDebounce)
+  usDebounce = setTimeout(() => {
+    usPage.value = 1
+    loadStorySearch()
+  }, 300)
+})
+
+// 首次进入用户故事标签时懒加载
+watch(activeTab, (v) => {
+  if (v === 'story' && !usList.value.length && !usLoading.value) {
+    loadStorySearch()
+  }
+})
+
+/* 用户故事只读详情 */
+const usDetailVisible = ref(false)
+const usDetail = ref({})
+function openStoryDetail(row) {
+  usDetail.value = { ...row }
+  usDetailVisible.value = true
+}
+
+// 高亮命中关键词（先转义 HTML，再包裹 <mark>）
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+function highlight(text) {
+  const safe = escapeHtml(text)
+  const words = usKeyword.value.trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return safe
+  const escapeReg = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`(${words.map(escapeReg).join('|')})`, 'gi')
+  return safe.replace(re, '<mark class="us-hl">$1</mark>')
+}
+
+// 跳转原需求（打开工作流并定位到「用户故事」步）
+async function openSourceRequirement(row) {
+  try {
+    const res = await getRequirement(row.req_id)
+    if (!res) {
+      ElMessage.warning('未找到原需求记录')
+      return
+    }
+    usDetailVisible.value = false
+    await openWorkflow(res)
+    step.value = 'story'
+  } catch (e) {
+    ElMessage.error('跳转失败')
+  }
 }
 
 /* ─────────────── 工单标签 ─────────────── */
@@ -1076,4 +1294,14 @@ loadTickets()
 .gen-meta { flex: 1; min-width: 0 }
 
 .w-full { width: 100% }
+
+/* 用户故事只读详情 */
+.us-detail { padding: 4px 24px 32px }
+.us-block { margin-bottom: 18px }
+.us-label { font-size: 11.5px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px }
+.us-value { font-size: 13.5px; line-height: 1.7; color: var(--text-primary) }
+.us-value.pre { white-space: pre-wrap }
+.us-ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.8; color: var(--text-primary) }
+.us-ol li { margin-bottom: 4px }
+:deep(.us-hl) { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 2px; font-weight: 600 }
 </style>

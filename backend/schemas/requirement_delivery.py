@@ -41,6 +41,29 @@ class UserStoryListOut(BaseModel):
     stories: List[UserStoryItem]
 
 
+class UserStorySearchItem(BaseModel):
+    """全局搜索结果项（含关联需求信息与创建时间）。"""
+
+    id: Optional[int] = None
+    req_id: str = ""
+    req_name: str = ""
+    seq: int = 1
+    title: str = ""
+    desc: str = ""
+    scene: str = ""
+    acceptance: List[str] = []
+    rules: List[str] = []
+    finalized: bool = False
+    created_at: Optional[str] = None
+
+
+class UserStorySearchOut(BaseModel):
+    items: List[UserStorySearchItem]
+    total: int
+    page: int
+    page_size: int
+
+
 class UserStoryGenIn(BaseModel):
     """用户故事生成入参：澄清后的需求内容。"""
 

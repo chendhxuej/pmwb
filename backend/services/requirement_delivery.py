@@ -295,6 +295,77 @@ def get_user_stories(db, req_id: str) -> Dict[str, Any]:
     return {"req_id": req_id, "stories": [_story_to_dict(r) for r in rows]}
 
 
+def search_user_stories(
+    db,
+    keyword: Optional[str] = None,
+    finalized: Optional[int] = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> Dict[str, Any]:
+    """全局用户故事模糊查询（跨需求）。
+
+    - keyword：空格分词，多词 AND；每个词在 标题/描述/场景/验收标准/业务规则/
+      需求编号/需求名称 全字段 OR 模糊匹配。
+    - finalized：None=全部，0=草稿，1=已定稿。
+    - 排序：created_at 倒序（同刻按 id 倒序）。
+    - 分页：page / page_size。
+    返回 {items, total, page, page_size}，item 含 req_name。
+    """
+    from sqlalchemy import and_, func, or_
+
+    # 每个 req_id 取一条需求名称（团队多行时取任一），便于关联展示与检索
+    sub = (
+        db.query(
+            SentEmail.req_id.label("req_id"),
+            func.min(SentEmail.req_name).label("req_name"),
+        )
+        .group_by(SentEmail.req_id)
+        .subquery()
+    )
+    q = db.query(PmwbUserStory, sub.c.req_name).outerjoin(
+        sub, PmwbUserStory.req_id == sub.c.req_id
+    )
+
+    if finalized is not None:
+        q = q.filter(PmwbUserStory.finalized == (1 if finalized else 0))
+
+    words = [w for w in re.split(r"\s+", (keyword or "").strip()) if w]
+    for w in words:
+        like = f"%{w}%"
+        q = q.filter(
+            or_(
+                PmwbUserStory.title.like(like),
+                PmwbUserStory.desc.like(like),
+                PmwbUserStory.scene.like(like),
+                PmwbUserStory.acceptance.like(like),
+                PmwbUserStory.rules.like(like),
+                PmwbUserStory.req_id.like(like),
+                sub.c.req_name.like(like),
+            )
+        )
+
+    total = q.count()
+    q = q.order_by(PmwbUserStory.created_at.desc(), PmwbUserStory.id.desc())
+    page = max(1, page)
+    page_size = max(1, min(page_size, 200))
+    rows = q.offset((page - 1) * page_size).limit(page_size).all()
+
+    from datetime import timedelta
+
+    items: List[Dict[str, Any]] = []
+    for st, req_name in rows:
+        d = _story_to_dict(st)
+        d["req_id"] = st.req_id
+        d["req_name"] = req_name or ""
+        # 库表按 UTC 存储，展示统一 +8h 转中国时间
+        d["created_at"] = (
+            (st.created_at + timedelta(hours=8)).isoformat() if st.created_at else None
+        )
+        items.append(d)
+
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
 def save_user_stories(db, req_id: str, stories: List[Dict[str, Any]]) -> Dict[str, Any]:
     """全量替换需求下的用户故事。"""
     # 删除旧记录

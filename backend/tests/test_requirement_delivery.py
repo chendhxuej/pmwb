@@ -85,6 +85,73 @@ def test_init_folder_returns_merged_folder(client: TestClient, db):
     assert "需求分析说明书" in data["folder"]
 
 
+def test_search_user_stories_global_desc_order(client: TestClient, db):
+    """全局搜索默认全量、按创建时间倒序，并带出需求名称。"""
+    import time
+
+    _create_sent_email(db, req_id="REQ-US-A", req_name="专线受理需求")
+    _create_sent_email(db, req_id="REQ-US-B", req_name="短信实名需求")
+    s1 = PmwbUserStory(req_id="REQ-US-A", seq=1, title="老故事", desc="较早创建")
+    db.add(s1)
+    db.commit()
+    time.sleep(0.01)
+    s2 = PmwbUserStory(req_id="REQ-US-B", seq=1, title="新故事", desc="较晚创建")
+    db.add(s2)
+    db.commit()
+
+    resp = client.get("/api/v1/user-stories/search")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["total"] >= 2
+    titles = [i["title"] for i in data["items"]]
+    # 倒序：新故事在老故事之前
+    assert titles.index("新故事") < titles.index("老故事")
+    # 带出需求名称
+    a = next(i for i in data["items"] if i["req_id"] == "REQ-US-A")
+    assert a["req_name"] == "专线受理需求"
+
+
+def test_search_user_stories_keyword_multi_and(client: TestClient, db):
+    """空格分词多词 AND，全字段模糊命中；不匹配则排除。"""
+    _create_sent_email(db, req_id="REQ-US-KW", req_name="综合需求台账")
+    db.add(PmwbUserStory(req_id="REQ-US-KW", seq=1, title="宽带流失预警", desc="支持专线场景", scene="", acceptance='["验证预警"]', rules='["规则一"]'))
+    db.add(PmwbUserStory(req_id="REQ-US-KW", seq=2, title="短信实名", desc="无关内容"))
+    db.commit()
+
+    # 单词命中标题
+    r1 = client.get("/api/v1/user-stories/search", params={"keyword": "宽带"})
+    titles1 = [i["title"] for i in r1.json()["data"]["items"]]
+    assert "宽带流失预警" in titles1
+    assert "短信实名" not in titles1
+
+    # 多词 AND：标题词 + 描述词，同一条命中
+    r2 = client.get("/api/v1/user-stories/search", params={"keyword": "宽带 专线"})
+    titles2 = [i["title"] for i in r2.json()["data"]["items"]]
+    assert "宽带流失预警" in titles2
+
+    # 多词 AND：两词不在同一条 → 排除
+    r3 = client.get("/api/v1/user-stories/search", params={"keyword": "宽带 短信"})
+    assert all(i["title"] != "宽带流失预警" for i in r3.json()["data"]["items"])
+
+
+def test_search_user_stories_finalized_and_paging(client: TestClient, db):
+    """定稿状态筛选 + 分页。"""
+    _create_sent_email(db, req_id="REQ-US-PG", req_name="分页测试")
+    for i in range(1, 6):
+        db.add(PmwbUserStory(req_id="REQ-US-PG", seq=i, title=f"故事{i}", finalized=1 if i % 2 else 0))
+    db.commit()
+
+    # 已定稿筛选
+    rf = client.get("/api/v1/user-stories/search", params={"finalized": 1})
+    assert all(i["finalized"] is True for i in rf.json()["data"]["items"])
+
+    # 分页
+    rp = client.get("/api/v1/user-stories/search", params={"page": 1, "page_size": 2})
+    body = rp.json()["data"]
+    assert len(body["items"]) == 2
+    assert body["page"] == 1 and body["page_size"] == 2
+
+
 def test_delete_requirement_cleans_personal_data(client: TestClient, db):
     """删除需求应移除扩展、团队评估、用户故事，保留 sent_emails。"""
     _create_sent_email(db, req_id="REQ-DEL-001")

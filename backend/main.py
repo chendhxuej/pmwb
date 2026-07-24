@@ -27,6 +27,7 @@ from routers import (
     requirement_delivery,
     sql_script,
     todo,
+    user_story,
 )
 
 
@@ -99,6 +100,7 @@ app.include_router(dashboard.router, prefix="/api/v1", tags=["首页看板"])
 app.include_router(todo.router, prefix="/api/v1", tags=["待办中心"])
 app.include_router(requirement.router, prefix="/api/v1", tags=["需求管理"])
 app.include_router(requirement_delivery.router, prefix="/api/v1", tags=["需求交付"])
+app.include_router(user_story.router, prefix="/api/v1", tags=["用户故事"])
 app.include_router(dev_ticket.router, prefix="/api/v1", tags=["开发工单"])
 app.include_router(reminder.router, prefix="/api/v1", tags=["邮件催办"])
 app.include_router(sql_script.router, prefix="/api/v1", tags=["SQL脚本库"])
