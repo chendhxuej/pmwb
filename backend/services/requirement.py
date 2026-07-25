@@ -501,34 +501,55 @@ class RequirementService:
         return [row[0] for row in rows if row[0]]
 
     def pending_by_sa(self, db: Session) -> List[Dict[str, Any]]:
-        """按 SA 分组的待催办列表：is_involved=1 且工作量(空/0) 的需求，按 req_id 去重。
+        """按 SA 分组的待催办列表（团队评估维度）。
 
-        语义对齐 email-manager 的 /api/reminders（以 sent_emails.workload 为判据），
-        不依赖评估层是否已播种，确保未评估的需求稳定出现在待催办中。
+        判据：需求下存在「未评估」的团队评估记录（workload/review 未登记、无开发单），
+        且该需求未关闭/暂停（pmwb_requirement_ext.status 非 closed/paused）。
+        比旧判据（sent_emails.workload）准确：sent_emails.workload 全库为空，
+        实际团队评估量在 pmwb_requirement_evaluation.workload。
         """
+        closed_ids = set(
+            r[0] for r in db.query(PmwbRequirementExt.req_id)
+            .filter(PmwbRequirementExt.status.in_(["closed", "paused"]))
+            .all()
+        )
         rows = (
-            db.query(SentEmail)
-            .filter(SentEmail.is_involved == 1)
-            .filter(func.coalesce(SentEmail.workload, 0) == 0)
-            .order_by(SentEmail.sa_name, SentEmail.propose_time)
+            db.query(
+                PmwbRequirementEvaluation.req_id,
+                PmwbRequirementEvaluation.req_name,
+                PmwbRequirementEvaluation.proposer,
+                PmwbRequirementEvaluation.sa_name,
+                PmwbRequirementEvaluation.system_name,
+                PmwbRequirementEvaluation.dev_ticket_no,
+                PmwbRequirementEvaluation.workload,
+            )
+            .filter(func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0)
+            .filter(func.coalesce(PmwbRequirementEvaluation.review_workload, 0) == 0)
+            .filter(func.coalesce(PmwbRequirementEvaluation.dev_ticket_no, "") == "")
+            .order_by(
+                PmwbRequirementEvaluation.req_id,
+                PmwbRequirementEvaluation.sa_name,
+            )
             .all()
         )
         grouped: Dict[str, List[Dict[str, Any]]] = {}
         seen = set()
         for r in rows:
-            sa = (r.sa_name or "").strip() or "未分配"
-            if (sa, r.req_id) in seen:
+            if r.req_id in closed_ids:
                 continue
-            seen.add((sa, r.req_id))
+            if r.req_id in seen:
+                continue
+            seen.add(r.req_id)
+            sa = (r.sa_name or "").strip() or "未分配"
             grouped.setdefault(sa, []).append({
                 "req_id": r.req_id,
                 "req_name": r.req_name,
                 "proposer": r.proposer,
                 "system_name": r.system_name,
-                "sa_name": r.sa_name,
+                "sa_name": sa,
                 "workload": float(r.workload) if r.workload is not None else None,
                 "dev_ticket_no": r.dev_ticket_no,
-                "propose_time": r.propose_time,
+                "propose_time": None,
             })
         result = []
         for sa, items in grouped.items():

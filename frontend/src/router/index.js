@@ -117,10 +117,17 @@ const routes = [
         ],
       },
       {
+        path: 'task-center',
+        name: 'TaskCenter',
+        component: () => import('@/views/TaskCenterView.vue'),
+        meta: { title: '任务中心', icon: 'List' },
+      },
+      // 旧催办中心深链兼容（隐藏于菜单，重定向到任务中心）
+      {
         path: 'reminder-center',
         name: 'ReminderCenter',
-        component: () => import('@/views/ReminderCenterView.vue'),
-        meta: { title: '催办中心', icon: 'Bell' },
+        redirect: '/task-center',
+        meta: { hidden: true },
       },
       {
         path: 'mail-records',
