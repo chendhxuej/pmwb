@@ -47,7 +47,7 @@
     <!-- 需求催办 Tab：保留按 SA 分组批量催办交互 -->
     <template v-if="activeTab === 'requirement_urge'">
       <div class="table-hint">
-        按 SA 分组的待催办需求（is_involved=1 且工作量未登记）。「批量催办」向该 SA 群发汇总邮件，
+        按 SA 分组的待催办需求（团队评估中「工作量（人天）」未登记的行，按该行 SA 负责人归集）。「批量催办」向该 SA 群发汇总邮件，
         单行「催办」单独发送；收件人邮箱按姓名从统一邮件中心通讯录自动解析。
       </div>
       <el-empty v-if="!urgeLoading && !urgeGroups.length" description="暂无待催办需求" />
@@ -221,11 +221,11 @@
           </div>
         </el-form-item>
         <el-form-item label="收件人">
-          <el-input v-model="emailForm.to" placeholder="多个收件人用逗号分隔" />
-          <div class="form-hint">已按负责人姓名自动解析邮箱；未匹配到的请手动填写真实邮箱。</div>
+          <StaffSelect v-model="emailTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
+          <div class="form-hint">已按负责人姓名自动解析邮箱；无邮箱时回退显示姓名。</div>
         </el-form-item>
         <el-form-item label="抄送">
-          <el-input v-model="emailForm.cc" placeholder="多个抄送人用逗号分隔" />
+          <StaffSelect v-model="emailCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
           <el-input v-model="emailForm.subject" />
@@ -248,11 +248,11 @@
           <el-input v-model="urgeForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="收件人">
-          <el-input v-model="urgeForm.to" placeholder="多个收件人用逗号分隔" />
-          <div class="form-hint">收件人邮箱按姓名自动从邮件中心通讯录解析；若未匹配到，请手动填写真实邮箱。</div>
+          <StaffSelect v-model="urgeTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
+          <div class="form-hint">收件人邮箱按姓名自动从邮件中心通讯录解析；无邮箱时回退显示姓名。</div>
         </el-form-item>
         <el-form-item label="抄送">
-          <el-input v-model="urgeForm.cc" placeholder="多个抄送人用逗号分隔" />
+          <StaffSelect v-model="urgeCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
           <el-input v-model="urgeForm.subject" />
@@ -276,6 +276,7 @@ import { ElMessage } from 'element-plus'
 import { User } from '@element-plus/icons-vue'
 import { getTaskStats, getTasks, resolveTaskContacts, sendTaskEmail } from '@/api/taskCenter.js'
 import { getPendingReminders, sendReminder, resolveContacts } from '@/api/reminder.js'
+import StaffSelect from '@/components/Common/StaffSelect.vue'
 
 const router = useRouter()
 
@@ -392,13 +393,18 @@ function invalidEmails(raw) {
 const emailDialogVisible = ref(false)
 const emailSending = ref(false)
 const emailForm = reactive({ tasks: [], to: '', cc: '', subject: '', body: '', send_type: 'urge' })
+const emailTo = ref([])
+const emailCc = ref([])
+const urgeForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
+const urgeTo = ref([])
+const urgeCc = ref([])
 
 async function openTaskEmail(rows, sendType) {
   if (!rows.length) return
   emailForm.tasks = rows.slice()
   emailForm.send_type = sendType
-  emailForm.cc = ''
-  emailForm.to = ''
+  emailTo.value = []
+  emailCc.value = []
   const first = rows[0]
   emailForm.subject =
     (sendType === 'urge' ? '催办：' : '通知：') +
@@ -421,7 +427,7 @@ async function openTaskEmail(rows, sendType) {
       if (map[n]) resolved.push(map[n])
       else missing.push(n)
     }
-    emailForm.to = resolved.join(', ')
+    emailTo.value = resolved
     if (missing.length) {
       ElMessage.warning(`以下负责人未在通讯录找到邮箱，请手动填写：${missing.join('、')}`)
     }
@@ -439,6 +445,8 @@ async function handleTaskEmailSend() {
     ElMessage.warning('请至少保留一个关联任务')
     return
   }
+  emailForm.to = (emailTo.value || []).join(', ')
+  emailForm.cc = (emailCc.value || []).join(', ')
   if (!emailForm.to || !emailForm.subject) {
     ElMessage.warning('请填写收件人和主题')
     return
@@ -478,7 +486,6 @@ const urgeLoading = ref(false)
 const urgeGroups = ref([])
 const urgeDialogVisible = ref(false)
 const urgeSending = ref(false)
-const urgeForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
 
 async function loadUrgeGroups() {
   urgeLoading.value = true
@@ -493,7 +500,8 @@ async function loadUrgeGroups() {
 
 async function prefillUrgeRecipients(names) {
   urgeForm.recipient_name = (names || []).join(', ')
-  urgeForm.to = ''
+  urgeTo.value = []
+  urgeCc.value = []
   const list = (names || []).filter(Boolean)
   if (!list.length) return
   try {
@@ -505,7 +513,7 @@ async function prefillUrgeRecipients(names) {
       if (email) resolved.push(email)
       else missing.push(n)
     }
-    urgeForm.to = resolved.join(', ')
+    urgeTo.value = resolved
     if (missing.length) {
       ElMessage.warning(`以下 SA 未在邮件中心通讯录找到邮箱，请手动填写：${missing.join('、')}`)
     }
@@ -524,6 +532,9 @@ function buildUrgeBatchBody(saName, items) {
   items.forEach((it, i) => {
     lines.push(`${i + 1}. [${it.req_id}] ${it.req_name}`)
     lines.push(`   系统：${it.system_name || '未指定'} | 提出人：${it.proposer || '未知'}`)
+    if (it.description) {
+      lines.push(`   需求描述：${it.description}`)
+    }
   })
   lines.push(``, `收到后尽快回我哈，辛苦了！`, ``, `——产品经理工作台（PMWB）`)
   return lines.join('\n')
@@ -542,6 +553,7 @@ function buildUrgeSingleBody(item) {
     `需求名称：${item.req_name || ''}`,
     `提出人：${item.proposer || ''}`,
     ...(item.system_name ? [`负责系统：${item.system_name}`] : []),
+    ...(item.description ? [`需求描述：${item.description}`] : []),
     ``,
     `收到后尽快回我评估结果哈，辛苦了！`,
     ``,
@@ -556,7 +568,6 @@ function openUrgeBatch(group) {
   }
   urgeForm.req_id = group.items.map((i) => i.req_id).join('; ')
   urgeForm.req_name = ''
-  urgeForm.cc = ''
   urgeForm.subject = `催办：${group.sa_name} 负责的 ${group.count} 个需求评估`
   urgeForm.body = buildUrgeBatchBody(group.sa_name, group.items)
   prefillUrgeRecipients([group.sa_name])
@@ -566,7 +577,6 @@ function openUrgeBatch(group) {
 function openUrgeSingle(item) {
   urgeForm.req_id = item.req_id
   urgeForm.req_name = item.req_name
-  urgeForm.cc = ''
   urgeForm.subject = `催办：${item.req_name || item.req_id}`
   urgeForm.body = buildUrgeSingleBody(item)
   prefillUrgeRecipients(item.sa_name ? [item.sa_name] : [])
@@ -574,6 +584,8 @@ function openUrgeSingle(item) {
 }
 
 async function handleUrgeSend() {
+  urgeForm.to = (urgeTo.value || []).join(', ')
+  urgeForm.cc = (urgeCc.value || []).join(', ')
   if (!urgeForm.to || !urgeForm.subject) {
     ElMessage.warning('请填写收件人和主题')
     return

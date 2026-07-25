@@ -315,10 +315,10 @@ class TaskCenterService:
     def collect_requirement_urge(self, db: Session) -> List[TaskItem]:
         """待催办需求（团队评估维度）：以 pmwb_requirement_evaluation 为准。
 
-        判据：需求下存在「未评估」的团队评估记录（workload 未登记、无开发单），
-        且该需求未关闭/暂停（pmwb_requirement_ext.status 非 closed/paused）。
-        比旧判据（sent_emails.workload）准确：sent_emails.workload 全库为空，
-        实际团队评估量在 pmwb_requirement_evaluation.workload。
+        判据（2026-07 修正）：只看团队评估行中「工作量（人天）」为空的记录，
+        每条空工作量行归属其自身的 SA 负责人（按 需求+SA 去重）；
+        不再要求「复核工作量未填 + 无开发单号」同时成立。
+        需求已关闭/暂停不催办。
         """
         from db.models import PmwbRequirementEvaluation, PmwbRequirementExt
 
@@ -338,15 +338,7 @@ class TaskCenterService:
                 PmwbRequirementEvaluation.system_name,
                 PmwbRequirementEvaluation.dev_ticket_no,
             )
-            .filter(
-                func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0,
-            )
-            .filter(
-                func.coalesce(PmwbRequirementEvaluation.review_workload, 0) == 0,
-            )
-            .filter(
-                func.coalesce(PmwbRequirementEvaluation.dev_ticket_no, "") == "",
-            )
+            .filter(func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0)
             .order_by(
                 PmwbRequirementEvaluation.req_id,
                 PmwbRequirementEvaluation.sa_name,
@@ -354,21 +346,46 @@ class TaskCenterService:
             .all()
         )
 
+        # 需求描述映射（优先 ext，回退 sent_email），用于催办正文
+        req_ids = [r.req_id for r in rows if r.req_id not in closed_ids]
+        desc_map: Dict[str, Optional[str]] = {}
+        if req_ids:
+            ext_rows = (
+                db.query(PmwbRequirementExt.req_id, PmwbRequirementExt.description)
+                .filter(PmwbRequirementExt.req_id.in_(req_ids))
+                .all()
+            )
+            for rid, d in ext_rows:
+                if d:
+                    desc_map[rid] = d
+            still_missing = [rid for rid in req_ids if rid not in desc_map]
+            if still_missing:
+                sent_rows = (
+                    db.query(SentEmail.req_id, SentEmail.description)
+                    .filter(SentEmail.req_id.in_(still_missing))
+                    .all()
+                )
+                for rid, d in sent_rows:
+                    if d and rid not in desc_map:
+                        desc_map[rid] = d
+
         items: List[TaskItem] = []
         seen = set()
         for r in rows:
             if r.req_id in closed_ids:
                 continue
-            if r.req_id in seen:
-                continue
-            seen.add(r.req_id)
             owner = (r.sa_name or "").strip() or "未分配"
+            key = (r.req_id, owner)
+            if key in seen:
+                continue
+            seen.add(key)
             system = (r.system_name or "").strip() or "未指定"
+            desc = (desc_map.get(r.req_id) or "")[:500]
             items.append(TaskItem(
-                task_id=f"requirement_urge:{r.req_id}",
+                task_id=f"requirement_urge:{r.req_id}:{owner}",
                 source="requirement_urge",
                 source_label=SOURCE_LABELS["requirement_urge"],
-                source_id=str(r.req_id),
+                source_id=f"{r.req_id}:{owner}",
                 title=f"[{r.req_id}] {r.req_name or ''}",
                 status="pending",
                 status_label=STATUS_LABELS["pending"],
@@ -383,6 +400,7 @@ class TaskCenterService:
                     "涉及系统": system,
                     "评估团队(SA)": owner,
                     "团队评估状态": "工作量未登记",
+                    "需求描述": desc,
                 },
                 is_overdue=False,
                 is_due_soon=False,
@@ -519,6 +537,8 @@ class TaskCenterService:
         # 组装任务清单附在正文尾部
         task_lines: List[str] = []
         first_title = ""
+        # 不同任务来源 detail 中承载「任务描述」的字段名不一，按优先级取其一
+        desc_keys = ["需求描述", "情况说明", "行动项", "内容", "说明", "备注", "风险说明"]
         for idx, ref in enumerate(obj_in.tasks, 1):
             item = self.get_detail(db, f"{ref.source}:{ref.source_id}")
             if item is None:
@@ -528,9 +548,11 @@ class TaskCenterService:
                 first_title = item.title
             due = f"，截止 {item.due_date}" if item.due_date else ""
             overdue = "【已超期】" if item.is_overdue else ""
+            desc = next((item.detail.get(k) for k in desc_keys if item.detail.get(k)), None)
+            desc_part = f"\n    任务描述：{desc[:200]}" if desc else ""
             task_lines.append(
                 f"{idx}. [{item.source_label}] {item.title}"
-                f"（负责人：{item.owner or '未指定'}，状态：{item.status_label}{due}）{overdue}"
+                f"（负责人：{item.owner or '未指定'}，状态：{item.status_label}{due}）{overdue}{desc_part}"
             )
         body = obj_in.body.rstrip() + "\n\n—— 关联任务清单 ——\n" + "\n".join(task_lines)
 

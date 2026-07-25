@@ -499,10 +499,10 @@ class RequirementService:
     def pending_by_sa(self, db: Session) -> List[Dict[str, Any]]:
         """按 SA 分组的待催办列表（团队评估维度）。
 
-        判据：需求下存在「未评估」的团队评估记录（workload/review 未登记、无开发单），
-        且该需求未关闭/暂停（pmwb_requirement_ext.status 非 closed/paused）。
-        比旧判据（sent_emails.workload）准确：sent_emails.workload 全库为空，
-        实际团队评估量在 pmwb_requirement_evaluation.workload。
+        判据（2026-07 修正）：只看团队评估行中「工作量（人天）」为空的记录，
+        每条空工作量行归属其自身的 SA 负责人（按 (req_id, sa_name) 去重）；
+        不再要求「复核工作量未填 + 无开发单号」同时成立。
+        需求已关闭/暂停（pmwb_requirement_ext.status 为 closed/paused）不催办。
         """
         closed_ids = set(
             r[0] for r in db.query(PmwbRequirementExt.req_id)
@@ -520,23 +520,45 @@ class RequirementService:
                 PmwbRequirementEvaluation.workload,
             )
             .filter(func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0)
-            .filter(func.coalesce(PmwbRequirementEvaluation.review_workload, 0) == 0)
-            .filter(func.coalesce(PmwbRequirementEvaluation.dev_ticket_no, "") == "")
             .order_by(
                 PmwbRequirementEvaluation.req_id,
                 PmwbRequirementEvaluation.sa_name,
             )
             .all()
         )
+        # 批量取需求描述：优先 PmwbRequirementExt.description，回退 SentEmail.description
+        req_ids = [r.req_id for r in rows if r.req_id not in closed_ids]
+        desc_map: Dict[str, Optional[str]] = {}
+        if req_ids:
+            ext_rows = (
+                db.query(PmwbRequirementExt.req_id, PmwbRequirementExt.description)
+                .filter(PmwbRequirementExt.req_id.in_(req_ids))
+                .all()
+            )
+            for rid, d in ext_rows:
+                if d:
+                    desc_map[rid] = d
+            still_missing = [rid for rid in req_ids if rid not in desc_map]
+            if still_missing:
+                sent_rows = (
+                    db.query(SentEmail.req_id, SentEmail.description)
+                    .filter(SentEmail.req_id.in_(still_missing))
+                    .all()
+                )
+                for rid, d in sent_rows:
+                    if d and rid not in desc_map:
+                        desc_map[rid] = d
+
         grouped: Dict[str, List[Dict[str, Any]]] = {}
         seen = set()
         for r in rows:
             if r.req_id in closed_ids:
                 continue
-            if r.req_id in seen:
-                continue
-            seen.add(r.req_id)
             sa = (r.sa_name or "").strip() or "未分配"
+            key = (r.req_id, sa)
+            if key in seen:
+                continue
+            seen.add(key)
             grouped.setdefault(sa, []).append({
                 "req_id": r.req_id,
                 "req_name": r.req_name,
@@ -546,6 +568,7 @@ class RequirementService:
                 "workload": float(r.workload) if r.workload is not None else None,
                 "dev_ticket_no": r.dev_ticket_no,
                 "propose_time": None,
+                "description": (desc_map.get(r.req_id) or "")[:500],
             })
         result = []
         for sa, items in grouped.items():

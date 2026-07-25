@@ -15,6 +15,12 @@ const routes = [
         meta: { title: '首页看板', icon: 'House' },
       },
       {
+        path: 'task-center',
+        name: 'TaskCenter',
+        component: () => import('@/views/TaskCenterView.vue'),
+        meta: { title: '任务中心', icon: 'List' },
+      },
+      {
         path: 'requirement-delivery',
         name: 'RequirementDelivery',
         component: () => import('@/views/RequirementDeliveryView.vue'),
@@ -82,6 +88,12 @@ const routes = [
         component: () => import('@/views/KeyWorkView.vue'),
         meta: { title: '重点工作', icon: 'Files' },
       },
+      {
+        path: 'basic-data',
+        name: 'BasicData',
+        component: () => import('@/views/BasicDataView.vue'),
+        meta: { title: '基础数据', icon: 'Coin' },
+      },
       // ── 知识中心：聚合知识类子模块 ──
       {
         path: 'knowledge-center',
@@ -115,12 +127,6 @@ const routes = [
             meta: { title: 'SQL脚本库', icon: 'Document' },
           },
         ],
-      },
-      {
-        path: 'task-center',
-        name: 'TaskCenter',
-        component: () => import('@/views/TaskCenterView.vue'),
-        meta: { title: '任务中心', icon: 'List' },
       },
       // 旧催办中心深链兼容（隐藏于菜单，重定向到任务中心）
       {

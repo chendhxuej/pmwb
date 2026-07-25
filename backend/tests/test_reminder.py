@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from db.models import EmailRecord
+from db.models import EmailRecord, PmwbRequirementEvaluation
 from services.reminder import reminder_service
 
 
@@ -29,7 +29,7 @@ def _create_email_record(db: Session, req_id: str = "REQ-REMINDER-001", email_ty
 
 def test_send_reminder_success(client: TestClient, db: Session, monkeypatch):
     mock_client = MagicMock()
-    mock_client.send_email.return_value = {"message_id": "msg-123", "status": "ok"}
+    mock_client.send_email.return_value = {"ok": True, "data": {"message_id": "msg-123", "status": "ok"}}
     monkeypatch.setattr(reminder_service, "email_client", mock_client)
     payload = {
         "req_id": "REQ-REMINDER-001",
@@ -56,7 +56,7 @@ def test_send_reminder_success(client: TestClient, db: Session, monkeypatch):
 
 def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, monkeypatch):
     mock_client = MagicMock()
-    mock_client.send_email.return_value = {"status": "ok"}
+    mock_client.send_email.return_value = {"ok": True, "data": {"status": "ok"}}
     monkeypatch.setattr(reminder_service, "email_client", mock_client)
     payload = {
         "req_id": "REQ-REMINDER-NAME",
@@ -76,7 +76,7 @@ def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, mo
 
 def test_send_reminder_failure(client: TestClient, db: Session, monkeypatch):
     mock_client = MagicMock()
-    mock_client.send_email.side_effect = Exception("邮件中心不可用")
+    mock_client.send_email.return_value = {"ok": False, "error": "邮件中心不可用"}
     monkeypatch.setattr(reminder_service, "email_client", mock_client)
     payload = {
         "req_id": "REQ-REMINDER-002",
@@ -116,19 +116,18 @@ def test_list_reminders_empty(client: TestClient, db: Session):
     assert data["data"] == []
 
 
-def _create_sent_email_for_pending(db: Session, req_id: str, sa_name: str, workload=None, is_involved: int = 1):
-    from db.models import SentEmail
-
-    obj = SentEmail(
+def _create_evaluation_for_pending(db: Session, req_id: str, sa_name: str, workload=None, review_workload=None, dev_ticket_no: str = ""):
+    obj = PmwbRequirementEvaluation(
         req_id=req_id,
         req_name="待催办需求",
         proposer="张三",
-        propose_time="2026-07-01",
+        send_datetime="2026-07-01",
         system_name="测试系统",
         sa_name=sa_name,
         workload=workload,
-        is_involved=is_involved,
-        dev_ticket_no="",
+        review_workload=review_workload,
+        dev_ticket_no=dev_ticket_no,
+        opinion="",
     )
     db.add(obj)
     db.commit()
@@ -137,13 +136,13 @@ def _create_sent_email_for_pending(db: Session, req_id: str, sa_name: str, workl
 
 
 def test_list_pending_by_sa(client: TestClient, db: Session):
-    # 待催办：is_involved=1 且工作量未填 → 应分组统计
-    _create_sent_email_for_pending(db, req_id="REQ-P-1", sa_name="陈山", workload=None, is_involved=1)
-    _create_sent_email_for_pending(db, req_id="REQ-P-2", sa_name="陈山", workload=None, is_involved=1)
+    # 待催办：工作量未填 → 按 (需求+SA) 去重归集；已填工作量排除
+    _create_evaluation_for_pending(db, req_id="REQ-P-1", sa_name="陈山")
+    _create_evaluation_for_pending(db, req_id="REQ-P-2", sa_name="陈山")
     # 已填工作量 → 排除
-    _create_sent_email_for_pending(db, req_id="REQ-P-3", sa_name="赵明", workload=5.0, is_involved=1)
-    # 不涉及开发 → 排除
-    _create_sent_email_for_pending(db, req_id="REQ-P-4", sa_name="钱七", workload=None, is_involved=0)
+    _create_evaluation_for_pending(db, req_id="REQ-P-3", sa_name="赵明", workload=5.0)
+    # 工作量未填、但已建开发单 → 仍应催办（新口径只看工作量）
+    _create_evaluation_for_pending(db, req_id="REQ-P-4", sa_name="钱七", dev_ticket_no="DEV-999")
 
     response = client.get("/api/v1/reminders/pending")
     assert response.status_code == 200
@@ -152,7 +151,8 @@ def test_list_pending_by_sa(client: TestClient, db: Session):
     assert "陈山" in groups
     assert groups["陈山"]["count"] == 2
     assert "赵明" not in groups
-    assert "钱七" not in groups
+    assert "钱七" in groups
+    assert groups["钱七"]["count"] == 1
 
 
 def test_list_records(client: TestClient, db: Session):
