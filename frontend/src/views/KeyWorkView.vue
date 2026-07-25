@@ -356,7 +356,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="负责人">
-          <el-input v-model="basicForm.owner" placeholder="牵头人 / 负责人" />
+          <StaffSelect v-model="basicForm.owner" placeholder="牵头人 / 负责人" />
         </el-form-item>
         <el-form-item label="优先级">
           <el-select v-model="basicForm.priority" style="width: 100%">
@@ -426,7 +426,7 @@
     <!-- 成员对话框 -->
     <el-dialog v-model="memberVisible" title="团队成员" width="480px">
       <el-form :model="memberForm" label-width="80px">
-        <el-form-item label="姓名" required><el-input v-model="memberForm.name" /></el-form-item>
+        <el-form-item label="姓名" required><StaffSelect v-model="memberForm.name" /></el-form-item>
         <el-form-item label="角色"><el-input v-model="memberForm.role" /></el-form-item>
         <el-form-item label="分工"><el-input v-model="memberForm.division" type="textarea" :rows="2" /></el-form-item>
       </el-form>
@@ -476,7 +476,7 @@
     <el-dialog v-model="taskVisible" title="成员待办" width="520px">
       <el-form :model="taskForm" label-width="80px">
         <el-form-item label="任务" required><el-input v-model="taskForm.title" /></el-form-item>
-        <el-form-item label="负责人"><el-input v-model="taskForm.assignee" /></el-form-item>
+        <el-form-item label="负责人"><StaffSelect v-model="taskForm.assignee" /></el-form-item>
         <el-form-item label="截止"><el-date-picker v-model="taskForm.due_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="状态">
           <el-select v-model="taskForm.status" style="width:100%">
@@ -504,6 +504,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as kwApi from '@/api/keywork.js'
+import StaffSelect from '@/components/Common/StaffSelect.vue'
 import {
   CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP,
 } from '@/api/keywork.js'

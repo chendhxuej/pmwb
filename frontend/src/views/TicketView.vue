@@ -63,7 +63,7 @@
           <el-input v-model="form.dev_team" />
         </el-form-item>
         <el-form-item label="开发负责人">
-          <el-input v-model="form.developer" />
+          <StaffSelect v-model="form.developer" />
         </el-form-item>
         <el-form-item label="联系方式">
           <el-input v-model="form.dev_contact" />
@@ -170,6 +170,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import DataTable from '@/components/Common/DataTable.vue'
 import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import StaffSelect from '@/components/Common/StaffSelect.vue'
 import {
   getDevTickets,
   getDevTicket,

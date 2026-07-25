@@ -230,17 +230,7 @@
           <el-input v-model="entryForm.title" placeholder="简要描述问题或任务" />
         </el-form-item>
         <el-form-item label="责任人" prop="handler">
-          <el-select
-            v-model="entryForm.handler"
-            multiple
-            filterable
-            placeholder="可多选，逗号存储"
-            style="width:100%"
-          >
-            <el-option-group v-for="g in HANDLER_GROUPS" :key="g.label" :label="g.label">
-              <el-option v-for="o in g.options" :key="o.value" :label="o.label" :value="o.value" />
-            </el-option-group>
-          </el-select>
+          <StaffSelect v-model="entryForm.handler" multiple placeholder="可多选，逗号存储" />
         </el-form-item>
         <el-row :gutter="14">
           <el-col :span="12">
@@ -279,9 +269,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Document, Warning, DataLine, Cpu, List, ChatDotRound, ArrowDown } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import StaffSelect from '@/components/Common/StaffSelect.vue'
 import { operationApi } from '@/api/operation'
 import { obsidianApi } from '@/api/obsidian'
-import { HANDLER_GROUPS } from '@/constants/staff'
 import { formatDate } from '@/utils/format'
 
 const router = useRouter()

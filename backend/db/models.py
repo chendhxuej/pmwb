@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -916,4 +917,64 @@ class PmwbSqlScript(Base):
     __table_args__ = (
         Index("idx_sql_category", "category"),
         {"comment": "SQL脚本库表"},
+    )
+
+
+# ===========================================================================
+# 基础数据：组织 + 人员主数据（全站选人组件统一数据源）
+# ===========================================================================
+class PmwbOrg(Base):
+    """组织/团队表（选人下拉的分组维度）。"""
+
+    __tablename__ = "pmwb_org"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    name = Column(String(128), nullable=False, unique=True, comment="组织/团队名称")
+    sort = Column(Integer, default=0, comment="排序号（小的在前）")
+    enabled = Column(Boolean, default=True, nullable=False, comment="是否启用")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+
+    staffs = relationship(
+        "PmwbStaff",
+        back_populates="org",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="PmwbStaff.sort",
+    )
+
+    __table_args__ = ({"comment": "基础数据-组织表"},)
+
+
+class PmwbStaff(Base):
+    """人员主数据表（全站责任人/负责人/参会人等选人字段统一数据源）。"""
+
+    __tablename__ = "pmwb_staff"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    name = Column(String(64), nullable=False, comment="姓名")
+    org_id = Column(
+        Integer,
+        ForeignKey("pmwb_org.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="所属组织ID",
+    )
+    email = Column(String(255), comment="邮箱（可空）")
+    phone = Column(String(64), comment="电话（可空）")
+    role_hint = Column(String(128), comment="角色/职责备注（可空）")
+    sort = Column(Integer, default=0, comment="排序号（小的在前）")
+    enabled = Column(Boolean, default=True, nullable=False, comment="是否启用")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    org = relationship("PmwbOrg", back_populates="staffs")
+
+    __table_args__ = (
+        UniqueConstraint("name", "org_id", name="uk_staff_name_org"),
+        Index("idx_staff_org", "org_id"),
+        {"comment": "基础数据-人员表"},
     )

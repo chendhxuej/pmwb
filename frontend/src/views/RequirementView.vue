@@ -286,11 +286,11 @@
           <el-input v-model="reminderForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="收件人">
-          <el-input v-model="reminderForm.to" placeholder="多个收件人用逗号分隔" />
-          <div class="form-hint">收件人邮箱按姓名自动从邮件中心通讯录解析；若未匹配到，请手动填写真实邮箱。</div>
+          <StaffSelect v-model="reminderTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
+          <div class="form-hint">从基础数据中选择人员，自动带出邮箱；无邮箱时回退显示姓名。</div>
         </el-form-item>
         <el-form-item label="抄送">
-          <el-input v-model="reminderForm.cc" placeholder="多个抄送人用逗号分隔" />
+          <StaffSelect v-model="reminderCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
           <el-input v-model="reminderForm.subject" />
@@ -311,7 +311,7 @@
           <el-input v-model="evalForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="评估SA" required>
-          <el-input v-model="evalForm.sa_name" placeholder="评估SA/团队负责人" />
+          <StaffSelect v-model="evalForm.sa_name" placeholder="评估SA/团队负责人" />
         </el-form-item>
         <el-form-item label="负责系统">
           <el-input v-model="evalForm.system_name" placeholder="负责系统" />
@@ -342,6 +342,7 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import StaffSelect from '@/components/Common/StaffSelect.vue'
 import {
   getRequirements, getRequirement, updateRequirement,
   getRequirementStats, getEvaluations, updateEvaluation,
@@ -452,6 +453,8 @@ const form = reactive({ req_id: '', req_name: '', status: '', priority: '', tags
 const detail = ref({})
 const reminderRecords = ref([])
 const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
+const reminderTo = ref([])
+const reminderCc = ref([])
 
 async function fetchData() {
   tableLoading.value = true
@@ -750,7 +753,8 @@ function validateEmailsField(raw) {
 // 按 SA 姓名从统一邮件中心通讯录解析真实邮箱并预填收件人
 async function prefillRecipients(names) {
   reminderForm.recipient_name = (names || []).join(', ')
-  reminderForm.to = ''
+  reminderTo.value = []
+  reminderCc.value = []
   const list = (names || []).filter(Boolean)
   if (!list.length) return
   try {
@@ -765,7 +769,7 @@ async function prefillRecipients(names) {
       if (email) resolved.push(email)
       else missing.push(n)
     }
-    reminderForm.to = resolved.join(', ')
+    reminderTo.value = resolved
     if (missing.length) {
       ElMessage.warning(
         `以下 SA 未在邮件中心通讯录找到邮箱，请手动填写真实邮箱或先在邮件中心添加：${missing.join('、')}`
@@ -830,7 +834,7 @@ async function handleReminderOpen(row) {
   const saNames = await aggregateSaRecipients(row.req_id)
   const names = saNames.length ? saNames : (row.sa_name ? [row.sa_name] : [])
   await prefillRecipients(names)
-  reminderForm.cc = ''
+  reminderCc.value = []
   reminderForm.subject = `催办：${row.req_name || row.req_id}`
   reminderForm.body = buildDefaultReminderBody(row)
   reminderVisible.value = true
@@ -840,7 +844,7 @@ async function handleReminderOpen(row) {
 async function handleReminderOpenEval(ev) {
   reminderForm.req_id = ev.req_id
   reminderForm.req_name = ev.req_name
-  reminderForm.cc = ''
+  reminderCc.value = []
   reminderForm.subject = `催办：${ev.req_name || ev.req_id}（${ev.system_name || '系统'}）`
   reminderForm.body = buildDefaultReminderBody(ev, ev.system_name, ev.sa_name)
   await prefillRecipients([ev.sa_name])
@@ -853,6 +857,8 @@ function handleReminderFromDetail() {
 }
 
 async function handleReminderSend() {
+  reminderForm.to = (reminderTo.value || []).join(', ')
+  reminderForm.cc = (reminderCc.value || []).join(', ')
   if (!reminderForm.to || !reminderForm.subject) {
     ElMessage.warning('请填写收件人和主题')
     return

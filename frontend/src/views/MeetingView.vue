@@ -437,7 +437,7 @@
             <div class="act-grid">
               <div>
                 <label class="ag-label">负责人</label>
-                <el-input v-model="act.owner" placeholder="负责人" />
+                <StaffSelect v-model="act.owner" placeholder="负责人" />
               </div>
               <div>
                 <label class="ag-label">截止日期</label>
@@ -587,17 +587,17 @@
         <el-row :gutter="14">
           <el-col :span="8">
             <el-form-item label="组织者" prop="host">
-              <el-input v-model="form.host" placeholder="组织者" />
+              <StaffSelect v-model="form.host" placeholder="组织者" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="召集人">
-              <el-input v-model="form.convener" placeholder="召集人" />
+              <StaffSelect v-model="form.convener" placeholder="召集人" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="记录人">
-              <el-input v-model="form.recorder" placeholder="记录人" />
+              <StaffSelect v-model="form.recorder" placeholder="记录人" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -621,31 +621,7 @@
           </el-col>
         </el-row>
         <el-form-item label="参会人">
-          <div class="chip-input">
-            <el-select
-              v-model="attendeeChips"
-              multiple
-              filterable
-              allow-create
-              default-first-option
-              placeholder="选择或输入姓名后回车"
-              style="width: 100%"
-              :reserve-keyword="false"
-              @change="onAttendeeChange"
-            >
-              <el-option
-                v-for="name in commonAttendees"
-                :key="name"
-                :label="name"
-                :value="name"
-              />
-            </el-select>
-          </div>
-          <div class="attendee-extra">
-            <el-button link type="primary" size="small" @click="openAttendeeManager">
-              管理常用参会人
-            </el-button>
-          </div>
+          <StaffSelect v-model="attendeeChips" multiple placeholder="选择参会人（支持手输）" />
         </el-form-item>
         <el-form-item label="参会注意点">
           <el-input
@@ -690,28 +666,6 @@
       </template>
     </el-dialog>
 
-    <!-- 常用参会人管理弹窗 -->
-    <el-dialog
-      v-model="attendeeManagerVisible"
-      title="管理常用参会人"
-      width="480px"
-      append-to-body
-    >
-      <p class="text-muted" style="margin: 0 0 8px; font-size: 13px;">
-        用中文顿号、逗号或换行分隔姓名，保存后会作为「参会人」下拉选项。
-      </p>
-      <el-input
-        v-model="attendeeManagerInput"
-        type="textarea"
-        :rows="6"
-        placeholder="例如：张三、李四、王五"
-      />
-      <template #footer>
-        <el-button @click="attendeeManagerVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveAttendeeManager">保存</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 会议邮件弹窗（通知 / 纪要） -->
     <el-dialog
       v-model="mailVisible"
@@ -723,27 +677,11 @@
       <div class="mail-body" v-if="detailMeeting">
         <div class="mail-row">
           <label class="mail-label">收件人</label>
-          <div class="mail-recipients">
-            <span v-for="(r, i) in mailRecipients" :key="i" class="recp-chip" :class="{ miss: r.miss }">
-              <span class="recp-name">{{ r.name }}</span>
-              <span class="recp-mail" v-if="r.email">✓ {{ r.email }}</span>
-              <span class="recp-mail unres" v-else>未解析</span>
-              <span class="recp-x" @click="removeRecipient(i)">✕</span>
-            </span>
-            <input
-              v-model="recipientInput"
-              class="recp-input"
-              placeholder="姓名或邮箱，回车追加"
-              @keydown.enter.prevent="addRecipient"
-            />
-          </div>
-          <el-button link type="primary" size="small" @click="resolveEmails" :loading="resolving">
-            解析邮箱
-          </el-button>
+          <StaffSelect v-model="mailTo" multiple value-key="email" placeholder="选择参会人或输入邮箱" />
         </div>
         <div class="mail-row">
           <label class="mail-label">抄送</label>
-          <el-input v-model="mailCc" placeholder="多个邮箱用逗号分隔（可选）" size="default" />
+          <StaffSelect v-model="mailCcList" multiple value-key="email" placeholder="抄送人员" />
         </div>
         <div class="mail-row">
           <label class="mail-label">主题</label>
@@ -783,7 +721,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
-import { resolveContacts } from '@/api/reminder'
+import StaffSelect from '@/components/Common/StaffSelect.vue'
 
 const router = useRouter()
 const currentUser = '陈大虾'
@@ -804,11 +742,7 @@ const sedimenting = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
-const attendeeInput = ref('')
 const attendeeChips = ref([])
-const commonAttendees = ref([])
-const attendeeManagerVisible = ref(false)
-const attendeeManagerInput = ref('')
 const agendaText = ref('')
 
 const meetings = ref([])
@@ -1315,12 +1249,10 @@ const saveMinutes = async () => {
 /* ── 一键发送会议邮件（通知 / 纪要） ── */
 const mailVisible = ref(false)
 const mailType = ref('notice') // notice | minutes
-const mailRecipients = ref([]) // [{ name, email, miss }]
-const recipientInput = ref('')
-const mailCc = ref('')
+const mailTo = ref([]) // string[]: 邮箱优先，无邮箱回退姓名
+const mailCcList = ref([]) // string[]
 const mailSubject = ref('')
 const mailBody = ref('')
-const resolving = ref(false)
 const sendingMail = ref(false)
 
 const fmtFullDateTime = (v) => {
@@ -1443,89 +1375,34 @@ const applyTemplate = () => {
 
 const openMailDialog = (type) => {
   mailType.value = type
-  // 默认收件人 = 参会人姓名（去重），未解析邮箱状态
+  // 默认收件人 = 参会人姓名（去重），StaffSelect 会自动匹配邮箱
   const names = (detailMeeting.value?.attendees || [])
     .map((a) => a.name)
     .filter(Boolean)
   const seen = new Set()
-  mailRecipients.value = names
-    .filter((n) => {
-      if (seen.has(n)) return false
-      seen.add(n)
-      return true
-    })
-    .map((n) => ({ name: n, email: '', miss: false }))
-  recipientInput.value = ''
-  mailCc.value = ''
+  mailTo.value = names.filter((n) => {
+    if (seen.has(n)) return false
+    seen.add(n)
+    return true
+  })
+  mailCcList.value = []
   applyTemplate()
   mailVisible.value = true
-  // 自动尝试解析一次邮箱
-  if (mailRecipients.value.length) resolveEmails()
-}
-
-const addRecipient = () => {
-  const v = recipientInput.value.trim()
-  if (!v) return
-  if (mailRecipients.value.some((r) => r.name === v)) {
-    recipientInput.value = ''
-    return
-  }
-  // 输入是邮箱则直接作为 email，姓名留空占位
-  const isEmail = /^[\w.+-]+@[\w.-]+\.\w+$/.test(v)
-  mailRecipients.value.push(
-    isEmail ? { name: v, email: v, miss: false } : { name: v, email: '', miss: true }
-  )
-  recipientInput.value = ''
-}
-
-const removeRecipient = (i) => mailRecipients.value.splice(i, 1)
-
-const resolveEmails = async () => {
-  const names = mailRecipients.value
-    .filter((r) => !r.email || r.miss)
-    .map((r) => r.name)
-    .filter(Boolean)
-  if (!names.length) {
-    ElMessage.info('收件人均已解析邮箱')
-    return
-  }
-  resolving.value = true
-  try {
-    const map = await resolveContacts(names) // {姓名: 邮箱| null}
-    mailRecipients.value = mailRecipients.value.map((r) => {
-      if (r.email && !r.miss) return r
-      const email = map[r.name]
-      return email ? { ...r, email, miss: false } : { ...r, email: '', miss: true }
-    })
-    const ok = mailRecipients.value.filter((r) => r.email).length
-    const miss = mailRecipients.value.filter((r) => !r.email).length
-    if (miss) ElMessage.warning(`已解析 ${ok} 个，${miss} 个未找到邮箱，请手动补填`)
-    else ElMessage.success(`已解析 ${ok} 个收件人邮箱`)
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '解析邮箱失败')
-  } finally {
-    resolving.value = false
-  }
 }
 
 const sendMail = async () => {
   const m = detailMeeting.value
   if (!m) return
-  const withMail = mailRecipients.value.filter((r) => r.email)
-  if (!withMail.length) {
-    ElMessage.warning('请先解析或填写收件人邮箱')
+  const to = (mailTo.value || []).filter(Boolean)
+  if (!to.length) {
+    ElMessage.warning('请填写收件人')
     return
   }
   if (!mailBody.value.trim()) {
     ElMessage.warning('请输入邮件正文')
     return
   }
-  const to = withMail.map((r) => r.email)
-  const recipientNames = mailRecipients.value.map((r) => r.name)
-  const cc = mailCc.value
-    .split(/[,，;；\s]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
+  const cc = (mailCcList.value || []).filter(Boolean)
   sendingMail.value = true
   try {
     const res = await meetingApi.sendMeetingMail(m.id, {
@@ -1534,7 +1411,7 @@ const sendMail = async () => {
       subject: mailSubject.value,
       body: mailBody.value,
       mail_type: mailType.value === 'notice' ? 'meeting_notice' : 'meeting_minutes',
-      recipient_names: recipientNames,
+      recipient_names: null,
     })
     if (res.success) {
       ElMessage.success(res.message || '邮件发送成功')
@@ -1582,49 +1459,6 @@ const generateMeetingId = () => {
   const d = formatLocal(new Date()).slice(0, 10).replace(/-/g, '')
   const r = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
   return `MEET-${d}-${r}`
-}
-
-const addChip = () => {
-  const v = attendeeInput.value.trim()
-  if (v && !attendeeChips.value.includes(v)) attendeeChips.value.push(v)
-  attendeeInput.value = ''
-}
-
-const loadCommonAttendees = () => {
-  try {
-    const raw = localStorage.getItem('pmwb_meeting_common_attendees')
-    commonAttendees.value = raw ? JSON.parse(raw) : []
-  } catch {
-    commonAttendees.value = []
-  }
-}
-
-const saveCommonAttendees = () => {
-  localStorage.setItem('pmwb_meeting_common_attendees', JSON.stringify(commonAttendees.value))
-}
-
-const onAttendeeChange = (val) => {
-  // 自动把新输入的姓名加入常用列表
-  const news = val.filter((n) => !commonAttendees.value.includes(n))
-  if (news.length) {
-    commonAttendees.value.push(...news)
-    saveCommonAttendees()
-  }
-}
-
-const openAttendeeManager = () => {
-  attendeeManagerInput.value = commonAttendees.value.join('、')
-  attendeeManagerVisible.value = true
-}
-
-const saveAttendeeManager = () => {
-  const list = attendeeManagerInput.value
-    .split(/[，,、；;\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-  commonAttendees.value = [...new Set(list)]
-  saveCommonAttendees()
-  attendeeManagerVisible.value = false
 }
 
 const handleAdd = () => {
@@ -1716,7 +1550,6 @@ const handleSubmit = () => {
 
 onMounted(() => {
   loadMeetings()
-  loadCommonAttendees()
 })
 </script>
 

@@ -1,0 +1,86 @@
+"""基础数据（组织+人员）Pydantic Schema。"""
+from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict
+
+
+# ---------------------------------------------------------------------------
+# 组织
+# ---------------------------------------------------------------------------
+class OrgCreate(BaseModel):
+    name: str
+    sort: Optional[int] = 0
+    enabled: Optional[bool] = True
+
+
+class OrgUpdate(BaseModel):
+    name: Optional[str] = None
+    sort: Optional[int] = None
+    enabled: Optional[bool] = None
+
+
+class OrgOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    sort: Optional[int] = 0
+    enabled: bool = True
+    created_at: Optional[datetime] = None
+    staff_count: Optional[int] = 0
+
+
+# ---------------------------------------------------------------------------
+# 人员
+# ---------------------------------------------------------------------------
+class StaffCreate(BaseModel):
+    name: str
+    org_id: int
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role_hint: Optional[str] = None
+    sort: Optional[int] = 0
+    enabled: Optional[bool] = True
+
+
+class StaffUpdate(BaseModel):
+    name: Optional[str] = None
+    org_id: Optional[int] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role_hint: Optional[str] = None
+    sort: Optional[int] = None
+    enabled: Optional[bool] = None
+
+
+class StaffOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    org_id: int
+    org_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role_hint: Optional[str] = None
+    sort: Optional[int] = 0
+    enabled: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+# ---------------------------------------------------------------------------
+# 选人组件分组选项
+# ---------------------------------------------------------------------------
+class StaffOption(BaseModel):
+    value: str
+    label: str
+    email: Optional[str] = None
+    role_hint: Optional[str] = None
+
+
+class StaffOptionGroup(BaseModel):
+    org_id: int
+    org_name: str
+    options: List[StaffOption]

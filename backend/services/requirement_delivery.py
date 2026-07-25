@@ -52,14 +52,25 @@ PROPOSER_DEPT_MAP = {
 DEFAULT_DEPT = "政企客户部"
 
 
-def _resolve_responsible_dept(item) -> str:
+def _resolve_responsible_dept(item, db=None) -> str:
     """根据需求实际提出人归属部门推导责任部门（需求提出单位）。
 
-    优先级：①提单人固化归属部门 → ②需求涉及系统归属部门 → ③提单人名中的系统线索 → ④默认。
+    优先级：①人员主数据(pmwb_staff)归属组织 → ②提单人固化映射(fallback) →
+    ③需求涉及系统归属部门 → ④提单人名中的系统线索 → ⑤默认。
     """
     system = (getattr(item, "system_name", "") or "") if item else ""
     proposer = (getattr(item, "proposer", "") or "") if item else ""
-    # ① 提单人实际归属部门（组织分工表）
+    # ① 人员主数据：提单人 → 所属组织（基础数据统一维护）
+    if proposer and db is not None:
+        try:
+            from services.basic_data import basic_data_service
+
+            dept = basic_data_service.dept_of(db, proposer)
+            if dept:
+                return dept
+        except Exception:  # noqa: BLE001 主数据查询失败时回退固化映射
+            pass
+    # ② 提单人固化归属部门（fallback，主数据未覆盖时兜底）
     if proposer and proposer in PROPOSER_DEPT_MAP:
         return PROPOSER_DEPT_MAP[proposer]
     # ② 需求涉及系统 → 归属部门
@@ -585,7 +596,7 @@ def generate_doc(db, req_id: str, stories: List[Dict[str, Any]], clarification: 
             c1 = tbl.rows[1].cells[1]   # 需求提出单位 / 责任部门
             c2 = tbl.rows[1].cells[2]   # 需求提出人
             c0.text = req_id
-            c1.text = _resolve_responsible_dept(item)
+            c1.text = _resolve_responsible_dept(item, db=db)
             c2.text = proposer or ""
             for c in (c0, c1, c2):
                 _style_runs_yh(c.paragraphs[0])

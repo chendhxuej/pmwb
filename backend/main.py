@@ -11,6 +11,7 @@ from core.exceptions import PMWBException
 from db.base import engine
 from db.models import Base  # noqa: F401
 from routers import (
+    basic_data,
     dashboard,
     dev_ticket,
     health,
@@ -91,6 +92,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(health.router, prefix="/api/v1", tags=["健康检查"])
+app.include_router(basic_data.router, prefix="/api/v1", tags=["基础数据"])
 app.include_router(keywork.router, prefix="/api/v1", tags=["重点工作"])
 app.include_router(operation.router, prefix="/api/v1", tags=["业务运营监控"])
 app.include_router(meeting.router, prefix="/api/v1", tags=["会议管理"])

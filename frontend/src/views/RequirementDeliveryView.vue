@@ -606,7 +606,7 @@
     <el-dialog v-model="evalDialog" :title="evalForm.id ? '编辑系统评估' : '新增系统评估'" width="520px">
       <el-form :model="evalForm" label-width="110px">
         <el-form-item label="涉及系统"><el-input v-model="evalForm.system_name" placeholder="如：生产运营平台" /></el-form-item>
-        <el-form-item label="SA 负责人"><el-input v-model="evalForm.sa_name" placeholder="如：戴晓飞" /></el-form-item>
+        <el-form-item label="SA 负责人"><StaffSelect v-model="evalForm.sa_name" placeholder="如：戴晓飞" /></el-form-item>
         <el-form-item label="工作量(人天)"><el-input-number v-model="evalForm.workload" :min="0" :step="0.5" style="width:100%" /></el-form-item>
         <el-form-item label="复核工作量(人天)"><el-input-number v-model="evalForm.review_workload" :min="0" :step="0.5" style="width:100%" /></el-form-item>
         <el-form-item label="评估意见"><el-input v-model="evalForm.opinion" type="textarea" :rows="3" /></el-form-item>
@@ -623,7 +623,7 @@
       <el-form :model="reqForm" label-width="110px">
         <el-form-item label="需求名称"><el-input v-model="reqForm.req_name" placeholder="覆盖 sent_emails 原始名称" /></el-form-item>
         <el-form-item label="涉及系统"><el-input v-model="reqForm.system_name" placeholder="覆盖原始系统" /></el-form-item>
-        <el-form-item label="SA"><el-input v-model="reqForm.sa_name" /></el-form-item>
+        <el-form-item label="SA"><StaffSelect v-model="reqForm.sa_name" /></el-form-item>
         <el-form-item label="优先级">
           <el-select v-model="reqForm.priority" style="width:100%">
             <el-option label="P0" value="P0" /><el-option label="P1" value="P1" />
@@ -658,7 +658,7 @@
         <el-form-item label="关联需求"><el-input v-model="ticketForm.req_id" placeholder="需求编号" /></el-form-item>
         <el-form-item label="涉及系统"><el-input v-model="ticketForm.system_name" /></el-form-item>
         <el-form-item label="开发团队"><el-input v-model="ticketForm.dev_team" /></el-form-item>
-        <el-form-item label="开发负责人"><el-input v-model="ticketForm.developer" /></el-form-item>
+        <el-form-item label="开发负责人"><StaffSelect v-model="ticketForm.developer" /></el-form-item>
         <el-form-item label="优先级">
           <el-select v-model="ticketForm.priority" style="width:100%">
             <el-option label="P0" value="P0" /><el-option label="P1" value="P1" /><el-option label="P2" value="P2" /><el-option label="P3" value="P3" />
@@ -686,6 +686,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
+import StaffSelect from '@/components/Common/StaffSelect.vue'
 import {
   getRequirements, getRequirement, updateRequirement, deleteRequirement,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
