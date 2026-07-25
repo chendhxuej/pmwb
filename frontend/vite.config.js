@@ -19,4 +19,18 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // 拆分大依赖，避免单 chunk 体积告警；知识库/表格用到的 mermaid、xlsx 各自成块
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vue: ['vue', 'vue-router', 'pinia'],
+          'element-plus': ['element-plus', '@element-plus/icons-vue'],
+          mermaid: ['mermaid'],
+          xlsx: ['xlsx'],
+        },
+      },
+    },
+  },
 })

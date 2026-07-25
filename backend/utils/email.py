@@ -12,7 +12,7 @@ class EmailCenterClient:
 
     def __init__(self, base_url: str = None):
         self.base_url = base_url or settings.EMAIL_CENTER_URL
-        self.client = httpx.Client(base_url=self.base_url, timeout=30.0)
+        self.client = httpx.Client(base_url=self.base_url, timeout=10.0)
 
     def send_email(
         self,
@@ -25,10 +25,13 @@ class EmailCenterClient:
         cc: str | list[str] = None,
         email_type: str = None,
         attachments: list[dict] = None,
+        raise_on_error: bool = True,
     ) -> dict:
         # 默认按纯文本(text/plain)发送：邮件客户端会忠实保留换行符，
         # 预览(textarea / white-space: pre-wrap)与收到邮件的段落排版完全一致。
         # 若改为 html，正文里的 \n 会被折叠成空格，导致"发出去变成一整段"。
+        # raise_on_error=False 时：邮件中心不可用改为返回 {"ok": False, "error"} 而非抛异常，
+        # 调用方据此降级（记录失败但不 500）。默认 True 保持与 plugin/历史调用方契约一致。
         payload = {
             "to": to if isinstance(to, list) else [to],
             "subject": subject,
@@ -46,9 +49,15 @@ class EmailCenterClient:
         if template_data:
             payload["template_data"] = template_data
 
-        response = self.client.post("/api/send", json=payload)
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = self.client.post("/api/send", json=payload)
+            response.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("发送邮件失败: %s", exc)
+            if raise_on_error:
+                raise
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "data": response.json()}
 
     def render_template(self, template_id: str, data: dict) -> dict:
         response = self.client.post(f"/api/templates/{template_id}/render", json=data)

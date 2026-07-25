@@ -506,7 +506,10 @@ class SentEmail(Base):
     dev_ticket_no = Column(String(255), comment="开发单号")
     involve_dev = Column(String(10), default="是", comment="涉及开发")
 
-    __table_args__ = ({"comment": "已发送邮件记录"},)
+    __table_args__ = (
+        Index("ix_sent_emails_req_id", "req_id"),
+        {"comment": "已发送邮件记录"},
+    )
 
 
 class EmailRecord(Base):

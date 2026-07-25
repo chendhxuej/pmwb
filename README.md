@@ -109,10 +109,14 @@ frontend\scripts\run_dev.bat
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=123456
+DB_PASSWORD=<你的数据库密码，必填，已无硬编码默认值>
 DB_NAME=yxtyg_db
 DB_CHARSET=utf8mb4
+# SECRET_KEY 为必填项（无默认值），用于会话签名等安全用途，请填随机长字符串
+SECRET_KEY=<随机长字符串，必填>
 ```
+
+> ⚠️ `DB_PASSWORD` 与 `SECRET_KEY` 均为**必填项**，代码已移除硬编码默认值，缺失会启动报错。
 
 执行迁移：
 

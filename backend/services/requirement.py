@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, PmwbUserStory, PmwbDevTicket, SentEmail
 from schemas.common import PaginationParams, PaginationResponse
+from utils.dateflags import relative_status
 
 
 class RequirementService:
@@ -74,13 +75,8 @@ class RequirementService:
             if version_required_date and ticket.go_live_date and ticket.go_live_date > version_required_date:
                 return "late"   # 已上线但晚于要求
             return "on_time"
-        # 未完成
-        if version_required_date:
-            if today > version_required_date:
-                return "overdue"   # 未上线且已过截止日
-            if 0 <= (version_required_date - today).days <= 7:
-                return "warning"   # 临近（7天内）
-        return "on_track"
+        # 未完成：相对版本要求截止日，复用共享日期工具（overdue/warning/on_track）
+        return relative_status(version_required_date, today, warning_days=7)
 
     def _aggregate_tracking(self, tickets, version_required_date, today) -> str:
         """聚合需求级跟踪状态：none/none(无工单)/on_time/进行中/预警/超期。"""

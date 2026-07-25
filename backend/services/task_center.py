@@ -5,7 +5,7 @@
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
@@ -32,6 +32,7 @@ from schemas.task_center import (
     TaskSendRequest,
     TaskStats,
 )
+from utils.dateflags import flag_due_date
 from utils.email import EmailCenterClient
 from utils.validators import split_and_validate_emails
 
@@ -100,14 +101,8 @@ def _map_meeting_action_status(raw: str) -> str:
 
 
 def _flag_dates(due: Optional[date], status: str) -> Dict[str, bool]:
-    """计算超期/临期标记（终态不算）。"""
-    if due is None or status in ("done", "blocked"):
-        return {"is_overdue": False, "is_due_soon": False}
-    today = date.today()
-    return {
-        "is_overdue": due < today,
-        "is_due_soon": today <= due <= today + timedelta(days=DUE_SOON_DAYS),
-    }
+    """计算超期/临期标记（终态不算），复用共享日期工具。"""
+    return flag_due_date(due, status, due_soon_days=DUE_SOON_DAYS)
 
 
 class TaskCenterService:
@@ -556,20 +551,22 @@ class TaskCenterService:
         db.commit()
         db.refresh(record)
 
-        try:
-            self.email_client.send_email(
-                to=obj_in.to,
-                subject=obj_in.subject,
-                body=body,
-                cc=obj_in.cc,
-            )
+        result = self.email_client.send_email(
+            to=obj_in.to,
+            subject=obj_in.subject,
+            body=body,
+            cc=obj_in.cc,
+            raise_on_error=False,
+        )
+        if result.get("ok"):
             record.send_status = "success"
+            record.error_msg = None
             message = "邮件发送成功"
             success_flag = True
-        except Exception as exc:  # noqa: BLE001
+        else:
             record.send_status = "failed"
-            record.error_msg = str(exc)
-            message = f"邮件发送失败：{exc}"
+            record.error_msg = result.get("error")
+            message = f"邮件发送失败：{result.get('error')}"
             success_flag = False
         db.commit()
         db.refresh(record)

@@ -52,22 +52,23 @@ class ReminderService:
         db.commit()
         db.refresh(record)
 
-        try:
-            result = self.email_client.send_email(
-                to=obj_in.to,
-                subject=obj_in.subject,
-                body=obj_in.body,
-                template_id=obj_in.template_id,
-                template_data=obj_in.template_data,
-            )
+        result = self.email_client.send_email(
+            to=obj_in.to,
+            subject=obj_in.subject,
+            body=obj_in.body,
+            template_id=obj_in.template_id,
+            template_data=obj_in.template_data,
+            raise_on_error=False,
+        )
+        if result.get("ok"):
             record.send_status = "success"
-            record.error_msg = str(result) if result else None
+            record.error_msg = None
             message = "邮件发送成功"
             success = True
-        except Exception as exc:
+        else:
             record.send_status = "failed"
-            record.error_msg = str(exc)
-            message = f"邮件发送失败：{exc}"
+            record.error_msg = result.get("error")
+            message = f"邮件发送失败：{result.get('error')}"
             success = False
 
         db.commit()

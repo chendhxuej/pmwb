@@ -6,14 +6,14 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     APP_NAME: str = "产品经理个人工作台"
     APP_VERSION: str = "0.1.0"
-    DEBUG: bool = True
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    DEBUG: bool = False
+    SECRET_KEY: str  # 强制从环境变量/.env 读取，禁止硬编码默认值
 
     # Database
     DB_HOST: str = "127.0.0.1"
     DB_PORT: int = 3306
     DB_USER: str = "root"
-    DB_PASSWORD: str = "123456"
+    DB_PASSWORD: str  # 强制从环境变量/.env 读取，禁止硬编码弱密码默认值
     DB_NAME: str = "yxtyg_db"
     DB_CHARSET: str = "utf8mb4"
     DATABASE_URL: str = ""
