@@ -2,24 +2,28 @@
 
 挂在 /api/v1/basic-data 下，是全站选人组件的统一数据源。
 """
-from typing import Optional
+from io import BytesIO
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import StreamingResponse
+from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
-from core.exceptions import NotFoundException
+from core.exceptions import NotFoundException, ValidationException
 from core.response import success
 from db.base import get_db
 from schemas.basic_data import (
     OrgCreate,
     OrgOut,
+    OrgStaffImportOut,
     OrgUpdate,
     StaffCreate,
     StaffOptionGroup,
     StaffOut,
     StaffUpdate,
 )
-from services.basic_data import basic_data_service
+from services.basic_data import TEMPLATE_COLUMNS, basic_data_service
 
 router = APIRouter(prefix="/basic-data", tags=["基础数据"])
 
@@ -112,3 +116,63 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db)):
     if not ok:
         raise NotFoundException(f"人员不存在：id={staff_id}")
     return success(data={"deleted": True}, message="人员已删除")
+
+
+# ---------------------------------------------------------------------------
+# 批量导入与模板
+# ---------------------------------------------------------------------------
+@router.post("/import")
+def import_basic_data(
+    file: UploadFile = File(..., description="Excel 文件，列：组织名称, 成员姓名, 邮箱, 电话, 身份, 排序号, 是否启用"),
+    db: Session = Depends(get_db),
+):
+    """上传 Excel 批量导入/更新组织与人员。"""
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise ValidationException("仅支持 .xlsx / .xls 文件")
+
+    contents = file.file.read()
+    try:
+        wb = load_workbook(filename=BytesIO(contents), data_only=True)
+    except Exception as e:
+        raise ValidationException(f"无法解析 Excel：{e}")
+
+    ws = wb.active
+    headers = [str(cell.value or "").strip() for cell in ws[1]]
+    expected = [c[0] for c in TEMPLATE_COLUMNS]
+    # 允许缺少非必填列，但必填列必须存在
+    required_names = {c[0] for c in TEMPLATE_COLUMNS if c[1]}
+    missing_required = required_names - set(headers)
+    if missing_required:
+        raise ValidationException(f"Excel 缺少必填列：{', '.join(missing_required)}")
+
+    rows = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if all(v is None or str(v).strip() == "" for v in row):
+            continue
+        row_dict = {}
+        for idx, header in enumerate(headers):
+            if header in expected:
+                row_dict[header] = row[idx] if idx < len(row) else None
+        rows.append(row_dict)
+
+    if not rows:
+        raise ValidationException("Excel 中没有有效数据行")
+
+    result = basic_data_service.import_orgs_staffs(db, rows)
+    return success(
+        data=OrgStaffImportOut(**result).model_dump(),
+        message=f"导入完成：新增 {result['created_orgs']} 个组织、{result['created_staffs']} 名成员，更新 {result['updated_orgs']} 个组织、{result['updated_staffs']} 名成员",
+    )
+
+
+@router.get("/template")
+def download_template():
+    """下载团队信息导入 Excel 模板。"""
+    data = basic_data_service.build_template_bytes()
+    return StreamingResponse(
+        BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="team_info_template.xlsx"',
+        },
+    )

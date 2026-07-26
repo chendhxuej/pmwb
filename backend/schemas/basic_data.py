@@ -71,8 +71,29 @@ class StaffOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 选人组件分组选项
+# 批量导入
 # ---------------------------------------------------------------------------
+class StaffImportRow(BaseModel):
+    """Excel 导入单行结构。"""
+
+    org_name: str
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role_hint: Optional[str] = None
+    sort: Optional[int] = 0
+    enabled: Optional[bool] = True
+
+
+class OrgStaffImportOut(BaseModel):
+    """批量导入结果。"""
+
+    created_orgs: int = 0
+    updated_orgs: int = 0
+    created_staffs: int = 0
+    updated_staffs: int = 0
+    errors: List[str] = []
+
 class StaffOption(BaseModel):
     value: str
     label: str

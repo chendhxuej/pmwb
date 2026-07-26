@@ -3,6 +3,22 @@ import request from './request.js'
 // 基础数据：组织 + 人员主数据（全站选人组件统一数据源）
 
 export const basicDataApi = {
+  // 批量导入
+  importFromExcel(file) {
+    const form = new FormData()
+    form.append('file', file)
+    return request.post('/basic-data/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  // 下载导入模板
+  downloadTemplate() {
+    return request.get('/basic-data/template', {
+      responseType: 'blob',
+    })
+  },
+
   // 选人组件分组选项：[{ org_id, org_name, options: [{ value, label, email }] }]
   getStaffOptions() {
     return request.get('/basic-data/staff-options')
@@ -39,13 +55,31 @@ export const basicDataApi = {
 
 // ---------------------------------------------------------------------------
 // 选人选项模块级缓存（所有 StaffSelect 共享一次加载；管理页变更后调用 refresh）
+// L1 同组件实例 — 本组件 ref 更新
+// L2 同前端实例 — subscribers 广播（同页面多个 StaffSelect / 跨路由）
+// L3 跨标签页   — BroadcastChannel 通知其他标签页刷新
 // ---------------------------------------------------------------------------
 let optionsCache = null
 let optionsPromise = null
 const subscribers = new Set()
 
-export async function loadStaffOptions(force = false) {
-  if (optionsCache && !force) return optionsCache
+// L3: BroadcastChannel 跨标签页广播
+const _bc =
+  typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel('pmwb-staff-options')
+    : null
+
+if (_bc) {
+  _bc.onmessage = (event) => {
+    if (event.data?.type === 'refresh') {
+      // 收到其他标签页的变更通知，静默刷新本地缓存（不再广播，避免循环）
+      _doLoad(true).catch(() => {})
+    }
+  }
+}
+
+function _doLoad(force) {
+  if (optionsCache && !force) return Promise.resolve(optionsCache)
   if (!optionsPromise || force) {
     optionsPromise = basicDataApi
       .getStaffOptions()
@@ -62,8 +96,18 @@ export async function loadStaffOptions(force = false) {
   return optionsPromise
 }
 
+export async function loadStaffOptions(force = false) {
+  return _doLoad(force)
+}
+
 export function refreshStaffOptions() {
-  return loadStaffOptions(true)
+  // L3: 通知其他标签页
+  if (_bc) {
+    try {
+      _bc.postMessage({ type: 'refresh', ts: Date.now() })
+    } catch {}
+  }
+  return _doLoad(true)
 }
 
 // 订阅缓存刷新（StaffSelect 挂载时订阅，卸载时退订）

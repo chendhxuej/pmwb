@@ -92,7 +92,7 @@ const routes = [
         path: 'basic-data',
         name: 'BasicData',
         component: () => import('@/views/BasicDataView.vue'),
-        meta: { title: '基础数据', icon: 'Coin' },
+        meta: { title: '团队信息', icon: 'OfficeBuilding' },
       },
       // ── 知识中心：聚合知识类子模块 ──
       {
