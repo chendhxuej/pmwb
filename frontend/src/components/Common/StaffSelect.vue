@@ -24,22 +24,44 @@
   <el-dialog
     v-model="dialogVisible"
     title="选择人员"
-    width="640px"
+    width="760px"
     :close-on-click-modal="false"
     append-to-body
   >
     <div class="staff-picker">
+      <!-- 搜索 + 筛选 -->
       <div class="staff-picker-header">
         <el-input
           v-model="dialogQuery"
           class="staff-picker-search"
-          placeholder="搜索姓名 / 身份 / 邮箱"
+          placeholder="搜索姓名 / 邮箱"
           clearable
         >
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
+        <div class="staff-picker-filters">
+          <el-select
+            v-model="filterOrg"
+            placeholder="全部组织"
+            clearable
+            size="small"
+            class="staff-picker-filter-item"
+          >
+            <el-option v-for="o in allOrgs" :key="o" :label="o" :value="o" />
+          </el-select>
+          <el-select
+            v-model="filterRole"
+            placeholder="全部身份"
+            clearable
+            size="small"
+            class="staff-picker-filter-item"
+          >
+            <el-option v-for="r in allRoles" :key="r" :label="r" :value="r" />
+          </el-select>
+        </div>
       </div>
 
+      <!-- 已选 -->
       <div class="staff-picker-selected">
         <span class="staff-picker-label">已选 {{ selectedValues.length }} 人</span>
         <div class="staff-picker-tags">
@@ -60,6 +82,7 @@
         </el-button>
       </div>
 
+      <!-- 人员列表 -->
       <div class="staff-picker-groups">
         <div
           v-for="group in filteredGroups"
@@ -69,6 +92,17 @@
           <div class="staff-picker-group-title">
             <el-icon><OfficeBuilding /></el-icon>
             <span>{{ group.org_name }}</span>
+            <span class="staff-picker-group-count">{{ group.options.length }}人</span>
+            <el-button
+              v-if="multiple"
+              link
+              type="primary"
+              size="small"
+              class="staff-picker-group-select-all"
+              @click="toggleGroup(group)"
+            >
+              {{ isGroupAllSelected(group) ? '取消全选' : '全选' }}
+            </el-button>
           </div>
           <div class="staff-picker-group-body">
             <div
@@ -94,6 +128,7 @@
         <el-empty v-if="!filteredGroups.length" description="没有匹配的团队或人员" :image-size="80" />
       </div>
 
+      <!-- 自定义添加 -->
       <div v-if="allowCreate" class="staff-picker-custom">
         <span class="staff-picker-custom-label">未找到？手动添加：</span>
         <el-input
@@ -124,9 +159,9 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { CircleClose, OfficeBuilding, Search, Setting } from '@element-plus/icons-vue'
-import { loadStaffOptions, subscribeStaffOptions } from '@/api/basicData.js'
+import { loadStaffOptions, subscribeStaffOptions, basicDataApi } from '@/api/basicData.js'
+import { useStaffAdmin } from '@/composables/useStaffAdmin.js'
 
 /**
  * 统一人员选择组件（弹窗式）
@@ -148,12 +183,37 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'change'])
 
-const router = useRouter()
+const { openStaffAdmin } = useStaffAdmin()
 const groups = ref([])
+const orgOptions = ref([])
+const roleOptions = ref([])
+const pickerOptionsPromise = ref(null)
 const dialogVisible = ref(false)
 const dialogQuery = ref('')
 const customName = ref('')
+
+// 筛选
+const filterOrg = ref('')
+const filterRole = ref('')
+
 let unsubscribe = null
+
+async function ensurePickerOptions() {
+  if (pickerOptionsPromise.value) return pickerOptionsPromise.value
+  pickerOptionsPromise.value = (async () => {
+    const [orgs, roles] = await Promise.all([
+      basicDataApi.getOrgOptions().catch(() => []),
+      basicDataApi.getRoleOptions().catch(() => []),
+    ])
+    orgOptions.value = Array.isArray(orgs) ? orgs : []
+    roleOptions.value = Array.isArray(roles) ? roles : []
+  })()
+  try {
+    await pickerOptionsPromise.value
+  } finally {
+    pickerOptionsPromise.value = null
+  }
+}
 
 onMounted(async () => {
   unsubscribe = subscribeStaffOptions((data) => {
@@ -241,27 +301,79 @@ const showClear = computed(() => {
   return props.clearable && !props.disabled && selectedValues.value.length > 0
 })
 
+// --- 筛选器选项（直接从定义接口获取，轻量） ---
+const allOrgs = computed(() => {
+  return orgOptions.value.map((o) => o.name).sort()
+})
+
+const allRoles = computed(() => {
+  return roleOptions.value.map((r) => r.name).sort()
+})
+
+// --- 组合过滤 ---
 const q = computed(() => dialogQuery.value.trim().toLowerCase())
 
 const filteredGroups = computed(() => {
-  if (!q.value) return normalizedGroups.value
   const kws = q.value.split(/\s+/).filter(Boolean)
+  const useOrg = !!filterOrg.value
+  const useRole = !!filterRole.value
+
   return normalizedGroups.value
     .map((g) => {
-      const opts = g.options.filter((o) =>
-        kws.every(
-          (kw) =>
-            (o.label || '').toLowerCase().includes(kw) ||
-            (o.role_hint || '').toLowerCase().includes(kw) ||
-            (o.email || '').toLowerCase().includes(kw) ||
-            (o.org_name || '').toLowerCase().includes(kw),
-        ),
-      )
+      const opts = g.options.filter((o) => {
+        // 文本搜索
+        if (kws.length) {
+          const match = kws.every(
+            (kw) =>
+              (o.label || '').toLowerCase().includes(kw) ||
+              (o.email || '').toLowerCase().includes(kw) ||
+              (o.org_name || '').toLowerCase().includes(kw),
+          )
+          if (!match) return false
+        }
+        // 组织筛选
+        if (useOrg && g.org_name !== filterOrg.value) return false
+        // 身份筛选
+        if (useRole && (o.role_hint || '') !== filterRole.value) return false
+        return true
+      })
       return opts.length ? { ...g, options: opts } : null
     })
     .filter(Boolean)
 })
 
+// --- 全选 / 取消全选 ---
+function isGroupAllSelected(group) {
+  return group.options.length > 0 && group.options.every((o) => isSelected(o.value))
+}
+
+function isGroupAnySelected(group) {
+  return group.options.some((o) => isSelected(o.value))
+}
+
+function isGroupNoneSelected(group) {
+  return !group.options.some((o) => isSelected(o.value))
+}
+
+function toggleGroup(group) {
+  if (!props.multiple) return
+  if (isGroupAllSelected(group)) {
+    // 取消全选本组
+    const removeSet = new Set(group.options.map((o) => o.value))
+    const vals = selectedValues.value.filter((v) => !removeSet.has(v))
+    emit('update:modelValue', vals)
+    emit('change', vals)
+  } else {
+    // 全选本组
+    const existing = new Set(selectedValues.value)
+    group.options.forEach((o) => existing.add(o.value))
+    const vals = [...existing]
+    emit('update:modelValue', vals)
+    emit('change', vals)
+  }
+}
+
+// --- 单选 / 多选 ---
 function isSelected(value) {
   return selectedValues.value.includes(value)
 }
@@ -311,6 +423,8 @@ function clearAll() {
 function openDialog() {
   if (props.disabled) return
   dialogQuery.value = ''
+  filterOrg.value = ''
+  filterRole.value = ''
   customName.value = ''
   dialogVisible.value = true
 }
@@ -339,7 +453,7 @@ function addCustom() {
 }
 
 function goManage() {
-  router.push('/basic-data')
+  openStaffAdmin()
   dialogVisible.value = false
 }
 </script>
@@ -396,17 +510,28 @@ function goManage() {
   color: #409eff;
 }
 
+/* ---------- 弹窗内部 ---------- */
 .staff-picker {
   display: flex;
   flex-direction: column;
-  max-height: 56vh;
+  max-height: 58vh;
 }
 .staff-picker-header {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .staff-picker-search {
   width: 100%;
+  margin-bottom: 8px;
 }
+.staff-picker-filters {
+  display: flex;
+  gap: 10px;
+}
+.staff-picker-filter-item {
+  flex: 1;
+}
+
+/* 已选区域 */
 .staff-picker-selected {
   display: flex;
   align-items: flex-start;
@@ -435,6 +560,8 @@ function goManage() {
   color: #909399;
   padding-top: 4px;
 }
+
+/* 分组列表 */
 .staff-picker-groups {
   flex: 1;
   overflow-y: auto;
@@ -456,6 +583,15 @@ function goManage() {
   font-weight: 600;
   color: #1f2d3d;
 }
+.staff-picker-group-count {
+  font-size: 12px;
+  color: #909399;
+  font-weight: 400;
+}
+.staff-picker-group-select-all {
+  margin-left: auto;
+}
+
 .staff-picker-group-body {
   padding: 6px 8px;
 }
@@ -498,6 +634,8 @@ function goManage() {
   font-size: 12px;
   color: #8a94a6;
 }
+
+/* 自定义添加 */
 .staff-picker-custom {
   display: flex;
   align-items: center;
@@ -515,6 +653,8 @@ function goManage() {
   flex: 1;
   max-width: 240px;
 }
+
+/* 底部 */
 .staff-picker-footer {
   display: flex;
   align-items: center;
