@@ -50,7 +50,7 @@
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
 | db-1 | 引入 ECharts + 封装图表组件 | feature/db-1-echarts | S2 | ⬜待分配 | — | 安装 echarts/vue-echarts，封装5种图表组件 |
-| db-2 | 后端 Dashboard 统计接口扩展 | feature/db-2-api | S2 | ⬜待分配 | — | 扩展 /dashboard 返回更多维度统计数据 |
+| db-2 | 后端 Dashboard 统计接口扩展 | feature/db-2-api | S2 | 🟡待审查 (晓伴) | ff4377a | 扩展 /dashboard 返回更多维度统计数据 |
 | db-3 | 首页 KPI 统计区重构（大数字卡片） | feature/db-3-kpi | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 |
 | db-4 | 首页图表区扩展（柱/线/饼/进度条） | feature/db-4-charts | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 |
 | db-5 | 各模块数据可视化卡片 | feature/db-5-modules | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 + db-3 + db-4 |
