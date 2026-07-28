@@ -22,7 +22,7 @@ class Settings(BaseSettings):
         )
 
     class Config:
-        env_file = ".env"
+        env_file = r"D:\项目\个人工作台系统\services\master\.env"
         env_file_encoding = "utf-8"
         extra = "ignore"
 
