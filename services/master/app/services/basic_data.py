@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
 
+from core.exceptions import ValidationException
 from db.models import PmwbOrg, PmwbRole, PmwbStaff
 
 # Excel 导入模板列定义
@@ -58,9 +59,15 @@ class BasicDataService:
         return query.order_by(PmwbOrg.sort, PmwbOrg.id).all()
 
     def create_org(self, db: Session, data: dict) -> PmwbOrg:
+        from sqlalchemy.exc import IntegrityError
+
         obj = PmwbOrg(**data)
         db.add(obj)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ValidationException(f"组织名称重复：{data.get('name', '')}")
         db.refresh(obj)
         return obj
 
@@ -164,9 +171,15 @@ class BasicDataService:
         return query.order_by(PmwbStaff.org_id, PmwbStaff.sort, PmwbStaff.id).all()
 
     def create_staff(self, db: Session, data: dict) -> PmwbStaff:
+        from sqlalchemy.exc import IntegrityError
+
         obj = PmwbStaff(**data)
         db.add(obj)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ValidationException(f"人员已存在：{data.get('name', '')}")
         db.refresh(obj)
         return obj
 
