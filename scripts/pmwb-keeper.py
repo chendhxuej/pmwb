@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 PMWB 看门狗 / 保活脚本
-- 每隔固定间隔检查四个服务端口，挂了就用已验证的控制台命令自动拉起。
-- 依赖顺序：后端(8000)依赖 MySQL(3306)，MySQL 未就绪时不启动后端（下一轮再起）。
+- 每隔固定间隔检查所有服务端口，挂了就用已验证的控制台命令自动拉起。
+- 依赖顺序：后端(8000)、Master(8001) 依赖 MySQL(3306)，MySQL 未就绪时不启动后端/Master（下一轮再起）。
 - 用法：
     python pmwb-keeper.py          # 常驻保活（默认，Ctrl+C 或关窗口停止）
     python pmwb-keeper.py --once   # 单轮拉起并等待就绪后退出（用于验证/一次性启动）
@@ -26,9 +26,10 @@ BE_CWD   = r"D:\项目\个人工作台系统\backend"
 NODE     = r"C:\Users\chend\.workbuddy\binaries\node\versions\22.22.2\node.exe"
 FE_CWD   = r"D:\项目\个人工作台系统\frontend"
 MAIL_CWD = r"D:\项目\统一邮件中心\server"
+MASTER_CWD = r"D:\项目\个人工作台系统\services\master\app"
 
-SERVICES = [3306, 8000, 5173, 3210]
-NAMES = {3306: "MySQL", 8000: "Backend", 5173: "Frontend", 3210: "Mail"}
+SERVICES = [3306, 8000, 5173, 3210, 8001]
+NAMES = {3306: "MySQL", 8000: "Backend", 5173: "Frontend", 3210: "Mail", 8001: "Master"}
 
 
 def log(msg):
@@ -63,11 +64,38 @@ def spawn(cmd, cwd=None):
     )
 
 
+def _mysql_process_running():
+    # 避免重复拉起多个 mysqld 争抢数据目录锁（崩溃恢复时会陷入死循环）
+    try:
+        out = subprocess.run(
+            [r"C:\Windows\System32\tasklist.exe", "/FI", "IMAGENAME eq mysqld.exe"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+        return "mysqld.exe" in out
+    except Exception:
+        return False
+
+
 def ensure_mysql():
     if port_up(3306):
         return
+    if _mysql_process_running():
+        # mysqld 已在运行但端口尚未就绪（可能在做 InnoDB 崩溃恢复），耐心等待，不要重复拉起
+        return
     log("MySQL(3306) down -> starting mysqld")
-    spawn([MYSQLD, "--defaults-file=%s" % MYINI])
+    # mysqld 是控制台子系统程序，必须由带控制台的父进程(python.exe)拉起；
+    # 若用 pythonw(无控制台)启动看门狗，--console 会因缺少控制台而静默失败。
+    # 因此开机/手动启动看门狗都必须用 python.exe（桌面 .bat 与开机 vbs 均已用 python.exe）。
+    mlog_path = os.path.join(LOG_DIR, "mysqld.log")
+    try:
+        mlog = open(mlog_path, "ab")
+    except Exception:
+        mlog = subprocess.DEVNULL
+    subprocess.Popen(
+        [MYSQLD, "--defaults-file=%s" % MYINI, "--console"],
+        creationflags=DETACH,
+        stdout=mlog, stderr=subprocess.STDOUT, close_fds=True,
+    )
 
 
 def ensure_mail():
@@ -94,11 +122,22 @@ def ensure_backend():
     spawn([BE_PY, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"], cwd=BE_CWD)
 
 
+def ensure_master():
+    if port_up(8001):
+        return
+    if not port_up(3306):
+        log("Master(8001) waits for MySQL(3306) ready ...")
+        return
+    log("Master(8001) down -> starting uvicorn")
+    spawn([BE_PY, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001"], cwd=MASTER_CWD)
+
+
 def cycle():
     ensure_mysql()
     ensure_mail()
     ensure_frontend()
     ensure_backend()
+    ensure_master()
 
 
 def status_str():
