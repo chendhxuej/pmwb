@@ -23,8 +23,8 @@
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
 | mc-1 | 后端代理层：配置+ProxyClient+路由 | feature/mc-1-backend-proxy | S2 | ✅已合入 | Vicky2号 | 25条路由，合并日志端点；需重启后端验证 |
-| mc-2 | 前端路由与菜单：/mail-center 路由组 | feature/mc-2-frontend-route | S2 | 🟡待审查 | 晓伴 | 交付 13:13 -- build ok, vitest 4/4, commit 622ffac 已推送 |
-| mc-3 | 发送日志页（合并展示） | feature/mc-3-logs-view | S2 | ⬜待分配 | — | 依赖 mc-2 |
+| mc-2 | 前端路由与菜单：/mail-center 路由组 | feature/mc-2-frontend-route | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 审查剔除3个P0无关文件后合入 main (a5aac42) |
+| mc-3 | 发送日志页（合并展示） | feature/mc-3-logs-view | S2 | 🟡待审查 | 晓伴 | build ok, commit aaadd48 已推送 |
 | mc-4 | 账号管理+通讯录/分组+模板管理 | feature/mc-4-admin-pages | S2 | ⬜待分配 | — | 依赖 mc-2 |
 | mc-5 | 测试验证+浏览器冒烟+归档 | feature/mc-5-verify | S3 | ⬜待分配 | — | 依赖 mc-1~4 |
 
