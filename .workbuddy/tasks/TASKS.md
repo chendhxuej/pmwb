@@ -26,7 +26,7 @@
 | mc-2 | 前端路由与菜单：/mail-center 路由组 | feature/mc-2-frontend-route | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 审查剔除3个P0无关文件后合入 main (a5aac42→fd8afca) |
 | mc-3 | 发送日志页（合并展示） | feature/mc-3-logs-view | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 812c8bc，审查移除未使用 mcError ref |
 | mc-4 | 账号管理+通讯录/分组+模板管理 | feature/mc-4-admin-pages | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 1cb76d3，4页CRUD完整 |
-| mc-5 | 测试验证+浏览器冒烟+归档 | feature/mc-5-verify | S3 | ⬜待分配 | — | 依赖 mc-1~4 |
+| mc-5 | 测试验证+浏览器冒烟+归档 | feature/mc-5-verify | S3 | ✅已合入 | 晓伴 | pytest 43/44(预存死), vitest 4/4, build ok, mc-1~4 全部合入 |
 
 ---
 

@@ -151,7 +151,7 @@ const routes = [
           {
             path: 'logs',
             name: 'MailLogs',
-            component: () => import('@/views/mail/MailLogsPlaceholder.vue'),
+            component: () => import('@/views/mail/MailLogsView.vue'),
             meta: { title: '发送日志', icon: 'Tickets' },
           },
           {
