@@ -135,11 +135,50 @@ const routes = [
         redirect: '/task-center',
         meta: { hidden: true },
       },
+      // ── 邮件中心 ──
       {
         path: 'mail-records',
-        name: 'MailRecords',
-        component: () => import('@/views/MailRecordsView.vue'),
-        meta: { title: '邮件记录', icon: 'Message' },
+        redirect: '/mail-center/logs',
+        meta: { hidden: true },
+      },
+      {
+        path: 'mail-center',
+        name: 'MailCenter',
+        component: () => import('@/views/mail/MailCenterLayout.vue'),
+        redirect: '/mail-center/logs',
+        meta: { title: '邮件中心', icon: 'Message' },
+        children: [
+          {
+            path: 'logs',
+            name: 'MailLogs',
+            component: () => import('@/views/mail/MailLogsPlaceholder.vue'),
+            meta: { title: '发送日志', icon: 'Tickets' },
+          },
+          {
+            path: 'accounts',
+            name: 'MailAccounts',
+            component: () => import('@/views/mail/MailPlaceholder.vue'),
+            meta: { title: '邮件账号', icon: 'User' },
+          },
+          {
+            path: 'contacts',
+            name: 'MailContacts',
+            component: () => import('@/views/mail/MailPlaceholder.vue'),
+            meta: { title: '通讯录', icon: 'Avatar' },
+          },
+          {
+            path: 'groups',
+            name: 'MailGroups',
+            component: () => import('@/views/mail/MailPlaceholder.vue'),
+            meta: { title: '联系人分组', icon: 'Grid' },
+          },
+          {
+            path: 'templates',
+            name: 'MailTemplates',
+            component: () => import('@/views/mail/MailPlaceholder.vue'),
+            meta: { title: '邮件模板', icon: 'Memo' },
+          },
+        ],
       },
       // 已并入「需求与交付」的旧路由，保留深链兼容（隐藏于菜单）
       {
