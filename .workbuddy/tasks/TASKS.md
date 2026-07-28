@@ -22,7 +22,7 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| mc-1 | 后端代理层：配置+ProxyClient+路由 | feature/mc-1-backend-proxy | S2 | 🔵开发中 | Vicky2号 | config/email.py/mail_center.py 已改，待验证 |
+| mc-1 | 后端代理层：配置+ProxyClient+路由 | feature/mc-1-backend-proxy | S2 | ✅已合入 | Vicky2号 | 25条路由，合并日志端点；需重启后端验证 |
 | mc-2 | 前端路由与菜单：/mail-center 路由组 | feature/mc-2-frontend-route | S2 | ⬜待分配 | — | 依赖 mc-1 |
 | mc-3 | 发送日志页（合并展示） | feature/mc-3-logs-view | S2 | ⬜待分配 | — | 依赖 mc-2 |
 | mc-4 | 账号管理+通讯录/分组+模板管理 | feature/mc-4-admin-pages | S2 | ⬜待分配 | — | 依赖 mc-2 |
