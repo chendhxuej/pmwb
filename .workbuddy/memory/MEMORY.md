@@ -1,0 +1,39 @@
+# PMWB 项目长期记忆
+
+## 项目状态
+- 前端 IA：首页看板 → **任务中心** → 需求与交付/运营监控/会议日程/**知识中心** + 邮件记录 + **重点工作**。任务中心聚合 6 类待办（个人待办/运营问题/开发工单/会议行动项/重点工作/需求催办），需求催办以 `pmwb_requirement_evaluation` 为准。
+- 测试基线：后端 pytest 全绿、前端 Vitest 4/4、vite build 干净；GitHub: chendhxuej/pmwb (main)。
+
+## 启动方案（看门狗常驻保活）
+- **主方案**：`C:\pmwb-scripts\pmwb-keeper.py`（镜像 `scripts/`）每 15s 检查 3306/8000/5173/3210/8001，DOWN 用已验证控制台命令 DETACHED 拉起；后端/Master 等 3306 就绪才起。桌面双击 `启动PMWB.bat`（常驻看门狗，`--once`=一次性）。
+- **一键重启**：桌面 `重启PMWB.bat` 双击即运行 `C:\pmwb-scripts\pmwb-restart.py`——按端口(3306/8000/5173/8001)终止现有前后端+MySQL+Master 进程并停旧看门狗，再后台拉起看门狗自动重新拉起全部服务；邮件中心(3210)独立不动。
+- **开机自启铁律**：Startup 的 `pmwb-autostart.vbs` 必须 `cmd /c "<python.exe>" "<keeper.py>"`。**绝不能用 `pythonw`/`Run/Start-Process` 隐藏窗口直接拉 python.exe**——那样 `mysqld --console` 静默失败、数据库起不来。MySQL 控制台模式有父引导+子工作两个 mysqld.exe，属正常。
+- **⚠️ 陈旧 PMWB 服务占位坑（高复发）**：本机曾有 3 个 PMWB-* NSSM 服务 + PMWB-MySQL 计划任务（已用 `scripts/uninstall-windows-services.bat` **右键管理员**永久删除）。若日后又出现「改了后端代码却不生效(返回404)」，先查是否残留旧服务占 8000；沙箱令牌被 UAC 过滤无法在沙箱内 `taskkill` 重启，需本机管理员操作。
+- 服务化脚本(`install-windows-services.ps1` 等)已弃用，勿再迭代。
+
+## 关键技术约定（高频坑）
+- API：request.js baseURL='/api/v1'，api 文件用相对路径如 '/requirements'；拦截器 code===0 返回 data.data，禁止二次解包。
+- `success()` 用 `message=`(非 `msg=`)，否则 TypeError→500。
+- 时区：中国 UTC+8；统计用 `datetime.now(timezone(timedelta(hours=8)))`，库表 UTC 存、展示 ±8h，勿 utcnow 当本地今天。
+- 前端日期空值传 `""` → Pydantic `Optional[date]` 422；Update schema 加 `@field_validator(mode="before")` 把 `""`/`None` 转 None。
+- **图标引用坑**：数组字面量 `icon: Xxx` 立即求值，Xxx 必须已 import 且真实存在；漏 import/拼错→白屏，Rollup 不报错，**浏览器无头冒烟是必过项**。
+- **菜单 hidden 坑**：`MainLayout.vue` 的 `menuItems` 必须 `.filter(c=>!c.meta?.hidden)` 才真正隐藏；meta 无 title 回退显示路由 name（难看英文）。
+- python-docx：`doc.styles[name]`；链式 `anchor._element.addnext(new_p)`。需求交付附件删除 `filename` 用 `Body(embed=True)` 收 JSON，上传 `File(...)` multipart。
+- 沙箱删守卫：Obsidian vault 路径 os.remove/rmtree 被沙箱拦截(409)，真实环境正常，勿改业务逻辑绕过。
+
+## 架构整改约定（2026-07-25 审查落地）
+- **催办/逾期判据单一来源**：`backend/utils/dateflags.py`（`is_overdue`/`is_due_soon`/`flag_due_date`/`relative_status`）；task_center/requirement/reminder 三处禁止各自实现，否则数字漂移。
+- **邮件发送降级契约**：`EmailCenterClient.send_email(...)` 返回 `{"ok","data"?,"error"?}`；业务侧用 `raise_on_error=False` 并判 `result["ok"]`，失败只落 `send_status=failed`+记 `error_msg`，**不得抛异常中断接口**。超时 30s→10s。
+- **配置强制环境变量**：`SECRET_KEY`/`DB_PASSWORD` 必填、从 `.env` 读取，缺失即报错；`DEBUG` 默认 False。加必填项须同步 `backend/.env` 与 README 示例。
+- **sent_emails 索引**：`req_id` 已加 `ix_sent_emails_req_id`（迁移 20260725000002）；改模型索引须同步补 Alembic 迁移。
+- 改 SQLAlchemy 模型(增/改列)后必须先 `alembic upgrade head` 再起后端（否则 1054 Unknown column→前端500）。
+
+## 协同开发规范（2026-07-28 确立）
+- **铁律**：禁止在 main 主干直接开发，所有改动走 feature 分支 → Vicky2号审查合版。
+- **角色**：Vicky2号=集成者（拆任务/建分支/审查/合版/推送）；其他AI=开发者（分支上开发/自测/提交）；老大=决策者。
+- **规范文档**：`docs/COLLABORATIVE_DEV_WORKFLOW.md` v1.1；任务总表 `.workbuddy/tasks/TASKS.md`。
+- **Task Spec 必须自包含**：背景上下文+精确改动范围+可执行验收命令+禁止项清单+起点指引（跨 AI 不共享会话）。
+- **分支命名**：`feature/<task-id>-<kebab-desc>`，task-id 格式 `<模块前缀>-<序号>`（如 mc-1）。
+- **质量门禁**：pytest绿+vitest绿+build干净+浏览器冒烟+代码审查+影响面Grep。
+- **异步审查反馈机制（v1.1 新增）**：Vicky2号审查发现问题 → 写 `.workbuddy/reviews/<task-id>-R<N>.md` 结构化反馈（P0/P1/P2 + 改进建议 + 项目约定引用）→ 晓伴修复后在回复区填修复记录 → Vicky2号重审。TASKS.md 状态流：🟡待审查 → 🔴审查退回 → 🟡待审查。每日自动化 `审查退回任务每日扫描` 监控退回项状态。
+- **当前批次**：邮件中心整合 mc-1~mc-5（mc-1 已合入，mc-2 已合入，mc-3/mc-4 🟡待审查）。人员中台已于 2026-07-28 合入主干。
