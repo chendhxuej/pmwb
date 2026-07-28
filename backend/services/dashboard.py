@@ -5,7 +5,9 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from db.models import (
+    EmailRecord,
     PmwbDevTicket,
+    PmwbKeyWork,
     PmwbKnowledgeItem,
     PmwbMeeting,
     PmwbOperationIssue,
@@ -17,13 +19,23 @@ from schemas.dashboard import (
     AlertItem,
     DashboardData,
     DashboardStats,
+    DistributionItem,
     GreetStat,
     KpiItem,
     LiveItem,
+    ModuleStats,
+    ModuleStatsEmails,
+    ModuleStatsIssues,
+    ModuleStatsKnowledge,
+    ModuleStatsMeetings,
+    ModuleStatsRequirements,
+    ModuleStatsTickets,
+    ProgressItem,
     RequirementSummaryItem,
     ScheduleItem,
     TicketStatus,
     TodoCardItem,
+    TrendPoint,
 )
 
 # 中国时区（UTC+8）。看板按中国本地日期统计，避免 UTC 在晚间把"今天/本周"算错。
@@ -434,6 +446,185 @@ class DashboardService:
         ]
         return sub, efficiency, greet_stats
 
+    def get_module_stats(self) -> ModuleStats:
+        """db-2 扩展：各模块统计卡片。"""
+        today, week_start, week_end = _week_bounds_cst()
+        ws_utc, _ = _cst_day_utc_bounds(week_start)
+        we_utc = _cst_day_utc_bounds(week_end)[0]
+        today_start_utc, today_end_utc = _cst_day_utc_bounds(today)
+
+        # 需求
+        req_total = self.db.query(func.count(PmwbRequirementExt.id)).scalar() or 0
+        req_this_week = self.db.query(func.count(PmwbRequirementExt.id)).filter(
+            PmwbRequirementExt.created_at >= ws_utc,
+            PmwbRequirementExt.created_at < we_utc,
+        ).scalar() or 0
+        req_in_review = self.db.query(func.count(PmwbRequirementExt.id)).filter(
+            PmwbRequirementExt.status.in_(["proposed", "accepted"]),
+        ).scalar() or 0
+        req_completed = self.db.query(func.count(PmwbRequirementExt.id)).filter(
+            PmwbRequirementExt.status == "closed",
+        ).scalar() or 0
+
+        # 工单
+        ticket_total = self.db.query(func.count(PmwbDevTicket.id)).scalar() or 0
+        ticket_pending = self.db.query(func.count(PmwbDevTicket.id)).filter(
+            PmwbDevTicket.status.in_(["created", "design_reviewed"]),
+        ).scalar() or 0
+        ticket_processing = self.db.query(func.count(PmwbDevTicket.id)).filter(
+            PmwbDevTicket.status.in_(["dev_completed", "test_completed"]),
+        ).scalar() or 0
+        ticket_resolved = self.db.query(func.count(PmwbDevTicket.id)).filter(
+            PmwbDevTicket.status == "live",
+        ).scalar() or 0
+        ticket_closed = self.db.query(func.count(PmwbDevTicket.id)).filter(
+            PmwbDevTicket.status == "archived",
+        ).scalar() or 0
+
+        # 运营问题（复用 get_stats）
+        stats = self.get_stats()
+
+        # 会议
+        meeting_this_week = self.db.query(func.count(PmwbMeeting.id)).filter(
+            PmwbMeeting.start_time >= ws_utc,
+            PmwbMeeting.start_time < we_utc,
+        ).scalar() or 0
+        meeting_today = self.db.query(func.count(PmwbMeeting.id)).filter(
+            PmwbMeeting.start_time >= today_start_utc,
+            PmwbMeeting.start_time < today_end_utc,
+        ).scalar() or 0
+        meeting_upcoming = self.db.query(func.count(PmwbMeeting.id)).filter(
+            PmwbMeeting.start_time >= today_start_utc,
+            PmwbMeeting.status == "planned",
+        ).scalar() or 0
+
+        # 知识
+        kn_total = self.db.query(func.count(PmwbKnowledgeItem.id)).scalar() or 0
+        kn_this_week = self.db.query(func.count(PmwbKnowledgeItem.id)).filter(
+            PmwbKnowledgeItem.created_at >= ws_utc,
+            PmwbKnowledgeItem.created_at < we_utc,
+        ).scalar() or 0
+
+        # 邮件（从 EmailRecord 统计）
+        email_today = self.db.query(func.count(EmailRecord.id)).filter(
+            EmailRecord.created_at >= today_start_utc,
+            EmailRecord.created_at < today_end_utc,
+        ).scalar() or 0
+        email_week = self.db.query(func.count(EmailRecord.id)).filter(
+            EmailRecord.created_at >= ws_utc,
+            EmailRecord.created_at < we_utc,
+        ).scalar() or 0
+        email_7d_start = ws_utc - timedelta(days=7 - (week_start - today).days)
+        email_7d_total = self.db.query(func.count(EmailRecord.id)).filter(
+            EmailRecord.created_at >= email_7d_start,
+        ).scalar() or 0
+        email_7d_ok = self.db.query(func.count(EmailRecord.id)).filter(
+            EmailRecord.created_at >= email_7d_start,
+            EmailRecord.send_status.in_(["success", "sent"]),
+        ).scalar() or 0
+        email_sr = round(email_7d_ok / email_7d_total * 100, 1) if email_7d_total > 0 else 0.0
+
+        return ModuleStats(
+            requirements=ModuleStatsRequirements(
+                total=req_total, thisWeek=req_this_week, inReview=req_in_review, completed=req_completed,
+            ),
+            tickets=ModuleStatsTickets(
+                total=ticket_total, pending=ticket_pending, processing=ticket_processing,
+                resolved=ticket_resolved, closed=ticket_closed,
+            ),
+            issues=ModuleStatsIssues(
+                total=stats.issue_total, pending=stats.issue_pending,
+                processing=stats.issue_processing, resolved=stats.issue_resolved,
+                overdue=stats.issue_overdue,
+            ),
+            meetings=ModuleStatsMeetings(
+                totalThisWeek=meeting_this_week, today=meeting_today, upcoming=meeting_upcoming,
+            ),
+            knowledge=ModuleStatsKnowledge(total=kn_total, thisWeek=kn_this_week),
+            emails=ModuleStatsEmails(todaySent=email_today, weekSent=email_week, successRate=email_sr),
+        )
+
+    def get_trend_charts(self) -> dict:
+        """db-2 扩展：各模块近7天趋势数据。"""
+        today = _cst_date()
+        days = [today - timedelta(days=i) for i in range(6, -1, -1)]
+
+        def _daily_count(model_cls, field):
+            values = []
+            for d in days:
+                s, e = _cst_day_utc_bounds(d)
+                c = self.db.query(func.count(model_cls.id)).filter(
+                    field >= s, field < e,
+                ).scalar() or 0
+                values.append(c)
+            return [TrendPoint(label=_weekday_cn(d), value=v) for d, v in zip(days, values)]
+
+        return {
+            "requirementsTrend": _daily_count(PmwbRequirementExt, PmwbRequirementExt.created_at),
+            "issuesTrend": _daily_count(PmwbOperationIssue, PmwbOperationIssue.created_at),
+            "ticketsTrend": _daily_count(PmwbDevTicket, PmwbDevTicket.go_live_date),
+        }
+
+    def get_distribution_charts(self) -> dict:
+        """db-2 扩展：分布数据。"""
+        req_status_counts = (
+            self.db.query(PmwbRequirementExt.status, func.count(PmwbRequirementExt.id))
+            .group_by(PmwbRequirementExt.status)
+            .all()
+        )
+        _REQ_STATUS_LABEL = {
+            "proposed": "待排期", "accepted": "评审中", "dev": "开发中",
+            "closed": "已上线", "paused": "已暂停",
+        }
+        req_dist = [DistributionItem(name=_REQ_STATUS_LABEL.get(s, s), value=c) for s, c in req_status_counts]
+
+        issue_type_counts = (
+            self.db.query(PmwbOperationIssue.issue_type, func.count(PmwbOperationIssue.id))
+            .group_by(PmwbOperationIssue.issue_type)
+            .all()
+        )
+        _ISSUE_TYPE_LABEL = {
+            "data_abnormal": "数据异常", "system_error": "系统错误",
+            "process_block": "流程阻塞", "requirement_change": "需求变更",
+            "other": "其他",
+        }
+        issue_dist = [DistributionItem(name=_ISSUE_TYPE_LABEL.get(t, t), value=c) for t, c in issue_type_counts]
+
+        ticket_pri_counts = (
+            self.db.query(PmwbDevTicket.priority, func.count(PmwbDevTicket.id))
+            .group_by(PmwbDevTicket.priority)
+            .all()
+        )
+        ticket_dist = [DistributionItem(name=p or "未指定", value=c) for p, c in ticket_pri_counts]
+
+        return {
+            "requirementStatusDist": req_dist,
+            "issueTypeDist": issue_dist,
+            "ticketPriorityDist": ticket_dist,
+        }
+
+    def get_progress_items(self) -> dict:
+        """db-2 扩展：重点任务进度（从重点工作模块获取）。"""
+        projects = (
+            self.db.query(PmwbKeyWork)
+            .filter(PmwbKeyWork.status.in_(["planning", "in_progress"]))
+            .order_by(PmwbKeyWork.priority.asc(), PmwbKeyWork.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        items = []
+        for kw in projects:
+            goal_count = len(kw.goals or [])
+            done_goals = sum(1 for g in (kw.goals or []) if g.status == "completed")
+            pct = round(done_goals / goal_count * 100, 1) if goal_count > 0 else 0
+            items.append(ProgressItem(
+                name=kw.title,
+                current=done_goals,
+                total=goal_count,
+                percent=pct,
+            ))
+        return {"keyProjects": items}
+
     def get_dashboard(self) -> DashboardData:
         stats = self.get_stats()
         recent_todos = self.get_recent_todos()
@@ -442,6 +633,12 @@ class DashboardService:
 
         trend_values, trend_labels = self.get_trend()
         sub, efficiency, greet_stats = self.get_greeting(stats)
+
+        # db-2 看板重构扩展
+        module_stats = self.get_module_stats()
+        trend_charts = self.get_trend_charts()
+        distribution_charts = self.get_distribution_charts()
+        progress_items = self.get_progress_items()
 
         return DashboardData(
             stats=stats,
@@ -461,4 +658,9 @@ class DashboardService:
             alerts=self.get_alerts(stats),
             recent_requirements=self.get_recent_requirements(),
             schedule=self.get_schedule(),
+            # db-2 看板重构扩展
+            module_stats=module_stats,
+            trend_charts=trend_charts,
+            distribution_charts=distribution_charts,
+            progress_items=progress_items,
         )
