@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
 
     EMAIL_CENTER_URL: str = "http://localhost:3210"
+    EMAIL_CENTER_API_KEY: str = ""  # 可选，若邮件中心配置了 API_KEY 则填写
     OBSIDIAN_VAULT_PATH: str = "D:\\项目\\知识图谱"
 
     # 需求交付：附件 / 分析说明书 归档目录（基于 Obsidian vault 派生）
