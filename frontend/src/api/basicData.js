@@ -24,6 +24,28 @@ export const basicDataApi = {
     return request.get('/basic-data/staff-options')
   },
 
+  // 角色/身份定义 CRUD
+  listRoles() {
+    return request.get('/basic-data/roles')
+  },
+  createRole(data) {
+    return request.post('/basic-data/roles', data)
+  },
+  updateRole(id, data) {
+    return request.put(`/basic-data/roles/${id}`, data)
+  },
+  deleteRole(id) {
+    return request.delete(`/basic-data/roles/${id}`)
+  },
+
+  // 轻量选项（下拉用，不加载全量人员）
+  getOrgOptions() {
+    return request.get('/basic-data/org-options')
+  },
+  getRoleOptions() {
+    return request.get('/basic-data/role-options')
+  },
+
   // 组织 CRUD
   listOrgs() {
     return request.get('/basic-data/orgs')

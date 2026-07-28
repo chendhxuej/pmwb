@@ -1,23 +1,23 @@
-"""基础数据路由：组织 + 人员主数据 CRUD、选人分组选项。
+"""人员主数据路由：组织 + 人员 CRUD、选人分组选项、批量导入。
 
-挂在 /api/v1/basic-data 下，是全站选人组件的统一数据源。
-现在通过人员中台代理服务。
+挂在 /api/v1/basic-data 下，是跨项目统一人员数据源。
 """
 from io import BytesIO
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import StreamingResponse
+from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
 from core.exceptions import NotFoundException, ValidationException
 from core.response import success
 from db.base import get_db
 from schemas.basic_data import (
+    ImportStatsOut,
     OrgCreate,
     OrgOption,
     OrgOut,
-    OrgStaffImportOut,
     OrgUpdate,
     RoleCreate,
     RoleOption,
@@ -28,13 +28,13 @@ from schemas.basic_data import (
     StaffOut,
     StaffUpdate,
 )
-from services.basic_data import basic_data_service
+from services.basic_data import TEMPLATE_COLUMNS, basic_data_service
 
-router = APIRouter(prefix="/basic-data", tags=["团队信息"])
+router = APIRouter(prefix="/basic-data", tags=["人员主数据"])
 
 
 # ---------------------------------------------------------------------------
-# 选人组件分组选项（放在最前，避免与 /orgs/{id} 混淆）
+# 选人组件分组选项
 # ---------------------------------------------------------------------------
 @router.get("/staff-options")
 def staff_options(db: Session = Depends(get_db)):
@@ -44,20 +44,20 @@ def staff_options(db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# 轻量选项（选人组件下拉用，不加载人员明细）
+# 轻量选项（下拉用，不加载人员明细）
 # ---------------------------------------------------------------------------
 @router.get("/org-options")
 def org_options(db: Session = Depends(get_db)):
-    """返回启用的组织名称列表（轻量）。"""
+    """返回启用的组织名称列表（用于选人组件的组织下拉）。"""
     options = basic_data_service.org_options(db)
     return success(data=[OrgOption(**o).model_dump() for o in options])
 
 
 @router.get("/role-options")
 def role_options(db: Session = Depends(get_db)):
-    """返回启用的身份名称列表（轻量）。"""
+    """返回启用的身份名称列表（用于选人组件的身份下拉）。"""
     options = basic_data_service.role_options(db)
-    return success(data=[RoleOption(**r).model_dump() for r in options])
+    return success(data=[RoleOption(**o).model_dump() for o in options])
 
 
 # ---------------------------------------------------------------------------
@@ -66,15 +66,13 @@ def role_options(db: Session = Depends(get_db)):
 @router.get("/roles")
 def list_roles(db: Session = Depends(get_db)):
     roles = basic_data_service.list_roles(db)
-    return success(data=[RoleOut(**r).model_dump() for r in roles])
+    return success(data=[RoleOut.model_validate(r).model_dump() for r in roles])
 
 
 @router.post("/roles")
 def create_role(obj_in: RoleCreate, db: Session = Depends(get_db)):
     obj = basic_data_service.create_role(db, obj_in.model_dump(exclude_unset=True))
-    if not obj:
-        raise ValidationException("创建身份失败")
-    return success(data=RoleOut(**obj).model_dump(), message="身份已创建")
+    return success(data=RoleOut.model_validate(obj).model_dump(), message="身份已创建")
 
 
 @router.put("/roles/{role_id}")
@@ -82,7 +80,7 @@ def update_role(role_id: int, obj_in: RoleUpdate, db: Session = Depends(get_db))
     obj = basic_data_service.update_role(db, role_id, obj_in.model_dump(exclude_unset=True))
     if not obj:
         raise NotFoundException(f"身份不存在：id={role_id}")
-    return success(data=RoleOut(**obj).model_dump(), message="身份已更新")
+    return success(data=RoleOut.model_validate(obj).model_dump(), message="身份已更新")
 
 
 @router.delete("/roles/{role_id}")
@@ -99,15 +97,18 @@ def delete_role(role_id: int, db: Session = Depends(get_db)):
 @router.get("/orgs")
 def list_orgs(db: Session = Depends(get_db)):
     orgs = basic_data_service.list_orgs(db)
-    return success(data=orgs)
+    result = []
+    for o in orgs:
+        out = OrgOut.model_validate(o)
+        out.staff_count = len(o.staffs)
+        result.append(out.model_dump())
+    return success(data=result)
 
 
 @router.post("/orgs")
 def create_org(obj_in: OrgCreate, db: Session = Depends(get_db)):
     obj = basic_data_service.create_org(db, obj_in.model_dump(exclude_unset=True))
-    if not obj:
-        raise ValidationException("创建组织失败")
-    return success(data=obj, message="组织已创建")
+    return success(data=OrgOut.model_validate(obj).model_dump(), message="组织已创建")
 
 
 @router.put("/orgs/{org_id}")
@@ -115,7 +116,7 @@ def update_org(org_id: int, obj_in: OrgUpdate, db: Session = Depends(get_db)):
     obj = basic_data_service.update_org(db, org_id, obj_in.model_dump(exclude_unset=True))
     if not obj:
         raise NotFoundException(f"组织不存在：id={org_id}")
-    return success(data=obj, message="组织已更新")
+    return success(data=OrgOut.model_validate(obj).model_dump(), message="组织已更新")
 
 
 @router.delete("/orgs/{org_id}")
@@ -136,15 +137,20 @@ def list_staffs(
     db: Session = Depends(get_db),
 ):
     staffs = basic_data_service.list_staffs(db, org_id=org_id, keyword=keyword)
-    return success(data=staffs)
+    result = []
+    for s in staffs:
+        out = StaffOut.model_validate(s)
+        out.org_name = s.org.name if s.org else None
+        result.append(out.model_dump())
+    return success(data=result)
 
 
 @router.post("/staffs")
 def create_staff(obj_in: StaffCreate, db: Session = Depends(get_db)):
     obj = basic_data_service.create_staff(db, obj_in.model_dump(exclude_unset=True))
-    if not obj:
-        raise ValidationException("创建人员失败")
-    return success(data=obj, message="人员已创建")
+    out = StaffOut.model_validate(obj)
+    out.org_name = obj.org.name if obj.org else None
+    return success(data=out.model_dump(), message="人员已创建")
 
 
 @router.put("/staffs/{staff_id}")
@@ -152,7 +158,9 @@ def update_staff(staff_id: int, obj_in: StaffUpdate, db: Session = Depends(get_d
     obj = basic_data_service.update_staff(db, staff_id, obj_in.model_dump(exclude_unset=True))
     if not obj:
         raise NotFoundException(f"人员不存在：id={staff_id}")
-    return success(data=obj, message="人员已更新")
+    out = StaffOut.model_validate(obj)
+    out.org_name = obj.org.name if obj.org else None
+    return success(data=out.model_dump(), message="人员已更新")
 
 
 @router.delete("/staffs/{staff_id}")
@@ -168,23 +176,43 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 @router.post("/import")
 def import_basic_data(
-    file: UploadFile = File(..., description="Excel 文件，列：组织名称, 成员姓名, 邮箱, 电话, 身份, 排序号, 是否启用"),
+    file: UploadFile = File(..., description="Excel 文件"),
     db: Session = Depends(get_db),
 ):
-    """上传 Excel 批量导入/更新组织与人员（转发到人员中台）。"""
+    """上传 Excel 批量导入/更新组织与人员。"""
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
         raise ValidationException("仅支持 .xlsx / .xls 文件")
 
     contents = file.file.read()
-    result = basic_data_service.upload_and_import(contents, file.filename or "import.xlsx")
+    try:
+        wb = load_workbook(filename=BytesIO(contents), data_only=True)
+    except Exception as e:
+        raise ValidationException(f"无法解析 Excel：{e}")
 
-    if result.get("errors"):
-        return success(
-            data=OrgStaffImportOut(**result).model_dump(),
-            message=f"导入完成：新增 {result['created_orgs']} 个组织、{result['created_staffs']} 名成员（含 {len(result['errors'])} 条错误）",
-        )
+    ws = wb.active
+    headers = [str(cell.value or "").strip() for cell in ws[1]]
+    expected = [c[0] for c in TEMPLATE_COLUMNS]
+    required_names = {c[0] for c in TEMPLATE_COLUMNS if c[1]}
+    missing_required = required_names - set(headers)
+    if missing_required:
+        raise ValidationException(f"Excel 缺少必填列：{', '.join(missing_required)}")
+
+    rows = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if all(v is None or str(v).strip() == "" for v in row):
+            continue
+        row_dict = {}
+        for idx, header in enumerate(headers):
+            if header in expected:
+                row_dict[header] = row[idx] if idx < len(row) else None
+        rows.append(row_dict)
+
+    if not rows:
+        raise ValidationException("Excel 中没有有效数据行")
+
+    result = basic_data_service.import_orgs_staffs(db, rows)
     return success(
-        data=OrgStaffImportOut(**result).model_dump(),
+        data=ImportStatsOut(**result).model_dump(),
         message=f"导入完成：新增 {result['created_orgs']} 个组织、{result['created_staffs']} 名成员",
     )
 
@@ -196,7 +224,5 @@ def download_template():
     return StreamingResponse(
         BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": 'attachment; filename="team_info_template.xlsx"',
-        },
+        headers={"Content-Disposition": 'attachment; filename="team_info_template.xlsx"'},
     )

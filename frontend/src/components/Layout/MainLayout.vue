@@ -67,6 +67,8 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <StaffAdminDrawer />
   </el-container>
 </template>
 
@@ -74,6 +76,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores'
+import StaffAdminDrawer from '@/components/Common/StaffAdminDrawer.vue'
 
 const route = useRoute()
 const appStore = useAppStore()
