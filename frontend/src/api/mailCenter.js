@@ -88,3 +88,8 @@ export function getMergedLogs(params) {
 export function getLog(id) {
   return request.get(`${BASE}/logs/${id}`)
 }
+
+// ── 统计概览 ──
+export function getStats() {
+  return request.get(`${BASE}/stats`)
+}
