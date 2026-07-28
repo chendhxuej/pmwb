@@ -18,15 +18,42 @@
 
 ---
 
-## 当前批次：邮件中心整合（Mail Center Integration）
+## 批次一：邮件中心整合（Mail Center Integration）— ✅已完成
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| mc-1 | 后端代理层：配置+ProxyClient+路由 | feature/mc-1-backend-proxy | S2 | ✅已合入 | Vicky2号 | 25条路由，合并日志端点；需重启后端验证 |
-| mc-2 | 前端路由与菜单：/mail-center 路由组 | feature/mc-2-frontend-route | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 审查剔除3个P0无关文件后合入 main (a5aac42→fd8afca) |
+| mc-1 | 后端代理层：配置+ProxyClient+路由 | feature/mc-1-backend-proxy | S2 | ✅已合入 | Vicky2号 | 25条路由，合并日志端点 |
+| mc-2 | 前端路由与菜单：/mail-center 路由组 | feature/mc-2-frontend-route | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 审查剔除3个P0无关文件后合入 |
 | mc-3 | 发送日志页（合并展示） | feature/mc-3-logs-view | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 812c8bc，审查移除未使用 mcError ref |
 | mc-4 | 账号管理+通讯录/分组+模板管理 | feature/mc-4-admin-pages | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 1cb76d3，4页CRUD完整 |
-| mc-5 | 测试验证+浏览器冒烟+归档 | feature/mc-5-verify | S3 | ✅已合入 | 晓伴 | pytest 43/44(预存死), vitest 4/4, build ok, mc-1~4 全部合入 |
+| mc-5 | 测试验证+浏览器冒烟+归档 | feature/mc-5-verify | S3 | ✅已合入 | 晓伴 | pytest 43/44, vitest 4/4, build ok |
+
+---
+
+## 批次二：邮件中心优化（Mail Center Optimization）
+
+> 依赖：批次一 mc-1~5 全部 ✅已合入
+> 原则：只做 PMWB 侧增值功能（统一邮件中心不具备的能力），不替邮件中心重建已有页面/功能
+
+| task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
+|---------|------|------|------|------|--------|------|
+| mc-opt-1 | 邮件统计概览卡片 | feature/mc-opt-1-stats | S2 | ⬜待分配 | — | 后端聚合 mail-center logs + PMWB records，前端 KPI 卡片 |
+
+---
+
+## 批次三：首页看板重构（Dashboard Rebuild）
+
+> 依赖：无（可与批次二并行开发）
+> 目标：参考「数智化部 AI 工作台」截图风格，丰富图表，提升信息阅读效率
+> ⚠️ 新旧共存策略：新页面走 /dashboard-v2 路由，旧 HomeView（/）不动；老大确认 OK 后再替换 / 指向新页面
+
+| task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
+|---------|------|------|------|------|--------|------|
+| db-1 | 引入 ECharts + 封装图表组件 | feature/db-1-echarts | S2 | ⬜待分配 | — | 安装 echarts/vue-echarts，封装5种图表组件 |
+| db-2 | 后端 Dashboard 统计接口扩展 | feature/db-2-api | S2 | ⬜待分配 | — | 扩展 /dashboard 返回更多维度统计数据 |
+| db-3 | 首页 KPI 统计区重构（大数字卡片） | feature/db-3-kpi | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 |
+| db-4 | 首页图表区扩展（柱/线/饼/进度条） | feature/db-4-charts | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 |
+| db-5 | 各模块数据可视化卡片 | feature/db-5-modules | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 + db-3 + db-4 |
 
 ---
 

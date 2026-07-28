@@ -8,7 +8,8 @@
 - **主方案**：`C:\pmwb-scripts\pmwb-keeper.py`（镜像 `scripts/`）每 15s 检查 3306/8000/5173/3210/8001，DOWN 用已验证控制台命令 DETACHED 拉起；后端/Master 等 3306 就绪才起。桌面双击 `启动PMWB.bat`（常驻看门狗，`--once`=一次性）。
 - **一键重启**：桌面 `重启PMWB.bat` 双击即运行 `C:\pmwb-scripts\pmwb-restart.py`——按端口(3306/8000/5173/8001)终止现有前后端+MySQL+Master 进程并停旧看门狗，再后台拉起看门狗自动重新拉起全部服务；邮件中心(3210)独立不动。
 - **开机自启铁律**：Startup 的 `pmwb-autostart.vbs` 必须 `cmd /c "<python.exe>" "<keeper.py>"`。**绝不能用 `pythonw`/`Run/Start-Process` 隐藏窗口直接拉 python.exe**——那样 `mysqld --console` 静默失败、数据库起不来。MySQL 控制台模式有父引导+子工作两个 mysqld.exe，属正常。
-- **⚠️ 陈旧 PMWB 服务占位坑（高复发）**：本机曾有 3 个 PMWB-* NSSM 服务 + PMWB-MySQL 计划任务（已用 `scripts/uninstall-windows-services.bat` **右键管理员**永久删除）。若日后又出现「改了后端代码却不生效(返回404)」，先查是否残留旧服务占 8000；沙箱令牌被 UAC 过滤无法在沙箱内 `taskkill` 重启，需本机管理员操作。
+- **⚠️ 陈旧 PMWB 服务占位坑（高复发）**：本机曾有 3 个 PMWB-* NSSM 服务 + PMWB-MySQL 计划任务（已用 `scripts/uninstall-windows-services.bat` **右键管理员**永久删除）。若日后又出现「改了后端代码���不生效(返回404)」，先查是否残留旧服务占 8000；沙箱令牌被 UAC 过滤无法在沙箱内 `taskkill` 重启，需本机管理员操作。
+- **⚠️ Ghost Port 坑（新增 2026-07-28）**：Python 进程被 Kill 后，TCP LISTENING socket 可能残留（netstat 显示 PID 但 process 不存在），看门狗 `port_up()` 误判服务运行→不启动新后端→用户看到过期代码。症状：`netstat` 端口有 PID 但 `taskkill /PID X` 报"没有找到进程"。修复：`Get-Process python | Stop-Process -Force` 全局清 Python 进程 + 重启 keeper。
 - 服务化脚本(`install-windows-services.ps1` 等)已弃用，勿再迭代。
 
 ## 关键技术约定（高频坑）
