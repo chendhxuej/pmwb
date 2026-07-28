@@ -38,18 +38,39 @@
         </ul>
       </BentoCard>
 
-      <!-- ══ ROW 2: KPI 指标条 ══ -->
-      <BentoCard
-        v-for="(k, i) in kpis"
-        :key="'kpi' + i"
-        class="kpi-card"
-        :span="3"
-        flat
+      <!-- ══ ROW 2: KPI 大数字卡片（db-3 重构） ══ -->
+      <KpiCardRow :columns="kpiCols">
+        <KpiCard
+          v-for="(k, i) in kpis"
+          :key="'kpi' + i"
+          :title="k.label"
+          :value="k.num"
+          :trend="k.trendNum"
+          :trend-type="k.deltaType"
+          :trend-label="k.delta"
+          :color="k.color"
+          :icon="k.icon"
+        />
+      </KpiCardRow>
+
+      <!-- ══ ROW 2b: 模块统计卡片（来自 module_stats） ══ -->
+      <KpiCardRow
+        v-if="msCards.length"
+        title="模块统计"
+        :columns="msCols"
       >
-        <div class="kpi-num" :class="k.color">{{ k.num }}</div>
-        <div class="kpi-label">{{ k.label }}</div>
-        <div class="kpi-delta" :class="k.deltaType">{{ k.delta }}</div>
-      </BentoCard>
+        <KpiCard
+          v-for="(m, i) in msCards"
+          :key="'ms' + i"
+          :title="m.label"
+          :value="m.value"
+          :unit="m.unit"
+          :trend="m.trend"
+          :trend-type="m.deltaType"
+          :color="m.color"
+          :icon="m.icon"
+        />
+      </KpiCardRow>
 
       <!-- 快捷操作 -->
       <div class="action-row" style="grid-column:1/-1">
@@ -211,6 +232,8 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BentoCard from '@/components/Common/BentoCard.vue'
+import KpiCard from '@/components/Dashboard/KpiCard.vue'
+import KpiCardRow from '@/components/Dashboard/KpiCardRow.vue'
 import { dashboardApi } from '@/api/dashboard'
 
 const router = useRouter()
@@ -246,11 +269,14 @@ const liveStatus = ref([
 ])
 
 const kpis = ref([
-  { num: 14, color: 'blue', label: '我的待办', delta: '↑ 3 较昨日', deltaType: 'up' },
-  { num: 38, color: 'amber', label: '本周新增需求', delta: '评审中 11', deltaType: 'neutral' },
-  { num: 9, color: 'blue', label: '进行中工单', delta: '本周完成 23', deltaType: 'up' },
-  { num: 5, color: 'red', label: '运营预警', delta: '超期 2 条', deltaType: 'down' },
+  { num: 14, color: 'blue', label: '我的待办', delta: '+3 较昨日', deltaType: 'up', trendNum: 3 },
+  { num: 38, color: 'amber', label: '本周新增需求', delta: '评审中 11', deltaType: 'neutral', trendNum: null },
+  { num: 9, color: 'blue', label: '进行中工单', delta: '本周完成 23', deltaType: 'up', trendNum: 5 },
+  { num: 5, color: 'red', label: '运营预警', delta: '超期 2 条', deltaType: 'down', trendNum: -2 },
 ])
+
+// db-3: 模块统计（来自 db-2 module_stats 扩展）
+const moduleStats = ref(null)
 
 const trendValues = ref([18, 24, 21, 33, 29, 38, 42])
 const trendLabels = ref([...dayLabels])
@@ -383,6 +409,38 @@ const donutRender = computed(() => {
   return { segs }
 })
 
+/* ───────────────── db-3: KPI 列数与模块统计卡片 ───────────────── */
+const kpiCols = computed(() => Math.min(kpis.value.length || 4, 8))
+
+const msCards = computed(() => {
+  const ms = moduleStats.value
+  if (!ms) return []
+  const cards = []
+  if (ms.requirements) {
+    cards.push({ label: '需求总数', value: ms.requirements.total, unit: '', color: 'blue', icon: '', trend: null, deltaType: 'neutral' })
+    cards.push({ label: '本周新增', value: ms.requirements.thisWeek, unit: '', color: 'blue', icon: '', trend: null, deltaType: ms.requirements.thisWeek > 0 ? 'up' : 'neutral' })
+  }
+  if (ms.tickets) {
+    cards.push({ label: '工单总数', value: ms.tickets.total, unit: '', color: 'purple', icon: '', trend: null, deltaType: 'neutral' })
+    cards.push({ label: '已解决工单', value: ms.tickets.resolved, unit: '', color: 'purple', icon: '', trend: null, deltaType: ms.tickets.processing > 0 ? 'up' : 'neutral' })
+  }
+  if (ms.issues) {
+    cards.push({ label: '运营问题', value: ms.issues.total, unit: '', color: 'red', icon: '', trend: null, deltaType: ms.issues.overdue > 0 ? 'down' : 'neutral' })
+  }
+  if (ms.meetings) {
+    cards.push({ label: '本周会议', value: ms.meetings.totalThisWeek, unit: '场', color: 'teal', icon: '', trend: null, deltaType: 'neutral' })
+  }
+  if (ms.knowledge) {
+    cards.push({ label: '知识条目', value: ms.knowledge.total, unit: '', color: 'green', icon: '', trend: null, deltaType: 'neutral' })
+  }
+  if (ms.emails) {
+    cards.push({ label: '今日发信', value: ms.emails.todaySent, unit: '封', color: 'teal', icon: '', trend: null, deltaType: 'neutral' })
+  }
+  return cards
+})
+
+const msCols = computed(() => Math.min(msCards.value.length || 4, 8))
+
 /* ───────────────── 防御式 API 接入 ───────────────── */
 const goTo = (path) => router.push(path)
 
@@ -415,7 +473,14 @@ function mergeDashboard(res) {
       label: k.label || '',
       delta: k.delta || '',
       deltaType: k.delta_type || k.trend || 'neutral',
+      trendNum: k.trend_num ?? null,
+      icon: k.icon || '',
     }))
+  }
+
+  // db-3: module_stats（来自 db-2 扩展）
+  if (res.module_stats && typeof res.module_stats === 'object') {
+    moduleStats.value = res.module_stats
   }
 
   const normTrend = (t) => {
@@ -626,19 +691,6 @@ onUnmounted(() => {
 .ls-dot.green { background: var(--success); }
 .ls-text { font-size: 13px; color: var(--text-primary); flex: 1; min-width: 0; }
 .ls-time { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
-
-/* ── KPI 增量 ── */
-.kpi-delta {
-  font-size: 11.5px;
-  font-weight: 600;
-  margin-top: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.kpi-delta.up { color: var(--success); }
-.kpi-delta.down { color: var(--danger); }
-.kpi-delta.neutral { color: var(--text-muted); }
 
 /* ── 快捷操作 ── */
 .action-row {
