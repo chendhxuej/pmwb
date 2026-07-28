@@ -8,6 +8,7 @@ import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
 import router from './router'
 import { createPinia } from 'pinia'
+import VChart from 'vue-echarts'
 import './styles/main.css'
 import './styles/design.css'
 
@@ -16,6 +17,8 @@ const app = createApp(App)
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
+
+app.component('VChart', VChart)
 
 app.use(createPinia())
 app.use(router)
