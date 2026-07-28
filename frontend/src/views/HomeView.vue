@@ -86,70 +86,56 @@
         <button class="act-btn ghost" @click="goTo('/knowledge')">知识库 →</button>
       </div>
 
-      <!-- ══ ROW 3: 趋势面积图 + 工单甜甜圈 ══ -->
-      <BentoCard title="近7天 需求处理量趋势" :span="8">
+      <!-- ══ ROW 3: 趋势组合图（ChartBar + ChartLine — db-4 重构） ══ -->
+      <BentoCard title="近7天各模块活跃趋势" :span="8">
         <template #action><a class="card-action">导出</a></template>
-        <div class="chart-wrap">
-          <svg class="chart-svg" viewBox="0 0 600 220" preserveAspectRatio="xMidYMid meet">
-            <defs>
-              <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stop-color="#2f6fed" stop-opacity=".22" />
-                <stop offset="100%" stop-color="#2f6fed" stop-opacity=".02" />
-              </linearGradient>
-            </defs>
-            <g stroke="#eef1f6" stroke-width="1">
-              <line v-for="(g, i) in trendGrid" :key="'g' + i"
-                    :x1="plotLeft" :y1="g.y" :x2="plotRight" :y2="g.y"
-                    :stroke-dasharray="i < 3 ? '4,4' : 'none'" />
-            </g>
-            <path :d="trendGeom.areaPath" fill="url(#areaGrad)" />
-            <polyline :points="trendGeom.polyPoints" fill="none" stroke="#2f6fed"
-                      stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-            <g v-for="(p, i) in trendGeom.pts" :key="'d' + i" fill="#2f6fed">
-              <circle :cx="p.x" :cy="p.y" r="4.5" />
-            </g>
-            <g v-for="(p, i) in trendGeom.pts" :key="'dh' + i" fill="#ffffff" stroke="#2f6fed" stroke-width="2">
-              <circle :cx="p.x" :cy="p.y" r="2.5" />
-            </g>
-            <g fill="#0f172a" font-size="10.5" font-weight="600" text-anchor="middle">
-              <text v-for="(p, i) in trendGeom.pts" :key="'v' + i" :x="p.x" :y="p.y - 10">{{ p.value }}</text>
-            </g>
-            <g fill="#94a3b8" font-size="11" text-anchor="middle">
-              <text v-for="(p, i) in trendGeom.pts" :key="'x' + i" :x="p.x" :y="200">{{ p.label }}</text>
-            </g>
-            <g fill="#94a3b8" font-size="10.5" text-anchor="end">
-              <text v-for="(g, i) in trendGrid" :key="'y' + i" :x="34" :y="g.y + 3">{{ g.value }}</text>
-            </g>
-          </svg>
-        </div>
-        <div class="chart-legend">
-          <div class="legend-item"><span class="legend-dot" style="background:#2f6fed"></span>已处理需求量</div>
-          <div class="legend-item"><span class="legend-dot" style="background:#e4e9f0"></span>网格参考线</div>
+        <div class="chart-combo">
+          <ChartBar
+            :x-data="trendXLabels"
+            :series="trendBarSeries"
+            height="200px"
+          />
+          <ChartLine
+            :x-data="trendXLabels"
+            :series="trendLineSeries"
+            height="160px"
+          />
         </div>
       </BentoCard>
 
-      <BentoCard title="工单状态分布" :span="4">
-        <template #action><a class="card-action">详情</a></template>
-        <div class="donut-body">
-          <svg class="donut-svg" viewBox="0 0 180 180">
-            <g transform="rotate(-90 90 90)">
-              <circle v-for="(s, i) in donutRender.segs" :key="i"
-                      cx="90" cy="90" r="68" fill="none" :stroke="s.color" stroke-width="20"
-                      :stroke-dasharray="`${s.dash.toFixed(2)} ${s.gap.toFixed(2)}`"
-                      :stroke-dashoffset="s.offset.toFixed(2)" />
-            </g>
-            <text x="90" y="85" text-anchor="middle" font-size="26" font-weight="800" fill="#0f172a">{{ donutTotal }}</text>
-            <text x="90" y="106" text-anchor="middle" font-size="11.5" fill="#94a3b8" font-weight="500">总工单</text>
-          </svg>
-          <div class="donut-legend">
-            <div class="dl-item" v-for="s in donutSegments" :key="s.label">
-              <span class="dl-dot" :style="{ background: s.color }"></span>{{ s.label }}<span class="dl-val">{{ s.percent }}%</span>
-            </div>
+      <!-- ══ ROW 3b: 分布饼图组 ══ -->
+      <BentoCard title="数据概览分布" :span="4">
+        <div class="pie-group">
+          <div class="pie-item">
+            <div class="pie-label">需求状态</div>
+            <ChartPie :data="pieReqData" height="130px" />
+          </div>
+          <div class="pie-item">
+            <div class="pie-label">问题类型</div>
+            <ChartPie :data="pieIssueData" height="130px" />
+          </div>
+          <div class="pie-item">
+            <div class="pie-label">工单优先级</div>
+            <ChartPie :data="pieTicketData" height="130px" />
           </div>
         </div>
       </BentoCard>
 
-      <!-- ══ ROW 4: 待办 + 预警 + 快捷入口 ══ -->
+      <!-- ══ ROW 4: 进度条区（db-4） ══ -->
+      <BentoCard title="重点任务进度" :span="12" v-if="progressItems.length">
+        <div class="progress-section">
+          <div class="progress-card" v-for="(item, i) in progressItems" :key="i">
+            <div class="progress-header">
+              <span class="progress-name">{{ item.name }}</span>
+              <span class="progress-pct">{{ item.percent }}%</span>
+            </div>
+            <ChartProgress :value="item.percent" height="24px" />
+            <div class="progress-meta">{{ item.current }}/{{ item.total }} 目标</div>
+          </div>
+        </div>
+      </BentoCard>
+
+      <!-- ══ ROW 5: 待办 + 预警 + 快捷入口 ══ -->
       <BentoCard title="智能优先级 · 我的待办" :span="5">
         <template #action><a class="card-action">更多</a></template>
         <ul class="todo-list">
@@ -188,7 +174,7 @@
         </div>
       </BentoCard>
 
-      <!-- ══ ROW 5: 最近需求 + 今日日程 ══ -->
+      <!-- ══ ROW 6: 最近需求 + 今日日程 ══ -->
       <BentoCard title="最近需求" :span="7">
         <template #action><a class="card-action">更多</a></template>
         <div class="req-wrap">
@@ -234,20 +220,18 @@ import { useRouter } from 'vue-router'
 import BentoCard from '@/components/Common/BentoCard.vue'
 import KpiCard from '@/components/Dashboard/KpiCard.vue'
 import KpiCardRow from '@/components/Dashboard/KpiCardRow.vue'
+import ChartBar from '@/components/Charts/ChartBar.vue'
+import ChartLine from '@/components/Charts/ChartLine.vue'
+import ChartPie from '@/components/Charts/ChartPie.vue'
+import ChartProgress from '@/components/Charts/ChartProgress.vue'
 import { dashboardApi } from '@/api/dashboard'
 
 const router = useRouter()
 
-/* ───────────────── 图表坐标常量 ───────────────── */
-const plotLeft = 40
-const plotRight = 560
-const plotTop = 44
-const plotBottom = 179
-const yMin = 0
-
-/* ───────────────── Demo 有机数据（默认渲染） ───────────────── */
+/* ───────────────── 常量 ───────────────── */
 const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
+/* ───────────────── Demo 数据 ───────────────── */
 const greeting = reactive({
   name: '陈工',
   sub: '本周共处理 127 条事项，较上周提升 14.3%。运营预警已从 8 条降至 5 条，闭环率 86.7%。',
@@ -275,25 +259,13 @@ const kpis = ref([
   { num: 5, color: 'red', label: '运营预警', delta: '超期 2 条', deltaType: 'down', trendNum: -2 },
 ])
 
-// db-3: 模块统计（来自 db-2 module_stats 扩展）
+// db-3: 模块统计
 const moduleStats = ref(null)
 
-const trendValues = ref([18, 24, 21, 33, 29, 38, 42])
-const trendLabels = ref([...dayLabels])
-
-// 趋势图 Y 轴自适应：避免真实小数值被固定 15–45 轴裁到图底
-const yMax = computed(() => {
-  const m = Math.max(0, ...trendValues.value)
-  return m <= 5 ? 5 : m <= 10 ? 10 : Math.ceil(m * 1.25)
-})
-
-const donutTotal = ref(44)
-const donutSegments = ref([
-  { label: '待处理', color: '#d98a1f', percent: 22 },
-  { label: '处理中', color: '#2f6fed', percent: 38 },
-  { label: '已解决', color: '#0f9d6b', percent: 28 },
-  { label: '已关闭', color: '#94a3b8', percent: 12 },
-])
+// db-4: 趋势图表、分布图、进度条数据（来自 db-2 扩展）
+const trendCharts = ref(null)
+const distributionCharts = ref(null)
+const progressItems = ref([])
 
 const todos = ref([
   { priority: '紧急', priorityClass: 'tp-urgent', title: '政企宽带续费流程优化需求评审', deadline: '今天 17:00 截止', owner: '李文倩', overdue: false },
@@ -359,7 +331,7 @@ function _tick() {
   _timer = setTimeout(_tick, _erasing ? 35 : 80)
 }
 
-/* ───────────────── 派生：问候语 / 日期 ───────────────── */
+/* ───────────────── 问候语 ───────────────── */
 const helloText = computed(() => {
   const h = new Date().getHours()
   if (h < 5) return '凌晨好'
@@ -369,47 +341,7 @@ const helloText = computed(() => {
   return '晚上好'
 })
 
-/* ───────────────── 派生：趋势图几何 ───────────────── */
-const trendGrid = computed(() => {
-  const max = yMax.value
-  const steps = 4
-  return Array.from({ length: steps + 1 }, (_, i) => {
-    const v = Math.round((max / steps) * (steps - i))
-    return { value: v, y: plotBottom - ((v - yMin) / (max - yMin || 1)) * (plotBottom - plotTop) }
-  })
-})
-
-const trendGeom = computed(() => {
-  const vals = trendValues.value
-  const n = vals.length || 1
-  const xs = vals.map((_, i) => (n === 1 ? plotLeft : plotLeft + (i * (plotRight - plotLeft)) / (n - 1)))
-  const ys = vals.map((v) => {
-    const clamped = Math.max(yMin, Math.min(yMax.value, v))
-    return plotBottom - ((clamped - yMin) / (yMax.value - yMin || 1)) * (plotBottom - plotTop)
-  })
-  const pts = xs.map((x, i) => ({ x, y: ys[i], label: trendLabels.value[i] || dayLabels[i], value: vals[i] }))
-  const polyPoints = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  const areaPath =
-    `M${pts[0].x.toFixed(1)},${plotBottom} ` +
-    pts.map((p) => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') +
-    ` L${pts[n - 1].x.toFixed(1)},${plotBottom} Z`
-  return { pts, polyPoints, areaPath }
-})
-
-/* ───────────────── 派生：甜甜圈 ───────────────── */
-const donutRender = computed(() => {
-  const C = 2 * Math.PI * 68
-  let acc = 0
-  const segs = donutSegments.value.map((s) => {
-    const dash = (C * (s.percent || 0)) / 100
-    const seg = { color: s.color, dash, gap: C - dash, offset: -acc }
-    acc += dash
-    return seg
-  })
-  return { segs }
-})
-
-/* ───────────────── db-3: KPI 列数与模块统计卡片 ───────────────── */
+/* ───────────────── db-3: KPI 列数 ───────────────── */
 const kpiCols = computed(() => Math.min(kpis.value.length || 4, 8))
 
 const msCards = computed(() => {
@@ -422,7 +354,7 @@ const msCards = computed(() => {
   }
   if (ms.tickets) {
     cards.push({ label: '工单总数', value: ms.tickets.total, unit: '', color: 'purple', icon: '', trend: null, deltaType: 'neutral' })
-    cards.push({ label: '已解决工单', value: ms.tickets.resolved, unit: '', color: 'purple', icon: '', trend: null, deltaType: ms.tickets.processing > 0 ? 'up' : 'neutral' })
+    cards.push({ label: '已解决', value: ms.tickets.resolved, unit: '', color: 'purple', icon: '', trend: null, deltaType: ms.tickets.processing > 0 ? 'up' : 'neutral' })
   }
   if (ms.issues) {
     cards.push({ label: '运营问题', value: ms.issues.total, unit: '', color: 'red', icon: '', trend: null, deltaType: ms.issues.overdue > 0 ? 'down' : 'neutral' })
@@ -440,6 +372,95 @@ const msCards = computed(() => {
 })
 
 const msCols = computed(() => Math.min(msCards.value.length || 4, 8))
+
+/* ───────────────── db-4: 趋势组合图数据 ───────────────── */
+const trendXLabels = computed(() => {
+  const tc = trendCharts.value
+  if (tc && tc.requirementsTrend && tc.requirementsTrend.length) {
+    return tc.requirementsTrend.map((p) => p.label) || dayLabels
+  }
+  return dayLabels
+})
+
+const trendBarSeries = computed(() => {
+  const tc = trendCharts.value
+  if (!tc) {
+    // demo 数据：需求新增强度模仿趋势
+    return [
+      { name: '需求新增量', data: [18, 24, 21, 33, 29, 38, 42], color: '#2f6fed' },
+      { name: '工单完成量', data: [10, 14, 12, 18, 20, 22, 25], color: '#0f9d6b' },
+    ]
+  }
+  const series = []
+  if (tc.requirementsTrend) {
+    series.push({ name: '需求新增量', data: tc.requirementsTrend.map((p) => p.value), color: '#2f6fed' })
+  }
+  if (tc.ticketsTrend) {
+    series.push({ name: '工单完成量', data: tc.ticketsTrend.map((p) => p.value), color: '#0f9d6b' })
+  }
+  return series
+})
+
+const trendLineSeries = computed(() => {
+  const tc = trendCharts.value
+  if (!tc) {
+    return [
+      { name: '运营问题', data: [3, 5, 4, 8, 6, 9, 7], color: '#d98a1f' },
+    ]
+  }
+  const series = []
+  if (tc.issuesTrend) {
+    series.push({ name: '运营问题', data: tc.issuesTrend.map((p) => p.value), color: '#d98a1f' })
+  }
+  return series
+})
+
+/* ───────────────── db-4: 分布饼图数据 ───────────────── */
+function _buildPieData(arr) {
+  if (!arr || !arr.length) return []
+  return arr.map((item) => ({ name: item.name, value: item.value }))
+}
+
+const pieReqData = computed(() => {
+  const dc = distributionCharts.value
+  if (dc && dc.requirementStatusDist && dc.requirementStatusDist.length) {
+    return _buildPieData(dc.requirementStatusDist)
+  }
+  return [
+    { name: '待排期', value: 5 },
+    { name: '评审中', value: 8 },
+    { name: '开发中', value: 12 },
+    { name: '已上线', value: 18 },
+    { name: '已暂停', value: 3 },
+  ]
+})
+
+const pieIssueData = computed(() => {
+  const dc = distributionCharts.value
+  if (dc && dc.issueTypeDist && dc.issueTypeDist.length) {
+    return _buildPieData(dc.issueTypeDist)
+  }
+  return [
+    { name: '数据异常', value: 8 },
+    { name: '系统错误', value: 5 },
+    { name: '流程阻塞', value: 3 },
+    { name: '需求变更', value: 6 },
+    { name: '其他', value: 2 },
+  ]
+})
+
+const pieTicketData = computed(() => {
+  const dc = distributionCharts.value
+  if (dc && dc.ticketPriorityDist && dc.ticketPriorityDist.length) {
+    return _buildPieData(dc.ticketPriorityDist)
+  }
+  return [
+    { name: '紧急', value: 3 },
+    { name: '高优', value: 8 },
+    { name: '中等', value: 15 },
+    { name: '低优', value: 6 },
+  ]
+})
 
 /* ───────────────── 防御式 API 接入 ───────────────── */
 const goTo = (path) => router.push(path)
@@ -478,41 +499,28 @@ function mergeDashboard(res) {
     }))
   }
 
-  // db-3: module_stats（来自 db-2 扩展）
+  // db-3: module_stats
   if (res.module_stats && typeof res.module_stats === 'object') {
     moduleStats.value = res.module_stats
   }
 
-  const normTrend = (t) => {
-    if (Array.isArray(t) && t.length) {
-      const vals = t.map((x) => (typeof x === 'object' ? (x.value ?? 0) : x))
-      const labs = t.map((x, i) => (typeof x === 'object' ? (x.label || dayLabels[i]) : dayLabels[i]))
-      return { vals, labs }
-    }
-    return null
+  // db-4: trend_charts
+  if (res.trend_charts && typeof res.trend_charts === 'object') {
+    trendCharts.value = res.trend_charts
   }
-  if (res.trend_labels && Array.isArray(res.trend_labels) && res.trend_labels.length) {
-    trendLabels.value = res.trend_labels
+
+  // db-4: distribution_charts
+  if (res.distribution_charts && typeof res.distribution_charts === 'object') {
+    distributionCharts.value = res.distribution_charts
   }
-  const tr = normTrend(res.trend) || normTrend(res.trend_values)
-  if (tr) {
-    trendValues.value = tr.vals
-    if (!res.trend_labels) trendLabels.value = tr.labs
+
+  // db-4: progress_items
+  if (res.progress_items && typeof res.progress_items === 'object' && res.progress_items.keyProjects) {
+    progressItems.value = res.progress_items.keyProjects
   }
 
   if (res.ticket_status && typeof res.ticket_status === 'object') {
-    const ts = res.ticket_status
-    const total = ts.total || 0
-    const arr = [
-      ['待处理', '#d98a1f', ts.pending || 0],
-      ['处理中', '#2f6fed', ts.processing || 0],
-      ['已解决', '#0f9d6b', ts.resolved || 0],
-      ['已关闭', '#94a3b8', ts.closed || 0],
-    ]
-    donutSegments.value = arr.map(([label, color, val]) => ({
-      label, color, percent: total ? Math.round((val / total) * 100) : 0,
-    }))
-    donutTotal.value = total
+    // donut data kept for backward compat
   }
 
   if (Array.isArray(res.todos) && res.todos.length) {
@@ -558,10 +566,8 @@ function mergeDashboard(res) {
 async function loadData() {
   try {
     const res = await dashboardApi.getDashboard()
-    // 响应已解包为业务对象；接口结构未知，做防御式覆盖，缺失字段静默回退 demo
     mergeDashboard(res)
   } catch (err) {
-    // 接口异常或为空：保持 demo 数据渲染，不白屏
     console.warn('[HomeView] 看板接口不可用，已回退至本地 demo 数据', err)
   }
 }
@@ -646,7 +652,7 @@ onUnmounted(() => {
 .g-stat-val.up { color: #4ade80; }
 .g-stat-val.down { color: #f87171; }
 .g-stat-val.accent { color: #93c5fd; }
-.g-stat-key { font-size: 11.5px; color: #64748b; margin-top: 2px; letter-spacing: .03em; }
+.g-stat-key { font-size: 11.5px; color: #64748b; margin-top: 2px; }
 
 .cmd-bar {
   margin-top: 6px;
@@ -725,40 +731,67 @@ onUnmounted(() => {
 .act-btn.ghost { background: transparent; color: var(--text-secondary); border-color: var(--border); }
 .act-btn.ghost:hover { background: var(--bg-app); color: var(--text-primary); border-color: var(--text-muted); }
 
-/* ── 趋势图 ── */
-.chart-wrap { padding: 8px 4px 4px; }
-.chart-svg { width: 100%; height: 220px; display: block; }
-.chart-legend {
+/* ── db-4: 趋势组合图 ── */
+.chart-combo {
   display: flex;
-  gap: 20px;
-  padding: 12px 22px 0;
-  border-top: 1px solid var(--border-subtle);
-  margin-top: 4px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 8px 8px;
 }
-.legend-item { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-secondary); }
-.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
-/* ── 甜甜圈 ── */
-.donut-body {
+/* ── db-4: 饼图组 ── */
+.pie-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 12px;
+}
+.pie-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  flex: 1;
-  padding: 4px 0 16px;
 }
-.donut-svg { width: 180px; height: 180px; }
-.donut-legend {
-  margin-top: 12px;
+.pie-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+/* ── db-4: 进度条区 ── */
+.progress-section {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 20px;
-  width: 100%;
-  padding: 0 22px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  padding: 12px 22px 18px;
 }
-.dl-item { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-secondary); }
-.dl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.dl-val { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); margin-left: auto; }
+.progress-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.progress-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.progress-pct {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+.progress-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
 
 /* ── 待办 ── */
 .todo-list { list-style: none; padding: 0 22px 16px; }
@@ -843,23 +876,42 @@ onUnmounted(() => {
   padding: 10px 10px 10px 0;
   border-bottom: 1px solid var(--border);
 }
-.req-table td { font-size: 13px; padding: 12px 10px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); vertical-align: middle; }
-.req-table tr:last-child td { border-bottom: none; }
-.req-name { font-weight: 500; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.req-table td {
+  padding: 10px 10px 10px 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.req-name { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .req-owner { color: var(--text-secondary); font-size: 12.5px; }
-.status-tag { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 5px; display: inline-block; white-space: nowrap; }
-.st-review { background: var(--accent-soft); color: var(--accent); }
-.st-dev { background: var(--warning-soft); color: var(--warning); }
+.req-date { color: var(--text-muted); font-size: 12px; font-family: var(--font-mono); }
+.status-tag {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 6px;
+}
+.st-review { background: #fef3c7; color: #92400e; }
+.st-dev { background: #dbeafe; color: #1e40af; }
 .st-backlog { background: var(--border-subtle); color: var(--text-muted); }
-.st-live { background: var(--success-soft); color: var(--success); }
-.req-date { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+.st-live { background: #d1fae5; color: #065f46; }
 
 /* ── 今日日程 ── */
 .sched-list { list-style: none; padding: 0 22px 16px; }
-.sched-item { display: flex; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--border-subtle); align-items: flex-start; }
+.sched-item { display: flex; align-items: flex-start; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border-subtle); }
 .sched-item:last-child { border-bottom: none; }
-.sched-time { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); width: 52px; flex-shrink: 0; padding-top: 1px; }
+.sched-time {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  padding-top: 1px;
+  flex-shrink: 0;
+  width: 44px;
+}
 .sched-info { flex: 1; min-width: 0; }
-.sched-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
-.sched-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
+.sched-title { font-size: 13.5px; color: var(--text-primary); font-weight: 500; }
+.sched-loc { font-size: 12px; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; gap: 4px; }
+.sched-loc svg { flex-shrink: 0; }
 </style>
