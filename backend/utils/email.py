@@ -111,4 +111,37 @@ class EmailCenterClient:
             return {"ok": False, "error": str(exc)}
 
 
+class MailCenterProxyClient:
+    """邮件中心通用代理客户端，用于 PMWB 后端转发请求到统一邮件中心(3210)。
+
+    与 EmailCenterClient 的区别：
+    - EmailCenterClient 面向业务逻辑（send_email / resolve_contacts），有降级处理。
+    - MailCenterProxyClient 面向管理页面 CRUD 透传，统一注入 API Key，返回原始 JSON。
+    """
+
+    def __init__(self, base_url: str = None, api_key: str = None):
+        self.base_url = base_url or settings.EMAIL_CENTER_URL
+        self.api_key = api_key if api_key is not None else settings.EMAIL_CENTER_API_KEY
+        self.client = httpx.Client(base_url=self.base_url, timeout=15.0)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict = None,
+        json: dict = None,
+    ) -> dict | list | None:
+        """发送请求到邮件中心，返回 JSON 响应。"""
+        headers = {}
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+        response = self.client.request(
+            method, path, params=params, json=json, headers=headers
+        )
+        response.raise_for_status()
+        return response.json() if response.content else None
+
+
 email_client = EmailCenterClient()
+proxy_client = MailCenterProxyClient()
