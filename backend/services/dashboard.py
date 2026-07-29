@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from db.models import (
@@ -465,6 +465,12 @@ class DashboardService:
         req_completed = self.db.query(func.count(PmwbRequirementExt.id)).filter(
             PmwbRequirementExt.status == "closed",
         ).scalar() or 0
+        # 需求开发超期：状态=开发中(dev) 且 建单时间超20天
+        req_overdue_cutoff = datetime.utcnow() - timedelta(days=20)
+        req_overdue_dev = self.db.query(func.count(PmwbRequirementExt.id)).filter(
+            PmwbRequirementExt.status == "dev",
+            PmwbRequirementExt.created_at < req_overdue_cutoff,
+        ).scalar() or 0
 
         # 工单
         ticket_total = self.db.query(func.count(PmwbDevTicket.id)).scalar() or 0
@@ -497,6 +503,18 @@ class DashboardService:
             PmwbMeeting.start_time >= today_start_utc,
             PmwbMeeting.status == "planned",
         ).scalar() or 0
+        # 待处理会议纪要：已召开(held) 但未写纪要摘要(summary 为空)
+        meeting_pending_list = (
+            self.db.query(PmwbMeeting)
+            .filter(
+                PmwbMeeting.status == "held",
+                or_(PmwbMeeting.summary.is_(None), PmwbMeeting.summary == ""),
+            )
+            .order_by(PmwbMeeting.start_time.desc())
+            .limit(5)
+            .all()
+        )
+        meeting_pending_minutes = len(meeting_pending_list)
 
         # 知识
         kn_total = self.db.query(func.count(PmwbKnowledgeItem.id)).scalar() or 0
@@ -527,6 +545,7 @@ class DashboardService:
         return ModuleStats(
             requirements=ModuleStatsRequirements(
                 total=req_total, thisWeek=req_this_week, inReview=req_in_review, completed=req_completed,
+                overdueDev=req_overdue_dev,
             ),
             tickets=ModuleStatsTickets(
                 total=ticket_total, pending=ticket_pending, processing=ticket_processing,
@@ -539,6 +558,7 @@ class DashboardService:
             ),
             meetings=ModuleStatsMeetings(
                 totalThisWeek=meeting_this_week, today=meeting_today, upcoming=meeting_upcoming,
+                pendingMinutes=meeting_pending_minutes,
             ),
             knowledge=ModuleStatsKnowledge(total=kn_total, thisWeek=kn_this_week),
             emails=ModuleStatsEmails(todaySent=email_today, weekSent=email_week, successRate=email_sr),
@@ -640,6 +660,26 @@ class DashboardService:
         distribution_charts = self.get_distribution_charts()
         progress_items = self.get_progress_items()
 
+        # 待处理会议纪要列表（held 且 summary 为空），供会议卡片展示
+        pending_minutes_meetings = (
+            self.db.query(PmwbMeeting)
+            .filter(
+                PmwbMeeting.status == "held",
+                or_(PmwbMeeting.summary.is_(None), PmwbMeeting.summary == ""),
+            )
+            .order_by(PmwbMeeting.start_time.desc())
+            .limit(5)
+            .all()
+        )
+        pending_minutes_data = [
+            {
+                "title": m.title,
+                "meeting_id": m.meeting_id,
+                "start_time": (m.start_time + timedelta(hours=8)).strftime("%Y-%m-%d") if m.start_time else "",
+            }
+            for m in pending_minutes_meetings
+        ]
+
         return DashboardData(
             stats=stats,
             recent_todos=recent_todos,
@@ -663,4 +703,5 @@ class DashboardService:
             trend_charts=trend_charts,
             distribution_charts=distribution_charts,
             progress_items=progress_items,
+            pending_minutes_meetings=pending_minutes_data,
         )

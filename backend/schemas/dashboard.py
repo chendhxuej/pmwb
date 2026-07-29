@@ -77,6 +77,7 @@ class ModuleStatsRequirements(BaseModel):
     thisWeek: int = 0
     inReview: int = 0
     completed: int = 0
+    overdueDev: int = 0  # 开发中且建单超20天的需求数
 
 
 class ModuleStatsTickets(BaseModel):
@@ -99,6 +100,7 @@ class ModuleStatsMeetings(BaseModel):
     totalThisWeek: int = 0
     today: int = 0
     upcoming: int = 0
+    pendingMinutes: int = 0  # 已召开但未写纪要的会议数
 
 
 class ModuleStatsKnowledge(BaseModel):
@@ -198,3 +200,4 @@ class DashboardData(BaseModel):
     trend_charts: Optional[Dict[str, List[TrendPoint]]] = None
     distribution_charts: Optional[Dict[str, List[DistributionItem]]] = None
     progress_items: Optional[Dict[str, List[ProgressItem]]] = None
+    pending_minutes_meetings: List[dict] = []  # 待处理会议纪要列表（held 且 summary 空）
