@@ -76,8 +76,8 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| ma-1 | 后端：会议行动项完整返回 + synced_to_todo 标记 | feature/ma-1-meeting-action-visible | S2 | 🔵开发中 | 晓伴 | 已分配，待认领；去重逻辑改为标记；见 ma-1.md |
-| ma-2 | 前端：会议行动项"已转待办"徽标 | feature/ma-2-synced-badge | S2 | 🔵开发中 | 晓伴 | 已分配，待认领；依赖 ma-1；见 ma-2.md |
+| ma-1 | 后端：会议行动项完整返回 + synced_to_todo 标记 | feature/ma-1-meeting-action-visible | S2 | 🟡待审查 | 晓伴 | 4fabcf3，5 pytest 通过 |
+| ma-2 | 前端：会议行动项"已转待办"徽标 | feature/ma-2-synced-badge | S2 | 🟡待审查 | 晓伴 | ea5f069，build 通过 |
 
 ---
 
