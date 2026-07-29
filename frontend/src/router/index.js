@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import MainLayout from '@/components/Layout/MainLayout.vue'
 import HomeView from '@/views/HomeView.vue'
+import DashboardV2View from '@/views/DashboardV2View.vue'
 
 const routes = [
   {
@@ -13,6 +14,12 @@ const routes = [
         name: 'Dashboard',
         component: HomeView,
         meta: { title: '首页看板', icon: 'House' },
+      },
+      {
+        path: 'dashboard-v2',
+        name: 'DashboardV2',
+        component: DashboardV2View,
+        meta: { title: '看板 v2', icon: 'DataBoard' },
       },
       {
         path: 'task-center',
