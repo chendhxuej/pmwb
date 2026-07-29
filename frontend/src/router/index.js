@@ -14,6 +14,13 @@ const routes = [
         component: HomeView,
         meta: { title: '首页看板', icon: 'House' },
       },
+      // ── 批次三：新版看板（独立路由，旧首页(/dashboard)保持不动）──
+      {
+        path: 'dashboard-v2',
+        name: 'DashboardV2',
+        component: () => import('@/views/DashboardV2View.vue'),
+        meta: { title: '新版看板', icon: 'DataBoard' },
+      },
       {
         path: 'task-center',
         name: 'TaskCenter',
