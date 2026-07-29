@@ -69,7 +69,7 @@ class ScheduleItem(BaseModel):
     loc: str = ""
 
 
-# ── 看板重构扩展 Schema ──
+# ── 看板重构扩展 Schema（db-2）──
 
 
 class ModuleStatsRequirements(BaseModel):
@@ -193,7 +193,7 @@ class DashboardData(BaseModel):
     recent_requirements: List[RequirementSummaryItem] = []
     schedule: List[ScheduleItem] = []
 
-    # —— 看板重构扩展字段 ——
+    # —— db-2 看板重构扩展字段 ——
     module_stats: Optional[ModuleStats] = None
     trend_charts: Optional[Dict[str, List[TrendPoint]]] = None
     distribution_charts: Optional[Dict[str, List[DistributionItem]]] = None

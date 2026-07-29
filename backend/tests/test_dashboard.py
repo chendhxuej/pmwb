@@ -25,7 +25,6 @@ def test_dashboard_stats(client: TestClient, db):
 
 def test_dashboard_module_stats(client: TestClient, db):
     """db-2 扩展：module_stats 各模块返回。"""
-    # 创建各模块测试数据
     TodoFactory.create(db, status="todo")
     MeetingFactory.create(db, status="planned")
     OperationIssueFactory.create(db, status="pending")
@@ -39,7 +38,7 @@ def test_dashboard_module_stats(client: TestClient, db):
     ms = data.get("module_stats")
     assert ms is not None, "缺少 module_stats 字段"
     assert ms["requirements"]["total"] >= 1
-    # 工单/问题/会议/知识/邮件字段存在即可（无测试工厂时值为0）
+    # 工单/邮件无测试工厂可能为0，只验证字段存在
     assert "total" in ms["tickets"]
     assert ms["issues"]["total"] >= 1
     assert ms["meetings"]["totalThisWeek"] >= 1
@@ -85,5 +84,4 @@ def test_dashboard_progress_items(client: TestClient, db):
     pi = data.get("progress_items")
     assert pi is not None, "缺少 progress_items 字段"
     assert "keyProjects" in pi
-    # 无重点工作时为空列表
     assert isinstance(pi["keyProjects"], list)

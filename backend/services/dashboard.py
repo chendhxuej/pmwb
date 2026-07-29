@@ -447,7 +447,7 @@ class DashboardService:
         return sub, efficiency, greet_stats
 
     def get_module_stats(self) -> ModuleStats:
-        """各模块统计卡片。"""
+        """db-2 扩展：各模块统计卡片。"""
         today, week_start, week_end = _week_bounds_cst()
         ws_utc, _ = _cst_day_utc_bounds(week_start)
         we_utc = _cst_day_utc_bounds(week_end)[0]
@@ -481,7 +481,7 @@ class DashboardService:
             PmwbDevTicket.status == "archived",
         ).scalar() or 0
 
-        # 运营问题（复用 get_stats 数据）
+        # 运营问题（复用 get_stats）
         stats = self.get_stats()
 
         # 会议
@@ -514,12 +514,12 @@ class DashboardService:
             EmailRecord.created_at >= ws_utc,
             EmailRecord.created_at < we_utc,
         ).scalar() or 0
-        seven_days_ago = ws_utc - timedelta(days=7 - (week_start - today).days)
+        email_7d_start = ws_utc - timedelta(days=7 - (week_start - today).days)
         email_7d_total = self.db.query(func.count(EmailRecord.id)).filter(
-            EmailRecord.created_at >= seven_days_ago,
+            EmailRecord.created_at >= email_7d_start,
         ).scalar() or 0
         email_7d_ok = self.db.query(func.count(EmailRecord.id)).filter(
-            EmailRecord.created_at >= seven_days_ago,
+            EmailRecord.created_at >= email_7d_start,
             EmailRecord.send_status.in_(["success", "sent"]),
         ).scalar() or 0
         email_sr = round(email_7d_ok / email_7d_total * 100, 1) if email_7d_total > 0 else 0.0
@@ -545,7 +545,7 @@ class DashboardService:
         )
 
     def get_trend_charts(self) -> dict:
-        """各模块近7天趋势数据。"""
+        """db-2 扩展：各模块近7天趋势数据。"""
         today = _cst_date()
         days = [today - timedelta(days=i) for i in range(6, -1, -1)]
 
@@ -566,8 +566,7 @@ class DashboardService:
         }
 
     def get_distribution_charts(self) -> dict:
-        """分布数据。"""
-        # 需求状态分布
+        """db-2 扩展：分布数据。"""
         req_status_counts = (
             self.db.query(PmwbRequirementExt.status, func.count(PmwbRequirementExt.id))
             .group_by(PmwbRequirementExt.status)
@@ -579,7 +578,6 @@ class DashboardService:
         }
         req_dist = [DistributionItem(name=_REQ_STATUS_LABEL.get(s, s), value=c) for s, c in req_status_counts]
 
-        # 运营问题类型分布
         issue_type_counts = (
             self.db.query(PmwbOperationIssue.issue_type, func.count(PmwbOperationIssue.id))
             .group_by(PmwbOperationIssue.issue_type)
@@ -592,7 +590,6 @@ class DashboardService:
         }
         issue_dist = [DistributionItem(name=_ISSUE_TYPE_LABEL.get(t, t), value=c) for t, c in issue_type_counts]
 
-        # 工单优先级分布
         ticket_pri_counts = (
             self.db.query(PmwbDevTicket.priority, func.count(PmwbDevTicket.id))
             .group_by(PmwbDevTicket.priority)
@@ -607,7 +604,7 @@ class DashboardService:
         }
 
     def get_progress_items(self) -> dict:
-        """重点任务进度（从重点工作/KeyWork模块获取）。"""
+        """db-2 扩展：重点任务进度（从重点工作模块获取）。"""
         projects = (
             self.db.query(PmwbKeyWork)
             .filter(PmwbKeyWork.status.in_(["planning", "in_progress"]))
@@ -637,7 +634,7 @@ class DashboardService:
         trend_values, trend_labels = self.get_trend()
         sub, efficiency, greet_stats = self.get_greeting(stats)
 
-        # 看板重构扩展
+        # db-2 看板重构扩展
         module_stats = self.get_module_stats()
         trend_charts = self.get_trend_charts()
         distribution_charts = self.get_distribution_charts()
@@ -661,7 +658,7 @@ class DashboardService:
             alerts=self.get_alerts(stats),
             recent_requirements=self.get_recent_requirements(),
             schedule=self.get_schedule(),
-            # 看板重构扩展
+            # db-2 看板重构扩展
             module_stats=module_stats,
             trend_charts=trend_charts,
             distribution_charts=distribution_charts,
