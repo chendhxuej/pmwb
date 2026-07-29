@@ -1,29 +1,36 @@
-# tc-3 前端：各来源模块支持 ?id= 深链定位并进入编辑态
+# tc-3 交付记录
 
-## 背景上下文
-任务中心"编辑"按钮(tc-2)会带 `source_url` 深链进入来源模块（如 `/meeting?actionId=21`）。各来源模块需解析 query 参数，进入页面时自动定位/打开对应记录并进入编辑态，避免用户手动找。
+- **状态**：🟡待审查 (晓伴)
+- **分支**：`feature/tc-3-module-deeplink`
+- **提交**：`78df319`
+- **前置依赖**：tc-1（source_url 深链）、tc-2（编辑按钮）
 
-## 精确改动范围（覆盖 6 个模块，可再按模块拆给不同人）
-- `TodoView.vue`（个人待办）：解析 `?id=` → 打开该待办编辑。
-- `WorkOrderView.vue`（运营问题）：解析 `?issueId=` → 打开该工单编辑（确认 query 参数名与 tc-1 一致）。
-- `RequirementDeliveryView.vue`：解析 `?ticket=`(开发工单) 与 `?req=&sa=`(需求催办) → 打开对应记录。
-- `MeetingView.vue`：解析 `?actionId=` → 打开对应会议纪要并聚焦/编辑该行动项。
-- `KeyWorkView.vue`：解析 `?id=task-{id}` / `?id=milestone-{id}` → 打开对应成员任务/里程碑编辑。
+## 变更内容
 
-每个模块改动：在 `onMounted`/`watch(route.query)` 中读取参数并触发"打开编辑弹窗/选中行"逻辑；若对应记录需异步加载，先做加载再定位。
+### 前端 5 模块深链定位
 
-## 可执行验收命令
-- 从任务中心"编辑"逐类点击，目标模块均自动打开该工单编辑态（无需手动查找）。
-- 各模块原有"列表/新建"流程不受影响（深链为空时走默认）。
-- `vitest` + `vite build` 通过；前端冒烟逐模块验证。
+| 模块 | 深链参数 | 行为 |
+|:-----|:---------|:-----|
+| TodoView | `?id={id}` | 定位待办 → 打开编辑对话框 |
+| WorkOrderView | `?issueId={id}` | 定位运营问题 → 打开详情 → 进入编辑态 |
+| RequirementDeliveryView | `?ticket={ticket_no}` | 定位研发工单 → 打开编辑对话框 |
+| RequirementDeliveryView | `?req={req_id}&sa={sa_name}` | 定位需求评估 → 打开编辑对话框 |
+| MeetingView | `?actionId={id}` | 遍历已含 actions 的列表 → 定位会议 → 打开详情 |
+| KeyWorkView | `?id=task-{id}` | 通过 by-child 端点定位 → 打开详情 |
+| KeyWorkView | `?id=milestone-{id}` | 通过 by-child 端点定位 → 打开详情 |
 
-## 禁止项清单
-- 不改各模块业务字段/数据结构。
-- 不因深链破坏原有新建/列表交互。
-- 不改动任务中心本身（那是 tc-1/tc-2）。
+### 后端新增（最小化缺口填补）
 
-## 依赖
-tc-1（需先确定深链参数格式）。
+- `services/keywork.py`: `find_by_member_task` / `find_by_milestone` 静态方法
+- `routers/keywork.py`: `GET /key-works/by-child?type=task|milestone&id={id}` 端点
+- `api/keywork.js`: `findKeyWorkByChild(type, id)` 前端 API 函数
 
-## 起点指引
-Grep 各 View 现有"编辑/打开"函数名，复用之；确认 router query 读取方式（`useRoute().query`）。
+### 重要技术决策
+
+- **MeetingView actionId 定位**：利用列表 API 已 `joinedload(actions)` 的特性，直接在已加载的数据中遍历查找，无需额外 API
+- **KeyWorkView 需要后端支持**：列表 API 明确排除了 children（减重），无法纯前端定位，因此新增轻量级 by-child 端点
+
+### 自测
+
+- 前端 vite build ✅
+- 后端 pytest（dashboard 5 passed）✅
