@@ -137,6 +137,23 @@ class KeyWorkService(BaseService[PmwbKeyWork]):
             return json.dumps([], ensure_ascii=False)
         return acc
 
+    # ------------------------------------------------------------------
+    # 查找：通过子表 ID 查找所属重点工作（tc-3 深链定位）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def find_by_member_task(db: Session, task_id: int) -> int | None:
+        row = db.query(PmwbKeyWorkMemberTask.key_work_id).filter(
+            PmwbKeyWorkMemberTask.id == task_id
+        ).first()
+        return row[0] if row else None
+
+    @staticmethod
+    def find_by_milestone(db: Session, milestone_id: int) -> int | None:
+        row = db.query(PmwbKeyWorkMilestone.key_work_id).filter(
+            PmwbKeyWorkMilestone.id == milestone_id
+        ).first()
+        return row[0] if row else None
+
     def create_with_relations(self, db: Session, obj_in: dict) -> PmwbKeyWork:
         children = {key: obj_in.pop(key, []) for key in _CHILDREN.keys()}
 

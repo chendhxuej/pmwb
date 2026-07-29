@@ -502,12 +502,15 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as kwApi from '@/api/keywork.js'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import {
   CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP,
 } from '@/api/keywork.js'
+
+const route = useRoute()
 
 // ---------- 列表状态 ----------
 const loading = ref(false)
@@ -865,9 +868,25 @@ async function removeDeliverable(row) {
   await refreshDetail()
 }
 
-onMounted(() => {
+onMounted(async () => {
   fetchList()
   fetchStats()
+  // 深链：?id=task-{id} / ?id=milestone-{id}
+  const deepLinkId = route.query.id
+  if (deepLinkId) {
+    const match = String(deepLinkId).match(/^(task|milestone)-(\d+)$/)
+    if (match) {
+      const [, type, childId] = match
+      try {
+        const res = await kwApi.findKeyWorkByChild(type, childId)
+        const kwId = res.data?.data?.key_work_id
+        if (kwId) {
+          const detail = await kwApi.getKeyWork(kwId)
+          if (detail.data?.data) await openDetail(detail.data.data)
+        }
+      } catch { /* 深链降级静默 */ }
+    }
+  }
 })
 </script>
 
