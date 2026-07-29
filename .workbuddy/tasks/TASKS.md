@@ -46,14 +46,15 @@
 > 依赖：无（可与批次二并行开发）
 > 目标：参考「数智化部 AI 工作台」截图风格，丰富图表，提升信息阅读效率
 > ⚠️ 新旧共存策略：新页面走 /dashboard-v2 路由，旧 HomeView（/）不动；老大确认 OK 后再替换 / 指向新页面
+> ✅ 新版看板已落地：`DashboardV2View.vue` @ `/dashboard-v2`（侧栏"新版看板"），旧首页保留。db-3/4/5 退回项已由该页面统一承载（KPI/图表/模块卡）。
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
 | db-1 | 引入 ECharts + 封装图表组件 | feature/db-1-echarts | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 0b6bbc0 合入，见 reviews/db-1-R1.md |
 | db-2 | 后端 Dashboard 统计接口扩展 | feature/db-2-api | S2 | ✅已合入 | 晓伴→Vicky2号审查 | f6b9406 合入，见 reviews/db-2-R1.md |
-| db-3 | 首页 KPI 统计区重构（大数字卡片） | feature/db-3-kpi | S2 | 🔴审查退回 | 晓伴 | ⚠️ P0：直接改旧首页违新旧共存策略，见 reviews/db-3-R1.md |
-| db-4 | 首页图表区扩展（柱/线/饼/进度条） | feature/db-4-charts | S2 | 🔴审查退回 | 晓伴 | ⚠️ P0：同 db-3 根因，见 reviews/db-4-R1.md |
-| db-5 | 各模块数据可视化卡片 | feature/db-5-modules | S2 | 🔴审查退回 | 晓伴 | ⚠️ P0：同 db-3/4 根因，见 reviews/db-5-R1.md |
+| db-3 | 首页 KPI 统计区重构（大数字卡片） | feature/db-3-kpi | S2 | ✅已合入 | Vicky2号 | 退回后由 DashboardV2View(/dashboard-v2) 统一承载 KPI 卡片，见 a810718 |
+| db-4 | 首页图表区扩展（柱/线/饼/进度条） | feature/db-4-charts | S2 | ✅已合入 | Vicky2号 | 退回后由 DashboardV2View 统一承载趋势/分布/进度图表，见 a810718 |
+| db-5 | 各模块数据可视化卡片 | feature/db-5-modules | S2 | ✅已合入 | Vicky2号 | 退回后由 DashboardV2View 统一承载 6 模块统计卡，见 a810718 |
 
 ---
 
