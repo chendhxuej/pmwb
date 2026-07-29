@@ -37,7 +37,7 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| mc-opt-1 | 邮件统计概览卡片 | feature/mc-opt-1-stats | S2 | 🟡待审查 | 晓伴 | 2 commit，7 KPI 卡片 + stats API + 5 测试用例 |
+| mc-opt-1 | 邮件统计概览卡片 | feature/mc-opt-1-stats | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 7d2014d 合入，见 reviews/mc-opt-1-R1.md |
 
 ---
 
@@ -49,11 +49,11 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| db-1 | 引入 ECharts + 封装图表组件 | feature/db-1-echarts | S2 | 🟡待审查 | 晓伴 | 5种组件(line/bar/pie/gauge/progress) + 3测试, build+vitest通过 |
-| db-2 | 后端 Dashboard 统计接口扩展 | feature/db-2-api | S2 | 🔵开发中 | 晓伴 | 待读 spec |
-| db-3 | 首页 KPI 统计区重构（大数字卡片） | feature/db-3-kpi | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 |
-| db-4 | 首页图表区扩展（柱/线/饼/进度条） | feature/db-4-charts | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 |
-| db-5 | 各模块数据可视化卡片 | feature/db-5-modules | S2 | ⬜待分配 | — | 依赖 db-1 + db-2 + db-3 + db-4 |
+| db-1 | 引入 ECharts + 封装图表组件 | feature/db-1-echarts | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 0b6bbc0 合入，见 reviews/db-1-R1.md |
+| db-2 | 后端 Dashboard 统计接口扩展 | feature/db-2-api | S2 | ✅已合入 | 晓伴→Vicky2号审查 | f6b9406 合入，见 reviews/db-2-R1.md |
+| db-3 | 首页 KPI 统计区重构（大数字卡片） | feature/db-3-kpi | S2 | 🔴审查退回 | 晓伴 | ⚠️ P0：直接改旧首页违新旧共存策略，见 reviews/db-3-R1.md |
+| db-4 | 首页图表区扩展（柱/线/饼/进度条） | feature/db-4-charts | S2 | 🔴审查退回 | 晓伴 | ⚠️ P0：同 db-3 根因，见 reviews/db-4-R1.md |
+| db-5 | 各模块数据可视化卡片 | feature/db-5-modules | S2 | 🔴审查退回 | 晓伴 | ⚠️ P0：同 db-3/4 根因，见 reviews/db-5-R1.md |
 
 ---
 

@@ -52,7 +52,11 @@ uploads/
 backend/alembic/versions/*.pyc
 
 # WorkBuddy local memory
-.workbuddy/
+# 整目录忽略，但放行协同开发所需的三个子目录（任务Spec/审查记录/项目记忆），供多AI可见
+.workbuddy/*
+!.workbuddy/memory/
+!.workbuddy/reviews/
+!.workbuddy/tasks/
 
 # Screenshots & verification artifacts
 screenshot_*.png
