@@ -474,3 +474,82 @@ def get_log(log_id: str):
     except Exception as exc:
         logger.warning("代理获取日志详情失败: %s", exc)
         return error(f"获取日志详情失败: {exc}", code=502)
+
+
+@router.get("/stats")
+def mail_center_stats(db: Session = Depends(get_db)):
+    """邮件中心统计概览：聚合邮件中心(3210)和 PMWB 本地数据。"""
+    bj_tz = timezone(timedelta(hours=8))
+    now = datetime.now(bj_tz)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=today_start.weekday())
+    seven_days_ago = today_start - timedelta(days=7)
+
+    # 本地 PMWB 统计数据
+    try:
+        today_count = db.query(EmailRecord).filter(
+            EmailRecord.created_at >= today_start.astimezone(timezone.utc)
+        ).count()
+
+        week_count = db.query(EmailRecord).filter(
+            EmailRecord.created_at >= week_start.astimezone(timezone.utc)
+        ).count()
+
+        # 近7天成功率
+        seven_day_total = db.query(EmailRecord).filter(
+            EmailRecord.created_at >= seven_days_ago.astimezone(timezone.utc)
+        ).count()
+        seven_day_ok = db.query(EmailRecord).filter(
+            EmailRecord.created_at >= seven_days_ago.astimezone(timezone.utc),
+            EmailRecord.send_status.in_(["success", "sent"]),
+        ).count()
+        success_rate = round(seven_day_ok / seven_day_total * 100, 1) if seven_day_total > 0 else 0.0
+
+        # 待处理异常（最近失败邮件数）
+        pending_alerts = db.query(EmailRecord).filter(
+            EmailRecord.send_status == "failed",
+            EmailRecord.created_at >= seven_days_ago.astimezone(timezone.utc),
+        ).count()
+    except SQLAlchemyError as exc:
+        logger.warning("统计：查询 email_records 失败: %s", exc)
+        today_count = week_count = pending_alerts = 0
+        success_rate = 0.0
+
+    # 从邮件中心获取账号/联系人/模板数量
+    account_count = contact_count = template_count = 0
+    try:
+        accounts = proxy.request("GET", "/api/accounts")
+        if isinstance(accounts, dict):
+            account_count = len(accounts.get("data", accounts.get("items", [])))
+        elif isinstance(accounts, list):
+            account_count = len(accounts)
+    except Exception:
+        pass
+
+    try:
+        contacts = proxy.request("GET", "/api/contacts")
+        if isinstance(contacts, dict):
+            contact_count = len(contacts.get("data", contacts.get("items", [])))
+        elif isinstance(contacts, list):
+            contact_count = len(contacts)
+    except Exception:
+        pass
+
+    try:
+        templates = proxy.request("GET", "/api/templates")
+        if isinstance(templates, dict):
+            template_count = len(templates.get("data", templates.get("items", [])))
+        elif isinstance(templates, list):
+            template_count = len(templates)
+    except Exception:
+        pass
+
+    return success(data={
+        "todaySent": today_count,
+        "weekSent": week_count,
+        "successRate": success_rate,
+        "accountCount": account_count,
+        "contactCount": contact_count,
+        "templateCount": template_count,
+        "pendingAlerts": pending_alerts,
+    })

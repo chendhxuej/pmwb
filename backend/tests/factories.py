@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from db.models import (
+    EmailRecord,
     PmwbKnowledgeItem,
     PmwbMeeting,
     PmwbMeetingAction,
@@ -165,6 +166,51 @@ class KnowledgeFactory:
             title=title,
             category=category,
             obsidian_path=obsidian_path,
+            **kwargs,
+        )
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return obj
+
+
+class EmailRecordFactory:
+    """邮件发送记录测试工厂。"""
+    _counter = 0
+
+    @staticmethod
+    def create(
+        db: Session,
+        req_id: str = None,
+        req_name: str = "测试需求",
+        email_type: str = "notification",
+        recipient: str = "test@example.com",
+        recipient_name: str = "测试收件人",
+        subject: str = "测试邮件主题",
+        send_status: str = "success",
+        source: str = "pmwb",
+        sender: str = "系统",
+        error_msg: str = None,
+        created_at: datetime = None,
+        **kwargs,
+    ):
+        EmailRecordFactory._counter += 1
+        if req_id is None:
+            req_id = f"REQ-TEST-{EmailRecordFactory._counter:04d}"
+        if created_at is None:
+            created_at = datetime.utcnow()
+        obj = EmailRecord(
+            req_id=req_id,
+            req_name=req_name,
+            email_type=email_type,
+            recipient=recipient,
+            recipient_name=recipient_name,
+            subject=subject,
+            send_status=send_status,
+            source=source,
+            sender=sender,
+            error_msg=error_msg,
+            created_at=created_at,
             **kwargs,
         )
         db.add(obj)

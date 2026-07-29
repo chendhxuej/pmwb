@@ -4,6 +4,7 @@
       <h2>邮件中心</h2>
       <span class="link-hint">统一邮件中心管理</span>
     </div>
+    <MailStatsOverview />
     <el-tabs :model-value="$route.path" @tab-click="onTabClick" class="mail-tabs">
       <el-tab-pane label="发送日志" name="/mail-center/logs" />
       <el-tab-pane label="邮件账号" name="/mail-center/accounts" />
@@ -19,6 +20,7 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
+import MailStatsOverview from './MailStatsOverview.vue'
 
 const router = useRouter()
 
