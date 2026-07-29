@@ -219,8 +219,13 @@ onMounted(async () => {
   unsubscribe = subscribeStaffOptions((data) => {
     groups.value = data
   })
+  // 并行预热：人员列表 + 组织/身份下拉选项，打开弹窗时数据已就绪
   try {
-    groups.value = await loadStaffOptions()
+    const [staffOptions] = await Promise.all([
+      loadStaffOptions(),
+      ensurePickerOptions(),
+    ])
+    groups.value = staffOptions
   } catch {
     groups.value = []
   }

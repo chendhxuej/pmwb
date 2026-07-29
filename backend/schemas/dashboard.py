@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -69,6 +69,75 @@ class ScheduleItem(BaseModel):
     loc: str = ""
 
 
+# ── 看板重构扩展 Schema ──
+
+
+class ModuleStatsRequirements(BaseModel):
+    total: int = 0
+    thisWeek: int = 0
+    inReview: int = 0
+    completed: int = 0
+
+
+class ModuleStatsTickets(BaseModel):
+    total: int = 0
+    pending: int = 0
+    processing: int = 0
+    resolved: int = 0
+    closed: int = 0
+
+
+class ModuleStatsIssues(BaseModel):
+    total: int = 0
+    pending: int = 0
+    processing: int = 0
+    resolved: int = 0
+    overdue: int = 0
+
+
+class ModuleStatsMeetings(BaseModel):
+    totalThisWeek: int = 0
+    today: int = 0
+    upcoming: int = 0
+
+
+class ModuleStatsKnowledge(BaseModel):
+    total: int = 0
+    thisWeek: int = 0
+
+
+class ModuleStatsEmails(BaseModel):
+    todaySent: int = 0
+    weekSent: int = 0
+    successRate: float = 0.0
+
+
+class ModuleStats(BaseModel):
+    requirements: ModuleStatsRequirements = ModuleStatsRequirements()
+    tickets: ModuleStatsTickets = ModuleStatsTickets()
+    issues: ModuleStatsIssues = ModuleStatsIssues()
+    meetings: ModuleStatsMeetings = ModuleStatsMeetings()
+    knowledge: ModuleStatsKnowledge = ModuleStatsKnowledge()
+    emails: ModuleStatsEmails = ModuleStatsEmails()
+
+
+class TrendPoint(BaseModel):
+    label: str = ""
+    value: int = 0
+
+
+class DistributionItem(BaseModel):
+    name: str = ""
+    value: int = 0
+
+
+class ProgressItem(BaseModel):
+    name: str = ""
+    current: int = 0
+    total: int = 0
+    percent: float = 0.0
+
+
 class LiveItem(BaseModel):
     color: str = "green"  # red | amber | green
     text: str = ""
@@ -123,3 +192,9 @@ class DashboardData(BaseModel):
     alerts: List[AlertItem] = []
     recent_requirements: List[RequirementSummaryItem] = []
     schedule: List[ScheduleItem] = []
+
+    # —— 看板重构扩展字段 ——
+    module_stats: Optional[ModuleStats] = None
+    trend_charts: Optional[Dict[str, List[TrendPoint]]] = None
+    distribution_charts: Optional[Dict[str, List[DistributionItem]]] = None
+    progress_items: Optional[Dict[str, List[ProgressItem]]] = None
