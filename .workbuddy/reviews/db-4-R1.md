@@ -22,7 +22,7 @@
 ## 补充说明
 
 - 代码质量本身没问题：ChartBar/ChartLine/ChartPie/ChartProgress 均已由 db-1 封装，db-4 只是使用这些组件
-- 合并了 db-1 分支的 commit（`e23fe06 Merge branch 'feature/db-1-echarts'`），说明 db-4 的依赖链是 db-1→db-3→db-4
+- 合并了 db-1 分支的 commit，说明 db-4 的依赖链是 db-1→db-3→db-4
 
 ---
 
@@ -32,4 +32,4 @@
 
 | 日期 | 修复说明 | 提交 SHA | 审查确认 |
 |------|---------|----------|---------|
-| — | — | — | — |
+| 2026-07-29 | P0: 图表区已迁入 DashboardV2View.vue，旧 HomeView SVG 趋势图/甜甜圈已还原 | c2430e6 | 待确认 |

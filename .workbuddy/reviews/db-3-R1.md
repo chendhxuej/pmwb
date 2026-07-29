@@ -30,4 +30,5 @@
 
 | 日期 | 修复说明 | 提交 SHA | 审查确认 |
 |------|---------|----------|---------|
-| — | — | — | — |
+| 2026-07-29 | P0: 创建 DashboardV2View.vue + /dashboard-v2 路由，还原 HomeView 不变；KpiCard/KpiCardRow 移入新页面 | c2430e6 | 待确认 |
+| 2026-07-29 | P2: msCards trend 保留 null 作为占位，待 db-2 合入后接入真实数据 | — | 待确认 |
