@@ -64,9 +64,9 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| tc-1 | 后端：6类采集器 source_url 改为深链(含 source_id)，修正待办路由 | feature/tc-1-source-url-deeplink | S2 | 🔵开发中 | 晓伴 | 已分配，待认领；见 tc-1.md |
-| tc-2 | 前端：任务中心操作列新增"编辑"按钮，gotoSource 深链跳转 | feature/tc-2-edit-button | S2 | 🔵开发中 | 晓伴 | 已分配，待认领；见 tc-2.md |
-| tc-3 | 前端：各来源模块支持 ?id= 深链定位并进入编辑态(6模块) | feature/tc-3-module-deeplink | S2 | 🔵开发中 | 晓伴 | 已分配，待认领；见 tc-3.md；可再按模块拆 |
+| tc-1 | 后端：6类采集器 source_url 改为深链(含 source_id)，修正待办路由 | feature/tc-1-source-url-deeplink | S2 | 🟡待审查 | 晓伴 | 89ecb1d，8 pytest 通过 |
+| tc-2 | 前端：任务中心操作列新增编辑按钮，gotoSource 深链跳转 | feature/tc-2-edit-button | S2 | 🟡待审查 | 晓伴 | build+vitest 通过 |
+| tc-3 | 前端：5来源模块支持 ?id= 深链定位并进入编辑态 | feature/tc-3-module-deeplink | S2 | 🟡待审查 | 晓伴 | 78df319，含后端 by-child 端点 |
 
 ---
 
