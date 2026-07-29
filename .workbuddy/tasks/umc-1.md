@@ -1,30 +1,58 @@
-# umc-1 邮件中心：新增人员中台出站客户端
+# umc-1 交付记录
 
-## 背景上下文
-需求3：统一邮件中心（`D:\项目\统一邮件中心\server`，独立 Node/Express/Prisma/SQLite 仓库，端口 3210）的联系人当前存本地 `Contact` 表，需改为只读复用"人员中台"(localhost:8001)。本任务先建一个出站 HTTP 客户端调用中台 staff 列表接口，供 umc-2 使用。
+- **状态**：🟡待审查 (晓伴)
+- **仓库**：`D:\项目\统一邮件中心\server`（tongyi_email）
+- **分支**：`feature/umc-1-master-service`
+- **提交**：`590b7bb`（tongyi_email 仓库）
 
-## 精确改动范围
-文件（邮件中心仓库）：新建 `src/services/masterService.ts`
-- 用 Node 22 全局 `fetch` 调 `http://localhost:8001/...` 人员中台 staff 列表接口。
-- 接口契约参考 PMWB 侧 `D:\项目\个人工作台系统\backend\master_service.py`（方法名/路径/鉴权头）。先读该文件确认接口 path、query、返回结构、是否需要 token。
-- 实现：带超时（AbortController，建议 5s）、错误降级（中台不可用时抛出可控错误/返回空列表，不让邮件中心崩溃）。
-- 可选：加简单内存缓存（30s TTL）避免每次请求打中台。
-- 不引入重框架；如需可加轻量 axios，但优先原生 fetch。
+## 变更内容
 
-## 可执行验收命令
-- 单元/集成测试：中台可用时返回人员列表；中台宕机时降级不抛未捕获异常。
-- 手动：`curl localhost:3210/<新增调试路由或测试>` 验证能拿到中台数据（可临时加一个调试接口，合版前移除或保留只读）。
-- `npm run build`（tsc）无类型错误。
+### 新增文件
 
-## 禁止项清单
-- 不改人员中台（那是另一个服务）。
-- 不写入中台。
-- 不引入与现有栈冲突的重依赖。
+| 文件 | 用途 |
+|:-----|:------|
+| `src/services/masterService.ts` | 人员中台出站 HTTP 客户端 |
+| `src/services/masterService.test.ts` | 集成测试（11 用例） |
 
-## 前置依赖
-人员中台(8001)运行且暴露 staff 列表接口（需先确认接口与鉴权；若中台未提供合适接口，回报阻塞）。
+### 核心接口
 
-## 起点指引
-1. 读 `D:\项目\个人工作台系统\backend\master_service.py` 了解契约。
-2. 确认 8001 是否运行：`curl localhost:8001/` 或问 Vicky2号。
-3. 新建 `src/services/masterService.ts`。
+| 函数 | 说明 |
+|:-----|:------|
+| `fetchStaffOptions(forceRefresh?)` | 获取按组织分组的人员列表，含 30s 内存缓存 |
+| `healthCheck()` | 探测中台 `/api/v1/health` 是否可达 |
+| `clearCache()` | 清空缓存（测试/手动刷新） |
+| `MasterServiceError` | 可捕获的错误类型 |
+
+### 技术实现
+
+- **原生 fetch**（Node 22+），不引入 axios 等额外依赖
+- **5s 超时**：`AbortController` 实现
+- **错误降级**：中台不可用/超时/异常时抛出 `MasterServiceError`，调用方捕获后降级
+- **30s TTL 内存缓存**：缓存中台组织人员数据，减少重复请求
+- **TypeScript**：完整类型定义（`MasterStaffOrgGroup` / `MasterStaffOption`）
+
+### 依赖的中台接口
+
+`GET http://localhost:8001/api/v1/basic-data/staff-options`
+
+返回结构：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "org_id": 32,
+      "org_name": "BOSS",
+      "options": [
+        { "value": "姓名", "label": "姓名", "email": "xxx@xx.com", "role_hint": "SA" }
+      ]
+    }
+  ]
+}
+```
+
+### 自测
+
+- `npx tsc --noEmit` — 零类型错误 ✅
+- `npx tsx src/services/masterService.test.ts` — 11/11 通过 ✅

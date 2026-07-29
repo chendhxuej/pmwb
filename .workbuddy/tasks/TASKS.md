@@ -88,7 +88,7 @@
 
 | task-id | 标题 | 分支(邮件中心仓库) | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| umc-1 | 邮件中心：新增人员中台出站客户端 masterService.ts | feature/umc-1-master-client | S2 | 🔵开发中 | 晓伴 | 已分配，待认领；参考 PMWB backend/master_service.py 契约 |
+| umc-1 | 邮件中心：新增人员中台出站客户端 masterService.ts | feature/umc-1-master-service | S2 | 🟡待审查 | 晓伴 | 590b7bb（tongyi_email 仓库），11 测试通过，tsc 无类型错误 |
 | umc-2 | 邮件中心：contacts 读路径改中台 + 禁用本地增改删 | feature/umc-2-contacts-from-master | S2 | 🔵开发中 | 晓伴 | 已分配，待认领；依赖 umc-1 |
 | umc-3 | 邮件中心前端：通讯录只读展示 | feature/umc-3-contacts-readonly | S2 | 🔵开发中 | 晓伴 | 已分配，待认领；依赖 umc-2 |
 
