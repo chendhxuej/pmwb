@@ -133,7 +133,7 @@ class TaskCenterService:
                 owner="我",
                 priority=r.priority,
                 due_date=r.due_date,
-                source_url="/dashboard",
+                source_url=f"/dashboard?id={r.id}",
                 detail={
                     "分类": r.category,
                     "内容": (r.content or "")[:200],
@@ -167,7 +167,7 @@ class TaskCenterService:
                 owner=r.handler or "",
                 priority=r.impact_level,
                 due_date=due,
-                source_url="/operation",
+                source_url=f"/operation?issueId={r.id}",
                 detail={
                     "工单编号": r.issue_no,
                     "大类": r.category,
@@ -202,7 +202,7 @@ class TaskCenterService:
                 owner=r.developer or "",
                 priority=r.priority,
                 due_date=None,
-                source_url="/requirement-delivery",
+                source_url=f"/requirement-delivery?ticket={r.ticket_no}",
                 detail={
                     "工单编号": r.ticket_no,
                     "关联需求": r.req_id,
@@ -240,7 +240,7 @@ class TaskCenterService:
                 owner=r.owner or "",
                 priority=None,
                 due_date=r.due_date,
-                source_url="/meeting",
+                source_url=f"/meeting?actionId={r.id}",
                 detail={
                     "所属会议": meeting_title or f"会议#{r.meeting_id}",
                     "行动项": (r.content or "")[:300],
@@ -273,7 +273,7 @@ class TaskCenterService:
                 owner=r.assignee or "",
                 priority=None,
                 due_date=r.due_date,
-                source_url="/key-works",
+                source_url=f"/key-works?id=task-{r.id}",
                 detail={
                     "类型": "成员待办",
                     "所属重点工作": kw_title,
@@ -302,7 +302,7 @@ class TaskCenterService:
                 owner=kw_owner or "",
                 priority=None,
                 due_date=r.due_date,
-                source_url="/key-works",
+                source_url=f"/key-works?id=milestone-{r.id}",
                 detail={
                     "类型": "里程碑",
                     "所属重点工作": kw_title,
@@ -393,7 +393,7 @@ class TaskCenterService:
                 owner=owner,
                 priority=None,
                 due_date=None,
-                source_url="/requirement-delivery",
+                source_url=f"/requirement-delivery?req={r.req_id}&sa={r.sa_name}",
                 detail={
                     "需求编号": r.req_id,
                     "提出人": r.proposer,
