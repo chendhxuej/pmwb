@@ -1,199 +1,195 @@
 <template>
   <div class="dv2" v-loading="loading">
-    <!-- ═══ Hero 区：整体总结汇总 ═══ -->
-    <section class="dv2-hero">
-      <div class="dv2-h-left">
-        <div class="dv2-breadcrumb">
-          <span class="bc">个人工作台</span>
-          <span class="bc-sep">›</span>
-          <span class="bc bc-active">数据总览</span>
-        </div>
-        <h1 class="dv2-title">下午好，{{ data.user_name || '陈工' }}</h1>
-        <p class="dv2-subtitle">{{ overallSummary }}</p>
+    <!-- ═══ 顶部问候栏 ═══ -->
+    <header class="dv2-header">
+      <div class="dh-left">
+        <h1 class="dh-greet">下午好，{{ data.user_name || '陈工' }}</h1>
+        <p class="dh-summary">{{ overallSummary }}</p>
       </div>
-      <div class="dv2-h-right">
-        <div class="dv2-eff">
-          <div class="eff-num">{{ (data.efficiency || 0).toFixed(0) }}<span>%</span></div>
-          <div class="eff-label">运营问题处置效率</div>
+      <div class="dh-right">
+        <div class="dh-metric" v-if="data.efficiency">
+          <span class="dhm-val" :class="data.efficiency >= 80 ? 'good' : 'warn'">{{ data.efficiency.toFixed(0) }}%</span>
+          <span class="dhm-label">处置效率</span>
         </div>
-        <el-button type="primary" @click="refreshData">
-          <el-icon><Refresh /></el-icon> 刷新数据
+        <el-button text type="primary" @click="refreshData">
+          <el-icon :size="14"><Refresh /></el-icon> 刷新
         </el-button>
       </div>
-    </section>
+    </header>
 
-    <!-- ═══ KPI 总览条（真实数据、信息充实） ═══ -->
-    <section class="dv2-kpi-row">
-      <div class="dv2-kpi" v-for="(k, i) in kpiItems" :key="i">
-        <div class="k-label">{{ k.label }}</div>
-        <div class="k-val">{{ k.value }}</div>
-        <div class="k-delta" :class="'dt-' + k.dir">{{ k.delta }}</div>
+    <!-- ═══ KPI 指标条（6核心指标） ═══ -->
+    <section class="dv2-kpi">
+      <div class="kpi-card" v-for="(k, i) in kpiItems" :key="i">
+        <span class="kpi-label">{{ k.label }}</span>
+        <span class="kpi-value">{{ k.value }}</span>
+        <span class="kpi-delta" :class="k.dir">{{ k.delta }}</span>
       </div>
     </section>
 
-    <!-- ═══ 模块磁贴网格 ═══ -->
-    <section class="dv2-bento">
-      <!-- 任务中心（大块，2x2） -->
-      <div class="tile tile-task">
-        <div class="tile-head">
-          <div class="tile-title"><span class="tdot" style="background:#2f6fed"></span>任务中心</div>
-          <span class="pill" :class="taskOverdue > 0 ? 'pill-warn' : 'pill-ok'">
-            {{ taskOverdue > 0 ? '需关注' : '正常' }}
-          </span>
-        </div>
-        <div class="task-body">
-          <div class="task-donut">
-            <ChartPie v-if="taskDonut.length" :data="taskDonut" height="170px"
-              :center-text="String(taskTotal)" center-sub-text="待办" />
+    <!-- ═══ 主内容区：左右两列 ═══ -->
+    <section class="dv2-main">
+
+      <!-- ═══ 左列 ═══ -->
+      <div class="dv2-col dv2-col-left">
+
+        <!-- 任务中心 -->
+        <div class="card card-task">
+          <div class="card-header">
+            <span class="ch-title"><i class="ch-dot c-primary"></i>任务中心</span>
+            <router-link to="/task-center" class="ch-action">查看全部 →</router-link>
           </div>
-          <div class="task-side">
-            <div class="task-big">{{ taskTotal }}<span>项待办</span></div>
-            <div class="task-legend">
-              <div class="tl-row" v-for="(d, i) in taskDonut" :key="i">
-                <span class="tl-dot" :style="{ background: d.color }"></span>
-                <span class="tl-name">{{ d.name }}</span>
-                <span class="tl-val">{{ d.value }}</span>
+          <div class="card-body cb-row">
+            <div class="cb-chart">
+              <ChartPie v-if="taskDonut.length" :data="taskDonut" height="160px"
+                :center-text="String(taskTotal)" center-sub-text="待办" />
+              <div v-else class="chart-empty">暂无数据</div>
+            </div>
+            <div class="cb-info">
+              <div class="ci-legend" v-for="(d, i) in taskDonut" :key="i">
+                <i class="ci-dot" :style="{ background: d.color }"></i>
+                <span class="ci-name">{{ d.name }}</span>
+                <span class="ci-num">{{ d.value }}</span>
+              </div>
+              <div class="ci-alert" v-if="taskOverdue > 0">
+                <i class="ca-icon">⚠</i> {{ taskOverdue }} 项超期待办
+              </div>
+              <div class="ci-ok" v-else><i class="co-icon">✓</i> 运行平稳</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 需求与交付 -->
+        <div class="card card-req">
+          <div class="card-header">
+            <span class="ch-title"><i class="ch-dot c-primary"></i>需求与交付</span>
+            <router-link to="/requirement-delivery" class="ch-action">进入管理 →</router-link>
+          </div>
+          <div class="req-kpi-row">
+            <div class="rk" v-for="(r, i) in reqKpiRow" :key="i">
+              <b>{{ r.val }}</b><span>{{ r.label }}</span>
+            </div>
+          </div>
+          <div class="card-body cb-row cb-split">
+            <div class="cb-chart">
+              <ChartPie v-if="reqStatusDist.length" :data="reqStatusDist" height="150px" />
+              <div v-else class="chart-empty">暂无分布</div>
+            </div>
+            <div class="cb-list">
+              <div class="cl-head">近期变更</div>
+              <div class="cl-item" v-for="(r, i) in recentReqs" :key="i">
+                <i class="cl-dot" :class="statusDot(r.status)"></i>
+                <span class="cl-text" :title="r.name">{{ r.name }}</span>
+                <span class="cl-tag">{{ r.status }}</span>
+              </div>
+              <div class="cl-warn" v-if="(ms?.requirements.overdueDev ?? 0) > 0">
+                ⚠ {{ ms.requirements.overdueDev }} 个需求开发中超 20 天
               </div>
             </div>
           </div>
         </div>
-        <div class="tile-foot">
-          <div class="tile-focus" v-if="taskOverdue > 0">
-            <span class="fdot f-red"></span>重点关注：{{ taskOverdue }} 项超期待办
-          </div>
-          <div class="tile-focus" v-else>
-            <span class="fdot f-green"></span>运行平稳，无超期事项
-          </div>
-          <router-link to="/task-center" class="tile-enter">进入模块 →</router-link>
-        </div>
+
       </div>
 
-      <!-- 需求与交付（2 列宽） -->
-      <div class="tile tile-req">
-        <div class="tile-head">
-          <div class="tile-title"><span class="tdot" style="background:#2f6fed"></span>需求与交付</div>
-          <router-link to="/requirement-delivery" class="tile-enter">进入管理 →</router-link>
-        </div>
-        <div class="req-stats">
-          <div class="rs"><b>{{ ms?.requirements.total ?? 0 }}</b><span>总数</span></div>
-          <div class="rs"><b>{{ ms?.requirements.thisWeek ?? 0 }}</b><span>本周新增</span></div>
-          <div class="rs"><b>{{ ms?.requirements.inReview ?? 0 }}</b><span>跟踪中</span></div>
-          <div class="rs"><b>{{ ms?.requirements.completed ?? 0 }}</b><span>已上线</span></div>
-        </div>
-        <div class="req-mid">
-          <div class="req-pie">
-            <ChartPie v-if="reqStatusDist.length" :data="reqStatusDist" height="150px" />
+      <!-- ═══ 右列 ═══ -->
+      <div class="dv2-col dv2-col-right">
+
+        <!-- 运营问题（拉长丰富） -->
+        <div class="card card-issue">
+          <div class="card-header">
+            <span class="ch-title"><i class="ch-dot c-danger"></i>运营问题</span>
+            <router-link to="/operation/data" class="ch-action">进入 →</router-link>
           </div>
-          <div class="req-recent">
-            <div class="rr-head">近期变更</div>
-            <div class="rr-row" v-for="(r, i) in (data.recent_requirements || []).slice(0, 3)" :key="i">
-              <span class="rr-dot" :class="statusCls(r.status)"></span>
-              <span class="rr-name" :title="r.name">{{ r.name }}</span>
-              <span class="rr-status">{{ r.status }}</span>
-            </div>
-            <div class="rr-overdue" v-if="(ms?.requirements.overdueDev ?? 0) > 0">
-              ⚠ {{ ms.requirements.overdueDev }} 个需求开发中超 20 天
+          <div class="issue-kpi-row">
+            <div class="ik" v-for="(r, i) in issueKpiRow" :key="i" :class="{ warn: r.warn }">
+              <b>{{ r.val }}</b><span>{{ r.label }}</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- 运营问题（2 列宽，拉长丰富） -->
-      <div class="tile tile-issue">
-        <div class="tile-head">
-          <div class="tile-title"><span class="tdot" style="background:#e02424"></span>运营问题</div>
-          <router-link to="/operation/data" class="tile-enter">进入 →</router-link>
-        </div>
-        <div class="issue-top">
-          <div class="is"><b>{{ ms?.issues.total ?? 0 }}</b><span>总数</span></div>
-          <div class="is"><b>{{ ms?.issues.pending ?? 0 }}</b><span>待处理</span></div>
-          <div class="is"><b>{{ ms?.issues.processing ?? 0 }}</b><span>处理中</span></div>
-          <div class="is warn"><b>{{ ms?.issues.overdue ?? 0 }}</b><span>逾期</span></div>
-        </div>
-        <div class="issue-mid">
-          <div class="issue-pie">
-            <ChartPie v-if="issueTypeDist.length" :data="issueTypeDist" height="140px" />
-          </div>
-          <div class="issue-trend">
-            <ChartLine v-if="issueTrend.length" :xData="issueTrendX" :series="issueTrendS"
-              height="140px" :smooth="true" />
-          </div>
-        </div>
-        <div class="issue-types">
-          <div class="it-row" v-for="(d, i) in issueTypeDist" :key="i">
-            <span class="it-name">{{ d.name }}</span>
-            <span class="it-bar"><i :style="{ width: pct(d.value, issueTotal) + '%', background: d.color }"></i></span>
-            <span class="it-val">{{ d.value }}</span>
-          </div>
-        </div>
-        <div class="tile-foot">
-          <div class="tile-focus" v-if="(ms?.issues.overdue ?? 0) > 0">
-            <span class="fdot f-red"></span>{{ ms.issues.overdue }} 项逾期需关注
-          </div>
-          <div class="tile-focus" v-else><span class="fdot f-green"></span>处置率良好</div>
-          <router-link to="/operation/data" class="tile-enter">查看全部 →</router-link>
-        </div>
-      </div>
-
-      <!-- 会议日程（1 列） -->
-      <div class="tile tile-meet">
-        <div class="tile-head">
-          <div class="tile-title"><span class="tdot" style="background:#d98a1f"></span>会议日程</div>
-          <router-link to="/meeting" class="tile-enter">进入 →</router-link>
-        </div>
-        <div class="meet-stats">
-          <div class="ms"><b>{{ ms?.meetings.totalThisWeek ?? 0 }}</b><span>本周</span></div>
-          <div class="ms"><b>{{ ms?.meetings.today ?? 0 }}</b><span>今日</span></div>
-          <div class="ms"><b>{{ ms?.meetings.upcoming ?? 0 }}</b><span>待开</span></div>
-        </div>
-        <div class="meet-pending" v-if="(ms?.meetings.pendingMinutes ?? 0) > 0">
-          <div class="mp-head">⚠ 待处理会议纪要 {{ ms.meetings.pendingMinutes }} 条</div>
-          <div class="mp-row" v-for="(p, i) in pendingMeetings.slice(0, 3)" :key="i">
-            {{ p.start_time }} · {{ p.title }}
-          </div>
-        </div>
-        <div class="meet-next" v-if="(data.schedule || []).length">
-          下次：{{ data.schedule[0].time }} {{ data.schedule[0].title }}
-        </div>
-      </div>
-
-      <!-- 知识中心（1 列） -->
-      <div class="tile tile-know">
-        <div class="tile-head">
-          <div class="tile-title"><span class="tdot" style="background:#2fc9a0"></span>知识中心</div>
-          <router-link to="/knowledge-center" class="tile-enter">进入 →</router-link>
-        </div>
-        <div class="mini-big">{{ ms?.knowledge.total ?? 0 }}<span>篇</span></div>
-        <div class="mini-sub">本月新增 {{ ms?.knowledge.thisWeek ?? 0 }} 篇</div>
-        <div class="mini-line">持续沉淀中</div>
-      </div>
-
-      <!-- 重要工作（1 列，新增） -->
-      <div class="tile tile-key">
-        <div class="tile-head">
-          <div class="tile-title"><span class="tdot" style="background:#946ce6"></span>重要工作</div>
-          <router-link to="/key-works" class="tile-enter">进入 →</router-link>
-        </div>
-        <div class="key-list">
-          <div class="kl-row" v-for="(p, i) in keyProjects.slice(0, 4)" :key="i">
-            <div class="kl-top">
-              <span class="kl-name" :title="p.name">{{ p.name }}</span>
-              <span class="kl-pct">{{ p.percent }}%</span>
+          <div class="issue-charts">
+            <div class="ic-piece">
+              <div class="ic-label">类型分布</div>
+              <ChartPie v-if="issueTypeDist.length" :data="issueTypeDist" height="130px" />
             </div>
-            <div class="kl-bar"><i :style="{ width: p.percent + '%' }"></i></div>
+            <div class="ic-piece ic-grow">
+              <div class="ic-label">7日趋势</div>
+              <ChartLine v-if="issueTrend.length" :xData="issueTrendX" :series="issueTrendS"
+                height="130px" :smooth="true" :area="true" />
+              <div v-else class="chart-empty">暂无趋势</div>
+            </div>
           </div>
-          <div class="kl-empty" v-if="!keyProjects.length">暂无进行中的重要工作</div>
+          <div class="issue-bars">
+            <div class="ib-row" v-for="(d, i) in issueTypeDist" :key="i">
+              <span class="ib-name">{{ d.name }}</span>
+              <div class="ib-track"><i :style="{ width: pctVal(d.value, issueTotal) + '%', background: d.color }"></i></div>
+              <span class="ib-num">{{ d.value }}</span>
+            </div>
+          </div>
+          <div class="card-footer" v-if="(ms?.issues.overdue ?? 0) > 0">
+            <i class="cf-dot cf-red"></i>{{ ms.issues.overdue }} 项逾期需关注
+          </div>
+          <div class="card-footer cf-ok" v-else><i class="cf-dot cf-green"></i>处置率良好</div>
         </div>
+
+        <!-- 会议日程 -->
+        <div class="card card-meet">
+          <div class="card-header">
+            <span class="ch-title"><i class="ch-dot c-warn"></i>会议日程</span>
+            <router-link to="/meeting" class="ch-action">进入 →</router-link>
+          </div>
+          <div class="meet-kpi-row">
+            <div class="mk"><b>{{ ms?.meetings.totalThisWeek ?? 0 }}</b><span>本周</span></div>
+            <div class="mk"><b>{{ ms?.meetings.today ?? 0 }}</b><span>今日</span></div>
+            <div class="mk"><b>{{ ms?.meetings.upcoming ?? 0 }}</b><span>待开</span></div>
+          </div>
+          <div class="meet-pending-box" v-if="(ms?.meetings.pendingMinutes ?? 0) > 0">
+            <div class="mpb-title">⚠ 待处理会议纪要 {{ ms.meetings.pendingMinutes }} 场</div>
+            <div class="mpb-item" v-for="(p, i) in pendingMeetings.slice(0, 4)" :key="i">
+              {{ p.title }}
+            </div>
+          </div>
+          <div class="meet-next-box" v-if="nextSchedule">
+            <span class="mnb-label">下次日程</span>
+            <span class="mnb-text">{{ nextSchedule.time }} {{ nextSchedule.title }}</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ═══ 底部三卡片（等高） ═══ -->
+    <section class="dv2-bottom">
+      <div class="card card-sm card-know">
+        <div class="card-header">
+          <span class="ch-title"><i class="ch-dot c-teal"></i>知识中心</span>
+          <router-link to="/knowledge-center" class="ch-action">进入 →</router-link>
+        </div>
+        <div class="sm-big">{{ ms?.knowledge.total ?? 0 }}<sm>篇文档</sm></div>
+        <div class="sm-sub">本月新增 {{ ms?.knowledge.thisWeek ?? 0 }} 篇</div>
+        <div class="sm-line"></div>
       </div>
 
-      <!-- 邮件中心（1 列） -->
-      <div class="tile tile-mail">
-        <div class="tile-head">
-          <div class="tile-title"><span class="tdot" style="background:#6b8afd"></span>邮件中心</div>
-          <router-link to="/mail-center/logs" class="tile-enter">进入 →</router-link>
+      <div class="card card-sm card-key">
+        <div class="card-header">
+          <span class="ch-title"><i class="ch-dot c-purple"></i>重要工作</span>
+          <router-link to="/key-works" class="ch-action">进入 →</router-link>
         </div>
-        <div class="mini-big">{{ ms?.emails.weekSent ?? 0 }}<span>封/周</span></div>
-        <div class="mini-sub">今日 {{ ms?.emails.todaySent ?? 0 }} · 成功率 {{ (ms?.emails.successRate || 0).toFixed(1) }}%</div>
+        <div class="key-rows" v-if="keyProjects.length">
+          <div class="kr-item" v-for="(p, i) in keyProjects.slice(0, 3)" :key="i">
+            <span class="kr-name" :title="p.name">{{ p.name }}</span>
+            <div class="kr-bar-wrap"><i class="kr-bar" :style="{ width: p.percent + '%' }"></i></div>
+            <span class="kr-pct">{{ p.percent }}%</span>
+          </div>
+        </div>
+        <div class="sm-empty" v-else>暂无进行中的重要工作</div>
+      </div>
+
+      <div class="card card-sm card-mail">
+        <div class="card-header">
+          <span class="ch-title"><i class="ch-dot c-blue2"></i>邮件中心</span>
+          <router-link to="/mail-center/logs" class="ch-action">进入 →</router-link>
+        </div>
+        <div class="sm-big">{{ ms?.emails.weekSent ?? 0 }}<sm>封/本周</sm></div>
+        <div class="sm-sub">今日 {{ ms?.emails.todaySent ?? 0 }} 封 · 成功率 {{ ((ms?.emails.successRate || 0) * 100).toFixed(0) }}%</div>
+        <div class="sm-line"></div>
       </div>
     </section>
   </div>
@@ -206,20 +202,31 @@ import { dashboardApi } from '@/api/dashboard'
 import ChartLine from '@/components/Charts/ChartLine.vue'
 import ChartPie from '@/components/Charts/ChartPie.vue'
 
-const PALETTE = ['#2f6fed', '#e02424', '#0f9d6b', '#d98a1f', '#946ce6', '#2fc9a0', '#6b8afd']
+/* ─── 色彩系统（全局唯一） ─── */
+const C = {
+  primary: '#2f6fed',
+  success: '#0f9d6b',
+  danger: '#e02424',
+  warn: '#d98a1f',
+  purple: '#946ce6',
+  teal: '#2fc9a0',
+  blue2: '#6b8afd',
+  gray: '#909399',
+  bg: '#f5f7fa',
+  card: '#ffffff',
+  border: '#eef0f4',
+  text: '#1a1a2e',
+  sub: '#606266',
+}
+const PALETTE = [C.primary, C.danger, C.success, C.warn, C.purple, C.teal, C.blue2]
 
+/* ─── 数据加载 ─── */
 const loading = ref(false)
 const data = ref({
-  user_name: '陈工',
-  efficiency: 0,
-  todos: [],
-  recent_requirements: [],
-  schedule: [],
-  recent_issues: [],
-  module_stats: null,
-  trend_charts: null,
-  distribution_charts: null,
-  progress_items: null,
+  user_name: '陈工', efficiency: 0, todos: [],
+  recent_requirements: [], schedule: [], recent_issues: [],
+  module_stats: null, trend_charts: null,
+  distribution_charts: null, progress_items: null,
   pending_minutes_meetings: [],
 })
 
@@ -239,78 +246,99 @@ onMounted(load)
 
 const ms = computed(() => data.value.module_stats)
 
-// ─── 整体总结汇总 ───
+/* ─── Hero 总结 ─── */
 const overallSummary = computed(() => {
   const m = ms.value
   if (!m) return '数据加载中…'
   const parts = []
-  parts.push(`待办 ${data.value.todos.length || 0} 项`)
-  parts.push(`需求 ${m.requirements.total} 个（跟踪中 ${m.requirements.inReview}）`)
-  if (m.requirements.overdueDev > 0) parts.push(`${m.requirements.overdueDev} 个需求开发中超期`)
-  parts.push(`运营问题 ${m.issues.total} 条（逾期 ${m.issues.overdue}）`)
-  if (m.meetings.pendingMinutes > 0) parts.push(`待补纪要 ${m.meetings.pendingMinutes} 场`)
-  return '当前工作台概览：' + parts.join('，') + `；运营处置效率 ${(data.value.efficiency || 0).toFixed(0)}%。`
+  const td = data.value.todos.length || 0
+  if (td) parts.push(`${td} 项待办`)
+  parts.push(`需求 ${m.requirements.total} 个`)
+  if (m.issues.total) parts.push(`问题 ${m.issues.total} 条`)
+  if (m.meetings.pendingMinutes > 0) parts.push(`${m.meetings.pendingMinutes} 场纪要待补`)
+  return parts.join(' · ') || '一切正常'
 })
 
-// ─── KPI 总览条（真实数据） ───
+/* ─── KPI 指标（6个核心） ─── */
 const kpiItems = computed(() => {
-  const m = ms.value
-  const d = data.value
-  const overdueTodos = (d.todos || []).filter(t => t.overdue).length
+  const m = ms.value; const d = data.value
+  const ovd = (d.todos || []).filter(t => t.overdue).length
   return [
-    { label: '我的待办', value: d.todos.length || 0, dir: overdueTodos > 0 ? 'down' : 'neutral', delta: overdueTodos > 0 ? `${overdueTodos} 项超期` : '无超期' },
-    { label: '需求总数', value: m?.requirements.total ?? 0, dir: 'up', delta: `本周 +${m?.requirements.thisWeek ?? 0}` },
-    { label: '开发中需求', value: m?.requirements.inReview ?? 0, dir: (m?.requirements.overdueDev ?? 0) > 0 ? 'down' : 'neutral', delta: (m?.requirements.overdueDev ?? 0) > 0 ? `${m.requirements.overdueDev} 超期` : '正常推进' },
-    { label: '开发工单', value: m?.tickets.total ?? 0, dir: (m?.tickets.pending ?? 0) > 0 ? 'down' : 'neutral', delta: `${m?.tickets.pending ?? 0} 待评审` },
-    { label: '运营问题', value: m?.issues.total ?? 0, dir: (m?.issues.overdue ?? 0) > 0 ? 'down' : 'neutral', delta: `${m?.issues.overdue ?? 0} 逾期` },
-    { label: '本周会议', value: m?.meetings.totalThisWeek ?? 0, dir: 'neutral', delta: `待补纪要 ${m?.meetings.pendingMinutes ?? 0}` },
-    { label: '知识文档', value: m?.knowledge.total ?? 0, dir: 'up', delta: `本月 +${m?.knowledge.thisWeek ?? 0}` },
-    { label: '处置效率', value: (d.efficiency || 0).toFixed(0) + '%', dir: d.efficiency >= 80 ? 'up' : 'down', delta: d.efficiency >= 80 ? '达标' : '待提升' },
+    { label: '我的待办', value: d.todos.length || 0, dir: ovd > 0 ? 'down' : 'ok', delta: ovd ? `${ovd} 项超期` : '无超期' },
+    { label: '需求跟踪', value: m?.requirements.total ?? 0, dir: 'ok', delta: `本周 +${m?.requirements.thisWeek ?? 0}` },
+    { label: '运营问题', value: m?.issues.total ?? 0, dir: (m?.issues.overdue ?? 0) > 0 ? 'down' : 'ok', delta: `${m?.issues.overdue ?? 0} 逾期` },
+    { label: '本周会议', value: m?.meetings.totalThisWeek ?? 0, dir: (m?.meetings.pendingMinutes ?? 0) > 0 ? 'down' : 'ok', delta: `${m?.meetings.pendingMinutes ?? 0} 待补纪要` },
+    { label: '邮件发送', value: m?.emails.weekSent ?? 0, dir: 'ok', delta: `成功率 ${((m?.emails.successRate || 0) * 100).toFixed(0)}%` },
+    { label: '处置效率', value: (d.efficiency || 0).toFixed(0) + '%', dir: d.efficiency >= 80 ? 'ok' : 'down', delta: d.efficiency >= 80 ? '达标' : '待提升' },
   ]
 })
 
-// ─── 任务中心 ───
+/* ─── 任务中心 ─── */
 const taskTotal = computed(() => data.value.todos.length || 0)
 const taskOverdue = computed(() => (data.value.todos || []).filter(t => t.overdue).length)
 const taskDonut = computed(() => {
   const m = ms.value
   if (!m) return []
   return [
-    { name: '需求跟踪', value: m.requirements.inReview || 0, color: '#2f6fed' },
-    { name: '工单待处理', value: (m.tickets.pending || 0) + (m.tickets.processing || 0), color: '#0f9d6b' },
-    { name: '问题待处理', value: (m.issues.pending || 0) + (m.issues.processing || 0), color: '#e02424' },
-    { name: '会议待办', value: m.meetings.today || 0, color: '#d98a1f' },
-  ]
+    { name: '需求跟踪', value: m.requirements.inReview || 0, color: C.primary },
+    { name: '工单处理', value: (m.tickets.pending || 0) + (m.tickets.processing || 0), color: C.success },
+    { name: '问题待理', value: (m.issues.pending || 0) + (m.issues.processing || 0), color: C.danger },
+    { name: '会议行动', value: m.meetings.today || 0, color: C.warn },
+  ].filter(d => d.value > 0)
 })
 
-// ─── 需求卡片 ───
+/* ─── 需求卡片 ─── */
+const reqKpiRow = computed(() => {
+  const m = ms.value
+  return [
+    { val: m?.requirements.total ?? 0, label: '总数' },
+    { val: m?.requirements.thisWeek ?? 0, label: '本周新增' },
+    { val: m?.requirements.inReview ?? 0, label: '跟踪中' },
+    { val: m?.requirements.completed ?? 0, label: '已上线' },
+  ]
+})
 const reqStatusDist = computed(() =>
   (data.value.distribution_charts?.requirementStatusDist || []).map((d, i) => ({ ...d, color: PALETTE[i % PALETTE.length] }))
 )
-const statusCls = (s) => {
-  if (['已上线'].includes(s)) return 'st-green'
+const recentReqs = computed(() => (data.value.recent_requirements || []).slice(0, 4))
+function statusDot(s) {
+  if (['已上线', 'closed'].includes(s)) return 'st-green'
   if (['已暂停'].includes(s)) return 'st-gray'
   return 'st-blue'
 }
 
-// ─── 运营卡片 ───
+/* ─── 运营卡片 ─── */
+const issueKpiRow = computed(() => {
+  const m = ms.value
+  return [
+    { val: m?.issues.total ?? 0, label: '总数', warn: false },
+    { val: m?.issues.pending ?? 0, label: '待处理', warn: false },
+    { val: m?.issues.processing ?? 0, label: '处理中', warn: false },
+    { val: m?.issues.overdue ?? 0, label: '逾期', warn: (m?.issues.overdue ?? 0) > 0 },
+  ]
+})
 const issueTypeDist = computed(() =>
   (data.value.distribution_charts?.issueTypeDist || []).map((d, i) => ({ ...d, color: PALETTE[i % PALETTE.length] }))
 )
 const issueTotal = computed(() => issueTypeDist.value.reduce((s, d) => s + d.value, 0))
-const pct = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0)
+function pctVal(v, total) { return total > 0 ? Math.round((v / total) * 100) : 0 }
 const issueTrend = computed(() => data.value.trend_charts?.issuesTrend || [])
 const issueTrendX = computed(() => issueTrend.value.map(t => t.label))
-const issueTrendS = computed(() => [{ name: '问题', data: issueTrend.value.map(t => t.value) }])
+const issueTrendS = computed(() => [{ name: '问题数', data: issueTrend.value.map(t => t.value) }])
 
-// ─── 会议卡片 ───
+/* ─── 会议卡片 ─── */
 const pendingMeetings = computed(() => data.value.pending_minutes_meetings || [])
+const nextSchedule = computed(() => {
+  const s = data.value.schedule
+  return (s && s.length) ? s[0] : null
+})
 
-// ─── 重要工作卡片 ───
+/* ─── 重要工作 ─── */
 const keyProjects = computed(() => data.value.progress_items?.keyProjects || [])
 </script>
 
 <style scoped>
+/* ═══ 全局容器 ═══ */
 .dv2 {
   min-height: 100%;
   padding: 20px 24px;
@@ -320,178 +348,183 @@ const keyProjects = computed(() => data.value.progress_items?.keyProjects || [])
   gap: 16px;
 }
 
-/* Hero */
-.dv2-hero {
+/* ═══ 顶部问候栏 ═══ */
+.dv2-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(135deg, #e8f0fe 0%, #d4e4fc 100%);
-  border-radius: 14px;
-  padding: 22px 28px;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.dv2-h-left { flex: 1; min-width: 320px; }
-.dv2-breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 8px; }
-.bc { color: #606266; }
-.bc-active { color: #2f6fed; font-weight: 600; }
-.bc-sep { color: #c0c4cc; }
-.dv2-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; color: #1a1a2e; }
-.dv2-subtitle { margin: 0; font-size: 13px; color: #4a5568; line-height: 1.6; max-width: 760px; }
-.dv2-h-right { display: flex; align-items: center; gap: 18px; }
-.dv2-eff { text-align: center; }
-.eff-num { font-size: 30px; font-weight: 800; color: #2f6fed; line-height: 1; }
-.eff-num span { font-size: 14px; }
-.eff-label { font-size: 11px; color: #606266; margin-top: 4px; }
-
-/* KPI 行 */
-.dv2-kpi-row {
-  display: flex;
-  align-items: stretch;
-  background: #fff;
+  background: linear-gradient(135deg, #e8f0fe 0%, #f0f4ff 100%);
   border-radius: 12px;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, .06);
-  overflow: hidden;
-}
-.dv2-kpi {
-  flex: 1;
-  padding: 14px 12px;
-  text-align: center;
-  border-right: 1px solid #eef1f6;
-  min-width: 0;
-}
-.dv2-kpi:last-child { border-right: none; }
-.k-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
-.k-val { font-size: 24px; font-weight: 800; color: #1a1a2e; line-height: 1.1; }
-.k-delta { font-size: 11px; margin-top: 3px; color: #909399; }
-.dt-up { color: #0f9d6b; }
-.dt-down { color: #e02424; }
-.dt-neutral { color: #c0c4cc; }
-
-/* Bento 网格 */
-.dv2-bento {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-auto-rows: minmax(210px, auto);
+  padding: 18px 24px;
   gap: 16px;
-  grid-template-areas:
-    "task task req req"
-    "task task issue issue"
-    "meet know key mail";
 }
-.tile-task { grid-area: task; }
-.tile-req { grid-area: req; }
-.tile-issue { grid-area: issue; }
-.tile-meet { grid-area: meet; }
-.tile-know { grid-area: know; }
-.tile-key { grid-area: key; }
-.tile-mail { grid-area: mail; }
+.dh-left { flex: 1; min-width: 0; }
+.dh-greet { margin: 0; font-size: 18px; font-weight: 700; color: #1a1a2e; }
+.dh-summary { margin: 4px 0 0; font-size: 13px; color: #606266; line-height: 1.5; }
+.dh-right { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+.dh-metric { text-align: center; }
+.dhm-val { font-size: 26px; font-weight: 800; line-height: 1; display: block; }
+.dhm-val.good { color: #0f9d6b; }
+.dhm-val.warn { color: #e02424; }
+.dhm-label { font-size: 11px; color: #909399; margin-top: 2px; }
 
-.tile {
+/* ═══ KPI 指标条 ═══ */
+.dv2-kpi {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+.kpi-card {
   background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, .06);
-  padding: 16px 18px;
+  border-radius: 10px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  transition: transform .2s ease, box-shadow .2s ease;
+  align-items: center;
+  gap: 2px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  transition: box-shadow .2s;
 }
-.tile:hover { transform: translateY(-3px); box-shadow: 0 6px 18px rgba(47, 111, 237, .12); }
-.tile-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.tile-title { font-size: 15px; font-weight: 700; color: #1a1a2e; display: flex; align-items: center; gap: 7px; }
-.tdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.tile-enter { font-size: 12px; color: #2f6fed; text-decoration: none; white-space: nowrap; }
-.tile-enter:hover { text-decoration: underline; }
-.pill { font-size: 11px; padding: 2px 9px; border-radius: 10px; }
-.pill-ok { background: #e8f7f0; color: #0f9d6b; }
-.pill-warn { background: #fde2e2; color: #e02424; }
+.kpi-card:hover { box-shadow: 0 4px 12px rgba(47,111,237,.1); }
+.kpi-label { font-size: 12px; color: #909399; }
+.kpi-value { font-size: 22px; font-weight: 800; color: #1a1a2e; line-height: 1.15; }
+.kpi-delta { font-size: 11px; color: #909399; }
+.kpi-delta.ok { color: #0f9d6b; }
+.kpi-delta.down { color: #e02424; }
 
-.tile-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid #f0f2f5; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
-.tile-focus { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #606266; }
-.fdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.f-red { background: #e02424; }
-.f-green { background: #0f9d6b; }
+/* ═══ 主内容区：左右两列 ═══ */
+.dv2-main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.dv2-col { display: flex; flex-direction: column; gap: 16px; }
 
-/* 任务中心大块 */
-.task-body { display: flex; gap: 16px; align-items: center; flex: 1; min-height: 0; }
-.task-donut { width: 170px; flex-shrink: 0; }
-.task-side { flex: 1; display: flex; flex-direction: column; gap: 12px; }
-.task-big { font-size: 32px; font-weight: 800; color: #1a1a2e; }
-.task-big span { font-size: 13px; font-weight: 400; color: #909399; margin-left: 4px; }
-.task-legend { display: flex; flex-direction: column; gap: 6px; }
-.tl-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.tl-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.tl-name { color: #606266; flex: 1; }
-.tl-val { font-weight: 600; color: #303133; }
+/* ═══ 卡片通用 ═══ */
+.card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow .2s;
+}
+.card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.ch-title { font-size: 15px; font-weight: 700; color: #1a1a2e; display: flex; align-items: center; gap: 7px; }
+.ch-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.c-primary { background: #2f6fed; }
+.c-danger { background: #e02424; }
+.c-warn { background: #d98a1f; }
+.c-teal { background: #2fc9a0; }
+.c-purple { background: #946ce6; }
+.c-blue2 { background: #6b8afd; }
+.ch-action { font-size: 12px; color: #2f6fed; text-decoration: none; white-space: nowrap; }
+.ch-action:hover { text-decoration: underline; }
 
-/* 需求卡片 */
-.req-stats, .issue-top, .meet-stats { display: flex; gap: 10px; margin-bottom: 12px; }
-.rs, .is, .ms { flex: 1; display: flex; flex-direction: column; align-items: center; background: #f7f9fc; border-radius: 8px; padding: 8px 4px; }
-.rs b, .is b, .ms b { font-size: 19px; font-weight: 700; color: #1a1a2e; }
-.rs span, .is span, .ms span { font-size: 11px; color: #909399; margin-top: 2px; }
-.is.warn b { color: #e02424; }
-.req-mid { display: flex; gap: 14px; flex: 1; min-height: 0; }
-.req-pie { width: 150px; flex-shrink: 0; }
-.req-recent { flex: 1; display: flex; flex-direction: column; gap: 5px; }
-.rr-head { font-size: 12px; font-weight: 600; color: #606266; margin-bottom: 2px; }
-.rr-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #303133; }
-.rr-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.st-blue { background: #2f6fed; }
-.st-green { background: #0f9d6b; }
-.st-gray { background: #c0c4cc; }
-.rr-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rr-status { color: #909399; font-size: 11px; }
-.rr-overdue { margin-top: 4px; font-size: 11px; color: #e02424; background: #fdeaea; padding: 4px 8px; border-radius: 6px; }
+/* 卡片内容区通用 */
+.card-body { display: flex; gap: 16px; flex: 1; min-height: 0; }
+.cb-row { flex-direction: row; align-items: stretch; }
+.cb-split { align-items: stretch; }
+.cb-chart { flex-shrink: 0; }
+.cb-info, .cb-list { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.chart-empty { display: flex; align-items: center; justify-content: center; color: #c0c4cc; font-size: 13px; background: #fafbfc; border-radius: 8px; }
 
-/* 运营卡片 */
-.issue-mid { display: flex; gap: 14px; margin-bottom: 10px; }
-.issue-pie { width: 150px; flex-shrink: 0; }
-.issue-trend { flex: 1; min-width: 0; }
-.issue-types { display: flex; flex-direction: column; gap: 5px; }
-.it-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.it-name { width: 64px; color: #606266; flex-shrink: 0; }
-.it-bar { flex: 1; height: 7px; background: #eef1f6; border-radius: 4px; overflow: hidden; }
-.it-bar i { display: block; height: 100%; border-radius: 4px; }
-.it-val { width: 28px; text-align: right; font-weight: 600; color: #303133; }
+/* 任务中心 - 图例 */
+.ci-legend { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.ci-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ci-name { color: #606266; flex: 1; }
+.ci-num { font-weight: 700; color: #303133; }
+.ci-alert { font-size: 12px; color: #e02424; background: #fef2f2; padding: 6px 10px; border-radius: 6px; margin-top: auto; display: flex; align-items: center; gap: 5px; }
+.ca-icon { font-style: normal; }
+.ci-ok { font-size: 12px; color: #0f9d6b; margin-top: auto; display: flex; align-items: center; gap: 5px; }
+.co-icon { font-style: normal; }
 
-/* 会议 / 通用小块 */
-.mini-big { font-size: 30px; font-weight: 800; color: #1a1a2e; line-height: 1.1; }
-.mini-big span { font-size: 12px; font-weight: 400; color: #909399; margin-left: 4px; }
-.mini-sub { font-size: 12px; color: #909399; margin-top: 4px; }
-.mini-line { font-size: 12px; color: #606266; margin-top: 2px; }
-.meet-pending { margin-top: 10px; background: #fff7e6; border-radius: 8px; padding: 8px 10px; }
-.mp-head { font-size: 12px; font-weight: 600; color: #d98a1f; margin-bottom: 4px; }
-.mp-row { font-size: 12px; color: #606266; padding: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.meet-next { margin-top: 8px; font-size: 12px; color: #2f6fed; }
+/* 需求 - KPI 行 */
+.req-kpi-row, .issue-kpi-row, .meet-kpi-row { display: flex; gap: 8px; margin-bottom: 14px; }
+.rk, .ik, .mk, .rs, .is, .ms {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  background: #f7f9fc; border-radius: 8px; padding: 8px 4px;
+}
+.rk b, .ik b, .mk b { font-size: 17px; font-weight: 700; color: #1a1a2e; }
+.rk span, .ik span, .mk span { font-size: 11px; color: #909399; margin-top: 2px; }
+.ik.warn b { color: #e02424; }
 
-/* 重要工作 */
-.key-list { display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: center; }
-.kl-row { display: flex; flex-direction: column; gap: 4px; }
-.kl-top { display: flex; justify-content: space-between; font-size: 12px; }
-.kl-name { color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
-.kl-pct { font-weight: 700; color: #946ce6; }
-.kl-bar { height: 6px; background: #efeaf8; border-radius: 4px; overflow: hidden; }
-.kl-bar i { display: block; height: 100%; background: #946ce6; border-radius: 4px; }
-.kl-empty { font-size: 12px; color: #c0c4cc; text-align: center; padding: 16px 0; }
+/* 需求 - 列表 */
+.cl-head { font-size: 12px; font-weight: 600; color: #606266; margin-bottom: 2px; }
+.cl-item { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.7; }
+.cl-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.st-blue { background: #2f6fed; } .st-green { background: #0f9d6b; } .st-gray { background: #c0c4cc; }
+.cl-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #303133; }
+.cl-tag { color: #909399; font-size: 11px; flex-shrink: 0; }
+.cl-warn { font-size: 11px; color: #e02424; background: #fef2f2; padding: 4px 8px; border-radius: 4px; margin-top: auto; }
 
-/* 响应式 */
+/* 运营 - 图表区 */
+.issue-charts { display: flex; gap: 12px; margin-bottom: 12px; }
+.ic-piece { flex: 0 0 140px; }
+.ic-grow { flex: 1; min-width: 0; }
+.ic-label { font-size: 11px; color: #909399; margin-bottom: 4px; font-weight: 600; }
+
+/* 运营 - 占比条 */
+.issue-bars { display: flex; flex-direction: column; gap: 5px; }
+.ib-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.ib-name { width: 64px; color: #606266; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-track { flex: 1; height: 6px; background: #eef1f6; border-radius: 3px; overflow: hidden; }
+.ib-track i { display: block; height: 100%; border-radius: 3px; transition: width .6s ease; }
+.ib-num { width: 24px; text-align: right; font-weight: 600; color: #303133; flex-shrink: 0; }
+
+/* 卡片底部 */
+.card-footer { font-size: 12px; color: #606266; display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 10px; border-top: 1px solid #f0f2f5; }
+.cf-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.cf-red { background: #e02424; } .cf-green { background: #0f9d6b; }
+.cf-ok { color: #0f9d6b; }
+
+/* 会议卡片 */
+.meet-pending-box { background: #fff8e6; border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
+.mpb-title { font-size: 12px; font-weight: 700; color: #b88200; margin-bottom: 6px; }
+.mpb-item { font-size: 12px; color: #606266; padding: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meet-next-box { margin-top: 10px; font-size: 12px; }
+.mnb-label { color: #909399; }
+.mnb-text { color: #2f6fed; font-weight: 600; margin-left: 4px; }
+
+/* ═══ 底部三卡片（等高） ═══ */
+.dv2-bottom {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.card-sm { min-height: 120px; }
+.sm-big { font-size: 28px; font-weight: 800; color: #1a1a2e; line-height: 1.1; }
+.sm-big sm { font-size: 12px; font-weight: 400; color: #909399; margin-left: 3px; }
+.sm-sub { font-size: 12px; color: #909399; margin-top: 4px; }
+.sm-line { margin-top: auto; padding-top: 8px; border-top: 1px solid #f0f2f5; height: 100%; }
+.sm-empty { color: #c0c4cc; font-size: 13px; text-align: center; padding: 20px 0; }
+
+/* 重要工作 - 进度条 */
+.key-rows { display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: center; }
+.kr-item { display: flex; flex-direction: column; gap: 3px; }
+.kr-top { display: flex; justify-content: space-between; font-size: 12px; }
+.kr-name { color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%; }
+.kr-pct { font-weight: 700; color: #946ce6; }
+.kr-bar-wrap { height: 5px; background: #efeaf8; border-radius: 3px; overflow: hidden; }
+.kr-bar { display: block; height: 100%; background: #946ce6; border-radius: 3px; transition: width .5s ease; }
+
+/* ═══ 响应式 ═══ */
 @media (max-width: 1200px) {
-  .dv2-bento {
-    grid-template-columns: repeat(2, 1fr);
-    grid-template-areas:
-      "task task"
-      "req req"
-      "issue issue"
-      "meet know"
-      "key mail";
-  }
+  .dv2-main { grid-template-columns: 1fr; }
+  .dv2-kpi { grid-template-columns: repeat(3, 1fr); }
+  .dv2-bottom { grid-template-columns: repeat(3, 1fr); }
 }
-@media (max-width: 760px) {
-  .dv2-kpi-row { flex-wrap: wrap; }
-  .dv2-kpi { min-width: 33%; border-right: none; }
-  .dv2-bento {
-    grid-template-columns: 1fr;
-    grid-template-areas: "task" "req" "issue" "meet" "know" "key" "mail";
-  }
+@media (max-width: 768px) {
+  .dv2-kpi { grid-template-columns: repeat(2, 1fr); }
+  .dv2-bottom { grid-template-columns: 1fr; }
+  .dv2-header { flex-direction: column; align-items: flex-start; gap: 10px; }
 }
 </style>
