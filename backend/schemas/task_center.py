@@ -52,6 +52,7 @@ class TaskItem(BaseModel):
     is_overdue: bool = Field(False, description="是否超期")
     is_due_soon: bool = Field(False, description="是否临期(3天内)")
     source_url: str = Field("", description="前端跳转源模块路由")
+    synced_to_todo: bool = Field(False, description="会议行动项是否已同步为个人待办")
     detail: Dict[str, Any] = Field(default_factory=dict, description="源模块关键字段摘要")
 
 
