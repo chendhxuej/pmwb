@@ -514,7 +514,7 @@ class DashboardService:
             EmailRecord.created_at >= ws_utc,
             EmailRecord.created_at < we_utc,
         ).scalar() or 0
-        email_7d_start = ws_utc - timedelta(days=7 - (week_start - today).days)
+        email_7d_start = today_start_utc - timedelta(days=7)
         email_7d_total = self.db.query(func.count(EmailRecord.id)).filter(
             EmailRecord.created_at >= email_7d_start,
         ).scalar() or 0
