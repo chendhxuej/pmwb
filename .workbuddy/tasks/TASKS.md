@@ -64,9 +64,9 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| tc-1 | 后端：6类采集器 source_url 改为深链(含 source_id)，修正待办路由 | feature/tc-1-source-url-deeplink | S2 | 🟡待审查 | 晓伴 | 89ecb1d，8 pytest 通过 |
+| tc-1 | 后端：6类采集器 source_url 改为深链(含 source_id)，修正待办路由 | feature/tc-1-source-url-deeplink | S2 | 🟡待审查 | 晓伴 | 5b9d0b7，8 pytest 通过，R1 P0-1 已修复 |
 | tc-2 | 前端：任务中心操作列新增编辑按钮，gotoSource 深链跳转 | feature/tc-2-edit-button | S2 | 🟡待审查 | 晓伴 | build+vitest 通过 |
-| tc-3 | 前端：5来源模块支持 ?id= 深链定位并进入编辑态 | feature/tc-3-module-deeplink | S2 | 🟡待审查 | 晓伴 | 78df319，含后端 by-child 端点 |
+| tc-3 | 前端：5来源模块支持 ?id= 深链定位并进入编辑态 | feature/tc-3-module-deeplink | S2 | 🟡待审查 | 晓伴 | 60e05d8（干净基线），含后端 by-child 端点，R1 4 问题已修复 |
 
 ---
 
@@ -89,7 +89,7 @@
 | task-id | 标题 | 分支(邮件中心仓库) | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
 | umc-1 | 邮件中心：新增人员中台出站客户端 masterService.ts | feature/umc-1-master-service | S2 | 🟡待审查 | 晓伴 | 590b7bb（tongyi_email 仓库），11 测试通过，tsc 无类型错误 |
-| umc-2 | 邮件中心：contacts 读路径改中台 + 禁用本地增改删 | feature/umc-2-contacts-from-master | S2 | 🟡待审查 | 晓伴 | f4b9718（tongyi_email 仓库），tsc 零错误 |
+| umc-2 | 邮件中心：contacts 读路径改中台 + 禁用本地增改删 | feature/umc-2-contacts-from-master | S2 | 🟡待审查 | 晓伴 | 40a2690（tongyi_email 仓库），R1 P1-1/P2-1 已修复 |
 | umc-3 | 邮件中心前端：通讯录只读展示 | feature/umc-3-contacts-readonly | S2 | 🟡待审查 | 晓伴 | 83cac81（tongyi_email 仓库），只读展示无编辑入口 |
 
 ---
