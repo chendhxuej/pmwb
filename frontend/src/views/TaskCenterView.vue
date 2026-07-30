@@ -129,6 +129,7 @@
         <el-table-column prop="title" label="任务标题" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">
             <el-link type="primary" :underline="false" @click="openDetail(row)">{{ row.title || '(无标题)' }}</el-link>
+            <el-tag v-if="row.synced_to_todo" size="small" type="success" style="margin-left: 6px">已转待办</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="owner" label="负责人" width="110" show-overflow-tooltip />
