@@ -879,10 +879,10 @@ onMounted(async () => {
       const [, type, childId] = match
       try {
         const res = await kwApi.findKeyWorkByChild(type, childId)
-        const kwId = res.data?.data?.key_work_id
+        const kwId = res?.key_work_id  // 拦截器已解包，res 直接为 data.data
         if (kwId) {
           const detail = await kwApi.getKeyWork(kwId)
-          if (detail.data?.data) await openDetail(detail.data.data)
+          if (detail) await openDetail(detail)
         }
       } catch { /* 深链降级静默 */ }
     }
