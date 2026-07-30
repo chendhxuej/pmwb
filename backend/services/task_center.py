@@ -223,9 +223,6 @@ class TaskCenterService:
         )
         items: List[TaskItem] = []
         for r, meeting_title in rows:
-            # 已同步为个人待办的行动项跳过，避免与 todo 来源重复计数
-            if r.related_todo_id:
-                continue
             status = _map_meeting_action_status(r.status)
             flags = _flag_dates(r.due_date, status)
             items.append(TaskItem(
@@ -240,7 +237,8 @@ class TaskCenterService:
                 owner=r.owner or "",
                 priority=None,
                 due_date=r.due_date,
-                source_url="/meeting",
+                source_url=f"/meeting?actionId={r.id}",
+                synced_to_todo=bool(r.related_todo_id),
                 detail={
                     "所属会议": meeting_title or f"会议#{r.meeting_id}",
                     "行动项": (r.content or "")[:300],
