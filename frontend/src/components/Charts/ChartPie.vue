@@ -1,5 +1,5 @@
 <template>
-  <div class="chart-pie" ref="chartRef" :style="{ height }">
+  <div class="chart-pie" ref="chartRef" :style="{ height, width: '100%' }">
     <v-chart :option="chartOption" autoresize />
   </div>
 </template>
