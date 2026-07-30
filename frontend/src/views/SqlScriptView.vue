@@ -87,7 +87,7 @@
     </div>
 
     <!-- 新增 / 编辑 抽屉 -->
-    <el-drawer v-model="editVisible" :title="isEdit ? '编辑 SQL 脚本' : '新增 SQL 脚本'" size="580px" direction="rtl" destroy-on-close>
+    <el-drawer v-model="editVisible" :title="isEdit ? '编辑 SQL 脚本' : '新增 SQL 脚本'" size="70%" direction="rtl" destroy-on-close>
       <el-form ref="editRef" :model="editForm" :rules="editRules" label-width="92px" class="ss-form">
         <el-form-item label="脚本说明" prop="title">
           <el-input v-model="editForm.title" placeholder="如：各业务线活跃用户数统计" />
@@ -136,7 +136,7 @@
     </el-drawer>
 
     <!-- 详情抽屉 -->
-    <el-drawer v-model="detailVisible" title="SQL 脚本详情" size="640px" direction="rtl">
+    <el-drawer v-model="detailVisible" title="SQL 脚本详情" size="70%" direction="rtl">
       <div v-loading="detailLoading" class="ss-detail">
         <div class="ss-d-meta">
           <div class="ss-d-row"><span class="ss-d-label">脚本编号</span><span class="ss-mono">{{ detail.script_no }}</span></div>

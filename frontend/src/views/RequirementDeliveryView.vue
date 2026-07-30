@@ -241,7 +241,7 @@
     </el-tabs>
 
     <!-- ════════ 4步工作流抽屉 ════════ -->
-    <el-drawer v-model="wfVisible" size="78%" :title="null" destroy-on-close>
+    <el-drawer v-model="wfVisible" size="70%" :title="null" destroy-on-close>
       <template #header>
         <div class="wf-head">
           <div>
@@ -552,7 +552,7 @@
     </el-drawer>
 
     <!-- ════════ 用户故事只读详情抽屉 ════════ -->
-    <el-drawer v-model="usDetailVisible" size="60%" :title="null" destroy-on-close>
+    <el-drawer v-model="usDetailVisible" size="70%" :title="null" destroy-on-close>
       <template #header>
         <div class="wf-head">
           <div>

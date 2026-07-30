@@ -324,7 +324,7 @@
     <el-drawer
       v-model="detailVisible"
       :title="detailMeeting?.title || '会议详情'"
-      size="680px"
+      size="70%"
       direction="rtl"
     >
       <div v-loading="detailLoading" class="dw-body" v-if="detailMeeting">

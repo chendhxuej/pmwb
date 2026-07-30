@@ -155,7 +155,7 @@
     <el-drawer
       v-model="detailVisible"
       :title="'工单详情 · ' + (detailRow?.issue_no || '')"
-      size="680px"
+      size="70%"
       destroy-on-close
     >
       <div v-loading="detailLoading" class="drawer-body-inner">
