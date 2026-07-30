@@ -326,6 +326,8 @@
       :title="detailMeeting?.title || '会议详情'"
       size="70%"
       direction="rtl"
+      @open="restoreMeetingDraft"
+      :before-close="handleMeetingBeforeClose"
     >
       <div v-loading="detailLoading" class="dw-body" v-if="detailMeeting">
         <!-- 1. 基础信息 -->
@@ -513,7 +515,7 @@
         </div>
       </div>
       <template #footer>
-        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button @click="closeMeetingDetail">关闭</el-button>
         <el-button
           v-if="detailMeeting?.status === 'planned'"
           type="warning"
@@ -722,6 +724,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import { useDrawerDraft } from '@/composables/useDrawerDraft'
 
 const router = useRouter()
 const currentUser = '陈大虾'
@@ -737,6 +740,25 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailMeeting = ref(null)
 const saving = ref(false)
+
+// 抽屉草稿防丢失
+const {
+  dirty: meetingDirty,
+  restoreDraft: restoreMeetingDraft,
+  clearDraft: clearMeetingDraft,
+  handleBeforeClose: handleMeetingBeforeClose,
+} = useDrawerDraft('meeting-detail', detailMeeting, {
+  enabled: true,
+  onBeforeClose(done) {
+    if (saving.value) return false // 保存中阻止关闭
+  },
+})
+
+function closeMeetingDetail() {
+  handleMeetingBeforeClose(() => {
+    detailVisible.value = false
+  })
+}
 const sedimenting = ref(false)
 
 const dialogVisible = ref(false)

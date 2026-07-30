@@ -253,6 +253,8 @@
       :title="isEdit ? '编辑工单' : '录入工单'"
       width="640px"
       destroy-on-close
+      @open="restoreEntryDraft"
+      :before-close="handleEntryBeforeClose"
     >
       <el-form :model="form" label-width="96px" :rules="entryRules" ref="formRef">
         <el-row :gutter="14">
@@ -303,7 +305,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="entryVisible = false">取消</el-button>
+        <el-button @click="handleEntryBeforeClose(() => { entryVisible.value = false })">取消</el-button>
         <el-button type="primary" :loading="entryLoading" @click="submitEntry">确定</el-button>
       </template>
     </el-dialog>
@@ -645,6 +647,7 @@ const submitEntry = () => {
         await operationApi.createIssue(payload)
         ElMessage.success('创建成功')
       }
+      clearEntryDraft()
       entryVisible.value = false
       loadData(); loadStats()
       if (detailVisible.value) refreshDetail()
