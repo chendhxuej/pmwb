@@ -66,7 +66,7 @@
 |---------|------|------|------|------|--------|------|
 | tc-1 | 后端：6类采集器 source_url 改为深链(含 source_id)，修正待办路由 | feature/tc-1-source-url-deeplink | S2 | 🟡待审查 | 晓伴 | 5b9d0b7，8 pytest 通过，R1 P0-1 已修复 |
 | tc-2 | 前端：任务中心操作列新增编辑按钮，gotoSource 深链跳转 | feature/tc-2-edit-button | S2 | 🟡待审查 | 晓伴 | build+vitest 通过 |
-| tc-3 | 前端：5来源模块支持 ?id= 深链定位并进入编辑态 | feature/tc-3-module-deeplink | S2 | 🟡待审查 | 晓伴 | 60e05d8（干净基线），含后端 by-child 端点，R1 4 问题已修复 |
+| tc-3 | 前端：5来源模块支持 ?id= 深链定位并进入编辑态 | feature/tc-3-module-deeplink | S2 | 🟡待审查 | 晓伴 | 3e0288c（含 60e05d8 + 二次解包真修复），R2 P0-1 已修复 |
 
 ---
 
