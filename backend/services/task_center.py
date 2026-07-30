@@ -133,7 +133,7 @@ class TaskCenterService:
                 owner="我",
                 priority=r.priority,
                 due_date=r.due_date,
-                source_url=f"/dashboard?id={r.id}",
+                source_url=f"/todo?id={r.id}",
                 detail={
                     "分类": r.category,
                     "内容": (r.content or "")[:200],

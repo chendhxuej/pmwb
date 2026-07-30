@@ -93,7 +93,7 @@ class TestTaskCenterSourceUrl:
         _insert_todo(db_session, id=42)
         items = task_service.collect_todo(db_session)
         assert len(items) == 1
-        assert items[0].source_url == "/dashboard?id=42"
+        assert items[0].source_url == "/todo?id=42"
         assert "?" in items[0].source_url
 
     def test_collect_operation_issue_source_url_has_issueId(self, db_session, task_service):
