@@ -90,6 +90,12 @@ const routes = [
         meta: { title: '会议日程', icon: 'Calendar' },
       },
       {
+        path: 'todo',
+        name: 'Todo',
+        component: () => import('@/views/TodoView.vue'),
+        meta: { title: '个人待办', icon: 'Check' },
+      },
+      {
         path: 'key-works',
         name: 'KeyWork',
         component: () => import('@/views/KeyWorkView.vue'),

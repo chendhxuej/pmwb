@@ -289,8 +289,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DataTable from '@/components/Common/DataTable.vue'
 import { todoApi } from '@/api/todo'
@@ -415,6 +415,17 @@ const loadStats = async () => {
 }
 
 const router = useRouter()
+const route = useRoute()
+
+/* 深链：?id= 定位并编辑待办 */
+const deepLinkId = computed(() => route.query.id)
+
+function applyDeepLink() {
+  const id = deepLinkId.value
+  if (!id) return
+  const row = tableData.value.find((t) => String(t.id) === String(id))
+  if (row) handleEdit(row)
+}
 const goTo = (path) => {
   router.push(path)
 }
@@ -508,10 +519,11 @@ const handleSubmit = async () => {
   })
 }
 
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadData()
   loadStats()
   loadDevTicketMissing()
+  applyDeepLink()
 })
 </script>
 
