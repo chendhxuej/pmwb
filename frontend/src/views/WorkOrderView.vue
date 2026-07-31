@@ -808,10 +808,19 @@ watch(
   }
 )
 
-onMounted(() => {
+onMounted(async () => {
   loadAllCounts()
-  loadData()
+  await loadData()
   loadStats()
+  // 深链：?issueId= 定位并编辑运营问题
+  const issueId = route.query.issueId
+  if (issueId) {
+    const row = tableData.value.find((t) => String(t.id) === String(issueId))
+    if (row) {
+      await openDetail(row)
+      openEditFromDetail()
+    }
+  }
 })
 </script>
 

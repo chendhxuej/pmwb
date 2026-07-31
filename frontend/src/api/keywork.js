@@ -48,6 +48,10 @@ export function getKeyWorkStats() {
   return request.get('/key-works/stats')
 }
 
+export function findKeyWorkByChild(type, id) {
+  return request.get('/key-works/by-child', { params: { type, id } })
+}
+
 export function getKeyWork(id) {
   return request.get(`/key-works/${id}`)
 }

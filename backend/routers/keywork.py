@@ -73,6 +73,22 @@ def key_works_stats(db: Session = Depends(get_db)):
     return success(data=keywork_service.stats(db))
 
 
+@router.get("/by-child")
+def find_key_work_by_child(
+    type: str = Query(..., description="子表类型：task / milestone"),
+    id: int = Query(..., description="子表记录 ID"),
+    db: Session = Depends(get_db),
+):
+    """通过子表 ID 查找所属重点工作（tc-3 深链定位）。"""
+    if type == "task":
+        kw_id = keywork_service.find_by_member_task(db, id)
+    elif type == "milestone":
+        kw_id = keywork_service.find_by_milestone(db, id)
+    else:
+        return success(data={"key_work_id": None, "found": False})
+    return success(data={"key_work_id": kw_id, "found": kw_id is not None})
+
+
 @router.get("/{kw_id}")
 def get_key_work(kw_id: int, db: Session = Depends(get_db)):
     """获取重点工作详情（含全部子表）。"""

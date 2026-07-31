@@ -683,7 +683,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
@@ -1228,8 +1229,25 @@ function ticketStatusLabel(s) {
   return { created: '已创建', design_reviewed: '设计已评审', dev_completed: '开发完成', test_completed: '测试完成', live: '已上线', archived: '已归档' }[s] || s
 }
 
-loadRequirements()
-loadTickets()
+const route = useRoute()
+
+/* 深链定位 */
+function applyDeepLink() {
+  const q = route.query
+  if (q.ticket) {
+    const row = tickets.value.find((t) => t.ticket_no === q.ticket)
+    if (row) { openTicketDialog(row); }
+  } else if (q.req) {
+    const row = requirements.value.find((t) => t.req_id === q.req)
+    if (row) { openReqDialog(row); }
+  }
+}
+
+onMounted(async () => {
+  await loadRequirements()
+  await loadTickets()
+  applyDeepLink()
+})
 </script>
 
 <style scoped>

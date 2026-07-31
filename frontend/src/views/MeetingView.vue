@@ -718,12 +718,13 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 
 const router = useRouter()
+const route = useRoute()
 const currentUser = '陈大虾'
 
 const loading = ref(false)
@@ -1548,8 +1549,19 @@ const handleSubmit = () => {
   })
 }
 
-onMounted(() => {
-  loadMeetings()
+onMounted(async () => {
+  await loadMeetings()
+  // 深链：?actionId= 定位会议行动项
+  const actionId = route.query.actionId
+  if (actionId) {
+    for (const m of meetings.value) {
+      const found = (m.actions || []).find((a) => String(a.id) === String(actionId))
+      if (found) {
+        await openDetail(m.id)
+        break
+      }
+    }
+  }
 })
 </script>
 
