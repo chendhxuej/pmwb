@@ -154,9 +154,10 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" align="center" fixed="right">
+        <el-table-column label="操作" width="200" align="center" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
+            <el-button link type="success" size="small" @click="gotoSource(row)">编辑</el-button>
             <el-button link type="warning" size="small" @click="openTaskEmail([row], 'urge')">催办</el-button>
             <el-button link type="info" size="small" @click="openTaskEmail([row], 'notify')">通知</el-button>
           </template>
