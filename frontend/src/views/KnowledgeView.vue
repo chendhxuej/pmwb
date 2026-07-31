@@ -124,7 +124,7 @@
     </div>
 
     <!-- 右：笔记预览抽屉 -->
-    <el-drawer v-model="previewVisible" size="460px" direction="rtl">
+    <el-drawer v-model="previewVisible" size="70%" direction="rtl">
       <template #header>
         <div class="kv-pv-head">
           <div class="kv-pv-title">{{ previewItem?.title }}</div>

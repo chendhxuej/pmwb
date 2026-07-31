@@ -178,7 +178,7 @@
     </template>
 
     <!-- 任务详情抽屉 -->
-    <el-drawer v-model="drawerVisible" :title="detailTask?.title || '任务详情'" size="440px">
+    <el-drawer v-model="drawerVisible" :title="detailTask?.title || '任务详情'" size="70%">
       <template v-if="detailTask">
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="来源">

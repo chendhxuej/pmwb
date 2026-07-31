@@ -115,7 +115,7 @@
     <el-drawer
       v-model="drawerVisible"
       :title="detail?.title || '重点工作详情'"
-      size="860px"
+      size="70%"
       :before-close="closeDrawer"
     >
       <template #header>
