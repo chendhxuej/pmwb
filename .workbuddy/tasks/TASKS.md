@@ -1,6 +1,6 @@
 # PMWB 开发任务总表
 
-> 集成者：Vicky2号 | 更新时间：2026-07-29
+> 集成者：Vicky2号 | 更新时间：2026-07-31
 >
 > **AI 开发者请先看**：`docs/COLLABORATIVE_DEV_WORKFLOW.md` 第四节「标准化任务认领与交付机制」
 
@@ -64,9 +64,9 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| tc-1 | 后端：6类采集器 source_url 改为深链(含 source_id)，修正待办路由 | feature/tc-1-source-url-deeplink | S2 | 🟡待审查 | 晓伴 | 5b9d0b7，8 pytest 通过，R1 P0-1 已修复 |
-| tc-2 | 前端：任务中心操作列新增编辑按钮，gotoSource 深链跳转 | feature/tc-2-edit-button | S2 | 🟡待审查 | 晓伴 | build+vitest 通过 |
-| tc-3 | 前端：5来源模块支持 ?id= 深链定位并进入编辑态 | feature/tc-3-module-deeplink | S2 | 🟡待审查 | 晓伴 | 3e0288c（含 60e05d8 + 二次解包真修复），R2 P0-1 已修复 |
+| tc-1 | 后端：6类采集器 source_url 改为深链(含 source_id)，修正待办路由 | feature/tc-1-source-url-deeplink | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 52f7616，与ma-1冲突后合并13 pytest 通过，见 reviews/tc-1-R1.md |
+| tc-2 | 前端：任务中心操作列新增编辑按钮，gotoSource 深链跳转 | feature/tc-2-edit-button | S2 | ✅已合入 | 晓伴→Vicky2号审查 | ab78b07，frontend build 通过，见 reviews/tc-2-R1.md |
+| tc-3 | 前端：5来源模块支持 ?id= 深链定位并进入编辑态 | feature/tc-3-module-deeplink | S2 | ✅已合入 | 晓伴→Vicky2号审查 | ab78b07，分支曾被force push为空，已恢复3e0288c并合并，frontend build 通过，见 reviews/tc-3-R3.md |
 
 ---
 
@@ -76,8 +76,8 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| ma-1 | 后端：会议行动项完整返回 + synced_to_todo 标记 | feature/ma-1-meeting-action-visible | S2 | 🟡待审查 | 晓伴 | 4fabcf3，5 pytest 通过 |
-| ma-2 | 前端：会议行动项"已转待办"徽标 | feature/ma-2-synced-badge | S2 | 🟡待审查 | 晓伴 | ea5f069，build 通过 |
+| ma-1 | 后端：会议行动项完整返回 + synced_to_todo 标记 | feature/ma-1-meeting-action-visible | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 4fabcf3 已入主干，5 pytest 通过，已随 tc-1 合并保留 |
+| ma-2 | 前端：会议行动项"已转待办"徽标 | feature/ma-2-synced-badge | S2 | ✅已合入 | 晓伴→Vicky2号审查 | ea5f069 已入主干，build 通过 |
 
 ---
 
@@ -88,9 +88,9 @@
 
 | task-id | 标题 | 分支(邮件中心仓库) | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| umc-1 | 邮件中心：新增人员中台出站客户端 masterService.ts | feature/umc-1-master-service | S2 | 🟡待审查 | 晓伴 | 590b7bb（tongyi_email 仓库），11 测试通过，tsc 无类型错误 |
-| umc-2 | 邮件中心：contacts 读路径改中台 + 禁用本地增改删 | feature/umc-2-contacts-from-master | S2 | 🟡待审查 | 晓伴 | 40a2690（tongyi_email 仓库），R1 P1-1/P2-1 已修复 |
-| umc-3 | 邮件中心前端：通讯录只读展示 | feature/umc-3-contacts-readonly | S2 | 🟡待审查 | 晓伴 | 83cac81（tongyi_email 仓库），只读展示无编辑入口 |
+| umc-1 | 邮件中心：新增人员中台出站客户端 masterService.ts | feature/umc-1-master-service | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 590b7bb（tongyi_email 仓库），11 测试通过，tsc 无类型错误，见 reviews/umc-1-R1.md |
+| umc-2 | 邮件中心：contacts 读路径改中台 + 禁用本地增改删 | feature/umc-2-contacts-from-master | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 40a2690（tongyi_email 仓库），R1 P1-1/P2-1 已修复，tsc 通过，见 reviews/umc-2-R2.md |
+| umc-3 | 邮件中心前端：通讯录只读展示 | feature/umc-3-contacts-readonly | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 83cac81（tongyi_email 仓库），只读展示无编辑入口，tsc 通过，见 reviews/umc-3-R1.md |
 
 ---
 
