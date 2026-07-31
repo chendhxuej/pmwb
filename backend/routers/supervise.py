@@ -12,7 +12,7 @@ from db.base import get_db
 from db.models import PmwbMeetingAction
 from services.dev_ticket import dev_ticket_service
 from services.meeting import meeting_service
-from services.operation import operation_service
+from services.operation import operation_issue_service as operation_service
 
 from . import supervise as supervise_service
 
