@@ -75,15 +75,20 @@ class TaskRef(BaseModel):
 
 
 class TaskSendRequest(BaseModel):
-    """任务通知/催办邮件请求。"""
+    """任务通知/催办邮件请求。
+
+    dry_run=True 时仅返回后端模板化拼装的正文（用于前端预览，所见即所得），
+    不校验收件人、不发送、不落库。
+    """
 
     tasks: List[TaskRef] = Field(default_factory=list, description="关联任务列表")
-    to: str = Field(..., description="收件人，多个逗号/分号分隔")
+    to: Optional[str] = Field(None, description="收件人，多个逗号/分号分隔（dry_run 可省略）")
     cc: Optional[str] = Field(None, description="抄送")
-    subject: str = Field(..., description="邮件主题")
-    body: str = Field(..., description="邮件正文")
+    subject: Optional[str] = Field(None, description="邮件主题（dry_run 可省略）")
+    body: Optional[str] = Field(None, description="邮件正文；留空则由后端按模板自动拼装")
     send_type: str = Field("urge", description="notify=通知 / urge=催办")
     operator: Optional[str] = Field(None, description="操作人")
+    dry_run: bool = Field(False, description="仅预览正文，不发送不落库")
 
 
 class TaskSendResponse(BaseModel):

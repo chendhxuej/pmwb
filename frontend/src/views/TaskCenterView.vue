@@ -341,7 +341,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Plus } from '@element-plus/icons-vue'
-import { getTaskStats, getTasks, resolveTaskContacts, sendTaskEmail } from '@/api/taskCenter.js'
+import { getTaskStats, getTasks, resolveTaskContacts, sendTaskEmail, previewTaskEmail } from '@/api/taskCenter.js'
 import { getPendingReminders, sendReminder, resolveContacts } from '@/api/reminder.js'
 import { todoApi } from '@/api/todo'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
@@ -553,31 +553,43 @@ async function openTaskEmail(rows, sendType) {
   emailForm.subject =
     (sendType === 'urge' ? '催办：' : '通知：') +
     (rows.length === 1 ? first.title?.slice(0, 40) : `${rows.length} 项待办任务`)
+  // 默认兜底正文（预览接口失败时使用）
   emailForm.body =
     sendType === 'urge'
       ? '各位：\n\n以下任务已到跟进节点，麻烦尽快处理并反馈进展，辛苦了！\n\n——产品经理工作台（PMWB）'
       : '各位：\n\n同步以下任务的当前情况，请知悉。\n\n——产品经理工作台（PMWB）'
-  emailDialogVisible.value = true
   // 按负责人姓名自动解析邮箱（排除"我"/未分配）
   const names = [...new Set(
     rows.map((t) => (t.owner || '').trim()).filter((n) => n && n !== '我' && n !== '未分配')
   )].flatMap((n) => n.split(/[,;，；、\s]+/).filter(Boolean))
-  if (!names.length) return
-  try {
-    const map = (await resolveTaskContacts([...new Set(names)])) || {}
-    const resolved = []
-    const missing = []
-    for (const n of new Set(names)) {
-      if (map[n]) resolved.push(map[n])
-      else missing.push(n)
+  if (names.length) {
+    try {
+      const map = (await resolveTaskContacts([...new Set(names)])) || {}
+      const resolved = []
+      const missing = []
+      for (const n of new Set(names)) {
+        if (map[n]) resolved.push(map[n])
+        else missing.push(n)
+      }
+      emailTo.value = resolved
+      if (missing.length) {
+        ElMessage.warning(`以下负责人未在通讯录找到邮箱，请手动填写：${missing.join('、')}`)
+      }
+    } catch (e) {
+      console.error('解析收件人失败', e)
     }
-    emailTo.value = resolved
-    if (missing.length) {
-      ElMessage.warning(`以下负责人未在通讯录找到邮箱，请手动填写：${missing.join('、')}`)
-    }
-  } catch (e) {
-    console.error('解析收件人失败', e)
   }
+  // 拉取后端模板化拼装的正文预览（所见即所得：标题/内容/责任人/完成时间）
+  try {
+    const res = await previewTaskEmail(
+      emailForm.tasks.map((t) => ({ source: t.source, source_id: t.source_id })),
+      sendType
+    )
+    if (res && res.success && res.body) emailForm.body = res.body
+  } catch (e) {
+    console.error('预览正文生成失败', e)
+  }
+  emailDialogVisible.value = true
 }
 
 function removeEmailTask(t) {
