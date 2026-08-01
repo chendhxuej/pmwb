@@ -208,6 +208,22 @@ class MeetingActionQuery(BaseModel):
         return None if v in ("", None) else v
 
 
+class MeetingActionUpdate(BaseModel):
+    """行动项完整编辑请求。"""
+
+    content: Optional[str] = Field(None, description="行动项内容")
+    owner: Optional[str] = Field(None, max_length=64, description="负责人")
+    due_date: Optional[str] = Field(None, description="截止日期")
+    status: Optional[MeetingActionStatus] = Field(None, description="状态")
+    category: Optional[str] = Field(None, description="待办分类")
+    template: Optional[str] = Field(None, max_length=128, description="Obsidian 待办模板名")
+
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def _empty_due_date_to_none(cls, v):
+        return None if v in ("", None) else v
+
+
 class MeetingActionStatusUpdateRequest(BaseModel):
     """行动项状态更新请求。"""
 

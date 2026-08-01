@@ -344,6 +344,47 @@ class MeetingService(BaseService[PmwbMeeting]):
             "items": items,
         }
 
+    def update_action(
+        self,
+        db: Session,
+        meeting_id: int,
+        action_id: int,
+        obj_in: dict,
+    ) -> PmwbMeetingAction:
+        """更新会议行动项（完整编辑）。"""
+        from datetime import date as _date
+
+        action = (
+            db.query(PmwbMeetingAction)
+            .filter(PmwbMeetingAction.id == action_id, PmwbMeetingAction.meeting_id == meeting_id)
+            .first()
+        )
+        if not action:
+            raise NotFoundException(f"会议行动项不存在：meeting_id={meeting_id}, action_id={action_id}")
+
+        if "content" in obj_in and obj_in["content"] is not None:
+            action.content = obj_in["content"]
+        if "owner" in obj_in:
+            action.owner = obj_in["owner"]
+        if "due_date" in obj_in:
+            due_date = obj_in["due_date"]
+            if due_date is None or due_date == "":
+                action.due_date = None
+            elif isinstance(due_date, str):
+                action.due_date = _date.fromisoformat(due_date)
+            else:
+                action.due_date = due_date
+        if "status" in obj_in and obj_in["status"] is not None:
+            action.status = obj_in["status"].value if hasattr(obj_in["status"], "value") else obj_in["status"]
+        if "category" in obj_in:
+            action.category = obj_in["category"]
+        if "template" in obj_in:
+            action.template = obj_in["template"]
+
+        db.commit()
+        db.refresh(action)
+        return action
+
     def update_action_status(
         self,
         db: Session,

@@ -59,7 +59,7 @@
             <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="row.status !== 'done'"
@@ -75,6 +75,7 @@
               size="small"
               @click="handleReopen(row)"
             >重开</el-button>
+            <el-button link type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button link type="primary" size="small" @click="handleSupervise(row)">督办</el-button>
             <el-button link type="info" size="small" @click="gotoMeeting(row)">会议</el-button>
           </template>
@@ -117,6 +118,45 @@
       <template #footer>
         <el-button @click="superviseVisible = false">取消</el-button>
         <el-button type="primary" @click="confirmSupervise" :loading="superviseLoading">发送督办</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="editVisible" title="编辑行动项" width="560px">
+      <el-form :model="editForm" label-width="90px" :rules="editRules" ref="editFormRef">
+        <el-form-item label="行动项内容" prop="content">
+          <el-input
+            v-model="editForm.content"
+            type="textarea"
+            :rows="3"
+            placeholder="行动项具体内容"
+          />
+        </el-form-item>
+        <el-form-item label="负责人">
+          <el-input v-model="editForm.owner" placeholder="负责人姓名" />
+        </el-form-item>
+        <el-form-item label="截止日期">
+          <el-date-picker
+            v-model="editForm.due_date"
+            type="date"
+            placeholder="选择截止日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="editForm.status" placeholder="选择状态" style="width: 100%">
+            <el-option
+              v-for="item in statusOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmEdit" :loading="editLoading">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -280,6 +320,58 @@ async function confirmSupervise() {
     ElMessage.error(err.message || '督办失败')
   } finally {
     superviseLoading.value = false
+  }
+}
+
+const editVisible = ref(false)
+const editLoading = ref(false)
+const editFormRef = ref(null)
+const editForm = reactive({
+  meeting_id: null,
+  id: null,
+  content: '',
+  owner: '',
+  due_date: '',
+  status: '',
+})
+
+const editRules = {
+  content: [{ required: true, message: '请输入行动项内容', trigger: 'blur' }],
+}
+
+function handleEdit(row) {
+  editForm.meeting_id = row.meeting_id
+  editForm.id = row.id
+  editForm.content = row.content || ''
+  editForm.owner = row.owner || ''
+  editForm.due_date = row.due_date || ''
+  editForm.status = row.status || 'pending'
+  editVisible.value = true
+}
+
+async function confirmEdit() {
+  if (!editFormRef.value) return
+  try {
+    await editFormRef.value.validate()
+  } catch {
+    return
+  }
+
+  editLoading.value = true
+  try {
+    await meetingApi.updateAction(editForm.meeting_id, editForm.id, {
+      content: editForm.content,
+      owner: editForm.owner || undefined,
+      due_date: editForm.due_date || undefined,
+      status: editForm.status,
+    })
+    ElMessage.success('保存成功')
+    editVisible.value = false
+    loadData()
+  } catch (err) {
+    ElMessage.error(err.message || '保存失败')
+  } finally {
+    editLoading.value = false
   }
 }
 
