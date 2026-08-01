@@ -29,6 +29,18 @@ export const meetingApi = {
     return request.post(`/meetings/${meetingId}/actions/${actionId}/sync-todo`)
   },
 
+  listActions(params) {
+    return request.get('/meetings/actions', { params })
+  },
+
+  updateActionStatus(meetingId, actionId, data) {
+    return request.put(`/meetings/${meetingId}/actions/${actionId}/status`, data)
+  },
+
+  superviseAction(meetingId, actionId, data) {
+    return request.post(`/meetings/${meetingId}/actions/${actionId}/supervise`, data)
+  },
+
   sendMeetingMail(meetingId, data) {
     return request.post(`/meetings/${meetingId}/send-mail`, data)
   }

@@ -86,8 +86,23 @@ const routes = [
       {
         path: 'meeting',
         name: 'Meeting',
-        component: () => import('@/views/MeetingView.vue'),
+        component: () => import('@/views/MeetingLayout.vue'),
+        redirect: '/meeting/list',
         meta: { title: '会议日程', icon: 'Calendar' },
+        children: [
+          {
+            path: 'list',
+            name: 'MeetingList',
+            component: () => import('@/views/MeetingView.vue'),
+            meta: { title: '会议列表', icon: 'Calendar' },
+          },
+          {
+            path: 'actions',
+            name: 'MeetingActions',
+            component: () => import('@/views/MeetingActionsView.vue'),
+            meta: { title: '行动项', icon: 'List' },
+          },
+        ],
       },
       {
         path: 'todo',
