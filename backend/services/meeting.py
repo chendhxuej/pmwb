@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session, joinedload
@@ -268,6 +268,136 @@ class MeetingService(BaseService[PmwbMeeting]):
         db.commit()
         db.refresh(record)
         return {"success": ok, "record_id": record.id, "message": message}
+
+    def list_actions(
+        self,
+        db: Session,
+        *,
+        meeting_id: Optional[int] = None,
+        owner: Optional[str] = None,
+        status: Optional[str] = None,
+        keyword: Optional[str] = None,
+        due_start: Optional[date] = None,
+        due_end: Optional[date] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict:
+        """查询会议行动项列表，返回带会议简要信息的分页结果。"""
+        query = db.query(PmwbMeetingAction).join(
+            PmwbMeeting, PmwbMeetingAction.meeting_id == PmwbMeeting.id
+        )
+
+        if meeting_id is not None:
+            query = query.filter(PmwbMeetingAction.meeting_id == meeting_id)
+        if owner:
+            query = query.filter(PmwbMeetingAction.owner.like(f"%{owner}%"))
+        if status:
+            query = query.filter(PmwbMeetingAction.status == status)
+        if keyword:
+            like = f"%{keyword}%"
+            query = query.filter(
+                PmwbMeetingAction.content.like(like)
+                | PmwbMeeting.title.like(like)
+                | PmwbMeeting.meeting_id.like(like)
+            )
+        if due_start is not None:
+            query = query.filter(PmwbMeetingAction.due_date >= due_start)
+        if due_end is not None:
+            query = query.filter(PmwbMeetingAction.due_date <= due_end)
+
+        total = query.count()
+        pages = (total + page_size - 1) // page_size if page_size > 0 else 1
+        offset = (page - 1) * page_size
+        actions = (
+            query.options(joinedload(PmwbMeetingAction.meeting))
+            .order_by(PmwbMeetingAction.created_at.desc())
+            .offset(offset)
+            .limit(page_size)
+            .all()
+        )
+
+        items = []
+        for a in actions:
+            items.append(
+                {
+                    "id": a.id,
+                    "meeting_id": a.meeting_id,
+                    "meeting_title": a.meeting.title if a.meeting else "",
+                    "meeting_id_no": a.meeting.meeting_id if a.meeting else "",
+                    "content": a.content,
+                    "owner": a.owner,
+                    "due_date": a.due_date.isoformat() if a.due_date else None,
+                    "status": a.status,
+                    "category": a.category,
+                    "template": a.template,
+                    "related_todo_id": a.related_todo_id,
+                    "created_at": a.created_at,
+                    "updated_at": a.updated_at,
+                }
+            )
+
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+            "items": items,
+        }
+
+    def update_action_status(
+        self,
+        db: Session,
+        meeting_id: int,
+        action_id: int,
+        status: str,
+    ) -> PmwbMeetingAction:
+        """更新会议行动项状态。"""
+        action = (
+            db.query(PmwbMeetingAction)
+            .filter(PmwbMeetingAction.id == action_id, PmwbMeetingAction.meeting_id == meeting_id)
+            .first()
+        )
+        if not action:
+            raise NotFoundException(f"会议行动项不存在：meeting_id={meeting_id}, action_id={action_id}")
+        action.status = status
+        db.commit()
+        db.refresh(action)
+        return action
+
+    def supervise_action(
+        self,
+        db: Session,
+        meeting_id: int,
+        action_id: int,
+        scene: str,
+        recipients: Optional[List[str]] = None,
+    ) -> dict:
+        """对会议行动项发起督办邮件。"""
+        from services import supervise as supervise_service
+
+        action = (
+            db.query(PmwbMeetingAction)
+            .filter(PmwbMeetingAction.id == action_id, PmwbMeetingAction.meeting_id == meeting_id)
+            .first()
+        )
+        if not action:
+            raise NotFoundException(f"会议行动项不存在：meeting_id={meeting_id}, action_id={action_id}")
+
+        meeting = self.get(db, meeting_id)
+        target_recipients = recipients if recipients is not None else [action.owner] if action.owner else []
+
+        return supervise_service.supervise_action(
+            scene=scene,
+            action={
+                "id": action.id,
+                "content": action.content,
+                "owner": action.owner,
+                "due_date": action.due_date.isoformat() if action.due_date else "",
+                "status": action.status,
+                "meeting_title": meeting.title if meeting else "",
+            },
+            recipients=target_recipients,
+        )
 
     def delete(self, db: Session, id: int) -> bool:
         db_obj = self.get(db, id)
