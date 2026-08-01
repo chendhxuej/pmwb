@@ -183,3 +183,75 @@ class MeetingMailSendRequest(BaseModel):
         description="邮件类型：meeting_notice(会议通知) / meeting_minutes(会议纪要)",
     )
     recipient_names: Optional[List[str]] = Field(None, description="收件人姓名列表（用于记录展示）")
+
+
+# ---------------------------------------------------------------------------
+# 会议行动项子模块
+# ---------------------------------------------------------------------------
+
+
+class MeetingActionQuery(BaseModel):
+    """行动项列表筛选参数。"""
+
+    meeting_id: Optional[int] = Field(None, description="关联会议ID")
+    owner: Optional[str] = Field(None, description="负责人姓名模糊匹配")
+    status: Optional[MeetingActionStatus] = Field(None, description="行动项状态")
+    keyword: Optional[str] = Field(None, description="内容关键字")
+    due_start: Optional[str] = Field(None, description="截止日期起（YYYY-MM-DD）")
+    due_end: Optional[str] = Field(None, description="截止日期止（YYYY-MM-DD）")
+    page: int = Field(1, ge=1, description="页码")
+    page_size: int = Field(20, ge=1, le=1000, description="每页条数")
+
+    @field_validator("due_start", "due_end", mode="before")
+    @classmethod
+    def _empty_date_to_none(cls, v):
+        return None if v in ("", None) else v
+
+
+class MeetingActionStatusUpdateRequest(BaseModel):
+    """行动项状态更新请求。"""
+
+    status: MeetingActionStatus = Field(..., description="新状态")
+
+
+class MeetingActionSuperviseRequest(BaseModel):
+    """行动项督办请求。"""
+
+    scene: str = Field("urge", description="督办场景：sync(同步通知) / urge(催办)")
+    recipients: Optional[List[str]] = Field(None, description="收件人姓名列表；为空则取 action.owner")
+    note: Optional[str] = Field(None, description="督办备注（暂不写入邮件）")
+
+
+class MeetingActionItemOut(BaseModel):
+    """列表项：会议行动项 + 所属会议简要信息。"""
+
+    id: int
+    meeting_id: int
+    meeting_title: str
+    meeting_id_no: str
+    content: str
+    owner: Optional[str]
+    due_date: Optional[str]
+    status: MeetingActionStatus
+    category: Optional[str]
+    template: Optional[str]
+    related_todo_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MeetingActionListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    pages: int
+    items: List[MeetingActionItemOut]
+
+
+class MeetingActionSuperviseResponse(BaseModel):
+    ok: bool
+    subject: Optional[str] = None
+    error: Optional[str] = None

@@ -160,6 +160,34 @@ class GreetStat(BaseModel):
     cls: str = "accent"  # up | down | accent | neutral
 
 
+class TaskCenterDistItem(BaseModel):
+    """任务中心分布单项。"""
+
+    name: str = ""
+    value: int = 0
+
+
+class TaskCenterDist(BaseModel):
+    """看板「任务中心」分布卡片。"""
+
+    total: int = 0
+    overdue: int = 0
+    due_soon: int = 0
+    by_source: List[TaskCenterDistItem] = []
+    by_priority: List[TaskCenterDistItem] = []
+    by_status: List[TaskCenterDistItem] = []
+    overdue_items: List[TodoCardItem] = []
+
+
+class PersonnelStats(BaseModel):
+    """看板「人员中台」统计卡片。"""
+
+    org_count: int = 0
+    staff_count: int = 0
+    enabled_staff: int = 0
+    org_list: List[str] = []
+
+
 class DashboardStats(BaseModel):
     todo_total: int
     todo_today: int
@@ -201,3 +229,7 @@ class DashboardData(BaseModel):
     distribution_charts: Optional[Dict[str, List[DistributionItem]]] = None
     progress_items: Optional[Dict[str, List[ProgressItem]]] = None
     pending_minutes_meetings: List[dict] = []  # 待处理会议纪要列表（held 且 summary 空）
+
+    # —— 看板重构：任务中心高颗粒度分布 / 人员中台概览 ——
+    task_center_dist: Optional[TaskCenterDist] = None
+    personnel: Optional[PersonnelStats] = None

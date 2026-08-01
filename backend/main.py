@@ -19,6 +19,7 @@ from routers import (
     knowledge,
     mail_center,
     meeting,
+    meeting_action,
     obsidian,
     plugin,
     operation,
@@ -96,6 +97,7 @@ app.include_router(health.router, prefix="/api/v1", tags=["健康检查"])
 app.include_router(basic_data.router, prefix="/api/v1", tags=["基础数据"])
 app.include_router(keywork.router, prefix="/api/v1", tags=["重点工作"])
 app.include_router(operation.router, prefix="/api/v1", tags=["业务运营监控"])
+app.include_router(meeting_action.router, prefix="/api/v1", tags=["会议行动项"])
 app.include_router(meeting.router, prefix="/api/v1", tags=["会议管理"])
 app.include_router(knowledge.router, prefix="/api/v1", tags=["知识库"])
 app.include_router(mail_center.router, prefix="/api/v1", tags=["邮件中心"])

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+import logging
 
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
@@ -33,15 +34,23 @@ from schemas.dashboard import (
     ProgressItem,
     RequirementSummaryItem,
     ScheduleItem,
+    TaskCenterDist,
+    TaskCenterDistItem,
+    PersonnelStats,
     TicketStatus,
     TodoCardItem,
     TrendPoint,
 )
+from schemas.task_center import SOURCE_LABELS, TASK_SOURCES
+from services.task_center import TaskCenterService
+from utils.master_service import master_service_client
 
 # 中国时区（UTC+8）。看板按中国本地日期统计，避免 UTC 在晚间把"今天/本周"算错。
 CST = timezone(timedelta(hours=8))
 
 _WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+logger = logging.getLogger(__name__)
 
 
 def _now_cst() -> datetime:
@@ -645,6 +654,83 @@ class DashboardService:
             ))
         return {"keyProjects": items}
 
+    def get_task_center_dist(self) -> TaskCenterDist:
+        """看板「任务中心」卡片：复用任务中心聚合，输出高颗粒度分布（来源/优先级/状态）+ 超期明细。"""
+        try:
+            svc = TaskCenterService()
+            stats = svc.get_stats(self.db)
+            items = svc._collect(self.db)
+
+            # 按来源（分类）分布，按 TASK_SOURCES 固定顺序，仅保留 >0
+            src_items = [
+                TaskCenterDistItem(name=SOURCE_LABELS.get(s, s), value=stats.by_source.get(s, 0))
+                for s in TASK_SOURCES if stats.by_source.get(s, 0) > 0
+            ]
+
+            # 按统一状态分布
+            _STATUS_LABEL = {
+                "pending": "待处理",
+                "in_progress": "进行中",
+                "done": "已完成",
+                "blocked": "已阻塞",
+            }
+            st_items = [
+                TaskCenterDistItem(name=_STATUS_LABEL.get(k, k), value=v)
+                for k, v in stats.by_status.items()
+            ]
+
+            # 按优先级分布（统一模型自带 priority）
+            prio: Dict[str, int] = {}
+            for t in items:
+                p = t.priority or "未分级"
+                prio[p] = prio.get(p, 0) + 1
+            prio_order = ["紧急", "高优", "中等", "低优", "未分级"]
+            prio_items = [
+                TaskCenterDistItem(name=p, value=prio.get(p, 0))
+                for p in prio_order if prio.get(p, 0) > 0
+            ]
+
+            # 超期任务明细
+            overdue_items = [
+                TodoCardItem(
+                    priority=t.priority or "中等",
+                    title=t.title or "未命名待办",
+                    deadline=(str(t.due_date) if t.due_date else ""),
+                    owner="",
+                    overdue=True,
+                )
+                for t in items if t.is_overdue
+            ]
+
+            return TaskCenterDist(
+                total=stats.total,
+                overdue=stats.overdue,
+                due_soon=stats.due_soon,
+                by_source=src_items,
+                by_priority=prio_items,
+                by_status=st_items,
+                overdue_items=overdue_items,
+            )
+        except Exception as e:
+            logger.warning("任务中心分布统计失败: %s", e)
+            return TaskCenterDist()
+
+    def get_personnel_stats(self) -> PersonnelStats:
+        """看板「人员中台」卡片：组织 / 人员规模概览（异常时降级为空）。"""
+        try:
+            orgs = master_service_client.list_orgs() or []
+            staffs = master_service_client.list_staffs() or []
+            enabled = sum(1 for s in staffs if s.get("enabled", True))
+            return PersonnelStats(
+                org_count=len(orgs),
+                staff_count=len(staffs),
+                enabled_staff=enabled,
+                org_list=[o.get("name", "") for o in orgs if o.get("name")],
+            )
+        except Exception as e:
+            logger.warning("人员中台统计失败: %s", e)
+            return PersonnelStats()
+
     def get_dashboard(self) -> DashboardData:
         stats = self.get_stats()
         recent_todos = self.get_recent_todos()
@@ -659,6 +745,8 @@ class DashboardService:
         trend_charts = self.get_trend_charts()
         distribution_charts = self.get_distribution_charts()
         progress_items = self.get_progress_items()
+        task_center_dist = self.get_task_center_dist()
+        personnel = self.get_personnel_stats()
 
         # 待处理会议纪要列表（held 且 summary 为空），供会议卡片展示
         pending_minutes_meetings = (
@@ -704,4 +792,6 @@ class DashboardService:
             distribution_charts=distribution_charts,
             progress_items=progress_items,
             pending_minutes_meetings=pending_minutes_data,
+            task_center_dist=task_center_dist,
+            personnel=personnel,
         )
