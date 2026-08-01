@@ -9,6 +9,7 @@ from schemas.meeting import (
     MeetingActionQuery,
     MeetingActionStatusUpdateRequest,
     MeetingActionSuperviseRequest,
+    MeetingActionUpdate,
 )
 from services.meeting import meeting_service
 
@@ -40,6 +41,23 @@ def list_actions(
         page_size=page_size,
     )
     return success(data=data)
+
+
+@router.put("/{meeting_id}/actions/{action_id}")
+def update_action(
+    meeting_id: int,
+    action_id: int,
+    obj_in: MeetingActionUpdate,
+    db: Session = Depends(get_db),
+):
+    """编辑会议行动项内容/负责人/截止日期/状态。"""
+    obj = meeting_service.update_action(
+        db,
+        meeting_id=meeting_id,
+        action_id=action_id,
+        obj_in=obj_in.model_dump(exclude_unset=True),
+    )
+    return success(data=obj)
 
 
 @router.put("/{meeting_id}/actions/{action_id}/status")

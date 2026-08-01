@@ -33,6 +33,10 @@ export const meetingApi = {
     return request.get('/meetings/actions', { params })
   },
 
+  updateAction(meetingId, actionId, data) {
+    return request.put(`/meetings/${meetingId}/actions/${actionId}`, data)
+  },
+
   updateActionStatus(meetingId, actionId, data) {
     return request.put(`/meetings/${meetingId}/actions/${actionId}/status`, data)
   },

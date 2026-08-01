@@ -103,6 +103,48 @@ class TestMeetingActionStatusUpdate:
         assert resp.status_code == 404
 
 
+class TestMeetingActionEdit:
+    """PUT /api/v1/meetings/{id}/actions/{id} 完整编辑。"""
+
+    def test_edit_content_owner_due_status(self, client, db):
+        _, a = _make_action(db, content="旧内容", owner="旧负责人", status="pending")
+        resp = client.put(
+            f"/api/v1/meetings/{a.meeting_id}/actions/{a.id}",
+            json={
+                "content": "新内容",
+                "owner": "新负责人",
+                "due_date": "2026-08-10",
+                "status": "in_progress",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["content"] == "新内容"
+        assert data["owner"] == "新负责人"
+        assert data["due_date"] == "2026-08-10"
+        assert data["status"] == "in_progress"
+
+    def test_edit_partial_fields(self, client, db):
+        _, a = _make_action(db, content="内容", owner="负责人", status="pending")
+        resp = client.put(
+            f"/api/v1/meetings/{a.meeting_id}/actions/{a.id}",
+            json={"content": "只改内容"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["content"] == "只改内容"
+        assert data["owner"] == "负责人"
+        assert data["status"] == "pending"
+
+    def test_edit_not_found(self, client, db):
+        _, a = _make_action(db, content="编辑测试")
+        resp = client.put(
+            f"/api/v1/meetings/{a.meeting_id}/actions/{a.id + 9999}",
+            json={"content": "新内容"},
+        )
+        assert resp.status_code == 404
+
+
 class TestMeetingActionSupervise:
     """POST /api/v1/meetings/{id}/actions/{id}/supervise 督办邮件。"""
 
