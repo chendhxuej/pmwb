@@ -1,6 +1,6 @@
 # PMWB 开发任务总表
 
-> 集成者：Vicky2号 | 更新时间：2026-07-31
+> 集成者：Vicky2号 | 更新时间：2026-08-01
 >
 > **AI 开发者请先看**：`docs/COLLABORATIVE_DEV_WORKFLOW.md` 第四节「标准化任务认领与交付机制」
 
@@ -102,6 +102,17 @@
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
 | sup-2 | 新增督办邮件服务 + 修复导入崩溃 | feature/sup-2-supervise-service | S4 | ✅已合入 | 晓伴→Vicky2号审查 | 5801eca，新增 POST /api/v1/supervise/ticket 和 /action；pytest 13 passed，导入链干净 |
+
+---
+
+## 批次八：会议日程-行动项子模块（ma-3/ma-4）
+
+> 依赖：批次七 sup-2（督办邮件服务）✅已合入 | 目标：在「会议日程」模块下增加「行动项」子页面，支持跨会议查询、筛选、状态切换、一键督办
+
+| task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
+|---------|------|------|------|------|--------|------|
+| ma-3 | 后端：会议行动项查询/状态更新/督办接口 | feature/ma-3-action-backend | S2 | ✅已合入 | Vicky2号 | fcb17cd，pytest 9 passed，修复 dashboard 缺失导入 |
+| ma-4 | 前端：会议行动项子页面 + 菜单 | feature/ma-4-action-frontend | S2 | ✅已合入 | Vicky2号 | 00d9005，vite build passed |
 
 ---
 
