@@ -105,7 +105,7 @@
 
 ---
 
-## 批次八：会议日程-行动项子模块（ma-3/ma-4）
+## 批次八：会议日程-行动项子模块（ma-3/ma-4/ma-5）
 
 > 依赖：批次七 sup-2（督办邮件服务）✅已合入 | 目标：在「会议日程」模块下增加「行动项」子页面，支持跨会议查询、筛选、状态切换、一键督办
 
@@ -113,6 +113,7 @@
 |---------|------|------|------|------|--------|------|
 | ma-3 | 后端：会议行动项查询/状态更新/督办接口 | feature/ma-3-action-backend | S2 | ✅已合入 | Vicky2号 | fcb17cd，pytest 9 passed，修复 dashboard 缺失导入 |
 | ma-4 | 前端：会议行动项子页面 + 菜单 | feature/ma-4-action-frontend | S2 | ✅已合入 | Vicky2号 | 00d9005，vite build passed |
+| ma-5 | 前后端：会议行动项支持完整编辑 | feature/ma-5-action-edit | S2 | ✅已合入 | Vicky2号 | 238b957，pytest 12 passed，vite build passed |
 
 ---
 
