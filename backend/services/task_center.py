@@ -203,7 +203,7 @@ class TaskCenterService:
                 raw_status=r.status or "",
                 owner=r.developer or "",
                 priority=r.priority,
-                due_date=None,
+                due_date=r.go_live_date,  # 开发工单计划完成=实际上线日期
                 created_at=r.created_at.date() if r.created_at else None,
                 source_url=f"/requirement-delivery?ticket={r.ticket_no}",
                 detail={
