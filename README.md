@@ -37,12 +37,12 @@
 ├── backend/              # 主后端（FastAPI, 8000）
 │   ├── main.py           # 应用入口，注册 21 个路由模块
 │   ├── core/             # 配置、异常、统一响应、docx 转换
-│   ├── db/               # SQLAlchemy 模型（27 张表）与连接
+│   ├── db/               # SQLAlchemy 模型（28 张表）与连接
 │   ├── routers/          # API 路由（health/dashboard/task_center/...）
 │   ├── schemas/          # Pydantic 模型
 │   ├── services/         # 业务逻辑
 │   ├── utils/            # dateflags(逾期判据)/email/master_service/obsidian 等
-│   ├── alembic/          # 数据库迁移（20 个版本）
+│   ├── alembic/          # 数据库迁移（23 个版本）
 │   ├── templates/        # 需求分析说明书.docx 模板
 │   ├── tests/            # pytest（20 个测试文件）
 │   └── scripts/          # 开发脚本、数据回填、种子数据
@@ -190,6 +190,18 @@ cd frontend && npm run build                            # 构建须干净
 ```
 
 > 已知：`test_basic_data` / `test_product_bible` 中 3 个用例依赖真实运行的人员中台 8001 与真实库数据，本机环境下会失败，与代码改动无关（已用纯净 main worktree 对照验证）。
+
+## 文档索引
+
+| 文档 | 状态 | 说明 |
+| :--- | :--- | :--- |
+| `docs/需求规格说明书.md` | ✅ 现行 v0.7 | 系统全貌：11 个模块、28 张表、架构与服务拓扑 |
+| `docs/COLLABORATIVE_DEV_WORKFLOW.md` | ✅ 现行 v1.1 | 多 AI 协同开发规范（分支/审查/合版） |
+| `docs/开发工单模块设计.md` | ✅ 现行 | 模块3 详细设计（状态流、表结构、归档规则） |
+| `.workbuddy/tasks/TASKS.md` | ✅ 现行 | 任务总表与批次记录 |
+| `docs/architecture_review_2026-07-25.md` | 📌 历史快照 | 架构审查报告，主要整改项已落地 |
+| `docs/ui-redesign-proposals.md` | 📌 提案 | 表单 UI 重设计，仅局部采纳 |
+| `docs/开发计划与worktree并行开发方案.md` | 🗄️ 已归档 | worktree 并行方式已弃用 |
 
 ---
 

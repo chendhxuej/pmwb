@@ -1,5 +1,9 @@
 # 产品经理个人工作台系统 (PMWB) — 架构深度审查报告
 
+> 📌 **文档状态：历史快照（不再更新）**。这是 2026-07-25 时点的审查记录，其中主要整改项已于 07-25 ~ 07-28 落地：
+> `utils/dateflags.py` 统一逾期判据、邮件发送降级契约（返回 `{"ok",...}` 不抛异常）、`SECRET_KEY`/`DB_PASSWORD` 强制环境变量、`ix_sent_emails_req_id` 索引。
+> 架构现状请以 `需求规格说明书.md`（v0.7）与 `README.md` 为准。
+
 - 审查日期：2026-07-25
 - 审查视角：资深软件架构师
 - 审查范围：后端（FastAPI + SQLAlchemy + MySQL）、前端（Vue3 + Element Plus + Vite）、工程化 / DevOps / 技术债
