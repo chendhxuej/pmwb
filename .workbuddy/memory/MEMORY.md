@@ -21,6 +21,7 @@
 - **菜单 hidden 坑**：`MainLayout.vue` 的 `menuItems` 必须 `.filter(c=>!c.meta?.hidden)` 才真正隐藏；meta 无 title 回退显示路由 name（难看英文）。
 - python-docx：`doc.styles[name]`；链式 `anchor._element.addnext(new_p)`。需求交付附件删除 `filename` 用 `Body(embed=True)` 收 JSON，上传 `File(...)` multipart。
 - 沙箱删守卫：Obsidian vault 路径 os.remove/rmtree 被沙箱拦截(409)，真实环境正常，勿改业务逻辑绕过。
+- **⚠️ 沙箱 git 仓库残缺+对象库损坏坑（2026-08-01 实测修正）**：沙箱 `.git` 常是残缺副本（只跟踪十几~几十文件，`backend/main.py` 等不 tracked），且对象库可损坏（`fetch` 报 `missing blob`/`unresolved deltas`；`refs/stash`、`refs/heads/feature/*`、`.git/HEAD` 会被沙箱文件系统搞丢，致 `HEAD` 失效）。**直接 `git push` 当前残缺分支是可行的**——GitHub 上该分支 tree 视图不全（缺主干文件），但本次改动 blob 内容完整、PR 合入 `main` 时三方合并**不会删除 main 已有文件**（项目 `feature/ui-3-dashboard-polish` 等同模式分支已成功合入）。若需分支 tree 完整（独立构建/继续开发），须在本机完整仓库基于 `origin/main` 重建分支再推。推送后验证：`git ls-remote origin <branch>` 确认远端 SHA；`git show --stat <sha>` / `git ls-tree -r <sha>`（用本地对象库）确认改动文件都在。沙箱内不必反复修 HEAD/ref（写不持久化），远端已推送即达标。
 
 ## 架构整改约定（2026-07-25 审查落地）
 - **催办/逾期判据单一来源**：`backend/utils/dateflags.py`（`is_overdue`/`is_due_soon`/`flag_due_date`/`relative_status`）；task_center/requirement/reminder 三处禁止各自实现，否则数字漂移。
@@ -28,6 +29,7 @@
 - **配置强制环境变量**：`SECRET_KEY`/`DB_PASSWORD` 必填、从 `.env` 读取，缺失即报错；`DEBUG` 默认 False。加必填项须同步 `backend/.env` 与 README 示例。
 - **sent_emails 索引**：`req_id` 已加 `ix_sent_emails_req_id`（迁移 20260725000002）；改模型索引须同步补 Alembic 迁移。
 - 改 SQLAlchemy 模型(增/改列)后必须先 `alembic upgrade head` 再起后端（否则 1054 Unknown column→前端500）。
+- **会议邮件收件人兼容「姓名/邮箱」**：`services/meeting.py send_mail` 的 `to`/`cc` 支持「中文姓名 或 邮箱」混合输入；非邮箱文本经 `MasterServiceClient.resolve_staff_emails` 走人员中台解析为邮箱，全部无法解析才报清晰错误（不再 400 裸拒）。前端 `MeetingView.vue` 邮件弹窗 `openMailDialog` 默认填参会人姓名即可，无需改回只收邮箱。
 
 ## 协同开发规范（2026-07-28 确立）
 - **铁律**：禁止在 main 主干直接开发，所有改动走 feature 分支 → Vicky2号审查合版。
@@ -44,4 +46,4 @@
 
 ## 项目约定踩坑补充（2026-07-29）
 - **`.gitignore` 放行**：`.workbuddy/{memory,reviews,tasks}/` 已放行纳入版本库（协同可见）；`automations/`、`scripts/` 仍忽略（可能含密钥/临时脚本）。改之前是整目录 `.workbuddy/` 忽略，导致审查记录对晓伴不可见，异步机制失效——已修复。
-- **首页看板重构铁律（老大明确）**：新旧页面共存。`HomeView.vue`（路由 `/`）在 db-3/4/5 确认 OK 前**绝不允许改动**；所有重构走新建 `DashboardV2View.vue` + 路由 `/dashboard-v2`。开发者（晓伴）连续 3 次分支都直接改了旧首页 → 已退回。
+- **首页看板重构铁律（已调整 2026-08-03）**：原「db-3/4/5 确认 OK 前绝不允许改 `HomeView.vue`」**已被老大新指令覆盖**——2026-08-03 老大明确「直接优化旧版 HomeView」，故 `HomeView.vue` 现已允许直接迭代（本轮已补 5 类模块卡片 + 修 2 处口径）。原 db-3/4/5 审查退回方案（新建 `DashboardV2View.vue` + /dashboard-v2 路由）**已于 2026-08-03 应老大指令废弃并删除**（源文件、路由、旧 dist 产物已清，`vite build` 干净）；现仅保留旧版 `HomeView.vue` 为唯一看板页，后端 `get_dashboard()` 等聚合接口只服务此页。

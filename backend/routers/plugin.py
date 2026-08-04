@@ -131,6 +131,16 @@ def list_contacts(db: Session = Depends(get_db)):
         return {"success": False, "error": str(exc)}
 
 
+@router.post("/contacts/sync-from-master")
+def sync_contacts_from_master(db: Session = Depends(get_db)):
+    """从人员中台(8001)同步 role=SA 人员到插件收件人表（sa_info）。"""
+    try:
+        result = plugin_service.sync_from_master(db)
+        return {"success": True, **result}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)}
+
+
 @router.get("/contacts/check")
 def check_contact_duplicate(
     sa_name: str = Query(..., description="SA姓名"),

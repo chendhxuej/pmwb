@@ -51,7 +51,10 @@
         <el-table-column prop="meeting_title" label="会议主题" min-width="180" show-overflow-tooltip />
         <el-table-column prop="content" label="行动项内容" min-width="260" show-overflow-tooltip />
         <el-table-column prop="owner" label="负责人" width="120" />
-        <el-table-column prop="due_date" label="截止日期" width="120">
+        <el-table-column prop="created_at" label="创建时间" width="130">
+          <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="due_date" label="计划完成" width="120">
           <template #default="{ row }">{{ row.due_date || '-' }}</template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="110">

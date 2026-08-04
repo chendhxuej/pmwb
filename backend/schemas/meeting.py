@@ -81,6 +81,7 @@ class MeetingAgendaBase(BaseModel):
     topic: str = Field(..., max_length=255, description="议题标题")
     conclusion: Optional[str] = Field(None, description="商讨结论")
     division: Optional[str] = Field(None, description="分工说明")
+    background: Optional[str] = Field(None, description="议题背景说明")
 
 
 class MeetingAgendaCreate(MeetingAgendaBase):
@@ -141,6 +142,7 @@ class MeetingUpdate(BaseModel):
     related_req_id: Optional[str] = Field(None, max_length=64)
     related_ticket_no: Optional[str] = Field(None, max_length=64)
     status: Optional[MeetingStatus] = None
+    minutes_required: Optional[bool] = None
     attendees: Optional[List[MeetingAttendeeCreate]] = None
     agendas: Optional[List[MeetingAgendaCreate]] = None
     actions: Optional[List[MeetingActionCreate]] = None

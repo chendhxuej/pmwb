@@ -29,11 +29,13 @@ from schemas.task_center import (
     STATUS_LABELS,
     TASK_SOURCES,
     TaskItem,
+    TaskRef,
     TaskSendRequest,
     TaskStats,
 )
 from utils.dateflags import flag_due_date
 from utils.email import EmailCenterClient
+from utils.master_service import master_service_client
 from utils.validators import split_and_validate_emails
 
 logger = logging.getLogger("pmwb.task_center")
@@ -133,6 +135,7 @@ class TaskCenterService:
                 owner="我",
                 priority=r.priority,
                 due_date=r.due_date,
+                created_at=r.created_at.date() if r.created_at else None,
                 source_url=f"/todo?id={r.id}",
                 detail={
                     "分类": r.category,
@@ -167,6 +170,7 @@ class TaskCenterService:
                 owner=r.handler or "",
                 priority=r.impact_level,
                 due_date=due,
+                created_at=r.created_at.date() if r.created_at else None,
                 source_url=f"/operation?issueId={r.id}",
                 detail={
                     "工单编号": r.issue_no,
@@ -201,7 +205,8 @@ class TaskCenterService:
                 raw_status=r.status or "",
                 owner=r.developer or "",
                 priority=r.priority,
-                due_date=None,
+                due_date=r.go_live_date,  # 开发工单计划完成=实际上线日期
+                created_at=r.created_at.date() if r.created_at else None,
                 source_url=f"/requirement-delivery?ticket={r.ticket_no}",
                 detail={
                     "工单编号": r.ticket_no,
@@ -237,6 +242,7 @@ class TaskCenterService:
                 owner=r.owner or "",
                 priority=None,
                 due_date=r.due_date,
+                created_at=r.created_at.date() if r.created_at else None,
                 source_url=f"/meeting?actionId={r.id}",
                 synced_to_todo=bool(r.related_todo_id),
                 detail={
@@ -271,6 +277,7 @@ class TaskCenterService:
                 owner=r.assignee or "",
                 priority=None,
                 due_date=r.due_date,
+                created_at=r.created_at.date() if r.created_at else None,
                 source_url=f"/key-works?id=task-{r.id}",
                 detail={
                     "类型": "成员待办",
@@ -300,6 +307,7 @@ class TaskCenterService:
                 owner=kw_owner or "",
                 priority=None,
                 due_date=r.due_date,
+                created_at=r.created_at.date() if r.created_at else None,
                 source_url=f"/key-works?id=milestone-{r.id}",
                 detail={
                     "类型": "里程碑",
@@ -391,6 +399,7 @@ class TaskCenterService:
                 owner=owner,
                 priority=None,
                 due_date=None,
+                created_at=None,
                 source_url=f"/requirement-delivery?req={r.req_id}&sa={r.sa_name}",
                 detail={
                     "需求编号": r.req_id,
@@ -458,13 +467,8 @@ class TaskCenterService:
                 if kw in t.title.lower() or kw in (t.owner or "").lower()
                 or kw in str(t.detail).lower()
             ]
-        # 排序：超期 > 临期 > 有截止日期(近的先) > 无截止日期
-        items.sort(key=lambda t: (
-            not t.is_overdue,
-            not t.is_due_soon,
-            t.due_date is None,
-            t.due_date or date.max,
-        ))
+        # 排序：默认按创建时间倒序（无创建时间排最后）；超期/临期仍由高亮与"只看超期"筛选突出
+        items.sort(key=lambda t: t.created_at or date.min, reverse=True)
         total = len(items)
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
@@ -514,10 +518,73 @@ class TaskCenterService:
     # ------------------------------------------------------------------
 
     def resolve_contacts(self, names: List[str]) -> Dict[str, Optional[str]]:
-        return self.email_client.resolve_contact_emails(names)
+        """按姓名解析收件人邮箱：优先人员中台(8001)，邮件中心通讯录兜底。
+
+        之前只查邮件中心旧通讯录，导致邮箱与人员中台不一致（如旧域名邮箱）。
+        现改为以人员中台为唯一权威来源，邮件中心仅作查不到时的兜底。
+        """
+        result = master_service_client.resolve_staff_emails(names)
+        missing = [n for n, e in result.items() if not e]
+        if missing:
+            fallback = self.email_client.resolve_contact_emails(missing)
+            for n in missing:
+                if fallback.get(n):
+                    result[n] = fallback[n]
+        return result
+
+    def build_email_body(self, db: Session, tasks: List[TaskRef], send_type: str) -> str:
+        """按工单标题/内容/责任人/完成时间结构化拼装邮件正文（单一模板来源）。
+
+        收件人看到的每一条工单均包含：标题、来源、责任人、完成时间、当前状态、
+        工单内容（源模块关键字段摘要），确保「收到邮件即清楚是什么事」。
+        """
+        # 不同任务来源 detail 中承载「任务描述」的字段名不一，按优先级取其一
+        desc_keys = ["需求描述", "情况说明", "行动项", "内容", "说明", "备注", "风险说明"]
+        intro = (
+            "各位：\n\n以下任务已到跟进节点，麻烦尽快处理并反馈进展，辛苦了！\n"
+            if send_type == "urge"
+            else "各位：\n\n同步以下任务的当前情况，请知悉。\n"
+        )
+        blocks: List[str] = []
+        for idx, ref in enumerate(tasks, 1):
+            item = self.get_detail(db, f"{ref.source}:{ref.source_id}")
+            if item is None:
+                blocks.append(
+                    f"{idx}. [{SOURCE_LABELS.get(ref.source, ref.source)}] （任务已不存在: {ref.source_id}）"
+                )
+                continue
+            due = f"完成时间：{item.due_date}" if item.due_date else "完成时间：未设定"
+            overdue = "【已超期】" if item.is_overdue else ("【即将到期】" if item.is_due_soon else "")
+            desc = next((item.detail.get(k) for k in desc_keys if item.detail.get(k)), None)
+            content = (str(desc)[:500]).strip() if desc else "（无补充说明）"
+            blocks.append(
+                f"{idx}. {item.title}\n"
+                f"   · 来源：{item.source_label}\n"
+                f"   · 责任人：{item.owner or '未指定'}\n"
+                f"   · {due}{(' ' + overdue) if overdue else ''}\n"
+                f"   · 当前状态：{item.status_label}\n"
+                f"   · 工单内容：{content}"
+            )
+        return intro + "—— 待办事项明细 ——\n" + "\n".join(blocks) + "\n\n—— 产品经理工作台（PMWB）"
 
     def send_notification(self, db: Session, obj_in: TaskSendRequest) -> Dict[str, Any]:
-        """发送任务通知/催办邮件，落 email_records（source=task-center）。"""
+        """发送任务通知/催办邮件，落 email_records（source=task-center）。
+
+        dry_run=True 时仅返回后端模板化拼装的正文（用于前端预览，所见即所得）。
+        正文优先使用前端传入（即预览所见），为空才由后端兜底生成。
+        """
+        if not obj_in.tasks:
+            raise ValidationException("请至少选择一个任务")
+
+        # 正文：优先使用前端传入（预览即最终发送），为空则后端兜底生成
+        if obj_in.body and obj_in.body.strip():
+            body = obj_in.body
+        else:
+            body = self.build_email_body(db, obj_in.tasks, obj_in.send_type)
+
+        if obj_in.dry_run:
+            return {"success": True, "preview": True, "body": body}
+
         bad: List[str] = []
         _, invalid_to = split_and_validate_emails(obj_in.to or "")
         bad.extend(invalid_to)
@@ -529,30 +596,14 @@ class TaskCenterService:
                 "收件人邮箱格式不正确：" + "、".join(bad)
                 + "。请填写真实邮箱（可在统一邮件中心通讯录按姓名查询）。"
             )
-        if not obj_in.tasks:
-            raise ValidationException("请至少选择一个任务")
 
-        # 组装任务清单附在正文尾部
-        task_lines: List[str] = []
+        # 取首条任务标题作为记录名
         first_title = ""
-        # 不同任务来源 detail 中承载「任务描述」的字段名不一，按优先级取其一
-        desc_keys = ["需求描述", "情况说明", "行动项", "内容", "说明", "备注", "风险说明"]
-        for idx, ref in enumerate(obj_in.tasks, 1):
+        for ref in obj_in.tasks:
             item = self.get_detail(db, f"{ref.source}:{ref.source_id}")
-            if item is None:
-                task_lines.append(f"{idx}. [{SOURCE_LABELS.get(ref.source, ref.source)}] (任务已不存在: {ref.source_id})")
-                continue
-            if not first_title:
+            if item and not first_title:
                 first_title = item.title
-            due = f"，截止 {item.due_date}" if item.due_date else ""
-            overdue = "【已超期】" if item.is_overdue else ""
-            desc = next((item.detail.get(k) for k in desc_keys if item.detail.get(k)), None)
-            desc_part = f"\n    任务描述：{desc[:200]}" if desc else ""
-            task_lines.append(
-                f"{idx}. [{item.source_label}] {item.title}"
-                f"（负责人：{item.owner or '未指定'}，状态：{item.status_label}{due}）{overdue}{desc_part}"
-            )
-        body = obj_in.body.rstrip() + "\n\n—— 关联任务清单 ——\n" + "\n".join(task_lines)
+                break
 
         email_type = "pmwb_task_urge" if obj_in.send_type == "urge" else "pmwb_task_notify"
         record = EmailRecord(

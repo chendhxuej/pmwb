@@ -3,6 +3,10 @@
     <div class="page-header">
       <div class="page-title">任务中心</div>
       <div class="page-actions">
+        <el-button type="primary" @click="openNewTodo">
+          <el-icon><Plus /></el-icon>
+          <span>新建待办</span>
+        </el-button>
         <el-button type="primary" :loading="loading" @click="refreshAll">刷新</el-button>
       </div>
     </div>
@@ -145,7 +149,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="截止日期" width="120">
+        <el-table-column prop="created_at" label="创建时间" width="120">
+          <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="计划完成" width="120">
           <template #default="{ row }">
             <span :class="{ 'due-overdue': row.is_overdue, 'due-soon': row.is_due_soon }">
               {{ row.due_date || '—' }}
@@ -189,7 +196,7 @@
           </el-descriptions-item>
           <el-descriptions-item label="负责人">{{ detailTask.owner || '—' }}</el-descriptions-item>
           <el-descriptions-item label="优先级">{{ detailTask.priority || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="截止日期">
+          <el-descriptions-item label="计划完成">
             <span :class="{ 'due-overdue': detailTask.is_overdue, 'due-soon': detailTask.is_due_soon }">
               {{ detailTask.due_date || '—' }}
               <template v-if="detailTask.is_overdue">（已超期）</template>
@@ -268,6 +275,64 @@
         <el-button type="primary" :loading="urgeSending" @click="handleUrgeSend">发送</el-button>
       </template>
     </el-dialog>
+
+    <!-- 新建待办（个人待办整合入口，复用待办核心字段） -->
+    <el-dialog
+      v-model="newTodoVisible"
+      title="新建待办"
+      width="560px"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
+      <el-form :model="newTodoForm" label-width="92px" :rules="newTodoRules" ref="newTodoFormRef">
+        <el-form-item label="标题" prop="title">
+          <el-input v-model="newTodoForm.title" placeholder="待办标题" maxlength="120" show-word-limit />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="分类" prop="category">
+              <el-select v-model="newTodoForm.category" placeholder="请选择" style="width: 100%">
+                <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="优先级" prop="priority">
+              <el-select v-model="newTodoForm.priority" placeholder="请选择" style="width: 100%">
+                <el-option v-for="item in priorityOptions" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="状态" prop="status">
+              <el-select v-model="newTodoForm.status" placeholder="请选择" style="width: 100%">
+                <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="计划完成">
+              <el-date-picker
+                v-model="newTodoForm.due_date"
+                type="date"
+                placeholder="选择日期"
+                style="width: 100%"
+                value-format="YYYY-MM-DD"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="内容">
+          <el-input v-model="newTodoForm.content" type="textarea" :rows="3" placeholder="补充说明（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="newTodoVisible = false">取消</el-button>
+        <el-button type="primary" :loading="newTodoSubmitting" @click="handleNewTodoSubmit">创建</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -275,12 +340,89 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { User } from '@element-plus/icons-vue'
-import { getTaskStats, getTasks, resolveTaskContacts, sendTaskEmail } from '@/api/taskCenter.js'
+import { User, Plus } from '@element-plus/icons-vue'
+import { getTaskStats, getTasks, resolveTaskContacts, sendTaskEmail, previewTaskEmail } from '@/api/taskCenter.js'
 import { getPendingReminders, sendReminder, resolveContacts } from '@/api/reminder.js'
+import { todoApi } from '@/api/todo'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 
 const router = useRouter()
+
+// ------- 新建待办（整合个人待办入口） -------
+const newTodoVisible = ref(false)
+const newTodoSubmitting = ref(false)
+const newTodoFormRef = ref(null)
+
+const categoryOptions = [
+  { value: 'requirement', label: '需求' },
+  { value: 'ticket', label: '工单' },
+  { value: 'operation', label: '运营问题' },
+  { value: 'meeting', label: '会议' },
+  { value: 'study', label: '学习' },
+  { value: 'other', label: '其他' },
+]
+const statusOptions = [
+  { value: 'todo', label: '未开始' },
+  { value: 'in_progress', label: '进行中' },
+  { value: 'done', label: '已完成' },
+  { value: 'cancelled', label: '已取消' },
+]
+const priorityOptions = [
+  { value: 'P0', label: 'P0' },
+  { value: 'P1', label: 'P1' },
+  { value: 'P2', label: 'P2' },
+  { value: 'P3', label: 'P3' },
+]
+
+const newTodoForm = reactive({
+  title: '',
+  content: '',
+  category: 'other',
+  priority: 'P2',
+  status: 'todo',
+  due_date: '',
+  source: 'manual',
+})
+
+const newTodoRules = {
+  title: [{ required: true, message: '请输入待办标题', trigger: 'blur' }],
+  category: [{ required: true, message: '请选择分类', trigger: 'change' }],
+  priority: [{ required: true, message: '请选择优先级', trigger: 'change' }],
+  status: [{ required: true, message: '请选择状态', trigger: 'change' }],
+}
+
+function openNewTodo() {
+  Object.assign(newTodoForm, {
+    title: '',
+    content: '',
+    category: 'other',
+    priority: 'P2',
+    status: 'todo',
+    due_date: '',
+    source: 'manual',
+  })
+  newTodoVisible.value = true
+}
+
+async function handleNewTodoSubmit() {
+  if (!newTodoFormRef.value) return
+  newTodoFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    const payload = { ...newTodoForm }
+    if (!payload.due_date) payload.due_date = null
+    newTodoSubmitting.value = true
+    try {
+      await todoApi.createTodo(payload)
+      ElMessage.success('待办创建成功')
+      newTodoVisible.value = false
+      refreshAll()
+    } catch (e) {
+      ElMessage.error(e?.response?.data?.message || e?.message || '创建失败')
+    } finally {
+      newTodoSubmitting.value = false
+    }
+  })
+}
 
 const sourceList = [
   { key: 'todo', label: '个人待办' },
@@ -411,31 +553,43 @@ async function openTaskEmail(rows, sendType) {
   emailForm.subject =
     (sendType === 'urge' ? '催办：' : '通知：') +
     (rows.length === 1 ? first.title?.slice(0, 40) : `${rows.length} 项待办任务`)
+  // 默认兜底正文（预览接口失败时使用）
   emailForm.body =
     sendType === 'urge'
       ? '各位：\n\n以下任务已到跟进节点，麻烦尽快处理并反馈进展，辛苦了！\n\n——产品经理工作台（PMWB）'
       : '各位：\n\n同步以下任务的当前情况，请知悉。\n\n——产品经理工作台（PMWB）'
-  emailDialogVisible.value = true
   // 按负责人姓名自动解析邮箱（排除"我"/未分配）
   const names = [...new Set(
     rows.map((t) => (t.owner || '').trim()).filter((n) => n && n !== '我' && n !== '未分配')
   )].flatMap((n) => n.split(/[,;，；、\s]+/).filter(Boolean))
-  if (!names.length) return
-  try {
-    const map = (await resolveTaskContacts([...new Set(names)])) || {}
-    const resolved = []
-    const missing = []
-    for (const n of new Set(names)) {
-      if (map[n]) resolved.push(map[n])
-      else missing.push(n)
+  if (names.length) {
+    try {
+      const map = (await resolveTaskContacts([...new Set(names)])) || {}
+      const resolved = []
+      const missing = []
+      for (const n of new Set(names)) {
+        if (map[n]) resolved.push(map[n])
+        else missing.push(n)
+      }
+      emailTo.value = resolved
+      if (missing.length) {
+        ElMessage.warning(`以下负责人未在通讯录找到邮箱，请手动填写：${missing.join('、')}`)
+      }
+    } catch (e) {
+      console.error('解析收件人失败', e)
     }
-    emailTo.value = resolved
-    if (missing.length) {
-      ElMessage.warning(`以下负责人未在通讯录找到邮箱，请手动填写：${missing.join('、')}`)
-    }
-  } catch (e) {
-    console.error('解析收件人失败', e)
   }
+  // 拉取后端模板化拼装的正文预览（所见即所得：标题/内容/责任人/完成时间）
+  try {
+    const res = await previewTaskEmail(
+      emailForm.tasks.map((t) => ({ source: t.source, source_id: t.source_id })),
+      sendType
+    )
+    if (res && res.success && res.body) emailForm.body = res.body
+  } catch (e) {
+    console.error('预览正文生成失败', e)
+  }
+  emailDialogVisible.value = true
 }
 
 function removeEmailTask(t) {

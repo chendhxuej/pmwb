@@ -276,6 +276,9 @@ class PmwbOperationIssue(Base):
     related_system = Column(String(128), comment="关联系统")
     obsidian_path = Column(String(512), comment="沉淀知识条目路径")
     is_overdue = Column(Integer, default=0, comment="是否超期")
+    go_live_date = Column(Date, comment="计划完成时间")
+    result_feedback = Column(Text, comment="处理结果反馈")
+    attachments = Column(Text, comment="附件元信息(JSON 数组)")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,
@@ -319,6 +322,7 @@ class PmwbMeeting(Base):
     related_req_id = Column(String(64), comment="关联需求编号")
     related_ticket_no = Column(String(64), comment="关联开发工单编号")
     status = Column(Enum("planned", "held", "cancelled", "not_attended"), default="planned", comment="状态")
+    minutes_required = Column(Boolean, default=True, comment="是否需要纪要（开完会无需记录纪要时置为 False，从待归档列表移除）")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,
@@ -349,6 +353,7 @@ class PmwbMeetingAgenda(Base):
     topic = Column(String(255), nullable=False, comment="议题标题")
     conclusion = Column(Text, comment="商讨结论")
     division = Column(Text, comment="分工说明")
+    background = Column(Text, comment="议题背景说明")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from db.models import SaInfo, SentEmail
 from utils.email import EmailCenterClient
+from utils.master_service import master_service_client
 
 # 与 2525 中继 ensureSaInfoTable 对齐（create_all 已建表，这里仅作兜底）
 SA_INFO_DDL = """CREATE TABLE IF NOT EXISTS sa_info (
@@ -198,6 +199,61 @@ class PluginService:
         )
         db.commit()
         return n
+
+    def sync_from_master(self, db: Session) -> Dict[str, Any]:
+        """从人员中台(8001)拉取 role=SA 的人员，upsert 进 sa_info 收件人表。
+
+        以 (姓名,系统) 或 邮箱 匹配：已存在则更新邮箱/系统，不存在则新建。
+        系统(system_name) 取人员中台的 org_name。
+        """
+        self.ensure_sa_info(db)
+        sa_staffs = master_service_client.list_sa_staffs()
+        if not sa_staffs:
+            return {"created": 0, "updated": 0, "skipped": 0, "errors": ["人员中台无 SA 人员"]}
+        created = updated = skipped = 0
+        errors: List[str] = []
+        for s in sa_staffs:
+            name = (s.get("name") or "").strip()
+            email = (s.get("email") or "").strip()
+            org = (s.get("org_name") or "").strip()
+            if not name or not email:
+                continue
+            try:
+                existing = (
+                    db.query(SaInfo)
+                    .filter(
+                        ((SaInfo.sa_name == name) & (SaInfo.system_name == (org or None)))
+                        | (SaInfo.email == email)
+                    )
+                    .first()
+                )
+                if existing:
+                    changed = False
+                    if existing.email != email:
+                        existing.email = email
+                        changed = True
+                    if org and existing.system_name != org:
+                        existing.system_name = org
+                        changed = True
+                    if changed:
+                        db.commit()
+                        updated += 1
+                    else:
+                        skipped += 1
+                else:
+                    db.add(SaInfo(
+                        sa_name=name,
+                        system_name=org or None,
+                        email=email,
+                        wechat_nickname="",
+                    ))
+                    db.commit()
+                    created += 1
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                errors.append(f"{name}: {exc}")
+                skipped += 1
+        return {"created": created, "updated": updated, "skipped": skipped, "errors": errors}
 
 
 plugin_service = PluginService()

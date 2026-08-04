@@ -24,3 +24,12 @@ export function resolveTaskContacts(names) {
 export function sendTaskEmail(data) {
   return request.post('/task-center/send', data)
 }
+
+// 预览邮件正文（dry_run：后端按模板拼装完整结构化正文，所见即所得，不发送不落库）
+export function previewTaskEmail(tasks, sendType) {
+  return request.post('/task-center/send', {
+    tasks,
+    send_type: sendType || 'urge',
+    dry_run: true,
+  })
+}

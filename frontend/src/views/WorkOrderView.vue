@@ -114,27 +114,32 @@
       <el-table-column label="创建时间" width="130">
         <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="190" fixed="right">
+      <el-table-column label="计划完成" width="130">
+        <template #default="{ row }">{{ row.go_live_date ? String(row.go_live_date).slice(0, 10) : '-' }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="210" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-          <el-dropdown size="small" trigger="click" @command="(cmd) => changeStatus(row, cmd)">
-            <el-button link type="primary" :loading="statusLoadingMap[row.id]">
-              改状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item
-                  v-for="s in STATUS_OPTIONS"
-                  :key="s.key"
-                  :command="s.key"
-                  :disabled="row.status === s.key"
-                >
-                  <span :class="['status-dot', 'dot-' + s.key]"></span>{{ s.label }}
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-button link type="warning" @click="openEmail(row)">督办</el-button>
+          <div class="row-actions">
+            <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+            <el-dropdown size="small" trigger="click" @command="(cmd) => changeStatus(row, cmd)">
+              <el-button link type="primary" :loading="statusLoadingMap[row.id]">
+                改状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    v-for="s in STATUS_OPTIONS"
+                    :key="s.key"
+                    :command="s.key"
+                    :disabled="row.status === s.key"
+                  >
+                    <span :class="['status-dot', 'dot-' + s.key]"></span>{{ s.label }}
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <el-button link type="warning" @click="openEmail(row)">督办</el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -183,6 +188,7 @@
             <el-descriptions-item label="优先级/影响">{{ detailRow?.impact_level || '-' }}</el-descriptions-item>
             <el-descriptions-item label="发现时间">{{ formatDateTime(detailRow?.discovery_date) }}</el-descriptions-item>
             <el-descriptions-item label="解决时间">{{ formatDateTime(detailRow?.resolve_date) }}</el-descriptions-item>
+            <el-descriptions-item label="计划完成时间">{{ detailRow?.go_live_date ? String(detailRow.go_live_date).slice(0, 10) : '—' }}</el-descriptions-item>
             <el-descriptions-item label="关联需求">{{ detailRow?.related_req_id || '-' }}</el-descriptions-item>
             <el-descriptions-item label="关联工单">{{ detailRow?.related_ticket_no || '-' }}</el-descriptions-item>
             <el-descriptions-item label="关联系统">{{ detailRow?.related_system || '-' }}</el-descriptions-item>
@@ -197,6 +203,24 @@
         <div class="dt-sec">
           <div class="dt-sec-title">情况说明</div>
           <div class="dt-desc">{{ detailRow?.situation_desc || '—' }}</div>
+        </div>
+
+        <!-- 处理结果反馈 -->
+        <div class="dt-sec">
+          <div class="dt-sec-title">处理结果反馈</div>
+          <div class="dt-desc">{{ detailRow?.result_feedback || '—' }}</div>
+        </div>
+
+        <!-- 附件 -->
+        <div class="dt-sec" v-if="detailAttachments.length">
+          <div class="dt-sec-title">附件</div>
+          <div class="att-list">
+            <div class="att-item" v-for="a in detailAttachments" :key="a.name">
+              <el-icon><Document /></el-icon>
+              <a class="att-link" :href="`/api/v1/operation/issues/${detailRow?.id}/attachments/download?filename=${encodeURIComponent(a.name)}`" target="_blank">{{ a.name }}</a>
+              <span class="att-size">{{ a.size }}</span>
+            </div>
+          </div>
         </div>
 
         <!-- 关联知识库 -->
@@ -286,19 +310,37 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="期望完成">
-              <el-date-picker v-model="form.due" type="date" placeholder="选填" style="width:100%" />
+            <el-form-item label="计划完成">
+              <el-date-picker v-model="form.go_live_date" type="date" value-format="YYYY-MM-DD" placeholder="选填" style="width:100%" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-form-item label="情况说明" prop="situation_desc">
           <el-input v-model="form.situation_desc" type="textarea" :rows="3" placeholder="影响范围/具体情况说明" />
         </el-form-item>
+        <el-form-item label="处理结果反馈">
+          <el-input v-model="form.result_feedback" type="textarea" :rows="3" placeholder="填写工单处理结果 / 闭环说明（可后续编辑更新）" />
+        </el-form-item>
         <el-form-item label="关联知识库">
           <div class="note-picker">
             <el-input v-model="form.obsidian_path" placeholder="选择关联的 Obsidian 知识笔记" readonly style="flex:1" />
             <el-button @click="openLinkPicker('entry')">选择笔记</el-button>
             <el-button v-if="form.obsidian_path" link type="danger" @click="form.obsidian_path = ''">清除</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="附件">
+          <div class="att-block">
+            <el-button size="small" :loading="attUploading" @click="pickAttachment">+ 添加附件</el-button>
+            <input ref="attInput" type="file" style="display:none" @change="onAttachmentPicked" />
+            <div class="att-list" v-if="form.attachments.length">
+              <div class="att-item" v-for="a in form.attachments" :key="a.name">
+                <el-icon><Document /></el-icon>
+                <span class="att-name" :title="a.name">{{ a.name }}</span>
+                <span class="att-size">{{ a.size }}</span>
+                <el-button link type="danger" size="small" :loading="attDeleting === a.name" @click="removeAttachment(a.name)">删除</el-button>
+              </div>
+            </div>
+            <div class="att-hint" v-else>暂无附件</div>
           </div>
         </el-form-item>
       </el-form>
@@ -500,6 +542,8 @@ const stepClass = (idx) => (idx < currentIdx.value ? 'done' : idx === currentIdx
 const supervisionRecords = reactive({})
 const supervisionList = computed(() => (detailRow.value && supervisionRecords[detailRow.value.id]) || [])
 
+const detailAttachments = computed(() => parseAttachments(detailRow.value?.attachments))
+
 const openDetail = async (row) => {
   detailRow.value = row
   nextStatus.value = row?.status || ''
@@ -567,7 +611,8 @@ const entryLoading = ref(false)
 const formRef = ref(null)
 const form = reactive({
   id: null, issue_no: '', category: 'prod', issue_type: 'other', title: '', handler: [],
-  impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '',
+  impact_level: 'P2', go_live_date: '', result_feedback: '', situation_desc: '', obsidian_path: '',
+  attachments: [],
 })
 const entryTypeOptions = computed(() => TYPE_BY_CAT[form.category] || [])
 const entryRules = {
@@ -595,7 +640,8 @@ const openEntry = () => {
   isEdit.value = false
   Object.assign(form, {
     id: null, issue_no: '', category: activeTab.value === 'all' ? 'prod' : activeTab.value,
-    issue_type: 'other', title: '', handler: [], impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '',
+    issue_type: 'other', title: '', handler: [], impact_level: 'P2', go_live_date: '', result_feedback: '',
+    situation_desc: '', obsidian_path: '', attachments: [],
   })
   onCatChange()
   entryVisible.value = true
@@ -612,9 +658,11 @@ const openEditFromDetail = () => {
     title: detailRow.value.title,
     handler: (detailRow.value.handler || '').split(',').filter(Boolean),
     impact_level: detailRow.value.impact_level || 'P2',
-    due: '',
+    go_live_date: (detailRow.value.go_live_date || '').slice(0, 10),
+    result_feedback: detailRow.value.result_feedback || '',
     situation_desc: detailRow.value.situation_desc || '',
     obsidian_path: detailRow.value.obsidian_path || '',
+    attachments: parseAttachments(detailRow.value.attachments),
   })
   onCatChange()
   entryVisible.value = true
@@ -632,6 +680,8 @@ const submitEntry = () => {
       impact_level: form.impact_level,
       situation_desc: form.situation_desc.trim(),
       obsidian_path: form.obsidian_path || null,
+      go_live_date: form.go_live_date || null,
+      result_feedback: (form.result_feedback || '').trim() || null,
     }
     if (isEdit.value && form.id) payload.status = detailRow.value?.status || 'pending'
     entryLoading.value = true
@@ -654,6 +704,60 @@ const submitEntry = () => {
       entryLoading.value = false
     }
   })
+}
+
+// ---- 附件管理 ----
+const attInput = ref(null)
+const attUploading = ref(false)
+const attDeleting = ref('')
+
+function parseAttachments(raw) {
+  if (!raw) return []
+  try {
+    const d = JSON.parse(raw)
+    return Array.isArray(d) ? d : []
+  } catch (e) {
+    return []
+  }
+}
+
+const pickAttachment = () => attInput.value && attInput.value.click()
+
+const onAttachmentPicked = async (e) => {
+  const file = e.target.files && e.target.files[0]
+  if (!file) return
+  if (!form.id) {
+    ElMessage.warning('请先保存工单后再上传附件')
+    e.target.value = ''
+    return
+  }
+  attUploading.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await request.post(`/operation/issues/${form.id}/attachments/upload`, fd)
+    form.attachments = res.data || []
+    ElMessage.success('附件已上传')
+  } catch (err) {
+    ElMessage.error('上传失败：' + (err?.response?.data?.message || err.message || '未知错误'))
+  } finally {
+    attUploading.value = false
+    e.target.value = ''
+  }
+}
+
+const removeAttachment = async (name) => {
+  if (!form.id) return
+  attDeleting.value = name
+  try {
+    const res = await request.post(`/operation/issues/${form.id}/attachments/delete?filename=${encodeURIComponent(name)}`)
+    form.attachments = res.data || []
+    ElMessage.success('已删除')
+  } catch (err) {
+    ElMessage.error('删除失败：' + (err?.response?.data?.message || err.message || '未知错误'))
+  } finally {
+    attDeleting.value = ''
+  }
 }
 
 // ---- 关联知识笔记 ----
@@ -872,6 +976,20 @@ onMounted(async () => {
 .iss-title:hover { color: var(--accent); }
 .handler-tag { margin: 0 4px 4px 0; }
 .wo-pager { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+/* 操作区按钮：单行不换行，等间距排列 */
+.row-actions { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; }
+
+/* 附件 */
+.att-block { display: flex; flex-direction: column; gap: 8px; }
+.att-list { display: flex; flex-direction: column; gap: 6px; }
+.att-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface); }
+.att-item .el-icon { color: var(--accent); }
+.att-name { flex: 1; font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-link { flex: 1; font-size: 13px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+.att-link:hover { text-decoration: underline; }
+.att-size { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+.att-hint { font-size: 12px; color: var(--text-muted); }
 
 /* 详情抽屉 */
 .drawer-body-inner { padding: 4px 4px 8px; }

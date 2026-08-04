@@ -203,8 +203,8 @@ def _build_meeting_markdown(meeting) -> str:
                 "- 讨论要点：",
                 f"- 结论/决议：{ag.conclusion or '（待补充）'}",
             ]
-            if ag.division:
-                b.append(f"- 分工：{ag.division}")
+            if ag.background and str(ag.background).strip():
+                b.append(f"- 议题背景：{ag.background}")
             blocks.append("\n".join(b))
         agenda_block = "\n\n".join(blocks)
     else:
@@ -226,7 +226,13 @@ def _build_meeting_markdown(meeting) -> str:
     else:
         action_block = "（无）"
 
-    conclusion = meeting.summary or "（见各议题结论）"
+    # 会议决议（核心）：由各议题结论聚合，不再依赖会议纪要摘要输入
+    conclusion_items = [
+        f"{i}. **{ag.topic or ('议题' + str(i))}**：{(ag.conclusion or '').strip()}"
+        for i, ag in enumerate(agendas, 1)
+        if (ag.conclusion or "").strip()
+    ]
+    conclusion = "\n".join(conclusion_items) if conclusion_items else "（待补充）"
 
     # 动态标签
     tags = ["会议", tlabel]

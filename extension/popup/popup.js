@@ -2130,6 +2130,45 @@ function bindEvents() {
     });
   }
 
+  // 从人员中台(8001)同步 role=SA 人员到收件人表
+  const btnSyncMaster = document.getElementById('btn-sync-master');
+  if (btnSyncMaster) {
+    btnSyncMaster.addEventListener('click', async () => {
+      btnSyncMaster.disabled = true;
+      const oldText = btnSyncMaster.textContent;
+      btnSyncMaster.textContent = '同步中...';
+      try {
+        showToast('正在从人员中台同步 SA 收件人...', 'success');
+        const response = await fetch(`${RELAY_SERVER}/plugins/contacts/sync-from-master`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(15000),
+        });
+        const result = await response.json();
+        if (result && result.success) {
+          const created = result.created || 0;
+          const updated = result.updated || 0;
+          const skipped = result.skipped || 0;
+          const errCount = (result.errors && result.errors.length) || 0;
+          showToast(
+            `✅ 同步完成：新建 ${created} / 更新 ${updated} / 跳过 ${skipped}` +
+              (errCount ? ` / 失败 ${errCount}` : ''),
+            'success'
+          );
+        } else {
+          showToast('⚠️ 同步失败：' + ((result && result.error) || '未知错误'), 'error');
+        }
+      } catch (e) {
+        console.warn('[SyncMaster] 同步失败:', e.message);
+        showToast('⚠️ 从人员中台同步失败：' + e.message, 'error');
+      } finally {
+        btnSyncMaster.disabled = false;
+        btnSyncMaster.textContent = oldText;
+        window._contactsFromDb = undefined; // 强制重新从数据库加载
+        await loadContacts();
+      }
+    });
+  }
+
   // ========== 邮箱设置 ==========
   document.getElementById('btn-save-smtp').addEventListener('click', saveSmtpConfig);
   document.getElementById('btn-test-smtp').addEventListener('click', testSmtpSend);

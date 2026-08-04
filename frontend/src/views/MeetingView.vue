@@ -77,7 +77,7 @@
           <div
             v-for="cell in calendarDays"
             :key="cell.key"
-            :class="['cal-cell', { other: !cell.inMonth, today: cell.isToday }]"
+            :class="['cal-cell', { other: !cell.inMonth, today: cell.isToday, selected: cell.key === selectedDateKey }]"
             @click="onCellClick(cell)"
           >
             <div class="cal-day">{{ cell.dayNum }}</div>
@@ -98,11 +98,12 @@
 
       <div class="card today-card">
         <div class="card-header">
-          <div class="card-title">今日会议 · {{ todayLabel }}</div>
+          <div class="card-title">{{ selectedDateLabel }}</div>
+          <button v-if="selectedDateKey !== todayKey" class="pm-btn btn-sm" @click="goTodaySelection">回到今天</button>
         </div>
         <div class="card-body today-list">
           <div
-            v-for="m in todayMeetings"
+            v-for="m in selectedMeetings"
             :key="m.id"
             class="mt-row"
             @click="openDetail(m.id)"
@@ -120,7 +121,9 @@
               }}</span>
             </div>
           </div>
-          <div v-if="!todayMeetings.length" class="empty-hint">今日暂无会议安排</div>
+          <div v-if="!selectedMeetings.length" class="empty-hint">
+            {{ selectedDateKey === todayKey ? '今日暂无会议安排' : '该日暂无会议安排' }}
+          </div>
         </div>
       </div>
 
@@ -154,6 +157,9 @@
             <div class="sed-meta">
               <span>{{ formatDateMD(m.start_time) }}</span>
               <span class="sed-flag">已召开·待归档</span>
+            </div>
+            <div class="sed-actions">
+              <el-button size="small" text type="info" @click.stop="markNoMinutes(m)">无需纪要</el-button>
             </div>
           </div>
           <div v-if="!pendingSedimentMeetings.length" class="empty-hint">暂无待归档会议</div>
@@ -387,7 +393,7 @@
         <div class="dw-section">
           <div class="pm-section-title">
             会议议题
-            <span class="sec-sub">（议题 / 商讨结论 / 分工说明）</span>
+            <span class="sec-sub">（议题 / 商讨结论）</span>
             <el-button link type="primary" class="sec-act" @click="addAgenda">＋ 添加议题</el-button>
           </div>
           <div v-if="!(detailMeeting.agendas || []).length" class="empty-hint">暂无议题，点击右上添加</div>
@@ -397,16 +403,10 @@
               <el-button link type="danger" @click="removeAgenda(i)">移除</el-button>
             </div>
             <el-input v-model="ag.topic" placeholder="议题标题" class="ag-input" />
-            <div class="ag-row">
-              <div class="ag-col">
-                <label class="ag-label">商讨结论</label>
-                <el-input v-model="ag.conclusion" type="textarea" :rows="2" placeholder="本议题的结论/决议" />
-              </div>
-              <div class="ag-col">
-                <label class="ag-label">分工说明</label>
-                <el-input v-model="ag.division" type="textarea" :rows="2" placeholder="谁负责什么" />
-              </div>
-            </div>
+            <label class="ag-label">议题背景说明</label>
+            <el-input v-model="ag.background" type="textarea" :rows="2" placeholder="本议题的背景情况（可选）" class="ag-input" />
+            <label class="ag-label">商讨结论</label>
+            <el-input v-model="ag.conclusion" type="textarea" :rows="4" placeholder="本议题的结论/决议" />
           </div>
         </div>
 
@@ -477,16 +477,6 @@
           </div>
         </div>
 
-        <!-- 4. 纪要摘要 -->
-        <div class="dw-section">
-          <div class="pm-section-title">会议纪要摘要</div>
-          <el-input
-            v-model="detailMeeting.summary"
-            type="textarea"
-            :rows="3"
-            placeholder="整体纪要摘要（各议题结论的概括）"
-          />
-        </div>
 
         <!-- 5. 知识备忘 -->
         <div class="dw-section">
@@ -651,13 +641,22 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="议题">
-          <el-input
-            v-model="agendaText"
-            type="textarea"
-            :rows="4"
-            placeholder="每行一条议题；可用「议题 | 结论」补充结论，自动忽略 1. / ① / 【1】 等序号"
-          />
+        <el-form-item label="会议议题">
+          <div class="ag-edit-list">
+            <div v-for="(ag, i) in formAgendas" :key="i" class="ag-card">
+              <div class="ag-head">
+                <span class="ag-idx">议题 {{ i + 1 }}</span>
+                <el-button link type="danger" @click="removeFormAgenda(i)">移除</el-button>
+              </div>
+              <el-input v-model="ag.topic" placeholder="议题标题" class="ag-input" />
+              <label class="ag-label">议题背景说明</label>
+              <el-input v-model="ag.background" type="textarea" :rows="2" placeholder="本议题的背景情况（可选）" class="ag-input" />
+              <label class="ag-label">商讨结论</label>
+              <el-input v-model="ag.conclusion" type="textarea" :rows="3" placeholder="本议题的结论/决议（可会后补录）" />
+            </div>
+            <el-button link type="primary" class="sec-act" @click="addFormAgenda">＋ 添加议题</el-button>
+            <div v-if="!formAgendas.length" class="empty-hint">暂无议题，点击左上添加</div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -744,7 +743,7 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
 const attendeeChips = ref([])
-const agendaText = ref('')
+const formAgendas = ref([])
 
 const meetings = ref([])
 
@@ -863,44 +862,6 @@ const formatLocal = (v) => {
   const d = toDate(v)
   if (!d || isNaN(d.getTime())) return ''
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
-/* 议题文本解析：去序号前缀、支持「议题 | 结论」行内结论、空行分段、多行议题；
-   新增与编辑都生效。返回 [{seq, topic, conclusion, division}] */
-const parseAgendas = (text) => {
-  if (!text || !text.trim()) return []
-  const chunks = text.replace(/\r/g, '').split(/\n\s*\n/)
-  const out = []
-  for (const chunk of chunks) {
-    const lines = chunk
-      .split('\n')
-      .map((l) => l.replace(/^\s*(?:\d+[.、)）]|[①-⑳]|【\d+】|[-*·•])\s*/, '').trim())
-      .filter(Boolean)
-    if (!lines.length) continue
-    let topic = lines[0]
-    let conclusion = null
-    let division = null
-    const m = topic.match(/^(.*?)\s*(?:\|\||\||──|——|:|：|-)\s*(.*)$/)
-    if (m) {
-      topic = m[1].trim()
-      conclusion = m[2].trim() || null
-    }
-    if (lines.length > 1) division = lines.slice(1).join(' ').trim() || null
-    out.push({ seq: out.length + 1, topic, conclusion, division })
-  }
-  return out
-}
-
-/* 把已有议题转回可编辑文本（编辑态回填，支持重解析） */
-const agendasToText = (agendas) => {
-  return (agendas || [])
-    .map((a) => {
-      let s = a.topic || ''
-      if (a.conclusion) s += ' | ' + a.conclusion
-      if (a.division) s += '\n' + a.division
-      return s
-    })
-    .join('\n')
 }
 
 /* ── 派生数据 ── */
@@ -1034,11 +995,24 @@ const calendarDays = computed(() => {
 })
 
 const todayLabel = computed(() => formatDateMD(new Date()))
-const todayMeetings = computed(() =>
+// 月历选中日期（默认今天），点击日期单元格切换右侧展示的会议
+const selectedDateKey = ref(todayKey.value)
+const selectedMeetings = computed(() =>
   meetings.value
-    .filter((m) => dateKeyOf(m.start_time) === todayKey.value)
+    .filter((m) => dateKeyOf(m.start_time) === selectedDateKey.value)
     .sort((a, b) => (a.start_time < b.start_time ? -1 : 1))
 )
+const selectedDateLabel = computed(() => {
+  if (selectedDateKey.value === todayKey.value) return '今日会议 · ' + formatDateMD(new Date())
+  const parts = selectedDateKey.value.split('-').map(Number)
+  if (parts.length === 3) {
+    const dt = new Date(parts[0], parts[1] - 1, parts[2])
+    const wd = ['日', '一', '二', '三', '四', '五', '六'][dt.getDay()]
+    return `${parts[1]}/${parts[2]} 周${wd}会议`
+  }
+  return '选中日会议'
+})
+const goTodaySelection = () => { selectedDateKey.value = todayKey.value }
 const upcomingMeetings = computed(() =>
   meetings.value
     .filter((m) => m.status === 'planned' && dateKeyOf(m.start_time) >= todayKey.value)
@@ -1046,10 +1020,10 @@ const upcomingMeetings = computed(() =>
     .slice(0, 6)
 )
 
-// 待归档纪要：已召开但未生成 Obsidian 纪要的会议（按开始时间倒序，取前 6 条）
+// 待归档纪要：已召开但未生成纪要，且需要纪要（minutes_required 非 false）的会议
 const pendingSedimentMeetings = computed(() =>
   meetings.value
-    .filter((m) => m.status === 'held' && !m.obsidian_path)
+    .filter((m) => m.status === 'held' && !m.obsidian_path && m.minutes_required !== false)
     .sort((a, b) => (a.start_time < b.start_time ? 1 : -1))
     .slice(0, 6)
 )
@@ -1115,8 +1089,18 @@ const nextMonth = () =>
   (currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() + 1, 1))
 const goToday = () => (currentDate.value = new Date())
 const onCellClick = (cell) => {
-  if (cell.dayMeetings.length === 1) openDetail(cell.dayMeetings[0].id)
-  else if (cell.dayMeetings.length > 1) ElMessage.info(`${cell.key} 有 ${cell.dayMeetings.length} 场会议`)
+  selectedDateKey.value = cell.key
+}
+
+// 标记会议「无需纪要」：开完会但不需要记录纪要，从待归档列表移除
+const markNoMinutes = async (m) => {
+  try {
+    await meetingApi.updateMeeting(m.id, { minutes_required: false })
+    ElMessage.success('已标记为「无需纪要」')
+    loadMeetings()
+  } catch (e) {
+    ElMessage.error('操作失败，请重试')
+  }
 }
 
 /* ── 纪要编辑器：议题 / 待办 ── */
@@ -1127,9 +1111,16 @@ const addAgenda = () => {
     topic: '',
     conclusion: '',
     division: '',
+    background: '',
   })
 }
 const removeAgenda = (i) => detailMeeting.value.agendas.splice(i, 1)
+
+/* 创建弹窗：结构化议题（议题标题 + 商讨结论） */
+const addFormAgenda = () => {
+  formAgendas.value.push({ seq: formAgendas.value.length + 1, topic: '', conclusion: '', division: '', background: '' })
+}
+const removeFormAgenda = (i) => formAgendas.value.splice(i, 1)
 
 const addAction = () => {
   if (!detailMeeting.value.actions) detailMeeting.value.actions = []
@@ -1224,6 +1215,7 @@ const saveMinutes = async () => {
       topic: a.topic || '',
       conclusion: a.conclusion || null,
       division: a.division || null,
+      background: a.background || null,
     })),
     actions: (m.actions || []).map((a) => ({
       id: a.id,
@@ -1273,7 +1265,12 @@ const buildNoticeBody = (m) => {
   const greeting = names.length ? names.join('、') + '好：' : '各位好：'
   const agendaList = (m.agendas || []).length
     ? (m.agendas || [])
-        .map((a, i) => `${i + 1}. ${a.topic || '（待补充）'}`)
+        .map((a, i) => {
+          let s = `${i + 1}. ${a.topic || '（待补充）'}`
+          if (a.background && String(a.background).trim()) s += `\n   背景：${a.background}`
+          if (a.conclusion && String(a.conclusion).trim()) s += `\n   结论：${a.conclusion}`
+          return s
+        })
         .join('\n')
     : '（待补充）'
   const lines = [
@@ -1313,6 +1310,7 @@ const buildMinutesBody = (m) => {
     ? (m.agendas || [])
         .map((a, i) => {
           let s = `${i + 1}. ${a.topic || '（待补充）'}`
+          if (a.background && String(a.background).trim()) s += `\n   背景：${a.background}`
           s += `\n   结论：${a.conclusion || '（待补充）'}`
           if (a.division) s += `\n   分工：${a.division}`
           return s
@@ -1466,7 +1464,7 @@ const handleAdd = () => {
   isEdit.value = false
   Object.assign(form, { ...defaultForm, host: currentUser, meeting_id: generateMeetingId() })
   attendeeChips.value = []
-  agendaText.value = ''
+  formAgendas.value = []
   dialogVisible.value = true
 }
 
@@ -1496,7 +1494,7 @@ const handleEdit = (row) => {
     if (!isNaN(s) && !isNaN(e)) form.duration = Math.max(5, Math.round((e - s) / 60000))
   }
   attendeeChips.value = (row.attendees || []).map((a) => a.name).filter(Boolean)
-  agendaText.value = agendasToText(row.agendas)
+  formAgendas.value = (row.agendas || []).map((a, i) => ({ seq: i + 1, topic: a.topic || '', conclusion: a.conclusion || '', division: '', background: a.background || '' }))
   dialogVisible.value = true
 }
 
@@ -1531,8 +1529,15 @@ const handleSubmit = () => {
         .filter((n) => n.trim())
         .map((n) => ({ name: n.trim(), is_required: 1 })),
     }
-    // 议题：新增与编辑都按文本重新解析（含结论/分工），编辑态覆盖既有议题
-    payload.agendas = parseAgendas(agendaText.value)
+    // 议题：结构化按项提交（含结论），编辑态覆盖既有议题
+    payload.agendas = formAgendas.value
+      .filter((a) => (a.topic || '').trim())
+      .map((a, i) => ({
+        seq: i + 1,
+        topic: a.topic.trim(),
+        conclusion: (a.conclusion || '').trim() || null,
+        division: '',
+      }))
     try {
       if (isEdit.value) {
         await meetingApi.updateMeeting(form.id, payload)
@@ -1731,6 +1736,20 @@ onMounted(async () => {
 .cal-cell.today {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.cal-cell.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.cal-cell.selected .cal-day {
+  color: var(--accent);
+  font-weight: 800;
+}
+.sed-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
 }
 .cal-day {
   font-size: 13px;
@@ -2059,8 +2078,12 @@ onMounted(async () => {
   font-weight: 700;
   color: var(--accent);
 }
+.ag-edit-list {
+  width: 100%;
+}
 .ag-input,
 .act-input {
+  width: 100%;
   margin-bottom: 10px;
 }
 .ag-row {

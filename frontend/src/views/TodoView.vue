@@ -152,7 +152,7 @@
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column prop="due_date" label="截止日期" width="120">
+        <el-table-column prop="due_date" label="计划完成" width="120">
           <template #default="{ row }">
             <span :class="{ overdue: row.is_overdue }">{{ row.due_date || '-' }}</span>
           </template>
@@ -164,6 +164,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="source" label="来源" width="100" />
+        <el-table-column prop="created_at" label="创建时间" width="130">
+          <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '-' }}</template>
+        </el-table-column>
       </template>
     </DataTable>
 

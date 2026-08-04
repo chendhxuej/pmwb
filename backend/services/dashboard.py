@@ -68,6 +68,17 @@ def _week_bounds_cst():
     return today, week_start, week_end
 
 
+def _day_start(day: datetime.date) -> datetime:
+    """本地日期 -> 当天 00:00 的 naive datetime。
+
+    会议 start_time 按本地时间（Asia/Shanghai）naive 存储，统计须用本地日期口径。
+    这里统一用 naive datetime 区间比较，而不是 cast(col, Date)：
+    SQLite 下 CAST(x AS DATE) 走 numeric affinity（"2026-08-05 ..." -> 2026），
+    与 date 比较恒不匹配，会让测试库统计恒为 0（MySQL 则正常）。
+    """
+    return datetime.combine(day, datetime.min.time())
+
+
 def _cst_day_utc_bounds(day: datetime.date):
     """中国本地某日 00:00 对应的 UTC naive 上下界（库表 DateTime 以 UTC 存储）。"""
     start = datetime(day.year, day.month, day.day) - timedelta(hours=8)
@@ -112,9 +123,6 @@ class DashboardService:
 
     def get_stats(self) -> DashboardStats:
         today, week_start, week_end = _week_bounds_cst()
-        ws_utc, _ = _cst_day_utc_bounds(week_start)
-        we_utc = _cst_day_utc_bounds(week_end)[0]
-        today_start_utc, today_end_utc = _cst_day_utc_bounds(today)
 
         todo_total = self.db.query(func.count(PmwbTodo.id)).scalar()
         todo_today = (
@@ -128,14 +136,17 @@ class DashboardService:
             .scalar()
         )
 
+        # 会议 start_time 按本地时间（Asia/Shanghai）naive 存储，用本地日期区间统计，避免 UTC 边界少算一天
         meeting_this_week = (
             self.db.query(func.count(PmwbMeeting.id))
-            .filter(PmwbMeeting.start_time >= ws_utc, PmwbMeeting.start_time < we_utc)
+            .filter(PmwbMeeting.start_time >= _day_start(week_start),
+                    PmwbMeeting.start_time < _day_start(week_end))
             .scalar()
         )
         meeting_today = (
             self.db.query(func.count(PmwbMeeting.id))
-            .filter(PmwbMeeting.start_time >= today_start_utc, PmwbMeeting.start_time < today_end_utc)
+            .filter(PmwbMeeting.start_time >= _day_start(today),
+                    PmwbMeeting.start_time < _day_start(today + timedelta(days=1)))
             .scalar()
         )
 
@@ -346,32 +357,37 @@ class DashboardService:
         )
 
     def get_recent_requirements(self, limit: int = 5) -> List[RequirementSummaryItem]:
-        ext_map = {
-            ext.req_id: ext.status
-            for ext in self.db.query(PmwbRequirementExt.req_id, PmwbRequirementExt.status).all()
-        }
+        """最近需求：直接查需求主表，按更新时间倒序。
+
+        口径修正：原实现从已发邮件(sent_emails)倒推，只显示发过邮件的需求、
+        且按发邮件时间排序，会漏掉未发邮件的需求。现改查需求主表 pmwb_requirement_ext。
+        """
         items = (
-            self.db.query(SentEmail)
-            .order_by(SentEmail.created_at.desc())
+            self.db.query(PmwbRequirementExt)
+            .order_by(PmwbRequirementExt.updated_at.desc())
             .limit(limit)
             .all()
         )
+        req_ids = [it.req_id for it in items if it.req_id]
+        proposer_map = {}
+        if req_ids:
+            rows = (
+                self.db.query(SentEmail.req_id, SentEmail.proposer)
+                .filter(SentEmail.req_id.in_(req_ids))
+                .all()
+            )
+            for r in rows:
+                proposer_map.setdefault(r.req_id, r.proposer or "")
         result = []
-        for se in items:
-            st = ext_map.get(se.req_id, "proposed")
+        for it in items:
             date = ""
-            if se.send_datetime:
-                import re as _re
-
-                m = _re.search(r"\d{4}[/-]\d{1,2}[/-]\d{1,2}", se.send_datetime)
-                date = m.group(0) if m else se.send_datetime.strip()[:10]
-            elif se.created_at:
-                date = se.created_at.strftime("%Y-%m-%d")
+            if it.updated_at:
+                date = (it.updated_at + timedelta(hours=8)).strftime("%Y-%m-%d")
             result.append(
                 RequirementSummaryItem(
-                    name=se.req_name or se.req_id or "未命名需求",
-                    owner=se.proposer or "",
-                    status=_REQ_STATUS_CN.get(st, "待排期"),
+                    name=it.req_name or it.req_id or "未命名需求",
+                    owner=proposer_map.get(it.req_id, ""),
+                    status=_REQ_STATUS_CN.get(it.status, "待排期"),
                     date=date,
                 )
             )
@@ -389,9 +405,9 @@ class DashboardService:
         return alerts
 
     def get_schedule(self, limit: int = 5) -> List[ScheduleItem]:
-        # start_time 以 UTC 存储，按中国本地日期匹配今日日程
+        # start_time 按本地时间（Asia/Shanghai）naive 存储，直接以本地日期匹配今日日程
         today_cst = _now_cst().replace(hour=0, minute=0, second=0, microsecond=0)
-        s = (today_cst - timedelta(hours=8)).replace(tzinfo=None)
+        s = today_cst.replace(tzinfo=None)
         e = s + timedelta(days=1)
         items = (
             self.db.query(PmwbMeeting)
@@ -402,7 +418,7 @@ class DashboardService:
         )
         return [
             ScheduleItem(
-                time=(item.start_time + timedelta(hours=8)).strftime("%H:%M") if item.start_time else "",
+                time=item.start_time.strftime("%H:%M") if item.start_time else "",
                 title=item.title or "",
                 loc=item.location or "待定",
             )
@@ -499,25 +515,26 @@ class DashboardService:
         # 运营问题（复用 get_stats）
         stats = self.get_stats()
 
-        # 会议
+        # 会议：start_time 按本地时间存储，用本地日期区间统计，避免 UTC 边界少算一天
         meeting_this_week = self.db.query(func.count(PmwbMeeting.id)).filter(
-            PmwbMeeting.start_time >= ws_utc,
-            PmwbMeeting.start_time < we_utc,
+            PmwbMeeting.start_time >= _day_start(week_start),
+            PmwbMeeting.start_time < _day_start(week_end),
         ).scalar() or 0
         meeting_today = self.db.query(func.count(PmwbMeeting.id)).filter(
-            PmwbMeeting.start_time >= today_start_utc,
-            PmwbMeeting.start_time < today_end_utc,
+            PmwbMeeting.start_time >= _day_start(today),
+            PmwbMeeting.start_time < _day_start(today + timedelta(days=1)),
         ).scalar() or 0
         meeting_upcoming = self.db.query(func.count(PmwbMeeting.id)).filter(
-            PmwbMeeting.start_time >= today_start_utc,
+            PmwbMeeting.start_time >= _day_start(today),
             PmwbMeeting.status == "planned",
         ).scalar() or 0
-        # 待处理会议纪要：已召开(held) 但未写纪要摘要(summary 为空)
+        # 待处理会议纪要：已召开(held) 但未写纪要摘要(summary 为空) 且需要纪要(minutes_required 非 False)
         meeting_pending_list = (
             self.db.query(PmwbMeeting)
             .filter(
                 PmwbMeeting.status == "held",
                 or_(PmwbMeeting.summary.is_(None), PmwbMeeting.summary == ""),
+                or_(PmwbMeeting.minutes_required.is_(None), PmwbMeeting.minutes_required == True),
             )
             .order_by(PmwbMeeting.start_time.desc())
             .limit(5)

@@ -124,30 +124,35 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="创建" width="120">
-            <template #default="{ row }">{{ formatDate(row.created_at, 'MM-DD') }}</template>
+          <el-table-column label="创建时间" width="140">
+            <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '-' }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="190" fixed="right">
+          <el-table-column label="计划完成" width="130">
+            <template #default="{ row }">{{ row.go_live_date ? String(row.go_live_date).slice(0, 10) : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="210" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
-              <el-dropdown size="small" trigger="click" @command="(cmd) => changeStatus(row, cmd)">
-                <el-button link type="primary" :loading="statusLoadingMap[row.id]">
-                  改状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-                </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item
-                      v-for="s in STATUS_OPTIONS"
-                      :key="s.key"
-                      :command="s.key"
-                      :disabled="row.status === s.key"
-                    >
-                      <span :class="['status-dot', 'dot-' + s.key]"></span>{{ s.label }}
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-              <el-button link type="warning" @click.stop="openEmailFromRow(row)">督办</el-button>
+              <div class="row-actions">
+                <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
+                <el-dropdown size="small" trigger="click" @command="(cmd) => changeStatus(row, cmd)">
+                  <el-button link type="primary" :loading="statusLoadingMap[row.id]">
+                    改状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item
+                        v-for="s in STATUS_OPTIONS"
+                        :key="s.key"
+                        :command="s.key"
+                        :disabled="row.status === s.key"
+                      >
+                        <span :class="['status-dot', 'dot-' + s.key]"></span>{{ s.label }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+                <el-button link type="warning" @click.stop="openEmailFromRow(row)">督办</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -738,6 +743,14 @@ onMounted(() => {
 }
 .handler-tag {
   margin: 0 4px 4px 0;
+}
+/* 操作区按钮：单行不换行，等间距排列 */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 .list-foot {
   display: flex;

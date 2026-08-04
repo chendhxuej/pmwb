@@ -6,6 +6,7 @@ from core.exceptions import ValidationException
 from db.models import EmailRecord
 from schemas.reminder import ReminderSendRequest
 from utils.email import EmailCenterClient
+from utils.master_service import master_service_client
 from utils.validators import split_and_validate_emails
 
 
@@ -16,8 +17,19 @@ class ReminderService:
         self.email_client = EmailCenterClient()
 
     def resolve_contacts(self, names: List[str]) -> Dict[str, Optional[str]]:
-        """按 SA 姓名列表解析真实邮箱（委托统一邮件中心通讯录）。"""
-        return self.email_client.resolve_contact_emails(names)
+        """按姓名解析收件人邮箱：优先人员中台(8001)，邮件中心通讯录兜底。
+
+        之前只查邮件中心旧通讯录，导致邮箱与人员中台不一致。
+        现改为以人员中台为唯一权威来源，邮件中心仅作查不到时的兜底。
+        """
+        result = master_service_client.resolve_staff_emails(names)
+        missing = [n for n, e in result.items() if not e]
+        if missing:
+            fallback = self.email_client.resolve_contact_emails(missing)
+            for n in missing:
+                if fallback.get(n):
+                    result[n] = fallback[n]
+        return result
 
     def send_reminder(self, db: Session, obj_in: ReminderSendRequest) -> Dict[str, Any]:
         """发送催办邮件并记录到 email_records。"""

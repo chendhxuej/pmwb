@@ -43,6 +43,9 @@ export function updateContact(id, data) {
 export function deleteContact(id) {
   return request.delete(`${BASE}/contacts/${id}`)
 }
+export function syncContactsFromMaster() {
+  return request.post(`${BASE}/contacts/sync-from-master`)
+}
 
 // ── 联系人分组 ──
 export function getContactGroups() {

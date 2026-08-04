@@ -60,8 +60,11 @@ class OperationIssueBase(BaseModel):
     related_system: Optional[str] = Field(None, max_length=128, description="关联系统")
     obsidian_path: Optional[str] = Field(None, max_length=512, description="沉淀知识条目路径")
     is_overdue: int = Field(0, description="是否超期")
+    go_live_date: Optional[datetime] = Field(None, description="计划完成时间")
+    result_feedback: Optional[str] = Field(None, description="处理结果反馈")
+    attachments: Optional[str] = Field(None, description="附件元信息(JSON 数组字符串)")
 
-    @field_validator("discovery_date", "resolve_date", mode="before")
+    @field_validator("discovery_date", "resolve_date", "go_live_date", mode="before")
     @classmethod
     def _empty_to_none(cls, v):
         if v is None or v == "":
@@ -90,8 +93,11 @@ class OperationIssueUpdate(BaseModel):
     related_system: Optional[str] = Field(None, max_length=128)
     obsidian_path: Optional[str] = Field(None, max_length=512)
     is_overdue: Optional[int] = None
+    go_live_date: Optional[datetime] = None
+    result_feedback: Optional[str] = None
+    attachments: Optional[str] = None
 
-    @field_validator("discovery_date", "resolve_date", mode="before")
+    @field_validator("discovery_date", "resolve_date", "go_live_date", mode="before")
     @classmethod
     def _empty_to_none(cls, v):
         if v is None or v == "":

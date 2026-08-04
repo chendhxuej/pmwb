@@ -197,5 +197,49 @@ class MasterServiceClient:
                 return s["id"]
         return None
 
+    def staff_email_index(self) -> Dict[str, str]:
+        """返回 {姓名: 邮箱} 索引（仅启用且有邮箱的人员）。
+
+        用于邮件收件人按姓名解析邮箱，避免逐个姓名发起 HTTP 请求。
+        """
+        try:
+            staffs = self.list_staffs() or []
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("人员中台拉取人员失败: %s", exc)
+            return {}
+        idx: Dict[str, str] = {}
+        for s in staffs:
+            if s.get("enabled", True) and s.get("email"):
+                idx[s.get("name")] = s["email"]
+        return idx
+
+    def resolve_staff_emails(self, names: List[str]) -> Dict[str, Optional[str]]:
+        """按姓名列表解析人员中台邮箱，返回 {姓名: 邮箱|None}。
+
+        同名多人时取第一个启用的匹配。姓名大小写精确匹配。
+        """
+        idx = self.staff_email_index()
+        result: Dict[str, Optional[str]] = {}
+        for name in names or []:
+            if not name or not str(name).strip():
+                continue
+            target = str(name).strip()
+            result[target] = idx.get(target)
+        return result
+
+    def list_sa_staffs(self) -> List[dict]:
+        """返回所有 role_hint 为 SA 且启用的人员（团队 SA 数据源）。"""
+        try:
+            staffs = self.list_staffs() or []
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("人员中台拉取 SA 人员失败: %s", exc)
+            return []
+        return [
+            s for s in staffs
+            if (s.get("role_hint") or "").strip() == "SA"
+            and s.get("enabled", True)
+            and s.get("email")
+        ]
+
 
 master_service_client = MasterServiceClient()

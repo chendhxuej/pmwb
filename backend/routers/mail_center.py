@@ -18,6 +18,7 @@ from core.response import error, success
 from db.base import get_db
 from db.models import EmailRecord
 from utils.email import EmailCenterClient, MailCenterProxyClient
+from utils.master_service import master_service_client
 
 logger = logging.getLogger("pmwb.mail_center")
 
@@ -161,6 +162,69 @@ def delete_contact(contact_id: str):
     except Exception as exc:
         logger.warning("代理删除联系人失败: %s", exc)
         return error(f"删除联系人失败: {exc}", code=502)
+
+
+@router.post("/contacts/sync-from-master")
+def sync_contacts_from_master():
+    """一键同步人员中台通讯录到统一邮件中心。
+
+    以人员中台(8001)为权威来源：按姓名匹配邮件中心现有联系人，
+    邮箱不一致则更新，不存在则新建；邮件中心旧域名邮箱因此被纠正。
+    邮件中心通讯录 API 仅接受 name/email/phone/groupId/remark 字段。
+    """
+    staffs = master_service_client.list_staffs() or []
+    staffs = [s for s in staffs if s.get("enabled", True) and (s.get("email") or "").strip()]
+    if not staffs:
+        return success(data={"created": 0, "updated": 0, "skipped": 0, "errors": ["人员中台无可用人员"]})
+
+    # 拉取邮件中心全部现有通讯录（分页归并）
+    existing: Dict[str, dict] = {}
+    page = 1
+    while True:
+        try:
+            resp = proxy.request("GET", "/api/contacts", params={"page": page, "limit": 200})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("拉取邮件中心通讯录失败: %s", exc)
+            break
+        items = (resp or {}).get("items") or []
+        for c in items:
+            if c.get("name"):
+                existing[c["name"]] = c
+        if len(items) < 200:
+            break
+        page += 1
+
+    created = updated = skipped = 0
+    errors: List[str] = []
+    for s in staffs:
+        name = (s.get("name") or "").strip()
+        email = (s.get("email") or "").strip()
+        if not name or not email:
+            continue
+        try:
+            if name in existing:
+                c = existing[name]
+                if (c.get("email") or "").strip().lower() != email.lower():
+                    proxy.request(
+                        "PUT", f"/api/contacts/{c['id']}",
+                        json={"name": name, "email": email, "phone": c.get("phone") or "",
+                              "groupId": c.get("groupId"), "remark": "人员中台同步"},
+                    )
+                    updated += 1
+                else:
+                    skipped += 1
+            else:
+                proxy.request(
+                    "POST", "/api/contacts",
+                    json={"name": name, "email": email, "phone": "",
+                          "groupId": None, "remark": "人员中台同步"},
+                )
+                created += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{name}: {exc}")
+            skipped += 1
+
+    return success(data={"created": created, "updated": updated, "skipped": skipped, "errors": errors})
 
 
 # ---------------------------------------------------------------------------

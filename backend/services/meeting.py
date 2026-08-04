@@ -1,5 +1,6 @@
+import logging
 from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session, joinedload
 
@@ -14,7 +15,10 @@ from db.models import (
 from services.base import BaseService
 from services.todo import todo_service
 from utils.email import EmailCenterClient
+from utils.master_service import MasterServiceClient
 from utils.validators import validate_email_strict
+
+logger = logging.getLogger(__name__)
 
 
 class MeetingService(BaseService[PmwbMeeting]):
@@ -221,23 +225,24 @@ class MeetingService(BaseService[PmwbMeeting]):
 
         to = to or []
         cc = cc or []
-        bad = [e for e in to if not validate_email_strict(e)] + [
-            e for e in cc if not validate_email_strict(e)
-        ]
+        # 兼容「姓名 / 邮箱」两种输入：姓名经人员中台解析为邮箱
+        resolved_to, unresolved_to = self._resolve_recipients(to)
+        resolved_cc, unresolved_cc = self._resolve_recipients(cc)
+        bad = unresolved_to + unresolved_cc
         if bad:
             raise ValidationException(
-                "收件人邮箱格式不正确：" + "、".join(bad)
+                "收件人邮箱格式不正确或通讯录中无匹配：" + "、".join(bad)
                 + "。请在通讯录按姓名解析或手动填写真实邮箱。"
             )
-        if not to:
+        if not resolved_to:
             raise ValidationException("请至少填写一位收件人")
 
         record = EmailRecord(
             req_id=meeting.meeting_id,
             req_name=meeting.title,
             email_type=mail_type or "meeting_notice",
-            recipient=",".join(to),
-            recipient_name=",".join(recipient_names or []),
+            recipient=",".join(resolved_to),
+            recipient_name=",".join(to),  # 原始输入（姓名/邮箱）便于追溯
             subject=subject,
             content=body,
             send_status="pending",
@@ -250,8 +255,8 @@ class MeetingService(BaseService[PmwbMeeting]):
 
         try:
             EmailCenterClient().send_email(
-                to=to,
-                cc=cc or None,
+                to=resolved_to,
+                cc=resolved_cc or None,
                 subject=subject,
                 body=body,
                 body_format="text",
@@ -268,6 +273,40 @@ class MeetingService(BaseService[PmwbMeeting]):
         db.commit()
         db.refresh(record)
         return {"success": ok, "record_id": record.id, "message": message}
+
+    def _resolve_recipients(self, entries: List[str]) -> Tuple[List[str], List[str]]:
+        """将收件人条目（姓名或邮箱）解析为邮箱列表。
+
+        返回 (resolved_emails, unresolved_entries)：
+        - 已是合法邮箱者原样保留；
+        - 非邮箱文本按姓名经人员中台解析，成功取邮箱，失败计入 unresolved；
+        - 空项跳过；解析出的邮箱按出现顺序去重。
+        """
+        clean = [str(e).strip() for e in (entries or []) if e and str(e).strip()]
+        emails: List[str] = []
+        unresolved: List[str] = []
+        name_entries = [e for e in clean if not validate_email_strict(e)]
+        name_map: Dict[str, Optional[str]] = {}
+        if name_entries:
+            try:
+                name_map = MasterServiceClient().resolve_staff_emails(name_entries)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("人员中台解析收件人邮箱失败: %s", exc)
+                name_map = {}
+        seen: set = set()
+        for e in clean:
+            if validate_email_strict(e):
+                target = e
+            else:
+                target = name_map.get(e)
+            if not target:
+                if not validate_email_strict(e):
+                    unresolved.append(e)
+                continue
+            if target not in seen:
+                seen.add(target)
+                emails.append(target)
+        return emails, unresolved
 
     def list_actions(
         self,

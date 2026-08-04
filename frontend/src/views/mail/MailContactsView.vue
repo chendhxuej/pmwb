@@ -2,6 +2,9 @@
   <div class="contacts-view">
     <div class="toolbar">
       <el-button type="primary" @click="onCreate">新建联系人</el-button>
+      <el-button :loading="syncing" @click="onSyncFromMaster">
+        <el-icon><Refresh /></el-icon> 同步人员中台
+      </el-button>
     </div>
     <el-table :data="list" v-loading="loading" stripe border>
       <el-table-column label="姓名" prop="name" min-width="120" />
@@ -39,11 +42,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getContacts, createContact, updateContact, deleteContact, getContactGroups } from '@/api/mailCenter.js'
+import { getContacts, createContact, updateContact, deleteContact, getContactGroups, syncContactsFromMaster } from '@/api/mailCenter.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const list = ref([])
 const loading = ref(false)
+const syncing = ref(false)
 const groups = ref([])
 const formVisible = ref(false)
 const isEdit = ref(false)
@@ -58,6 +62,32 @@ async function fetchData() {
     groups.value = groupsResp.data?.data || groupsResp.data || []
   } finally {
     loading.value = false
+  }
+}
+
+async function onSyncFromMaster() {
+  try {
+    await ElMessageBox.confirm(
+      '将从人员中台(8001)拉取全员邮箱，按姓名匹配邮件中心通讯录：邮箱不一致则更新，缺失则新建。是否继续？',
+      '同步人员中台通讯录',
+      { confirmButtonText: '开始同步', cancelButtonText: '取消', type: 'info' }
+    )
+  } catch {
+    return
+  }
+  syncing.value = true
+  try {
+    const resp = await syncContactsFromMaster()
+    const d = resp.data?.data || resp.data || {}
+    await fetchData()
+    ElMessage.success(
+      `同步完成：新建 ${d.created || 0} 人，更新 ${d.updated || 0} 人，跳过 ${d.skipped || 0} 人`
+      + (d.errors && d.errors.length ? `（${d.errors.length} 条异常）` : '')
+    )
+  } catch (err) {
+    ElMessage.error(err.message || '同步失败')
+  } finally {
+    syncing.value = false
   }
 }
 

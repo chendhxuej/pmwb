@@ -11,7 +11,7 @@
               <div class="g-sub">{{ greeting.sub }}</div>
             </div>
             <div class="g-eff">
-              <div class="g-eff-key">本周效率</div>
+              <div class="g-eff-key">运营闭环率</div>
               <div class="g-eff-val">{{ greeting.efficiency }}<span class="g-eff-unit">%</span></div>
             </div>
           </div>
@@ -65,72 +65,183 @@
         <button class="act-btn ghost" @click="goTo('/knowledge')">知识库 →</button>
       </div>
 
-      <!-- ══ ROW 3: 趋势面积图 + 工单甜甜圈 ══ -->
-      <BentoCard title="近7天 需求处理量趋势" :span="8">
-        <template #action><a class="card-action">导出</a></template>
-        <div class="chart-wrap">
-          <svg class="chart-svg" viewBox="0 0 600 220" preserveAspectRatio="xMidYMid meet">
-            <defs>
-              <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stop-color="#2f6fed" stop-opacity=".22" />
-                <stop offset="100%" stop-color="#2f6fed" stop-opacity=".02" />
-              </linearGradient>
-            </defs>
-            <g stroke="#eef1f6" stroke-width="1">
-              <line v-for="(g, i) in trendGrid" :key="'g' + i"
-                    :x1="plotLeft" :y1="g.y" :x2="plotRight" :y2="g.y"
-                    :stroke-dasharray="i < 3 ? '4,4' : 'none'" />
-            </g>
-            <path :d="trendGeom.areaPath" fill="url(#areaGrad)" />
-            <polyline :points="trendGeom.polyPoints" fill="none" stroke="#2f6fed"
-                      stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-            <g v-for="(p, i) in trendGeom.pts" :key="'d' + i" fill="#2f6fed">
-              <circle :cx="p.x" :cy="p.y" r="4.5" />
-            </g>
-            <g v-for="(p, i) in trendGeom.pts" :key="'dh' + i" fill="#ffffff" stroke="#2f6fed" stroke-width="2">
-              <circle :cx="p.x" :cy="p.y" r="2.5" />
-            </g>
-            <g fill="#0f172a" font-size="10.5" font-weight="600" text-anchor="middle">
-              <text v-for="(p, i) in trendGeom.pts" :key="'v' + i" :x="p.x" :y="p.y - 10">{{ p.value }}</text>
-            </g>
-            <g fill="#94a3b8" font-size="11" text-anchor="middle">
-              <text v-for="(p, i) in trendGeom.pts" :key="'x' + i" :x="p.x" :y="200">{{ p.label }}</text>
-            </g>
-            <g fill="#94a3b8" font-size="10.5" text-anchor="end">
-              <text v-for="(g, i) in trendGrid" :key="'y' + i" :x="34" :y="g.y + 3">{{ g.value }}</text>
-            </g>
-          </svg>
-        </div>
-        <div class="chart-legend">
-          <div class="legend-item"><span class="legend-dot" style="background:#2f6fed"></span>已处理需求量</div>
-          <div class="legend-item"><span class="legend-dot" style="background:#e4e9f0"></span>网格参考线</div>
+      <!-- ══ 核心工作区：按菜单顺序突出（任务中心 → 需求工单 → 运营工单 → 会议日程）══ -->
+      <div class="section-title" style="grid-column:1/-1">
+        <span class="st-main">核心工作区</span>
+        <span class="st-sub">重点关注 · 任务中心 / 需求工单 / 运营工单 / 会议日程</span>
+      </div>
+
+      <!-- 任务中心 -->
+      <BentoCard class="card-highlight" :span="6" :body-padding="'16px 22px 18px'">
+        <template #head>
+          <span class="card-label">任务中心</span>
+        </template>
+        <template #action><a class="card-action" @click="goTo('/task-center')">更多</a></template>
+        <div class="op-wrap">
+          <div class="op-stats">
+            <div class="op-stat"><b>{{ taskCenter.total }}</b><span>共待办</span></div>
+            <div class="op-stat"><b>{{ taskCenter.processing }}</b><span>进行中</span></div>
+            <div class="op-stat"><b>{{ taskCenter.pending }}</b><span>待处理</span></div>
+            <div class="op-stat" :class="{ danger: taskCenter.overdue > 0 }"><b>{{ taskCenter.overdue }}</b><span>超期</span></div>
+          </div>
+          <div class="op-dist">
+            <div class="op-dist-h">来源分布</div>
+            <div class="op-bar" v-for="(s, i) in taskCenter.by_source" :key="i">
+              <span class="op-bar-label">{{ s.name }}</span>
+              <span class="op-bar-track"><i class="op-bar-fill" :style="{ width: pct(s.value, taskCenter.total) + '%' }"></i></span>
+              <span class="op-bar-val">{{ s.value }}</span>
+            </div>
+            <div v-if="!taskCenter.by_source.length" class="tc-empty">暂无来源分布</div>
+          </div>
         </div>
       </BentoCard>
 
-      <BentoCard title="工单状态分布" :span="4">
-        <template #action><a class="card-action">详情</a></template>
-        <div class="donut-body">
-          <svg class="donut-svg" viewBox="0 0 180 180">
-            <g transform="rotate(-90 90 90)">
-              <circle v-for="(s, i) in donutRender.segs" :key="i"
-                      cx="90" cy="90" r="68" fill="none" :stroke="s.color" stroke-width="20"
-                      :stroke-dasharray="`${s.dash.toFixed(2)} ${s.gap.toFixed(2)}`"
-                      :stroke-dashoffset="s.offset.toFixed(2)" />
-            </g>
-            <text x="90" y="85" text-anchor="middle" font-size="26" font-weight="800" fill="#0f172a">{{ donutTotal }}</text>
-            <text x="90" y="106" text-anchor="middle" font-size="11.5" fill="#94a3b8" font-weight="500">总工单</text>
-          </svg>
-          <div class="donut-legend">
-            <div class="dl-item" v-for="s in donutSegments" :key="s.label">
-              <span class="dl-dot" :style="{ background: s.color }"></span>{{ s.label }}<span class="dl-val">{{ s.percent }}%</span>
+      <!-- 需求工单 -->
+      <BentoCard class="card-highlight" :span="6" :body-padding="'16px 22px 18px'">
+        <template #head>
+          <span class="card-label">需求工单</span>
+        </template>
+        <template #action><a class="card-action" @click="goTo('/requirement-delivery')">需求与交付 →</a></template>
+        <div class="rq-wrap">
+          <div class="rq-stats">
+            <div class="rq-stat"><b>{{ reqs.total }}</b><span>需求总数</span></div>
+            <div class="rq-stat"><b>{{ reqs.thisWeek }}</b><span>本周新增</span></div>
+            <div class="rq-stat"><b>{{ reqs.inReview }}</b><span>跟踪中</span></div>
+            <div class="rq-stat" :class="{ danger: reqs.overdueDev > 0 }"><b>{{ reqs.overdueDev }}</b><span>超期开发</span></div>
+          </div>
+          <div class="rq-dist">
+            <div class="rq-dist-h">状态分布</div>
+            <div class="rq-bar" v-for="(s, i) in reqStatusDist" :key="i">
+              <span class="rq-bar-label">{{ s.name }}</span>
+              <span class="rq-bar-track"><i class="rq-bar-fill" :class="rqStatusClass(s.name)" :style="{ width: pct(s.value, reqs.total) + '%' }"></i></span>
+              <span class="rq-bar-val">{{ s.value }}</span>
+            </div>
+            <div v-if="!reqStatusDist.length" class="tc-empty">暂无需求状态分布</div>
+          </div>
+        </div>
+      </BentoCard>
+
+      <!-- 运营工单 -->
+      <BentoCard class="card-highlight" :span="6" :body-padding="'16px 22px 18px'">
+        <template #head>
+          <span class="card-label">运营工单</span>
+        </template>
+        <template #action><a class="card-action" @click="goTo('/operation')">运营监控 →</a></template>
+        <div class="op-wrap">
+          <div class="op-stats">
+            <div class="op-stat"><b>{{ issues.total }}</b><span>问题总数</span></div>
+            <div class="op-stat"><b>{{ issues.processing }}</b><span>处理中</span></div>
+            <div class="op-stat"><b>{{ issues.resolved }}</b><span>已解决</span></div>
+            <div class="op-stat" :class="{ danger: issues.overdue > 0 }"><b>{{ issues.overdue }}</b><span>超期</span></div>
+          </div>
+          <div class="op-dist">
+            <div class="op-dist-h">类型分布</div>
+            <div class="op-bar" v-for="(s, i) in issueTypeDist" :key="i">
+              <span class="op-bar-label">{{ s.name }}</span>
+              <span class="op-bar-track"><i class="op-bar-fill" :style="{ width: pct(s.value, issues.total) + '%' }"></i></span>
+              <span class="op-bar-val">{{ s.value }}</span>
+            </div>
+            <div v-if="!issueTypeDist.length" class="tc-empty">暂无类型分布</div>
+          </div>
+        </div>
+      </BentoCard>
+
+      <!-- 会议日程 -->
+      <BentoCard class="card-highlight" :span="6" :body-padding="'16px 22px 18px'">
+        <template #head>
+          <span class="card-label">会议日程</span>
+        </template>
+        <template #action><a class="card-action" @click="goTo('/meeting')">日历</a></template>
+        <div class="mt-wrap">
+          <div class="mt-stats">
+            <div class="mt-stat"><b>{{ meetingStats.totalThisWeek }}</b><span>本周会议</span></div>
+            <div class="mt-stat"><b>{{ meetingStats.today }}</b><span>今日</span></div>
+            <div class="mt-stat"><b>{{ meetingStats.upcoming }}</b><span>即将召开</span></div>
+            <div class="mt-stat" :class="{ danger: meetingStats.pendingMinutes > 0 }"><b>{{ meetingStats.pendingMinutes }}</b><span>待写纪要</span></div>
+          </div>
+          <ul class="mt-list">
+            <li class="mt-item" v-for="(s, i) in schedule" :key="i">
+              <span class="mt-time">{{ s.time }}</span>
+              <div class="mt-info">
+                <div class="mt-title">{{ s.title }}</div>
+                <div class="mt-loc">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  {{ s.loc }}
+                </div>
+              </div>
+            </li>
+            <li v-if="!schedule.length" class="mt-empty">今日暂无会议安排</li>
+          </ul>
+        </div>
+      </BentoCard>
+
+      <!-- ══ 需求概览：趋势图 + 最近需求 整合为单卡 ══ -->
+      <BentoCard title="需求概览" :span="12">
+        <template #action><a class="card-action" @click="goTo('/requirement-delivery')">需求与交付 →</a></template>
+        <div class="req-overview">
+          <div class="ro-chart">
+            <div class="chart-wrap">
+              <svg class="chart-svg" viewBox="0 0 600 220" preserveAspectRatio="xMidYMid meet">
+                <defs>
+                  <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#2f6fed" stop-opacity=".22" />
+                    <stop offset="100%" stop-color="#2f6fed" stop-opacity=".02" />
+                  </linearGradient>
+                </defs>
+                <g stroke="#eef1f6" stroke-width="1">
+                  <line v-for="(g, i) in trendGrid" :key="'g' + i"
+                        :x1="plotLeft" :y1="g.y" :x2="plotRight" :y2="g.y"
+                        :stroke-dasharray="i < 3 ? '4,4' : 'none'" />
+                </g>
+                <path :d="trendGeom.areaPath" fill="url(#areaGrad)" />
+                <polyline :points="trendGeom.polyPoints" fill="none" stroke="#2f6fed"
+                          stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                <g v-for="(p, i) in trendGeom.pts" :key="'d' + i" fill="#2f6fed">
+                  <circle :cx="p.x" :cy="p.y" r="4.5" />
+                </g>
+                <g v-for="(p, i) in trendGeom.pts" :key="'dh' + i" fill="#ffffff" stroke="#2f6fed" stroke-width="2">
+                  <circle :cx="p.x" :cy="p.y" r="2.5" />
+                </g>
+                <g fill="#0f172a" font-size="10.5" font-weight="600" text-anchor="middle">
+                  <text v-for="(p, i) in trendGeom.pts" :key="'v' + i" :x="p.x" :y="p.y - 10">{{ p.value }}</text>
+                </g>
+                <g fill="#94a3b8" font-size="11" text-anchor="middle">
+                  <text v-for="(p, i) in trendGeom.pts" :key="'x' + i" :x="p.x" :y="200">{{ p.label }}</text>
+                </g>
+                <g fill="#94a3b8" font-size="10.5" text-anchor="end">
+                  <text v-for="(g, i) in trendGrid" :key="'y' + i" :x="34" :y="g.y + 3">{{ g.value }}</text>
+                </g>
+              </svg>
+            </div>
+            <div class="chart-legend ro-legend">
+              <div class="legend-item"><span class="legend-dot" style="background:#2f6fed"></span>已处理需求量</div>
+              <div class="legend-item"><span class="legend-dot" style="background:#e4e9f0"></span>网格参考线</div>
+            </div>
+          </div>
+          <div class="ro-reqs">
+            <div class="ro-reqs-h">最近需求</div>
+            <div class="req-wrap ro-req-wrap">
+              <table class="req-table">
+                <thead>
+                  <tr><th>需求名称</th><th>负责人</th><th>状态</th><th>更新日期</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(r, i) in recentReqs" :key="i">
+                    <td class="req-name" :title="r.name">{{ r.name }}</td>
+                    <td class="req-owner">{{ r.owner }}</td>
+                    <td><span class="status-tag" :class="r.statusClass">{{ r.status }}</span></td>
+                    <td class="req-date">{{ r.date }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
       </BentoCard>
 
-      <!-- ══ ROW 4: 待办 + 预警 + 快捷入口 ══ -->
-      <BentoCard title="智能优先级 · 我的待办" :span="5">
-        <template #action><a class="card-action">更多</a></template>
+      <!-- ══ 我的待办 + 重点工作 ══ -->
+      <BentoCard title="智能优先级 · 我的待办" :span="6">
+        <template #action><a class="card-action" @click="goTo('/todo')">更多</a></template>
         <ul class="todo-list">
           <li class="todo-item" v-for="(t, i) in todos" :key="i">
             <span class="todo-priority" :class="t.priorityClass">{{ t.priority }}</span>
@@ -145,62 +256,54 @@
         </ul>
       </BentoCard>
 
-      <BentoCard title="运营预警中心" :span="4">
-        <template #action><a class="card-action">查看全部</a></template>
-        <ul class="alert-list">
-          <li class="alert-item" v-for="(a, i) in alerts" :key="i">
-            <span class="alert-sev" :class="a.sevClass">{{ a.sev }}</span>
-            <div class="alert-body">
-              <div class="alert-msg">{{ a.msg }}</div>
-              <div class="alert-count">{{ a.count }}</div>
+      <BentoCard title="重点工作进度" :span="6">
+        <template #action><a class="card-action" @click="goTo('/key-works')">更多</a></template>
+        <ul class="kp-list">
+          <li class="kp-item" v-for="(p, i) in keyProjects" :key="i">
+            <div class="kp-head">
+              <span class="kp-name">{{ p.name }}</span>
+              <span class="kp-pct">{{ p.percent }}%</span>
             </div>
+            <div class="kp-bar"><i class="kp-fill" :style="{ width: p.percent + '%' }"></i></div>
           </li>
+          <li v-if="!keyProjects.length" class="kp-empty">暂无进行中的重点工作</li>
         </ul>
       </BentoCard>
 
-      <BentoCard title="模块快捷入口" :span="3">
-        <div class="qa-grid">
-          <router-link class="qa-btn" v-for="(q, i) in quickAccess" :key="i" :to="q.path">
-            <div class="qa-icon" :style="{ background: q.bg, color: q.color }" v-html="q.icon"></div>
-            <span class="qa-label">{{ q.label }}</span>
-          </router-link>
+      <!-- ══ 模块概览：按菜单顺序（人员中台 / 知识中心 / 邮件中心）══ -->
+      <div class="section-title" style="grid-column:1/-1">
+        <span class="st-main">模块概览</span>
+        <span class="st-sub">人员中台 / 知识中心 / 邮件中心</span>
+      </div>
+
+      <BentoCard title="人员中台" :span="4">
+        <div class="mod-grid">
+          <div class="mod-stat">
+            <span class="mod-num">{{ personnel.staff }}</span>
+            <span class="mod-key">在职人员</span>
+          </div>
+          <div class="mod-sub">{{ personnel.org }} 个组织 · 启用 {{ personnel.enabled }}</div>
         </div>
       </BentoCard>
 
-      <!-- ══ ROW 5: 最近需求 + 今日日程 ══ -->
-      <BentoCard title="最近需求" :span="7">
-        <template #action><a class="card-action">更多</a></template>
-        <div class="req-wrap">
-          <table class="req-table">
-            <thead>
-              <tr><th>需求名称</th><th>负责人</th><th>状态</th><th>更新日期</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="(r, i) in recentReqs" :key="i">
-                <td class="req-name" :title="r.name">{{ r.name }}</td>
-                <td class="req-owner">{{ r.owner }}</td>
-                <td><span class="status-tag" :class="r.statusClass">{{ r.status }}</span></td>
-                <td class="req-date">{{ r.date }}</td>
-              </tr>
-            </tbody>
-          </table>
+      <BentoCard title="知识中心" :span="4">
+        <div class="mod-grid">
+          <div class="mod-stat">
+            <span class="mod-num">{{ knowledge.total }}</span>
+            <span class="mod-key">知识条目</span>
+          </div>
+          <div class="mod-sub">本周新增 {{ knowledge.thisWeek }} 条</div>
         </div>
       </BentoCard>
 
-      <BentoCard title="今日日程" :span="5">
-        <template #action><a class="card-action">日历</a></template>
-        <ul class="sched-list">
-          <li class="sched-item" v-for="(s, i) in schedule" :key="i">
-            <span class="sched-time">{{ s.time }}</span>
-            <div class="sched-info">
-              <div class="sched-title">{{ s.title }}</div>
-              <div class="sched-loc">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                {{ s.loc }}
-              </div>
-            </div>
-          </li>
-        </ul>
+      <BentoCard title="邮件中心" :span="4">
+        <div class="mod-grid">
+          <div class="mod-stat">
+            <span class="mod-num">{{ emails.week }}</span>
+            <span class="mod-key">本周发送</span>
+          </div>
+          <div class="mod-sub">今日 {{ emails.today }} · 成功率 {{ emails.sr }}%</div>
+        </div>
       </BentoCard>
 
     </div>
@@ -224,6 +327,27 @@ const yMin = 0
 
 /* ───────────────── Demo 有机数据（默认渲染） ───────────────── */
 const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+/* 运营问题类型中文映射（后端 distribution_charts.issueTypeDist 含英文 key） */
+const ISSUE_TYPE_CN = {
+  bug: 'BUG管理',
+  系统错误: '系统错误',
+  数据异常: '数据异常',
+  流程阻塞: '流程阻塞',
+  需求变更: '需求变更',
+  spot_event: '热点投诉',
+  temp_task: '临时交办',
+  其他: '其他',
+}
+function pct(v, t) {
+  return t ? Math.round((v / t) * 100) : 0
+}
+function rqStatusClass(name) {
+  if (name === '开发中') return 'st-dev'
+  if (name === '已上线') return 'st-live'
+  if (name === '评审中') return 'st-review'
+  return 'st-backlog'
+}
 
 const greeting = reactive({
   name: '陈工',
@@ -260,14 +384,6 @@ const yMax = computed(() => {
   const m = Math.max(0, ...trendValues.value)
   return m <= 5 ? 5 : m <= 10 ? 10 : Math.ceil(m * 1.25)
 })
-
-const donutTotal = ref(44)
-const donutSegments = ref([
-  { label: '待处理', color: '#d98a1f', percent: 22 },
-  { label: '处理中', color: '#2f6fed', percent: 38 },
-  { label: '已解决', color: '#0f9d6b', percent: 28 },
-  { label: '已关闭', color: '#94a3b8', percent: 12 },
-])
 
 const todos = ref([
   { priority: '紧急', priorityClass: 'tp-urgent', title: '政企宽带续费流程优化需求评审', deadline: '今天 17:00 截止', owner: '李文倩', overdue: false },
@@ -310,6 +426,19 @@ const schedule = ref([
   { time: '16:30', title: '运营问题复盘会（超期工单）', loc: '会议室 5F-01' },
   { time: '18:00', title: '1对1 导师辅导', loc: '茶水间' },
 ])
+
+/* ───────────────── 补充模块卡片数据（知识/邮件/人员/重点工作/任务中心/四核心卡片）───────────────── */
+const knowledge = ref({ total: 0, thisWeek: 0 })
+const emails = ref({ today: 0, week: 0, sr: 0 })
+const personnel = ref({ org: 0, staff: 0, enabled: 0, orgs: [] })
+const keyProjects = ref([])
+const taskCenter = ref({ total: 0, overdue: 0, due_soon: 0, processing: 0, pending: 0, by_source: [], by_priority: [], by_status: [] })
+// 四张核心卡片的丰富维度数据
+const reqs = ref({ total: 0, thisWeek: 0, inReview: 0, completed: 0, overdueDev: 0 })
+const issues = ref({ total: 0, pending: 0, processing: 0, resolved: 0, overdue: 0 })
+const meetingStats = ref({ totalThisWeek: 0, today: 0, upcoming: 0, pendingMinutes: 0 })
+const reqStatusDist = ref([])
+const issueTypeDist = ref([])
 
 /* ───────────────── 命令栏打字机 ───────────────── */
 const cmdPhrases = [
@@ -370,19 +499,6 @@ const trendGeom = computed(() => {
   return { pts, polyPoints, areaPath }
 })
 
-/* ───────────────── 派生：甜甜圈 ───────────────── */
-const donutRender = computed(() => {
-  const C = 2 * Math.PI * 68
-  let acc = 0
-  const segs = donutSegments.value.map((s) => {
-    const dash = (C * (s.percent || 0)) / 100
-    const seg = { color: s.color, dash, gap: C - dash, offset: -acc }
-    acc += dash
-    return seg
-  })
-  return { segs }
-})
-
 /* ───────────────── 防御式 API 接入 ───────────────── */
 const goTo = (path) => router.push(path)
 
@@ -435,21 +551,6 @@ function mergeDashboard(res) {
     if (!res.trend_labels) trendLabels.value = tr.labs
   }
 
-  if (res.ticket_status && typeof res.ticket_status === 'object') {
-    const ts = res.ticket_status
-    const total = ts.total || 0
-    const arr = [
-      ['待处理', '#d98a1f', ts.pending || 0],
-      ['处理中', '#2f6fed', ts.processing || 0],
-      ['已解决', '#0f9d6b', ts.resolved || 0],
-      ['已关闭', '#94a3b8', ts.closed || 0],
-    ]
-    donutSegments.value = arr.map(([label, color, val]) => ({
-      label, color, percent: total ? Math.round((val / total) * 100) : 0,
-    }))
-    donutTotal.value = total
-  }
-
   if (Array.isArray(res.todos) && res.todos.length) {
     const pMap = { '紧急': 'tp-urgent', '高优': 'tp-high', '中等': 'tp-med', '低优': 'tp-low' }
     todos.value = res.todos.map((t) => {
@@ -487,6 +588,71 @@ function mergeDashboard(res) {
       title: s.title || '',
       loc: s.loc || s.location || '',
     }))
+  }
+
+  /* 补充模块卡片（知识/邮件/人员/重点工作/任务中心/四核心卡片）—— 后端已就绪数据 */
+  if (res.module_stats && typeof res.module_stats === 'object') {
+    const ms = res.module_stats
+    if (ms.knowledge) knowledge.value = { total: ms.knowledge.total || 0, thisWeek: ms.knowledge.thisWeek || 0 }
+    if (ms.emails) emails.value = { today: ms.emails.todaySent || 0, week: ms.emails.weekSent || 0, sr: ms.emails.successRate || 0 }
+    if (ms.requirements) reqs.value = {
+      total: ms.requirements.total || 0,
+      thisWeek: ms.requirements.thisWeek || 0,
+      inReview: ms.requirements.inReview || 0,
+      completed: ms.requirements.completed || 0,
+      overdueDev: ms.requirements.overdueDev || 0,
+    }
+    if (ms.issues) issues.value = {
+      total: ms.issues.total || 0,
+      pending: ms.issues.pending || 0,
+      processing: ms.issues.processing || 0,
+      resolved: ms.issues.resolved || 0,
+      overdue: ms.issues.overdue || 0,
+    }
+    if (ms.meetings) meetingStats.value = {
+      totalThisWeek: ms.meetings.totalThisWeek || 0,
+      today: ms.meetings.today || 0,
+      upcoming: ms.meetings.upcoming || 0,
+      pendingMinutes: ms.meetings.pendingMinutes || 0,
+    }
+  }
+  if (res.distribution_charts && typeof res.distribution_charts === 'object') {
+    const dc = res.distribution_charts
+    if (Array.isArray(dc.requirementStatusDist)) reqStatusDist.value = dc.requirementStatusDist
+    if (Array.isArray(dc.issueTypeDist)) {
+      issueTypeDist.value = dc.issueTypeDist.map((x) => ({
+        name: ISSUE_TYPE_CN[x.name] || x.name,
+        value: x.value,
+      }))
+    }
+  }
+  if (res.personnel && typeof res.personnel === 'object') {
+    personnel.value = {
+      org: res.personnel.org_count || 0,
+      staff: res.personnel.staff_count || 0,
+      enabled: res.personnel.enabled_staff || 0,
+      orgs: res.personnel.org_list || [],
+    }
+  }
+  if (res.progress_items && Array.isArray(res.progress_items.keyProjects)) {
+    keyProjects.value = res.progress_items.keyProjects
+  }
+  if (res.task_center_dist && typeof res.task_center_dist === 'object') {
+    const tcd = res.task_center_dist
+    const findStatus = (arr, names) => {
+      const o = (arr || []).find((x) => names.some((n) => (x.name || '').includes(n)))
+      return o ? (o.value || 0) : 0
+    }
+    taskCenter.value = {
+      total: tcd.total || 0,
+      overdue: tcd.overdue || 0,
+      due_soon: tcd.due_soon || 0,
+      processing: findStatus(tcd.by_status, ['进行中']),
+      pending: findStatus(tcd.by_status, ['待处理', '待办']),
+      by_source: tcd.by_source || [],
+      by_priority: tcd.by_priority || [],
+      by_status: tcd.by_status || [],
+    }
   }
 }
 
@@ -802,6 +968,28 @@ onUnmounted(() => {
 .st-live { background: var(--success-soft); color: var(--success); }
 .req-date { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
+  /* ── 需求概览整合卡（趋势图 + 最近需求 同卡）── */
+  .req-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+  @media (max-width: 1080px) {
+    .req-overview { grid-template-columns: 1fr; gap: 18px; }
+  }
+  .ro-legend { padding: 10px 0 0; }
+  .ro-reqs-h {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: 10px;
+  }
+  .ro-req-wrap { padding: 0; overflow-x: auto; }
+  .ro-reqs .req-table th { padding-top: 0; }
+
 /* ── 今日日程 ── */
 .sched-list { list-style: none; padding: 0 22px 16px; }
 .sched-item { display: flex; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--border-subtle); align-items: flex-start; }
@@ -809,5 +997,74 @@ onUnmounted(() => {
 .sched-time { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); width: 52px; flex-shrink: 0; padding-top: 1px; }
 .sched-info { flex: 1; min-width: 0; }
 .sched-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
-.sched-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
+  .sched-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
+
+  /* ── 补充模块卡片（知识/邮件/人员）── */
+  .mod-grid { display: flex; flex-direction: column; gap: 6px; padding: 6px 4px; }
+  .mod-stat { display: flex; align-items: baseline; gap: 8px; }
+  .mod-num { font-size: 30px; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; }
+  .mod-key { font-size: 12.5px; color: var(--text-muted); }
+  .mod-sub { font-size: 12.5px; color: var(--text-secondary); }
+
+  /* ── 任务中心 / 运营工单 共用空态 ── */
+  .tc-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
+
+  /* ── 重点工作进度 ── */
+  .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 14px; }
+  .kp-item { display: flex; flex-direction: column; gap: 6px; }
+  .kp-head { display: flex; align-items: center; justify-content: space-between; }
+  .kp-name { font-size: 13px; color: var(--text-primary); font-weight: 500; }
+  .kp-pct { font-size: 12.5px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+  .kp-bar { height: 6px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
+  .kp-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #6aa0ff); border-radius: 4px; }
+  .kp-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
+
+  /* ── 分区标题 ── */
+  .section-title {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 6px 4px 0;
+  }
+  .st-main { font-size: 16px; font-weight: 700; color: var(--text-primary); letter-spacing: -.2px; }
+  .st-sub { font-size: 12px; color: var(--text-muted); }
+
+  /* ── 核心卡片高亮（与全站 .card 视觉一致，仅以左侧强调条 + 徽标突出）── */
+  .card-highlight {
+    border-color: var(--border) !important;
+    box-shadow: inset 3px 0 0 var(--accent), var(--shadow-card);
+    background: var(--surface);
+  }
+  .card-highlight:hover {
+    box-shadow: inset 3px 0 0 var(--accent-hover), var(--shadow-elevated);
+    border-color: var(--border) !important;
+    transform: translateY(-2px);
+  }
+
+  /* ── 需求工单（增强）── */
+  .rq-stats, .op-stats, .mt-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .rq-stat, .op-stat, .mt-stat { display: flex; flex-direction: column; gap: 2px; }
+  .rq-stat b, .op-stat b, .mt-stat b { font-size: 22px; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; }
+  .rq-stat span, .op-stat span, .mt-stat span { font-size: 11px; color: var(--text-muted); }
+  .rq-stat.danger b, .op-stat.danger b, .mt-stat.danger b { color: var(--danger); }
+  .rq-dist-h, .op-dist-h { font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+  .rq-bar, .op-bar { display: grid; grid-template-columns: 64px 1fr 30px; align-items: center; gap: 10px; font-size: 12.5px; margin-bottom: 7px; }
+  .rq-bar-label, .op-bar-label { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rq-bar-track, .op-bar-track { height: 7px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
+  .rq-bar-fill, .op-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width var(--transition-normal); }
+  .rq-bar-fill.st-backlog { background: var(--text-muted); }
+  .rq-bar-fill.st-dev { background: var(--warning); }
+  .rq-bar-fill.st-review { background: var(--accent); }
+  .rq-bar-fill.st-live { background: var(--success); }
+  .rq-bar-val, .op-bar-val { text-align: right; font-family: var(--font-mono); color: var(--text-primary); font-weight: 600; }
+
+  /* ── 会议日程（增强）── */
+  .mt-list { list-style: none; margin-top: 14px; padding: 0; }
+  .mt-item { display: flex; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border-subtle); align-items: flex-start; }
+  .mt-item:last-child { border-bottom: none; }
+  .mt-time { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); width: 52px; flex-shrink: 0; padding-top: 1px; }
+  .mt-info { flex: 1; min-width: 0; }
+  .mt-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
+  .mt-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
+  .mt-empty { font-size: 12.5px; color: var(--text-muted); padding: 12px 0; }
 </style>
