@@ -529,7 +529,7 @@ class EmailRecord(Base):
     email_type = Column(String(255), comment="邮件类型")
     recipient = Column(String(255), comment="收件人邮箱")
     recipient_name = Column(String(255), comment="收件人姓名")
-    subject = Column(String(500), comment="邮件主题")
+    subject = Column(Text, comment="邮件主题（完整，不截断）")
     content = Column(Text, comment="邮件正文")
     send_status = Column(String(255), comment="发送状态")
     error_msg = Column(Text, comment="错误信息")

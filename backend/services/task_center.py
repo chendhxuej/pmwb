@@ -139,7 +139,7 @@ class TaskCenterService:
                 source_url=f"/todo?id={r.id}",
                 detail={
                     "分类": r.category,
-                    "内容": (r.content or "")[:200],
+                    "内容": (r.content or ""),
                     "来源": r.source,
                     "截止时间": r.due_time,
                 },
@@ -178,7 +178,7 @@ class TaskCenterService:
                     "子类": r.issue_type,
                     "关联系统": r.related_system,
                     "关联需求": r.related_req_id,
-                    "情况说明": (r.situation_desc or "")[:200],
+                    "情况说明": (r.situation_desc or ""),
                 },
                 **flags,
             ))
@@ -193,7 +193,7 @@ class TaskCenterService:
                 "is_overdue": bool(r.is_overdue) and status != "done",
                 "is_due_soon": False,
             }
-            title = (r.description or "").strip().splitlines()[0][:80] if r.description else ""
+            title = (r.description or "").strip().splitlines()[0] if r.description else ""
             items.append(TaskItem(
                 task_id=f"dev_ticket:{r.id}",
                 source="dev_ticket",
@@ -214,7 +214,7 @@ class TaskCenterService:
                     "涉及系统": r.system_name,
                     "开发团队": r.dev_team,
                     "进度": f"{r.progress or 0}%",
-                    "风险说明": (r.risk_note or "")[:200],
+                    "风险说明": (r.risk_note or ""),
                 },
                 **flags,
             ))
@@ -235,7 +235,7 @@ class TaskCenterService:
                 source="meeting_action",
                 source_label=SOURCE_LABELS["meeting_action"],
                 source_id=str(r.id),
-                title=(r.content or "")[:100],
+                title=(r.content or ""),
                 status=status,
                 status_label=STATUS_LABELS[status],
                 raw_status=r.status or "",
@@ -247,7 +247,7 @@ class TaskCenterService:
                 synced_to_todo=bool(r.related_todo_id),
                 detail={
                     "所属会议": meeting_title or f"会议#{r.meeting_id}",
-                    "行动项": (r.content or "")[:300],
+                    "行动项": (r.content or ""),
                     "分类": r.category,
                 },
                 **flags,
@@ -282,7 +282,7 @@ class TaskCenterService:
                 detail={
                     "类型": "成员待办",
                     "所属重点工作": kw_title,
-                    "备注": (r.note or "")[:200],
+                    "备注": (r.note or ""),
                 },
                 **flags,
             ))
@@ -312,7 +312,7 @@ class TaskCenterService:
                 detail={
                     "类型": "里程碑",
                     "所属重点工作": kw_title,
-                    "说明": (r.note or "")[:200],
+                    "说明": (r.note or ""),
                 },
                 **flags,
             ))
@@ -386,7 +386,7 @@ class TaskCenterService:
                 continue
             seen.add(key)
             system = (r.system_name or "").strip() or "未指定"
-            desc = (desc_map.get(r.req_id) or "")[:500]
+            desc = desc_map.get(r.req_id) or ""
             items.append(TaskItem(
                 task_id=f"requirement_urge:{r.req_id}:{owner}",
                 source="requirement_urge",
@@ -556,7 +556,7 @@ class TaskCenterService:
             due = f"完成时间：{item.due_date}" if item.due_date else "完成时间：未设定"
             overdue = "【已超期】" if item.is_overdue else ("【即将到期】" if item.is_due_soon else "")
             desc = next((item.detail.get(k) for k in desc_keys if item.detail.get(k)), None)
-            content = (str(desc)[:500]).strip() if desc else "（无补充说明）"
+            content = str(desc).strip() if desc else "（无补充说明）"
             blocks.append(
                 f"{idx}. {item.title}\n"
                 f"   · 来源：{item.source_label}\n"

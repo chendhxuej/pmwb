@@ -552,7 +552,7 @@ async function openTaskEmail(rows, sendType) {
   const first = rows[0]
   emailForm.subject =
     (sendType === 'urge' ? '催办：' : '通知：') +
-    (rows.length === 1 ? first.title?.slice(0, 40) : `${rows.length} 项待办任务`)
+    (rows.length === 1 ? (first.title || '') : `${rows.length} 项待办任务`)
   // 默认兜底正文（预览接口失败时使用）
   emailForm.body =
     sendType === 'urge'
