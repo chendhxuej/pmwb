@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 import logging
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, or_, cast, Date
 from sqlalchemy.orm import Session
 
 from db.models import (
@@ -128,14 +128,16 @@ class DashboardService:
             .scalar()
         )
 
+        # 会议 start_time 按本地时间（Asia/Shanghai）naive 存储，用本地日期统计，避免 UTC 边界少算一天
         meeting_this_week = (
             self.db.query(func.count(PmwbMeeting.id))
-            .filter(PmwbMeeting.start_time >= ws_utc, PmwbMeeting.start_time < we_utc)
+            .filter(cast(PmwbMeeting.start_time, Date) >= week_start,
+                    cast(PmwbMeeting.start_time, Date) < week_end)
             .scalar()
         )
         meeting_today = (
             self.db.query(func.count(PmwbMeeting.id))
-            .filter(PmwbMeeting.start_time >= today_start_utc, PmwbMeeting.start_time < today_end_utc)
+            .filter(cast(PmwbMeeting.start_time, Date) == today)
             .scalar()
         )
 
@@ -394,9 +396,9 @@ class DashboardService:
         return alerts
 
     def get_schedule(self, limit: int = 5) -> List[ScheduleItem]:
-        # start_time 以 UTC 存储，按中国本地日期匹配今日日程
+        # start_time 按本地时间（Asia/Shanghai）naive 存储，直接以本地日期匹配今日日程
         today_cst = _now_cst().replace(hour=0, minute=0, second=0, microsecond=0)
-        s = (today_cst - timedelta(hours=8)).replace(tzinfo=None)
+        s = today_cst.replace(tzinfo=None)
         e = s + timedelta(days=1)
         items = (
             self.db.query(PmwbMeeting)
@@ -407,7 +409,7 @@ class DashboardService:
         )
         return [
             ScheduleItem(
-                time=(item.start_time + timedelta(hours=8)).strftime("%H:%M") if item.start_time else "",
+                time=item.start_time.strftime("%H:%M") if item.start_time else "",
                 title=item.title or "",
                 loc=item.location or "待定",
             )
@@ -504,25 +506,25 @@ class DashboardService:
         # 运营问题（复用 get_stats）
         stats = self.get_stats()
 
-        # 会议
+        # 会议：start_time 按本地时间存储，用本地日期统计，避免 UTC 边界少算一天
         meeting_this_week = self.db.query(func.count(PmwbMeeting.id)).filter(
-            PmwbMeeting.start_time >= ws_utc,
-            PmwbMeeting.start_time < we_utc,
+            cast(PmwbMeeting.start_time, Date) >= week_start,
+            cast(PmwbMeeting.start_time, Date) < week_end,
         ).scalar() or 0
         meeting_today = self.db.query(func.count(PmwbMeeting.id)).filter(
-            PmwbMeeting.start_time >= today_start_utc,
-            PmwbMeeting.start_time < today_end_utc,
+            cast(PmwbMeeting.start_time, Date) == today,
         ).scalar() or 0
         meeting_upcoming = self.db.query(func.count(PmwbMeeting.id)).filter(
-            PmwbMeeting.start_time >= today_start_utc,
+            cast(PmwbMeeting.start_time, Date) >= today,
             PmwbMeeting.status == "planned",
         ).scalar() or 0
-        # 待处理会议纪要：已召开(held) 但未写纪要摘要(summary 为空)
+        # 待处理会议纪要：已召开(held) 但未写纪要摘要(summary 为空) 且需要纪要(minutes_required 非 False)
         meeting_pending_list = (
             self.db.query(PmwbMeeting)
             .filter(
                 PmwbMeeting.status == "held",
                 or_(PmwbMeeting.summary.is_(None), PmwbMeeting.summary == ""),
+                or_(PmwbMeeting.minutes_required.is_(None), PmwbMeeting.minutes_required == True),
             )
             .order_by(PmwbMeeting.start_time.desc())
             .limit(5)

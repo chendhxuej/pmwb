@@ -77,7 +77,7 @@
           <div
             v-for="cell in calendarDays"
             :key="cell.key"
-            :class="['cal-cell', { other: !cell.inMonth, today: cell.isToday }]"
+            :class="['cal-cell', { other: !cell.inMonth, today: cell.isToday, selected: cell.key === selectedDateKey }]"
             @click="onCellClick(cell)"
           >
             <div class="cal-day">{{ cell.dayNum }}</div>
@@ -98,11 +98,12 @@
 
       <div class="card today-card">
         <div class="card-header">
-          <div class="card-title">今日会议 · {{ todayLabel }}</div>
+          <div class="card-title">{{ selectedDateLabel }}</div>
+          <button v-if="selectedDateKey !== todayKey" class="pm-btn btn-sm" @click="goTodaySelection">回到今天</button>
         </div>
         <div class="card-body today-list">
           <div
-            v-for="m in todayMeetings"
+            v-for="m in selectedMeetings"
             :key="m.id"
             class="mt-row"
             @click="openDetail(m.id)"
@@ -120,7 +121,9 @@
               }}</span>
             </div>
           </div>
-          <div v-if="!todayMeetings.length" class="empty-hint">今日暂无会议安排</div>
+          <div v-if="!selectedMeetings.length" class="empty-hint">
+            {{ selectedDateKey === todayKey ? '今日暂无会议安排' : '该日暂无会议安排' }}
+          </div>
         </div>
       </div>
 
@@ -154,6 +157,9 @@
             <div class="sed-meta">
               <span>{{ formatDateMD(m.start_time) }}</span>
               <span class="sed-flag">已召开·待归档</span>
+            </div>
+            <div class="sed-actions">
+              <el-button size="small" text type="info" @click.stop="markNoMinutes(m)">无需纪要</el-button>
             </div>
           </div>
           <div v-if="!pendingSedimentMeetings.length" class="empty-hint">暂无待归档会议</div>
@@ -989,11 +995,24 @@ const calendarDays = computed(() => {
 })
 
 const todayLabel = computed(() => formatDateMD(new Date()))
-const todayMeetings = computed(() =>
+// 月历选中日期（默认今天），点击日期单元格切换右侧展示的会议
+const selectedDateKey = ref(todayKey.value)
+const selectedMeetings = computed(() =>
   meetings.value
-    .filter((m) => dateKeyOf(m.start_time) === todayKey.value)
+    .filter((m) => dateKeyOf(m.start_time) === selectedDateKey.value)
     .sort((a, b) => (a.start_time < b.start_time ? -1 : 1))
 )
+const selectedDateLabel = computed(() => {
+  if (selectedDateKey.value === todayKey.value) return '今日会议 · ' + formatDateMD(new Date())
+  const parts = selectedDateKey.value.split('-').map(Number)
+  if (parts.length === 3) {
+    const dt = new Date(parts[0], parts[1] - 1, parts[2])
+    const wd = ['日', '一', '二', '三', '四', '五', '六'][dt.getDay()]
+    return `${parts[1]}/${parts[2]} 周${wd}会议`
+  }
+  return '选中日会议'
+})
+const goTodaySelection = () => { selectedDateKey.value = todayKey.value }
 const upcomingMeetings = computed(() =>
   meetings.value
     .filter((m) => m.status === 'planned' && dateKeyOf(m.start_time) >= todayKey.value)
@@ -1001,10 +1020,10 @@ const upcomingMeetings = computed(() =>
     .slice(0, 6)
 )
 
-// 待归档纪要：已召开但未生成 Obsidian 纪要的会议（按开始时间倒序，取前 6 条）
+// 待归档纪要：已召开但未生成纪要，且需要纪要（minutes_required 非 false）的会议
 const pendingSedimentMeetings = computed(() =>
   meetings.value
-    .filter((m) => m.status === 'held' && !m.obsidian_path)
+    .filter((m) => m.status === 'held' && !m.obsidian_path && m.minutes_required !== false)
     .sort((a, b) => (a.start_time < b.start_time ? 1 : -1))
     .slice(0, 6)
 )
@@ -1070,8 +1089,18 @@ const nextMonth = () =>
   (currentDate.value = new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() + 1, 1))
 const goToday = () => (currentDate.value = new Date())
 const onCellClick = (cell) => {
-  if (cell.dayMeetings.length === 1) openDetail(cell.dayMeetings[0].id)
-  else if (cell.dayMeetings.length > 1) ElMessage.info(`${cell.key} 有 ${cell.dayMeetings.length} 场会议`)
+  selectedDateKey.value = cell.key
+}
+
+// 标记会议「无需纪要」：开完会但不需要记录纪要，从待归档列表移除
+const markNoMinutes = async (m) => {
+  try {
+    await meetingApi.updateMeeting(m.id, { minutes_required: false })
+    ElMessage.success('已标记为「无需纪要」')
+    loadMeetings()
+  } catch (e) {
+    ElMessage.error('操作失败，请重试')
+  }
 }
 
 /* ── 纪要编辑器：议题 / 待办 ── */
@@ -1707,6 +1736,20 @@ onMounted(async () => {
 .cal-cell.today {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.cal-cell.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.cal-cell.selected .cal-day {
+  color: var(--accent);
+  font-weight: 800;
+}
+.sed-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
 }
 .cal-day {
   font-size: 13px;

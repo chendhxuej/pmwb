@@ -142,6 +142,7 @@ class MeetingUpdate(BaseModel):
     related_req_id: Optional[str] = Field(None, max_length=64)
     related_ticket_no: Optional[str] = Field(None, max_length=64)
     status: Optional[MeetingStatus] = None
+    minutes_required: Optional[bool] = None
     attendees: Optional[List[MeetingAttendeeCreate]] = None
     agendas: Optional[List[MeetingAgendaCreate]] = None
     actions: Optional[List[MeetingActionCreate]] = None

@@ -322,6 +322,7 @@ class PmwbMeeting(Base):
     related_req_id = Column(String(64), comment="关联需求编号")
     related_ticket_no = Column(String(64), comment="关联开发工单编号")
     status = Column(Enum("planned", "held", "cancelled", "not_attended"), default="planned", comment="状态")
+    minutes_required = Column(Boolean, default=True, comment="是否需要纪要（开完会无需记录纪要时置为 False，从待归档列表移除）")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,
