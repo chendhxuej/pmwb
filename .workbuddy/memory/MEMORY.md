@@ -31,6 +31,7 @@
 - **配置强制环境变量**：`SECRET_KEY`/`DB_PASSWORD` 必填、从 `.env` 读取，缺失即报错；`DEBUG` 默认 False。加必填项须同步 `backend/.env` 与 README 示例。
 - **sent_emails 索引**：`req_id` 已加 `ix_sent_emails_req_id`（迁移 20260725000002）；改模型索引须同步补 Alembic 迁移。
 - 改 SQLAlchemy 模型(增/改列)后必须先 `alembic upgrade head` 再起后端（否则 1054 Unknown column→前端500）。
+- **⚠️ Alembic 修订号冲突坑（2026-08-04）**：新建迁移前必须先 `alembic heads` 查现有修订号；孤儿分支同步曾导致图混乱，`20260804000001` 已被 `add_minutes_required` 占用。新迁移切忌复用同日序号，须取 `heads` 中最大号 +1（如 `20260804000002`），`down_revision` 指向实际 head，否则 `alembic upgrade head` 报「Revision present more than once / Multiple head」。
 - **会议邮件收件人兼容「姓名/邮箱」**：`services/meeting.py send_mail` 的 `to`/`cc` 支持「中文姓名 或 邮箱」混合输入；非邮箱文本经 `MasterServiceClient.resolve_staff_emails` 走人员中台解析为邮箱，全部无法解析才报清晰错误（不再 400 裸拒）。前端 `MeetingView.vue` 邮件弹窗 `openMailDialog` 默认填参会人姓名即可，无需改回只收邮箱。
 
 ## 协同开发规范（2026-07-28 确立）
