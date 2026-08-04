@@ -1,6 +1,6 @@
 # PMWB 开发任务总表
 
-> 集成者：Vicky2号 | 更新时间：2026-08-01
+> 集成者：Vicky2号 | 更新时间：2026-08-04
 >
 > **AI 开发者请先看**：`docs/COLLABORATIVE_DEV_WORKFLOW.md` 第四节「标准化任务认领与交付机制」
 
@@ -45,8 +45,8 @@
 
 > 依赖：无（可与批次二并行开发）
 > 目标：参考「数智化部 AI 工作台」截图风格，丰富图表，提升信息阅读效率
-> ⚠️ 新旧共存策略：新页面走 /dashboard-v2 路由，旧 HomeView（/）不动；老大确认 OK 后再替换 / 指向新页面
-> ✅ 新版看板已落地：`DashboardV2View.vue` @ `/dashboard-v2`（侧栏"新版看板"），旧首页保留。db-3/4/5 退回项已由该页面统一承载（KPI/图表/模块卡）。
+> ⚠️ **方案已于 2026-08-03 被老大指令覆盖**：原「新旧共存 + /dashboard-v2」策略作废，`DashboardV2View.vue` 与 `/dashboard-v2` 路由已删除（08-04 随 be5c653 清理完毕）。
+> ✅ 现状：**旧版 `HomeView.vue` 是唯一看板页**，db-1(ECharts 组件)/db-2(后端接口) 成果保留并服务此页；db-3/4/5 的 KPI/图表/模块卡已直接落在 HomeView。
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
@@ -114,6 +114,28 @@
 | ma-3 | 后端：会议行动项查询/状态更新/督办接口 | feature/ma-3-action-backend | S2 | ✅已合入 | Vicky2号 | fcb17cd，pytest 9 passed，修复 dashboard 缺失导入 |
 | ma-4 | 前端：会议行动项子页面 + 菜单 | feature/ma-4-action-frontend | S2 | ✅已合入 | Vicky2号 | 00d9005，vite build passed |
 | ma-5 | 前后端：会议行动项支持完整编辑 | feature/ma-5-action-edit | S2 | ✅已合入 | Vicky2号 | 238b957，pytest 12 passed，vite build passed |
+
+---
+
+## 批次九：孤儿分支成果同步与看板收敛（2026-08-01 ~ 08-04）
+
+> 背景：08-01 之后有 7 个 feature 分支在**沙箱残缺副本仓库**中创建并推送，git 历史与 `origin/main` 断裂（孤儿分支，
+> `git diff origin/main` 显示删除数万行），无法安全 merge——直接合入会把 main 的代码当"删除"合并掉。
+> 处置：改为**以完整工作目录为准**，基于 `origin/main` 重建索引后一次性同步真实成果，孤儿分支冻结不合。
+
+| task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
+|---------|------|------|------|------|--------|------|
+| sync-1 | 工作目录成果同步入主干（50 文件） | feature/sync-0804-main | S2 | ✅已合入 | Vicky2号 | be5c653 fast-forward 到 main；含首页看板收敛、会议议题背景、工单反馈附件、邮件模板化等 |
+| sync-2 | 修复 dashboard 跨方言统计回归 | （随 sync-1） | S3 | ✅已合入 | Vicky2号 | `cast(start_time, Date)` 在 SQLite 走 numeric affinity 失效 → 改 naive datetime 区间；pytest 116 passed |
+| sync-3 | 移植 ui-2 抽屉草稿持久化 | （随 sync-1 后续） | S2 | ✅已合入 | Vicky2号 | 重写 `useDrawerDraft.js`（原分支版 `startWatching()` 从未调用、storageKey 无记录 ID、误用 `formRef.value` 处理 reactive），接入 WorkOrderView 录入弹窗 |
+
+**冻结不合的孤儿分支**（功能已随 sync-1 进入 main，分支仅留档）：
+`feature/db-6-dashboard-v2`（改的是已废弃的 DashboardV2View）、`feature/mc-6-email-personnel`、
+`feature/meeting-agenda-optimize`、`feature/meeting-agenda-background`、`feature/operation-feedback-attachments`、
+`feature/ui-2-drawer-draft`、`feature/ui-3-dashboard-polish`。
+
+⚠️ **防复发**：沙箱环境下的 `.git` 常是残缺副本（当前分支仅跟踪 60 文件，`origin/main` 有 327 个）。
+在沙箱内新建分支前必须先确认 `git merge-base origin/main HEAD` 有输出；无输出即孤儿分支，成果需改走"工作目录 + read-tree 重建索引"方式同步。
 
 ---
 

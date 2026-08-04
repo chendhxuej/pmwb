@@ -277,6 +277,7 @@
       :title="isEdit ? '编辑工单' : '录入工单'"
       width="640px"
       destroy-on-close
+      :before-close="handleEntryBeforeClose"
     >
       <el-form :model="form" label-width="96px" :rules="entryRules" ref="formRef">
         <el-row :gutter="14">
@@ -345,7 +346,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="entryVisible = false">取消</el-button>
+        <el-button @click="handleEntryBeforeClose(() => { entryVisible = false })">取消</el-button>
         <el-button type="primary" :loading="entryLoading" @click="submitEntry">确定</el-button>
       </template>
     </el-dialog>
@@ -405,6 +406,7 @@ import { operationApi } from '@/api/operation'
 import { obsidianApi } from '@/api/obsidian'
 import { formatDateTime } from '@/utils/format'
 import request from '@/api/request'
+import { useDrawerDraft } from '@/composables/useDrawerDraft'
 
 const route = useRoute()
 const category = computed(() => route.meta.category || 'prod')
@@ -614,6 +616,18 @@ const form = reactive({
   impact_level: 'P2', go_live_date: '', result_feedback: '', situation_desc: '', obsidian_path: '',
   attachments: [],
 })
+// 录入/编辑表单草稿持久化（按工单 id 区分，避免不同工单草稿串台）
+const {
+  restoreDraft: restoreEntryDraft,
+  clearDraft: clearEntryDraft,
+  handleBeforeClose: handleEntryBeforeClose,
+} = useDrawerDraft('workorder-entry', form, {
+  keySuffix: () => form.id ?? 'new',
+  onBeforeClose() {
+    if (entryLoading.value) return false // 提交中禁止关闭
+  },
+})
+
 const entryTypeOptions = computed(() => TYPE_BY_CAT[form.category] || [])
 const entryRules = {
   category: [{ required: true, message: '请选择类别', trigger: 'change' }],
@@ -644,6 +658,7 @@ const openEntry = () => {
     situation_desc: '', obsidian_path: '', attachments: [],
   })
   onCatChange()
+  if (restoreEntryDraft()) ElMessage.info('已恢复上次未保存的草稿')
   entryVisible.value = true
 }
 
@@ -665,6 +680,7 @@ const openEditFromDetail = () => {
     attachments: parseAttachments(detailRow.value.attachments),
   })
   onCatChange()
+  if (restoreEntryDraft()) ElMessage.info('已恢复上次未保存的草稿')
   entryVisible.value = true
 }
 
@@ -695,6 +711,7 @@ const submitEntry = () => {
         await operationApi.createIssue(payload)
         ElMessage.success('创建成功')
       }
+      clearEntryDraft()
       entryVisible.value = false
       loadData(); loadStats()
       if (detailVisible.value) refreshDetail()
