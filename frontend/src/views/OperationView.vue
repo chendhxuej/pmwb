@@ -251,6 +251,13 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <el-form-item label="业务领域">
+              <BusinessDomainSelect v-model="entryForm.domain_code" />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-form-item label="情况说明" prop="situation_desc">
           <el-input v-model="entryForm.situation_desc" type="textarea" :rows="3" placeholder="现象、影响范围、初步定位…" />
         </el-form-item>
@@ -275,6 +282,8 @@ import { ElMessage } from 'element-plus'
 import { Plus, Document, Warning, DataLine, Cpu, List, ChatDotRound, ArrowDown } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
+import RelatedKnowledgePanel from '@/components/Common/RelatedKnowledgePanel.vue'
 import { operationApi } from '@/api/operation'
 import { obsidianApi } from '@/api/obsidian'
 import { formatDate } from '@/utils/format'
@@ -468,7 +477,7 @@ const entryLoading = ref(false)
 const entryRef = ref(null)
 const noteOptions = ref([])
 const entryForm = reactive({
-  category: 'bug', issue_type: 'bug', title: '', handler: [], impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '',
+  category: 'bug', issue_type: 'bug', title: '', handler: [], impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '', domain_code: '',
 })
 const entryTypeOptions = computed(() => TYPE_BY_CAT[entryForm.category] || [])
 const entryRules = {
@@ -522,6 +531,7 @@ const submitEntry = () => {
       impact_level: entryForm.impact_level,
       situation_desc: entryForm.situation_desc.trim(),
       obsidian_path: entryForm.obsidian_path || null,
+      domain_code: entryForm.domain_code || null,
       discovery_date: new Date().toISOString(),
     }
     try {

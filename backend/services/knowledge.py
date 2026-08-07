@@ -24,6 +24,7 @@ class KnowledgeItemService(BaseService[PmwbKnowledgeItem]):
         sub_category: str = None,
         tag: str = None,
         source_type: str = None,
+        domain_code: str = None,
         page: int = 1,
         page_size: int = 20,
     ):
@@ -35,6 +36,8 @@ class KnowledgeItemService(BaseService[PmwbKnowledgeItem]):
             query = query.filter(self.model.sub_category == sub_category)
         if source_type:
             query = query.filter(self.model.source_type == source_type)
+        if domain_code:
+            query = query.filter(self.model.domain_code == domain_code)
         if keyword:
             like_pattern = f"%{keyword}%"
             query = query.filter(

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -7,6 +7,7 @@ from core.response import success
 from db.base import get_db
 from schemas.knowledge import KnowledgeItemCreate, KnowledgeItemUpdate
 from services.knowledge import knowledge_item_service
+from services.vault_sync import sync_from_vault
 
 router = APIRouter(prefix="/knowledge", tags=["知识库"])
 
@@ -18,6 +19,7 @@ def list_items(
     sub_category: Optional[str] = Query(None, description="子分类"),
     tag: Optional[str] = Query(None, description="标签"),
     source_type: Optional[str] = Query(None, description="来源类型"),
+    domain_code: Optional[str] = Query(None, description="业务领域编码"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=1000, description="每页条数"),
     db: Session = Depends(get_db),
@@ -30,6 +32,7 @@ def list_items(
         sub_category=sub_category,
         tag=tag,
         source_type=source_type,
+        domain_code=domain_code,
         page=page,
         page_size=page_size,
     ))
@@ -94,3 +97,18 @@ def get_sub_categories(
 def get_tags(db: Session = Depends(get_db)):
     """获取所有标签。"""
     return success(data=knowledge_item_service.get_tags(db))
+
+
+@router.post("/sync-from-vault")
+def sync_knowledge_from_vault(
+    dirs: Optional[List[str]] = None,
+    dry_run: bool = False,
+    db: Session = Depends(get_db),
+):
+    """从 Obsidian Vault 反向同步笔记到知识索引。
+    
+    - dirs: 要扫描的目录列表，默认扫描业务知识/会议/业务建设/运营/知识沉淀等目录
+    - dry_run: True 时只统计不写入
+    """
+    result = sync_from_vault(db, dirs=dirs, dry_run=dry_run)
+    return success(data=result, message=f"同步完成：新增索引 {result['new_indexed']} 条，跳过已有 {result['skipped_existing']} 条")

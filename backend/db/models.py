@@ -32,6 +32,7 @@ class PmwbRequirementExt(Base):
         comment="个人跟踪状态：proposed/accepted/dev/closed/paused",
     )
     tags = Column(String(512), comment="个人标签，逗号分隔")
+    domain_code = Column(String(64), comment="关联业务领域编码")
     personal_note = Column(Text, comment="个人备注")
     priority = Column(String(64), default="P2", comment="个人优先级：P0/P1/P2/P3/集团需求/紧急需求等")
     owner_note = Column(Text, comment="负责人备忘")
@@ -97,6 +98,7 @@ class PmwbDevTicket(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     ticket_no = Column(String(64), nullable=False, comment="开发工单编号")
     req_id = Column(String(64), nullable=False, comment="关联需求编号")
+    domain_code = Column(String(64), comment="关联业务领域编码")
     system_name = Column(String(128), nullable=False, comment="涉及系统")
     dev_team = Column(String(64), comment="开发团队/厂商")
     developer = Column(String(64), comment="开发负责人")
@@ -253,6 +255,7 @@ class PmwbOperationIssue(Base):
         default="prod",
         comment="工单大类：BUG管理/数据异常管理/生产问题分析/临时交办任务/热点投诉",
     )
+    domain_code = Column(String(64), comment="关联业务领域编码")
     issue_type = Column(
         Enum("bug", "data_abnormal", "topic_analysis", "spot_event", "temp_task", "other"),
         default="other",
@@ -309,6 +312,7 @@ class PmwbMeeting(Base):
         default="other",
         comment="会议类型",
     )
+    domain_code = Column(String(64), comment="关联业务领域编码")
     start_time = Column(DateTime, comment="开始时间")
     end_time = Column(DateTime, comment="结束时间")
     location = Column(String(255), comment="会议地点/线上链接")
@@ -415,6 +419,45 @@ class PmwbMeetingAction(Base):
     )
 
 
+class PmwbBusinessDomain(Base):
+    """业务领域字典表 — 需求/工单/会议/运营工单/知识库的统一业务关联维度。
+
+    层级设计：
+    - 一级（parent_id=NULL）：业务大类，如「商客业务」「政企业务」「系统平台」
+    - 二级（parent_id=一级ID）：细分业务领域，如「一网通宽带」「FTTO」「安防」
+    - 通过 self-referencing 关系支持前端树形选择器和管理页面。
+    """
+
+    __tablename__ = "pmwb_business_domain"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    domain_code = Column(String(64), nullable=False, unique=True, comment="业务线编码，如 ftto, group-sms")
+    domain_name = Column(String(128), nullable=False, comment="业务线中文名")
+    domain_group = Column(String(64), nullable=False, default="政企业务", comment="业务大类：商客业务/政企业务/系统平台/通用")
+    vault_path = Column(String(512), comment="对应 Obsidian vault 内相对目录路径")
+    match_keywords = Column(String(512), comment="分类关键词（逗号分隔）；用于将扁平笔记按文件名/标题归入该细分业务，vault 反向同步时匹配")
+    parent_id = Column(Integer, ForeignKey("pmwb_business_domain.id"), nullable=True, comment="父领域ID（NULL=一级大类）")
+    description = Column(Text, comment="业务领域描述/说明")
+    sort_order = Column(Integer, default=0, comment="排序号")
+    enabled = Column(Boolean, default=True, comment="是否启用")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    # 自引用关系
+    parent = relationship("PmwbBusinessDomain", remote_side=[id], backref="children")
+
+    __table_args__ = (
+        Index("idx_bd_group", "domain_group"),
+        Index("idx_bd_parent", "parent_id"),
+        {"comment": "业务领域字典表"},
+    )
+
+
 class PmwbKnowledgeItem(Base):
     """知识库条目索引表。"""
 
@@ -436,6 +479,7 @@ class PmwbKnowledgeItem(Base):
         comment="来源类型：requirement/ticket/operation/meeting/manual",
     )
     source_id = Column(String(64), comment="来源对象ID")
+    domain_code = Column(String(64), comment="关联业务领域编码")
     summary = Column(Text, comment="摘要")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
@@ -448,6 +492,7 @@ class PmwbKnowledgeItem(Base):
     __table_args__ = (
         Index("idx_knowledge_category", "category"),
         Index("idx_knowledge_source", "source_type", "source_id"),
+        Index("idx_knowledge_domain", "domain_code"),
         {"comment": "知识库条目索引表"},
     )
 
@@ -577,6 +622,7 @@ class PmwbKeyWork(Base):
         default="annual_task",
         comment="分类：总部试点/年度任务/专题工作",
     )
+    domain_code = Column(String(64), comment="关联业务领域编码")
     title = Column(String(500), nullable=False, comment="工作标题")
     background = Column(Text, comment="工作背景")
     current_status = Column(Text, comment="现状说明")

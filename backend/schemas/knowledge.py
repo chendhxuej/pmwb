@@ -13,6 +13,7 @@ class KnowledgeItemBase(BaseModel):
     obsidian_path: str = Field(..., max_length=512, description="Obsidian 文件路径")
     source_type: Optional[str] = Field(None, max_length=64, description="来源类型")
     source_id: Optional[str] = Field(None, max_length=64, description="来源对象ID")
+    domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     summary: Optional[str] = Field(None, description="摘要")
 
 
@@ -28,6 +29,7 @@ class KnowledgeItemUpdate(BaseModel):
     obsidian_path: Optional[str] = Field(None, max_length=512)
     source_type: Optional[str] = Field(None, max_length=64)
     source_id: Optional[str] = Field(None, max_length=64)
+    domain_code: Optional[str] = Field(None, max_length=64)
     summary: Optional[str] = None
 
 

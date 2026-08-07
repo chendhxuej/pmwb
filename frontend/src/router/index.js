@@ -115,6 +115,13 @@ const routes = [
         component: () => import('@/views/PersonnelCenterView.vue'),
         meta: { title: '人员中台', icon: 'OfficeBuilding' },
       },
+      // ── 业务领域管理（隐藏菜单，从知识中心跳转） ──
+      {
+        path: 'business-domains',
+        name: 'BusinessDomainManage',
+        component: () => import('@/views/BusinessDomainManage.vue'),
+        meta: { title: '业务领域管理', hidden: true },
+      },
       // ── 知识中心：聚合知识类子模块 ──
       {
         path: 'knowledge-center',
@@ -142,10 +149,22 @@ const routes = [
             meta: { title: '知识沉淀', icon: 'Files' },
           },
           {
+            path: 'domain',
+            name: 'KcDomain',
+            component: () => import('@/views/DomainKnowledgeView.vue'),
+            meta: { title: '按领域浏览', icon: 'Grid' },
+          },
+          {
             path: 'sql-scripts',
             name: 'KcSqlScripts',
             component: () => import('@/views/SqlScriptView.vue'),
             meta: { title: 'SQL脚本库', icon: 'Document' },
+          },
+          {
+            path: 'business-domains',
+            name: 'KcBusinessDomains',
+            component: () => import('@/views/BusinessDomainManage.vue'),
+            meta: { title: '业务知识维度', icon: 'SetUp' },
           },
         ],
       },

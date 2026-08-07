@@ -18,6 +18,7 @@
           <template #prefix><span class="kv-search-ico">🔍</span></template>
         </el-input>
         <el-button type="primary" @click="openCreate">＋ 新建条目</el-button>
+        <el-button @click="handleSyncFromVault" :loading="syncing">⟳ 从 Vault 同步</el-button>
       </div>
     </div>
 
@@ -74,7 +75,10 @@
               @click="selectTag(t)"
             >{{ t }}</span>
           </div>
-          <div class="kv-note-count">共 <b>{{ filteredItems.length }}</b> 条</div>
+          <div class="kv-note-count">
+            共 <b>{{ filteredItems.length }}</b> 条
+            <el-button size="small" type="primary" plain @click="handleSyncFromVault" :loading="syncing" style="margin-left:12px">⟳ 从 Vault 同步</el-button>
+          </div>
         </div>
 
         <div v-loading="loading" class="kv-notes-grid">
@@ -207,6 +211,7 @@ import { formatDate } from '@/utils/format'
 
 /* ---------- 状态 ---------- */
 const loading = ref(false)
+const syncing = ref(false)
 const obsidianLoading = ref(false)
 const previewLoading = ref(false)
 const previewVisible = ref(false)
@@ -441,6 +446,20 @@ const loadMeta = async () => {
     tagOptions.value = tags || []
   } catch (e) {
     // 元数据加载失败不阻断主流程
+  }
+}
+
+const handleSyncFromVault = async () => {
+  syncing.value = true
+  try {
+    const res = await knowledgeApi.syncFromVault()
+    ElMessage.success(res.message || `同步完成：新增 ${res.data?.new_count || 0} 条，更新 ${res.data?.updated_count || 0} 条`)
+    await loadItems()
+    await loadObsidianNotes()
+  } catch (e) {
+    ElMessage.error('同步失败：' + (e.message || '未知错误'))
+  } finally {
+    syncing.value = false
   }
 }
 

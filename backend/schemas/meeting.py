@@ -100,6 +100,7 @@ class MeetingBase(BaseModel):
     meeting_id: str = Field(..., max_length=64, description="会议编号")
     title: str = Field(..., max_length=255, description="会议主题")
     meeting_type: MeetingType = Field(MeetingType.other, description="会议类型")
+    domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     start_time: Optional[datetime] = Field(None, description="开始时间")
     end_time: Optional[datetime] = Field(None, description="结束时间")
     location: Optional[str] = Field(None, max_length=255, description="会议地点/线上链接")
@@ -129,6 +130,7 @@ class MeetingCreate(MeetingBase):
 class MeetingUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
     meeting_type: Optional[MeetingType] = None
+    domain_code: Optional[str] = Field(None, max_length=64)
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     location: Optional[str] = Field(None, max_length=255)

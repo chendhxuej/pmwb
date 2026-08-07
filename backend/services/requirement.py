@@ -12,6 +12,35 @@ from utils.dateflags import relative_status
 class RequirementService:
     """需求管理 Service，聚合 sent_emails 和 pmwb_requirement_ext。"""
 
+    # 需求默认状态：未建 ext 记录 / ext.status 为空时，展示与统计一律按此状态归口。
+    # 前端 RequirementView 用 `row.ext?.status || 'proposed'` 渲染，后端过滤/统计
+    # 必须与之保持同一口径，否则出现「列表显示 N 条、按状态检索只有 M 条」的漂移。
+    DEFAULT_STATUS = "proposed"
+
+    def _effective_status_map(self, db: Session) -> Dict[str, str]:
+        """计算每个 sent_emails 需求的有效状态（与前端 `ext?.status || 'proposed'` 渲染口径完全一致）。
+
+        需求宇宙 = sent_emails 去重后的 req_id（列表/统计/过滤的唯一定义域）。
+        ext.status 非空 → 用之；为空/None/无 ext 记录 → 兜底为 DEFAULT_STATUS('proposed')。
+        不在 sent_emails 中的孤儿 ext 记录（测试/脏数据）一律排除，不污染任何统计。
+        """
+        sent_req_ids = {
+            row[0] for row in db.query(SentEmail.req_id).distinct().all() if row[0]
+        }
+        ext_rows = db.query(
+            PmwbRequirementExt.req_id, PmwbRequirementExt.status
+        ).all()
+        eff: Dict[str, str] = {}
+        for rid, st in ext_rows:
+            if rid in sent_req_ids:
+                eff[rid] = st if st else self.DEFAULT_STATUS
+        return {rid: eff.get(rid, self.DEFAULT_STATUS) for rid in sent_req_ids}
+
+    def _resolve_status_req_ids(self, db: Session, status: str) -> List[str]:
+        """按状态解析命中的 req_id 列表（仅限 sent_emails 需求宇宙，与前端展示口径一致）。"""
+        eff = self._effective_status_map(db)
+        return [rid for rid, st in eff.items() if st == status]
+
     def _get_or_create_ext(self, db: Session, req_id: str) -> PmwbRequirementExt:
         ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
         if not ext:
@@ -124,14 +153,27 @@ class RequirementService:
             matched_req_ids = [row[0] for row in matched_req_ids]
             base_query = base_query.filter(SentEmail.req_id.in_(matched_req_ids))
 
-        # 状态/优先级过滤：只在有扩展记录且匹配的需求中筛选
+        # 状态/优先级过滤：口径与前端展示保持一致（无 ext 记录按默认状态归口）
         if status or priority:
-            ext_query = db.query(PmwbRequirementExt.req_id)
             if status:
-                ext_query = ext_query.filter(PmwbRequirementExt.status == status)
+                status_ids = set(self._resolve_status_req_ids(db, status))
+            else:
+                status_ids = None
             if priority:
-                ext_query = ext_query.filter(PmwbRequirementExt.priority == priority)
-            matched_req_ids = [row[0] for row in ext_query.all()]
+                priority_ids = {
+                    row[0]
+                    for row in db.query(PmwbRequirementExt.req_id)
+                    .filter(PmwbRequirementExt.priority == priority)
+                    .all()
+                }
+            else:
+                priority_ids = None
+
+            if status_ids is not None and priority_ids is not None:
+                matched_req_ids = list(status_ids & priority_ids)
+            else:
+                matched_req_ids = list(status_ids if status_ids is not None else priority_ids)
+
             if not matched_req_ids:
                 # 无匹配时直接返回空分页，避免无意义的子查询
                 return {
@@ -315,20 +357,22 @@ class RequirementService:
         return True
 
     def get_stats(self, db: Session) -> Dict[str, int]:
-        # 按需求文号去重统计（同一需求多次发邮件只算 1 条）
-        total = db.query(SentEmail.req_id).distinct().count()
+        # 需求宇宙 = sent_emails 去重后的 req_id（统一口径，排除孤儿 ext 脏数据）
+        sent_req_ids = {
+            row[0] for row in db.query(SentEmail.req_id).distinct().all() if row[0]
+        }
+        total = len(sent_req_ids)
         involved = (
             db.query(SentEmail.req_id)
             .filter(SentEmail.is_involved == 1)
             .distinct()
             .count()
         )
-        counts = (
-            db.query(PmwbRequirementExt.status, func.count(PmwbRequirementExt.id))
-            .group_by(PmwbRequirementExt.status)
-            .all()
-        )
-        status_map = {row[0]: row[1] for row in counts}
+        # 统计卡片必须与列表/过滤口径一致：无 ext / status 为空的需求兜底为默认状态
+        eff = self._effective_status_map(db)
+        status_map: Dict[str, int] = {}
+        for st in eff.values():
+            status_map[st] = status_map.get(st, 0) + 1
         # 开发单号未录入：涉及开发但 dev_ticket_no 为空的需求数（待跟进）
         dev_ticket_missing = (
             db.query(SentEmail.req_id)

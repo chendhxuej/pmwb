@@ -292,6 +292,7 @@ class DeliverableListResponse(BaseModel):
 class KeyWorkCreate(BaseModel):
     title: str = Field(..., max_length=500, description="工作标题")
     category: KeyWorkCategory = Field(KeyWorkCategory.annual_task, description="分类")
+    domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     owner: Optional[str] = Field(None, max_length=128, description="牵头人/负责人")
     priority: KeyWorkPriority = Field(KeyWorkPriority.P2, description="优先级")
     status: KeyWorkStatus = Field(KeyWorkStatus.planning, description="生命周期状态")
@@ -317,6 +318,7 @@ class KeyWorkCreate(BaseModel):
 class KeyWorkUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=500)
     category: Optional[KeyWorkCategory] = None
+    domain_code: Optional[str] = Field(None, max_length=64)
     owner: Optional[str] = Field(None, max_length=128)
     priority: Optional[KeyWorkPriority] = None
     status: Optional[KeyWorkStatus] = None

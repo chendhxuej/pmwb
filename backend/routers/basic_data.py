@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from core.exceptions import NotFoundException, ValidationException
 from core.response import success
 from db.base import get_db
+from db.models import PmwbBusinessDomain
 from schemas.basic_data import (
     OrgCreate,
     OrgOption,
@@ -28,9 +29,82 @@ from schemas.basic_data import (
     StaffOut,
     StaffUpdate,
 )
+from schemas.business_domain import (
+    BusinessDomainCreate,
+    BusinessDomainTreeNode,
+    BusinessDomainUpdate,
+)
+from services.business_domain import (
+    create as create_business_domain,
+    delete as delete_business_domain,
+    get_related as get_domain_related,
+    list_all as list_business_domains_all,
+    list_tree as list_business_domains_tree,
+    update as update_business_domain,
+)
 from services.basic_data import basic_data_service
 
 router = APIRouter(prefix="/basic-data", tags=["团队信息"])
+
+
+# ---------------------------------------------------------------------------
+# 业务领域字典
+# ---------------------------------------------------------------------------
+# 业务领域 — 查询（供前端 BusinessDomainSelect 组件使用）
+# ---------------------------------------------------------------------------
+@router.get("/business-domains")
+def list_business_domains(
+    tree: bool = Query(False, description="true=返回树形结构，false=扁平列表"),
+    group: Optional[str] = Query(None, description="按业务大类过滤：商客业务/政企业务/系统平台/通用"),
+    all: bool = Query(False, description="是否包含未启用的领域（管理页专用）"),
+    db: Session = Depends(get_db),
+):
+    """返回业务领域列表。
+
+    - tree=false（默认）：扁平列表，含 parent_domain_code 字段
+    - tree=true：树形结构，根节点为一级大类
+    - group：按业务大类过滤
+    - all=true：含未启用（管理页用）
+    """
+    if tree:
+        data = list_business_domains_tree(db, enabled_only=not all)
+        return success(data=data)
+
+    rows = list_business_domains_all(db, enabled_only=not all)
+
+    # 如果是按 group 过滤，在内存过滤
+    if group:
+        rows = [r for r in rows if r.domain_group == group]
+
+    return success(data=rows)
+
+
+# ---------------------------------------------------------------------------
+# 业务领域 — 管理 CRUD（仅管理入口使用）
+# ---------------------------------------------------------------------------
+@router.post("/business-domains")
+def create_bd(payload: BusinessDomainCreate, db: Session = Depends(get_db)):
+    """新增业务领域。"""
+    return success(data=create_business_domain(db, payload), message="已创建")
+
+
+@router.put("/business-domains/{domain_code}")
+def update_bd(domain_code: str, payload: BusinessDomainUpdate, db: Session = Depends(get_db)):
+    """修改业务领域。"""
+    return success(data=update_business_domain(db, domain_code, payload), message="已更新")
+
+
+@router.delete("/business-domains/{domain_code}")
+def delete_bd(domain_code: str, db: Session = Depends(get_db)):
+    """删除（软删除：enabled=False）。"""
+    result = delete_business_domain(db, domain_code)
+    return success(data=result, message="已删除")
+
+
+@router.get("/business-domains/{domain_code}/related")
+def get_bd_related(domain_code: str, db: Session = Depends(get_db)):
+    """聚合某业务领域关联的知识条目 / 需求 / 会议 / 运营工单（知识中心按领域浏览详情）。"""
+    return success(data=get_domain_related(db, domain_code))
 
 
 # ---------------------------------------------------------------------------

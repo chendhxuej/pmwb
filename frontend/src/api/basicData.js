@@ -73,6 +73,23 @@ export const basicDataApi = {
   deleteStaff(id) {
     return request.delete(`/basic-data/staffs/${id}`)
   },
+
+  // 业务领域
+  getBusinessDomains(params = {}) {
+    return request.get('/basic-data/business-domains', { params })
+  },
+  createBusinessDomain(data) {
+    return request.post('/basic-data/business-domains', data)
+  },
+  updateBusinessDomain(code, data) {
+    return request.put(`/basic-data/business-domains/${code}`, data)
+  },
+  deleteBusinessDomain(code) {
+    return request.delete(`/basic-data/business-domains/${code}`)
+  },
+  getDomainRelated(code) {
+    return request.get(`/basic-data/business-domains/${code}/related`)
+  },
 }
 
 // ---------------------------------------------------------------------------

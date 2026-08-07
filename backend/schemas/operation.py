@@ -45,6 +45,7 @@ class OperationIssueBase(BaseModel):
     issue_no: str = Field(..., max_length=64, description="工单编号")
     title: str = Field(..., max_length=255, description="工单标题")
     category: WorkOrderCategory = Field(WorkOrderCategory.prod, description="工单大类")
+    domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     issue_type: IssueType = Field(IssueType.other, description="问题子类(细分类型)")
     status: IssueStatus = Field(IssueStatus.pending, description="状态")
     source: str = Field("manual", max_length=64, description="来源")
@@ -79,6 +80,7 @@ class OperationIssueCreate(OperationIssueBase):
 class OperationIssueUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
     category: Optional[WorkOrderCategory] = None
+    domain_code: Optional[str] = Field(None, max_length=64)
     issue_type: Optional[IssueType] = None
     status: Optional[IssueStatus] = None
     discovery_date: Optional[datetime] = None

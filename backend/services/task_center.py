@@ -328,12 +328,22 @@ class TaskCenterService:
         """
         from db.models import PmwbRequirementEvaluation, PmwbRequirementExt
 
+        # 需求宇宙 = sent_emails 去重后的 req_id（与需求模块口径一致，排除孤儿 ext 脏数据）
+        sent_req_ids = {
+            row[0] for row in db.query(SentEmail.req_id).distinct().all() if row[0]
+        }
+        # 有效状态：ext.status 非空用之，否则兜底为 'proposed'（与需求模块/前端渲染完全对齐）
+        ext_status = {
+            r[0]: (r[1] if r[1] else "proposed")
+            for r in db.query(PmwbRequirementExt.req_id, PmwbRequirementExt.status).all()
+            if r[0] in sent_req_ids
+        }
         # 需求级终态集合（已关闭/暂停的不催办）
-        closed_ids = set(
-            r[0] for r in db.query(PmwbRequirementExt.req_id)
-            .filter(PmwbRequirementExt.status.in_(["closed", "paused"]))
-            .all()
-        )
+        closed_ids = {
+            rid
+            for rid in sent_req_ids
+            if ext_status.get(rid, "proposed") in ("closed", "paused")
+        }
 
         rows = (
             db.query(

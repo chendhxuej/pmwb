@@ -214,6 +214,9 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="业务领域">
+          <BusinessDomainSelect v-model="form.domain_code" />
+        </el-form-item>
         <el-form-item label="标签">
           <el-input v-model="form.tags" placeholder="逗号分隔" />
         </el-form-item>
@@ -275,6 +278,10 @@
           </el-timeline-item>
         </el-timeline>
         <el-empty v-else description="暂无催办记录" />
+      </div>
+      <div v-if="!detail.is_eval" class="detail-section">
+        <div class="detail-section-title">关联业务知识</div>
+        <RelatedKnowledgePanel :domain-code="detail.ext?.domain_code" />
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
@@ -343,6 +350,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
+import RelatedKnowledgePanel from '@/components/Common/RelatedKnowledgePanel.vue'
 import {
   getRequirements, getRequirement, updateRequirement,
   getRequirementStats, getEvaluations, updateEvaluation,
@@ -449,7 +458,7 @@ const evalForm = reactive({
   sa_name: '', system_name: '', workload: null,
   review_workload: null, opinion: '', dev_ticket_no: '',
 })
-const form = reactive({ req_id: '', req_name: '', status: '', priority: '', tags: '', personal_note: '', dev_ticket_no: '' })
+const form = reactive({ req_id: '', req_name: '', status: '', priority: '', domain_code: '', tags: '', personal_note: '', dev_ticket_no: '' })
 const detail = ref({})
 const reminderRecords = ref([])
 const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
@@ -704,6 +713,7 @@ async function handleSave() {
     await updateRequirement(form.req_id, {
       status: form.status,
       priority: form.priority,
+      domain_code: form.domain_code || null,
       tags: form.tags,
       personal_note: form.personal_note,
       dev_ticket_no: form.dev_ticket_no,

@@ -358,6 +358,9 @@
             <el-option v-for="(v, k) in CATEGORY_MAP" :key="k" :label="v.label" :value="k" />
           </el-select>
         </el-form-item>
+        <el-form-item label="业务领域">
+          <BusinessDomainSelect v-model="basicForm.domain_code" />
+        </el-form-item>
         <el-form-item label="负责人">
           <StaffSelect v-model="basicForm.owner" placeholder="牵头人 / 负责人" />
         </el-form-item>
@@ -509,6 +512,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as kwApi from '@/api/keywork.js'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import {
   CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP,
 } from '@/api/keywork.js'
@@ -545,7 +549,7 @@ const acceptText = ref('')
 
 function blankMain() {
   return {
-    title: '', category: 'hq_pilot', owner: '', priority: 'P2', status: 'planning',
+    title: '', category: 'hq_pilot', domain_code: '', owner: '', priority: 'P2', status: 'planning',
     planned_finish_date: '', background: '', current_status: '', content: '',
   }
 }

@@ -14,6 +14,7 @@ from core.config import settings
 from core.exceptions import NotFoundException, ValidationException
 from core.response import success
 from db.base import get_db
+from services.obsidian_link import sediment_dev_ticket, sediment_requirement
 from utils.obsidian import list_notes, read_markdown, write_markdown_safe
 
 router = APIRouter(prefix="/obsidian", tags=["Obsidian 联动"])
@@ -73,3 +74,18 @@ def write_obsidian_content(payload: NoteWrite, db: Session = Depends(get_db)):
     except ValueError as e:
         raise ValidationException(str(e))
     return success(message="已保存", data={"path": payload.path})
+
+
+# ---------------------------------------------------------------------------
+# 一键沉淀
+# ---------------------------------------------------------------------------
+@router.post("/sediment/requirement/{req_id}")
+def sediment_requirement_api(req_id: str, db: Session = Depends(get_db)):
+    """一键沉淀需求为 Obsidian 知识条目。"""
+    return success(data=sediment_requirement(db, req_id))
+
+
+@router.post("/sediment/dev-ticket/{ticket_id}")
+def sediment_dev_ticket_api(ticket_id: int, db: Session = Depends(get_db)):
+    """一键沉淀开发工单为 Obsidian 知识条目。"""
+    return success(data=sediment_dev_ticket(db, ticket_id))

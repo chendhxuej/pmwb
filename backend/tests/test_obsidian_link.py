@@ -58,7 +58,7 @@ def test_sediment_operation_issue(client, vault_tmp):
     assert res.status_code == 200
     data = res.json()["data"]
     assert data["created"] is True
-    assert data["obsidian_path"].startswith("01-运营知识/Bug解决方案/")
+    assert data["obsidian_path"].startswith("11-业务运营/Bug解决方案/")
     assert data["obsidian_path"].endswith(".md")
 
     # 文件确实写入临时 vault

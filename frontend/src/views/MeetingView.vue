@@ -501,6 +501,12 @@
           </div>
           <div v-else class="empty-hint">尚未生成，点击右上按钮按会议模板写入 05-会议纪要</div>
         </div>
+
+        <!-- 6. 关联业务知识 -->
+        <div class="dw-section">
+          <div class="pm-section-title">关联业务知识</div>
+          <RelatedKnowledgePanel :domain-code="detailMeeting.domain_code" />
+        </div>
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
@@ -641,6 +647,9 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <el-form-item label="业务领域">
+          <BusinessDomainSelect v-model="form.domain_code" />
+        </el-form-item>
         <el-form-item label="会议议题">
           <div class="ag-edit-list">
             <div v-for="(ag, i) in formAgendas" :key="i" class="ag-card">
@@ -721,6 +730,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
+import RelatedKnowledgePanel from '@/components/Common/RelatedKnowledgePanel.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -1443,6 +1454,7 @@ const defaultForm = {
   related_req_id: '',
   related_ticket_no: '',
   obsidian_path: '',
+  domain_code: '',
 }
 const form = reactive({ ...defaultForm })
 
@@ -1525,6 +1537,7 @@ const handleSubmit = () => {
       related_req_id: form.related_req_id || null,
       related_ticket_no: form.related_ticket_no || null,
       obsidian_path: form.obsidian_path || null,
+      domain_code: form.domain_code || null,
       attendees: attendeeChips.value
         .filter((n) => n.trim())
         .map((n) => ({ name: n.trim(), is_required: 1 })),

@@ -24,6 +24,7 @@ class RequirementPriority(str):
 class RequirementExtBase(BaseModel):
     status: str = Field("proposed", description="个人跟踪状态")
     tags: Optional[str] = Field(None, description="个人标签，逗号分隔")
+    domain_code: Optional[str] = Field(None, description="关联业务领域编码")
     personal_note: Optional[str] = Field(None, description="个人备注")
     priority: str = Field("P2", description="个人优先级")
     owner_note: Optional[str] = Field(None, description="负责人备忘")
@@ -38,6 +39,7 @@ class RequirementExtBase(BaseModel):
 class RequirementExtUpdate(BaseModel):
     status: Optional[str] = None
     tags: Optional[str] = None
+    domain_code: Optional[str] = None
     personal_note: Optional[str] = None
     priority: Optional[str] = None
     owner_note: Optional[str] = None

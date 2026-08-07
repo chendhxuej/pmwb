@@ -1,0 +1,208 @@
+<template>
+  <div class="domain-knowledge">
+    <div class="dk-header">
+      <h2>按业务领域浏览</h2>
+      <span class="dk-sub">按政企业务线聚合关联的知识条目、需求、会议和运营工单</span>
+      <el-button size="small" text type="primary" @click="$router.push('/business-domains')" style="margin-left: auto;">
+        管理业务领域
+      </el-button>
+    </div>
+
+    <el-row v-loading="loading" :gutter="16" class="dk-grid">
+      <el-col v-for="d in domains" :key="d.domain_code" :xs="24" :sm="12" :lg="8" class="dk-col">
+        <div class="dk-card" @click="selectDomain(d)">
+          <div class="dk-card-head">
+            <span class="dk-card-name">{{ d.domain_name }}</span>
+            <el-tag size="small" type="info">{{ d.domain_group }}</el-tag>
+          </div>
+          <div class="dk-card-desc" v-if="d.description">{{ d.description }}</div>
+          <el-divider style="margin: 12px 0" />
+          <div class="dk-stats">
+            <div class="dk-stat">
+              <span class="dk-stat-num">{{ d.knowledge_count || 0 }}</span>
+              <span class="dk-stat-label">知识条目</span>
+            </div>
+            <div class="dk-stat">
+              <span class="dk-stat-num">{{ d.req_count || 0 }}</span>
+              <span class="dk-stat-label">需求</span>
+            </div>
+            <div class="dk-stat">
+              <span class="dk-stat-num">{{ d.issue_count || 0 }}</span>
+              <span class="dk-stat-label">运营工单</span>
+            </div>
+            <div class="dk-stat">
+              <span class="dk-stat-num">{{ d.meeting_count || 0 }}</span>
+              <span class="dk-stat-label">会议</span>
+            </div>
+          </div>
+        </div>
+      </el-col>
+    </el-row>
+
+    <!-- 领域详情弹窗 -->
+    <el-dialog v-model="detailVisible" :title="`${selectedDomain?.domain_name} - 关联内容`" width="820px">
+      <el-tabs v-model="detailTab">
+        <el-tab-pane label="知识条目" name="knowledge">
+          <el-table :data="related.knowledge_items" size="small" max-height="420" v-loading="relLoading">
+            <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="category" label="分类" width="110" />
+            <el-table-column prop="sub_title" label="子分类" width="110" />
+            <el-table-column prop="status" label="来源" width="100" />
+            <el-table-column label="操作" width="80">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="openNote(row.obsidian_path)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!relLoading && !related.knowledge_items.length" description="暂无关联知识条目" />
+        </el-tab-pane>
+        <el-tab-pane label="需求" name="requirements">
+          <el-table :data="related.requirements" size="small" max-height="420" v-loading="relLoading">
+            <el-table-column prop="code" label="需求编号" width="160" />
+            <el-table-column prop="title" label="需求名称" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="status" label="状态" width="100" />
+          </el-table>
+          <el-empty v-if="!relLoading && !related.requirements.length" description="暂无关联需求" />
+        </el-tab-pane>
+        <el-tab-pane label="会议" name="meetings">
+          <el-table :data="related.meetings" size="small" max-height="420" v-loading="relLoading">
+            <el-table-column prop="code" label="会议编号" width="160" />
+            <el-table-column prop="title" label="会议主题" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="sub_title" label="时间" width="120" />
+            <el-table-column label="操作" width="80">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="openNote(row.obsidian_path)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!relLoading && !related.meetings.length" description="暂无关联会议" />
+        </el-tab-pane>
+        <el-tab-pane label="运营工单" name="issues">
+          <el-table :data="related.issues" size="small" max-height="420" v-loading="relLoading">
+            <el-table-column prop="code" label="工单编号" width="150" />
+            <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="category" label="大类" width="100" />
+            <el-table-column prop="status" label="状态" width="100" />
+          </el-table>
+          <el-empty v-if="!relLoading && !related.issues.length" description="暂无关联运营工单" />
+        </el-tab-pane>
+      </el-tabs>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { basicDataApi } from '@/api/basicData.js'
+
+const loading = ref(false)
+const domains = ref([])
+const detailVisible = ref(false)
+const detailTab = ref('knowledge')
+const selectedDomain = ref(null)
+const relLoading = ref(false)
+const related = ref({ knowledge_items: [], requirements: [], meetings: [], issues: [] })
+
+const loadDomains = async () => {
+  loading.value = true
+  try {
+    domains.value = await basicDataApi.getBusinessDomains()
+  } catch {
+    // 静默
+  } finally {
+    loading.value = false
+  }
+}
+
+const selectDomain = async (d) => {
+  selectedDomain.value = d
+  detailVisible.value = true
+  detailTab.value = 'knowledge'
+  related.value = { knowledge_items: [], requirements: [], meetings: [], issues: [] }
+  relLoading.value = true
+  try {
+    const res = await basicDataApi.getDomainRelated(d.domain_code)
+    related.value = res || related.value
+  } catch {
+    // 静默
+  } finally {
+    relLoading.value = false
+  }
+}
+
+const openNote = (path) => {
+  if (!path) return
+  window.open(`obsidian://open?vault=知识图谱&file=${encodeURIComponent(path)}`, '_blank')
+}
+
+onMounted(loadDomains)
+</script>
+
+<style scoped>
+.domain-knowledge {
+  padding: 16px;
+}
+.dk-header {
+  margin-bottom: 20px;
+}
+.dk-header h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  color: #e0e0e0;
+}
+.dk-sub {
+  font-size: 13px;
+  color: #888;
+}
+.dk-grid {
+  margin: 0 !important;
+}
+.dk-col {
+  margin-bottom: 16px;
+}
+.dk-card {
+  background: #1e1e2e;
+  border: 1px solid #2a2a3e;
+  border-radius: 10px;
+  padding: 18px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.dk-card:hover {
+  border-color: #409eff;
+  box-shadow: 0 4px 12px rgba(64, 158, 255, .15);
+}
+.dk-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.dk-card-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+.dk-card-desc {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #999;
+}
+.dk-stats {
+  display: flex;
+  gap: 20px;
+}
+.dk-stat {
+  text-align: center;
+  flex: 1;
+}
+.dk-stat-num {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: #409eff;
+}
+.dk-stat-label {
+  font-size: 12px;
+  color: #888;
+}
+</style>

@@ -1,8 +1,8 @@
-"""工单 / 会议 与 Obsidian 笔记的双向联动服务。
+"""工单 / 会议 / 需求 与 Obsidian 笔记的双向联动服务。
 
 职责：
-- 一键沉淀：把运营工单 / 会议 生成知识条目 Markdown，写入 Obsidian vault 的
-  新目录结构（01-运营知识 / 03-会议资产），并在 pmwb_knowledge_item 建索引，
+- 一键沉淀：把运营工单 / 会议 / 需求 / 开发工单 生成知识条目 Markdown，写入 Obsidian vault
+  的对应目录（11-业务运营 / 05-会议纪要 / 10-业务建设），并在 pmwb_knowledge_item 建索引，
   同时回填来源对象的 obsidian_path，形成双向关联。
 - 落盘位置遵循 docs/需求规格说明书.md 第四节「Obsidian 知识库归档方案」。
 """
@@ -11,7 +11,17 @@ from typing import Dict, Optional
 
 from core.config import settings
 from core.exceptions import NotFoundException
-from db.models import PmwbKnowledgeItem
+from db.models import (
+    PmwbDevDeliverable,
+    PmwbDevTicket,
+    PmwbDevTicketLog,
+    PmwbKnowledgeItem,
+    PmwbMeeting,
+    PmwbOperationIssue,
+    PmwbRequirementExt,
+    PmwbUserStory,
+    SentEmail,
+)
 from services.knowledge import knowledge_item_service
 from services.meeting import meeting_service
 from services.operation import operation_issue_service
@@ -41,13 +51,13 @@ def _find_existing_index(db, source_type: str, source_id: str) -> Optional[PmwbK
     )
 
 
-# 运营工单大类 -> (落盘子目录, 笔记模板类型)
+# 运营工单大类 -> (落盘子目录完整路径, 笔记模板类型)
 ISSUE_SEDIMENT_DIR = {
-    "bug": ("Bug解决方案", "bug"),
-    "data": ("运营分析案例", "analysis"),
-    "prod": ("Bug解决方案", "bug"),
-    "complaint": ("运营分析案例", "analysis"),
-    "task": ("运维SOP", "sop"),
+    "bug": ("11-业务运营/Bug解决方案", "bug"),
+    "data": ("11-业务运营/运营分析案例", "analysis"),
+    "prod": ("11-业务运营/Bug解决方案", "bug"),
+    "complaint": ("11-业务运营/运营分析案例", "analysis"),
+    "task": ("11-业务运营/运维SOP", "sop"),
 }
 
 
@@ -128,9 +138,9 @@ def sediment_operation_issue(db, issue_id: int) -> Dict:
             "created": False,
         }
 
-    subdir, note_type = ISSUE_SEDIMENT_DIR.get(issue.category, ("Bug解决方案", "bug"))
+    subdir, note_type = ISSUE_SEDIMENT_DIR.get(issue.category, ("11-业务运营/Bug解决方案", "bug"))
     filename = f"{sanitize_filename(issue.issue_no)}-{sanitize_filename(issue.title)}.md"
-    rel_path = f"01-运营知识/{subdir}/{filename}"
+    rel_path = f"{subdir}/{filename}"
 
     # 仅当文件不存在时才写，避免覆盖用户已在 Obsidian 中的编辑
     if not read_markdown(rel_path):
@@ -143,11 +153,12 @@ def sediment_operation_issue(db, issue_id: int) -> Dict:
             "item_id": _gen_item_id(),
             "title": issue.title,
             "category": "运营知识",
-            "sub_category": subdir,
+            "sub_category": subdir.split("/")[-1] if "/" in subdir else subdir,
             "tags": f"运营工单,{issue.issue_type}",
             "obsidian_path": rel_path,
             "source_type": "operation",
             "source_id": str(issue.id),
+            "domain_code": getattr(issue, "domain_code", None),
             "summary": summary,
         },
     )
@@ -333,10 +344,321 @@ def sediment_meeting(db, meeting_id: int) -> Dict:
             "obsidian_path": rel_path,
             "source_type": "meeting",
             "source_id": str(meeting.id),
+            "domain_code": getattr(meeting, "domain_code", None),
             "summary": summary,
         },
     )
     meeting.obsidian_path = rel_path
+    db.commit()
+    return {
+        "obsidian_path": rel_path,
+        "knowledge_item_id": item.id,
+        "item_id": item.item_id,
+        "created": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 需求沉淀
+# ---------------------------------------------------------------------------
+
+REQUIREMENT_SEDIMENT_DIR = "10-业务建设/需求沉淀"
+
+
+def _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues) -> str:
+    """生成需求知识沉淀 Markdown。"""
+    # 优先使用 ext 中的覆盖值，回退到 email
+    req_name = (ext.req_name if ext and ext.req_name else (email.req_name if email else "未知需求"))
+    background = (ext.background if ext and ext.background else (email.background if email else ""))
+    description = (ext.description if ext and ext.description else (email.description if email else ""))
+    clarification = (ext.clarification if ext and ext.clarification else (email.clarification if email else ""))
+    system_name = (ext.system_name if ext and ext.system_name else (email.system_name if email else ""))
+    sa_name = (ext.sa_name if ext and ext.sa_name else (email.sa_name if email else ""))
+    proposer = email.proposer if email else ""
+    propose_time = _fmt_dt(email.propose_time) if email and email.propose_time else "—"
+
+    domain_code = getattr(ext, "domain_code", None) if ext else None
+
+    fm = [
+        "---",
+        f'title: "{req_name}"',
+        f"req_id: {ext.req_id if ext else (email.req_id if email else '')}",
+        f'domain_code: "{domain_code or ""}"',
+        f"source_type: requirement",
+        f"status: draft",
+        f"created: {_fmt_dt(datetime.now())}",
+        f"tags: [需求, {system_name or '通用'}]",
+        "---",
+        "",
+        f"# {req_name}",
+        "",
+        "## 概述",
+        f"- 需求编号：{ext.req_id if ext else (email.req_id if email else '—')}",
+        f"- 提出人：{proposer or '—'}",
+        f"- 提出时间：{propose_time}",
+        f"- 涉及系统：{system_name or '—'}",
+        f"- SA：{sa_name or '—'}",
+        f"- 业务领域：{domain_code or '—'}",
+        f"- 跟踪状态：{ext.status if ext else '—'}",
+        f"- 优先级：{ext.priority if ext else '—'}",
+        "",
+        "## 需求背景",
+        background or "（待补充）",
+        "",
+        "## 需求描述",
+        description or "（待补充）",
+        "",
+    ]
+    if clarification:
+        fm += [
+            "## 澄清内容",
+            clarification,
+            "",
+        ]
+
+    # 用户故事
+    if stories:
+        fm += ["## 用户故事", ""]
+        for i, s in enumerate(stories, 1):
+            fm += [
+                f"### 故事{i}：{s.title or '—'}",
+                f"- 描述：{s.desc or '—'}",
+                f"- 场景：{s.scene or '—'}",
+            ]
+            if s.acceptance:
+                fm.append(f"- 验收标准：{s.acceptance}")
+            if s.rules:
+                fm.append(f"- 业务规则：{s.rules}")
+            fm.append(f"- 定稿：{'是' if s.finalized else '否'}")
+            fm.append("")
+    else:
+        fm += ["## 用户故事", "（暂无）", ""]
+
+    # 关联
+    fm += ["## 关联", ""]
+    if dev_tickets:
+        fm.append("### 关联开发工单")
+        for t in dev_tickets:
+            fm.append(f"- [[{t.ticket_no}]] - {t.system_name} ({t.status})")
+        fm.append("")
+    if meetings:
+        fm.append("### 关联会议")
+        for m in meetings:
+            fm.append(f"- [[{m.title}]] ({_fmt_dt(m.start_time)})")
+        fm.append("")
+    if issues:
+        fm.append("### 关联运营工单")
+        for iss in issues:
+            fm.append(f"- [[{iss.issue_no}]] - {iss.title} ({iss.status})")
+        fm.append("")
+
+    if domain_code:
+        fm += [
+            "### 业务知识",
+            f"- 业务领域编码：{domain_code}",
+            "",
+        ]
+
+    return "\n".join(fm)
+
+
+def sediment_requirement(db, req_id: str) -> Dict:
+    """把需求沉淀为知识条目，返回 {obsidian_path, knowledge_item_id, item_id, created}。"""
+    # 查找需求扩展信息
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    # 查找原始邮件信息
+    email = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
+    if not ext and not email:
+        raise NotFoundException(f"需求不存在：req_id={req_id}")
+
+    # 幂等：已存在索引则直接返回
+    existing = _find_existing_index(db, "requirement", req_id)
+    if existing:
+        return {
+            "obsidian_path": existing.obsidian_path,
+            "knowledge_item_id": existing.id,
+            "item_id": existing.item_id,
+            "created": False,
+        }
+
+    # 聚合关联数据
+    stories = db.query(PmwbUserStory).filter(PmwbUserStory.req_id == req_id).order_by(PmwbUserStory.seq).all()
+    dev_tickets = db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id == req_id).all()
+    meetings = db.query(PmwbMeeting).filter(PmwbMeeting.related_req_id == req_id).all()
+    issues = db.query(PmwbOperationIssue).filter(PmwbOperationIssue.related_req_id == req_id).all()
+
+    req_name = (ext.req_name if ext and ext.req_name else (email.req_name if email else req_id))
+    filename = f"{sanitize_filename(req_id)}_{sanitize_filename(req_name)}.md"
+    rel_path = f"{REQUIREMENT_SEDIMENT_DIR}/{filename}"
+
+    # 仅当文件不存在时才写
+    if not read_markdown(rel_path):
+        write_markdown(rel_path, _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues))
+
+    domain_code = getattr(ext, "domain_code", None) if ext else None
+    summary = (background if ext and ext.background else (email.background if email else req_name))[:200]
+    item = knowledge_item_service.create(
+        db,
+        {
+            "item_id": _gen_item_id(),
+            "title": req_name,
+            "category": "requirement",
+            "sub_category": system_name if (system_name := (ext.system_name if ext and ext.system_name else (email.system_name if email else ""))) else None,
+            "tags": f"需求,{system_name or '通用'}",
+            "obsidian_path": rel_path,
+            "source_type": "requirement",
+            "source_id": req_id,
+            "domain_code": domain_code,
+            "summary": summary,
+        },
+    )
+    return {
+        "obsidian_path": rel_path,
+        "knowledge_item_id": item.id,
+        "item_id": item.item_id,
+        "created": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 开发工单沉淀
+# ---------------------------------------------------------------------------
+
+DEV_TICKET_SEDIMENT_DIR = "14-知识沉淀/开发交付"
+
+
+def _build_dev_ticket_markdown(ticket, deliverables, logs, email) -> str:
+    """生成开发工单知识沉淀 Markdown。"""
+    domain_code = getattr(ticket, "domain_code", None)
+    req_name = email.req_name if email else ""
+
+    fm = [
+        "---",
+        f'title: "{ticket.ticket_no} - {ticket.system_name}"',
+        f"ticket_no: {ticket.ticket_no}",
+        f"req_id: {ticket.req_id}",
+        f'domain_code: "{domain_code or ""}"',
+        f"source_type: ticket",
+        f"status: {ticket.status}",
+        f"progress: {ticket.progress}",
+        f"created: {_fmt_dt(datetime.now())}",
+        f"tags: [开发工单, {ticket.system_name or '通用'}]",
+        "---",
+        "",
+        f"# {ticket.ticket_no} - {ticket.system_name}",
+        "",
+        "## 概述",
+        f"- 工单编号：{ticket.ticket_no}",
+        f"- 关联需求：{ticket.req_id}" + (f"（{req_name}）" if req_name else ""),
+        f"- 涉及系统：{ticket.system_name}",
+        f"- 开发团队：{ticket.dev_team or '—'}",
+        f"- 开发负责人：{ticket.developer or '—'}",
+        f"- 业务领域：{domain_code or '—'}",
+        f"- 状态：{ticket.status}",
+        f"- 进度：{ticket.progress}%",
+        f"- 优先级：{ticket.priority}",
+        "",
+        "## 开发内容",
+        ticket.description or "（待补充）",
+        "",
+    ]
+
+    if ticket.risk_note:
+        fm += ["## 风险/延期说明", ticket.risk_note, ""]
+
+    # 关键日期
+    fm += [
+        "## 关键日期",
+        f"- 设计方案评审：{_fmt_dt(ticket.design_reviewed_date) if hasattr(ticket, 'design_reviewed_date') else '—'}",
+        f"- 开发完成：{_fmt_dt(ticket.dev_completed_date) if hasattr(ticket, 'dev_completed_date') else '—'}",
+        f"- 测试完成：{_fmt_dt(ticket.test_completed_date) if hasattr(ticket, 'test_completed_date') else '—'}",
+        f"- 上线：{_fmt_dt(ticket.go_live_date) if hasattr(ticket, 'go_live_date') else '—'}",
+        "",
+    ]
+
+    # 交付物
+    if deliverables:
+        fm += ["## 交付物", ""]
+        for d in deliverables:
+            type_label = {
+                "operation_manual": "操作手册",
+                "interface_doc": "接口文档",
+                "test_case": "测试用例",
+                "release_note": "发布说明",
+                "other": "其他",
+            }.get(d.deliverable_type, d.deliverable_type)
+            fm.append(f"- **{type_label}**：{d.file_name}")
+            if d.obsidian_path:
+                fm.append(f"  - 路径：`{d.obsidian_path}`")
+            if d.note:
+                fm.append(f"  - 备注：{d.note}")
+        fm.append("")
+    else:
+        fm += ["## 交付物", "（暂无）", ""]
+
+    # 状态变更日志
+    if logs:
+        fm += ["## 状态变更记录", ""]
+        for log in logs:
+            fm.append(f"- {_fmt_dt(log.created_at)}：{log.from_status} → {log.to_status}" + (f"（{log.note}）" if log.note else ""))
+        fm.append("")
+
+    # 关联
+    fm += [
+        "## 关联",
+        f"- 需求：[[{ticket.req_id}]]" + (f"（{req_name}）" if req_name else ""),
+        "",
+    ]
+
+    return "\n".join(fm)
+
+
+def sediment_dev_ticket(db, ticket_id: int) -> Dict:
+    """把开发工单沉淀为知识条目，返回 {obsidian_path, knowledge_item_id, item_id, created}。"""
+    ticket = db.query(PmwbDevTicket).filter(PmwbDevTicket.id == ticket_id).first()
+    if not ticket:
+        raise NotFoundException(f"开发工单不存在：id={ticket_id}")
+
+    # 幂等
+    existing = _find_existing_index(db, "ticket", str(ticket_id))
+    if existing:
+        return {
+            "obsidian_path": existing.obsidian_path,
+            "knowledge_item_id": existing.id,
+            "item_id": existing.item_id,
+            "created": False,
+        }
+
+    # 聚合关联数据
+    deliverables = db.query(PmwbDevDeliverable).filter(PmwbDevDeliverable.ticket_id == ticket_id).all()
+    logs = db.query(PmwbDevTicketLog).filter(PmwbDevTicketLog.ticket_id == ticket_id).order_by(PmwbDevTicketLog.created_at.desc()).limit(20).all()
+    email = db.query(SentEmail).filter(SentEmail.req_id == ticket.req_id).first()
+
+    filename = f"{sanitize_filename(ticket.ticket_no)}_{sanitize_filename(ticket.system_name)}.md"
+    rel_path = f"{DEV_TICKET_SEDIMENT_DIR}/{filename}"
+
+    if not read_markdown(rel_path):
+        write_markdown(rel_path, _build_dev_ticket_markdown(ticket, deliverables, logs, email))
+
+    domain_code = getattr(ticket, "domain_code", None)
+    summary = (ticket.description or f"{ticket.ticket_no} - {ticket.system_name}")[:200]
+    item = knowledge_item_service.create(
+        db,
+        {
+            "item_id": _gen_item_id(),
+            "title": f"{ticket.ticket_no} - {ticket.system_name}",
+            "category": "requirement",
+            "sub_category": "开发工单",
+            "tags": f"开发工单,{ticket.system_name or '通用'}",
+            "obsidian_path": rel_path,
+            "source_type": "ticket",
+            "source_id": str(ticket_id),
+            "domain_code": domain_code,
+            "summary": summary,
+        },
+    )
+    # 回填 deliverable_path
+    ticket.deliverable_path = rel_path
     db.commit()
     return {
         "obsidian_path": rel_path,

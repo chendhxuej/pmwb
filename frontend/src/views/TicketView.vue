@@ -59,6 +59,9 @@
         <el-form-item label="涉及系统" required>
           <el-input v-model="form.system_name" />
         </el-form-item>
+        <el-form-item label="业务领域">
+          <BusinessDomainSelect v-model="form.domain_code" />
+        </el-form-item>
         <el-form-item label="开发团队">
           <el-input v-model="form.dev_team" />
         </el-form-item>
@@ -171,6 +174,7 @@ import DataTable from '@/components/Common/DataTable.vue'
 import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import {
   getDevTickets,
   getDevTicket,
@@ -254,7 +258,7 @@ const detail = ref({})
 const detailLogs = ref([])
 const detailDeliverables = ref([])
 const isEdit = ref(false)
-const form = reactive({ id: null, ticket_no: '', req_id: '', system_name: '', dev_team: '', developer: '', dev_contact: '', priority: 'P2', description: '', risk_note: '' })
+const form = reactive({ id: null, ticket_no: '', req_id: '', system_name: '', domain_code: '', dev_team: '', developer: '', dev_contact: '', priority: 'P2', description: '', risk_note: '' })
 const statusForm = reactive({ id: null, currentStatus: '', status: '', note: '', operator: '当前用户' })
 
 async function fetchData() {
@@ -299,7 +303,7 @@ function handlePageChange(p) {
 
 function handleCreate() {
   isEdit.value = false
-  Object.assign(form, { id: null, ticket_no: '', req_id: '', system_name: '', dev_team: '', developer: '', dev_contact: '', priority: 'P2', description: '', risk_note: '' })
+  Object.assign(form, { id: null, ticket_no: '', req_id: '', system_name: '', domain_code: '', dev_team: '', developer: '', dev_contact: '', priority: 'P2', description: '', risk_note: '' })
   formDialogVisible.value = true
 }
 
@@ -319,6 +323,7 @@ async function handleSave() {
         priority: form.priority,
         description: form.description,
         risk_note: form.risk_note,
+        domain_code: form.domain_code || null,
       }
       await updateDevTicket(form.id, updatePayload)
     } else {
@@ -326,6 +331,7 @@ async function handleSave() {
         ticket_no: form.ticket_no,
         req_id: form.req_id,
         system_name: form.system_name,
+        domain_code: form.domain_code || null,
         dev_team: form.dev_team,
         developer: form.developer,
         dev_contact: form.dev_contact,

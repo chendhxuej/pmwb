@@ -36,6 +36,7 @@ const tabs = [
   { path: '/knowledge-center/knowledge', label: '知识库', icon: 'Collection' },
   { path: '/knowledge-center/product-bible', label: '产品圣经', icon: 'Notebook' },
   { path: '/knowledge-center/notes', label: '知识沉淀', icon: 'Files' },
+  { path: '/knowledge-center/domain', label: '按领域', icon: 'Grid' },
   { path: '/knowledge-center/sql-scripts', label: 'SQL脚本库', icon: 'Document' },
 ]
 

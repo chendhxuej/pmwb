@@ -18,4 +18,13 @@ export const obsidianApi = {
   updateNoteContent(path, content) {
     return request.put('/obsidian/content', { path, content })
   },
+
+  // 沉淀功能：将需求/开发工单沉淀为 Obsidian 知识笔记
+  sedimentRequirement(requirementId) {
+    return request.post(`/obsidian/sediment/requirement/${requirementId}`)
+  },
+
+  sedimentDevTicket(ticketId) {
+    return request.post(`/obsidian/sediment/dev-ticket/${ticketId}`)
+  },
 }
