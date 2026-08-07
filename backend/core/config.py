@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000
 
+    # ===== LLM 用户故事智能生成（继承 WorkBuddy models.json 的 Kimi Coding Plan） =====
+    # 支持提供商：kimi / ollama / openai / deepseek / 任意 OpenAI 兼容接口
+    US_STORY_LLM_ENABLED: bool = False                # 是否启用 LLM 生成
+    US_STORY_LLM_PROVIDER: str = "kimi"               # kimi | ollama | openai | deepseek
+    US_STORY_LLM_MODEL: str = "kimi-k2.6"             # Kimi Coding Plan 模型
+    US_STORY_LLM_BASE_URL: str = "https://api.kimi.com/coding/v1"  # Kimi Coding Plan API
+    US_STORY_LLM_API_KEY: str = ""                    # API Key（从 .env 读取）
+    US_STORY_LLM_TEMPERATURE: float = 0.3             # 低温度保证合规输出一致性
+    US_STORY_LLM_MAX_TOKENS: int = 4096               # 单次生成最大 token
+    US_STORY_LLM_TIMEOUT: int = 120                   # 请求超时（秒），kimi-k2.6 带 reasoning 建议≥120
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         if not self.DATABASE_URL:

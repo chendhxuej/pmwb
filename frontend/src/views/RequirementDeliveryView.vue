@@ -439,12 +439,85 @@
             <div class="card" style="grid-column: span 5">
               <div class="card-header"><span class="card-label">澄清后需求内容</span></div>
               <div class="card-body">
-                <el-input v-model="clarification" type="textarea" :rows="10" />
-                <el-button class="mt-12" size="small" type="primary" @click="generateStories">
-                  <el-icon><MagicStick /></el-icon> 基于 DDD 生成用户故事
+                <el-input v-model="clarification" type="textarea" :rows="10" placeholder="在此梳理、澄清需求内容，作为用户故事生成的输入…" />
+              </div>
+
+              <!-- 生成策略选择器 -->
+              <div class="card-header" style="border-top:1px solid var(--border-subtle);padding-top:16px">
+                <span class="card-label">生成策略</span>
+                <span v-if="llmChecking" style="font-size:11px;color:var(--text-muted)">检测中…</span>
+              </div>
+              <div class="card-body">
+                <div class="strategy-selector">
+                  <div
+                    class="strategy-card"
+                    :class="{ active: selectedStrategy === 'rules_v2' }"
+                    @click="selectedStrategy = 'rules_v2'"
+                  >
+                    <div class="sc-icon sc-icon-merge">⚡</div>
+                    <div class="sc-body">
+                      <div class="sc-title">合并生成 <span class="sc-badge">推荐</span></div>
+                      <div class="sc-desc">同角色同场景自动合并，秒级出结果</div>
+                    </div>
+                    <div class="sc-check" v-if="selectedStrategy === 'rules_v2'">✓</div>
+                  </div>
+
+                  <div
+                    class="strategy-card"
+                    :class="{
+                      active: selectedStrategy === 'llm',
+                      disabled: !llmStatus.reachable,
+                    }"
+                    @click="llmStatus.reachable && (selectedStrategy = 'llm')"
+                  >
+                    <div class="sc-icon sc-icon-ai">🤖</div>
+                    <div class="sc-body">
+                      <div class="sc-title">
+                        Kimi 智能拆分
+                        <span v-if="llmChecking" class="sc-badge sc-badge-info">检测中</span>
+                        <span v-else-if="llmStatus.reachable" class="sc-badge sc-badge-on">已连接</span>
+                        <span v-else class="sc-badge sc-badge-off">未配置</span>
+                      </div>
+                      <div class="sc-desc">
+                        AI 理解角色/场景/闭环，约 30 秒
+                      </div>
+                    </div>
+                    <div class="sc-check" v-if="selectedStrategy === 'llm'">✓</div>
+                  </div>
+
+                  <div
+                    class="strategy-card"
+                    :class="{ active: selectedStrategy === 'rules_v1' }"
+                    @click="selectedStrategy = 'rules_v1'"
+                  >
+                    <div class="sc-icon sc-icon-old">📐</div>
+                    <div class="sc-body">
+                      <div class="sc-title">按工作量拆分 <span class="sc-badge sc-badge-old">旧版</span></div>
+                      <div class="sc-desc">按人天机械拆分，不推荐新需求使用</div>
+                    </div>
+                    <div class="sc-check" v-if="selectedStrategy === 'rules_v1'">✓</div>
+                  </div>
+                </div>
+
+                <el-button
+                  class="mt-12 w-full"
+                  type="primary"
+                  :loading="storyGenLoading"
+                  :disabled="!clarification.trim()"
+                  @click="generateStories(selectedStrategy)"
+                >
+                  <template v-if="storyGenLoading">
+                    <el-icon class="is-loading"><Loading /></el-icon>
+                    {{ selectedStrategy === 'llm' ? `Kimi 正在分析需求… ${storyGenElapsed}s` : `正在生成… ${storyGenElapsed}s` }}
+                  </template>
+                  <template v-else>
+                    <el-icon><MagicStick /></el-icon>
+                    {{ selectedStrategy === 'llm' ? 'Kimi 智能生成用户故事' : selectedStrategy === 'rules_v1' ? '按工作量生成用户故事' : '生成用户故事' }}
+                  </template>
                 </el-button>
               </div>
-              <div class="card-header mt-16"><span class="card-label">DDD 领域视角</span></div>
+
+              <div class="card-header" style="border-top:1px solid var(--border-subtle);padding-top:16px"><span class="card-label">DDD 领域视角</span></div>
               <div class="card-body">
                 <div class="ddd-chips">
                   <span class="pm-tag blue">领域：{{ dddView.domain }}</span>
@@ -457,14 +530,41 @@
 
             <div class="card" style="grid-column: span 7">
               <div class="card-header">
-                <span class="card-label">用户故事（固定模板）</span>
-                <div class="flex gap-8">
-                  <el-button size="small" type="primary" @click="saveStories">保存</el-button>
+                <span class="card-label">用户故事</span>
+                <span v-if="strategyLabel" class="pm-tag gray ml-8" style="font-size: 11px">{{ strategyLabel }} · {{ stories.length }} 条</span>
+                <div class="flex gap-8" style="margin-left:auto">
+                  <template v-if="stories.length && !storiesConfirmed">
+                    <el-badge :value="stories.length" :max="99" class="confirm-badge">
+                      <el-button size="small" type="success" @click="confirmStories">
+                        <el-icon><CircleCheck /></el-icon> 确认落库
+                      </el-button>
+                    </el-badge>
+                  </template>
+                  <template v-else-if="storiesConfirmed">
+                    <el-tag type="success" size="small" effect="plain">✓ 已保存 {{ stories.length }} 条</el-tag>
+                  </template>
                   <el-button size="small" @click="addStory"><el-icon><Plus /></el-icon> 新增</el-button>
                 </div>
               </div>
               <div class="card-body">
-                <div v-for="(st, i) in stories" :key="i" class="story-card" :class="{ finalized: st.finalized }">
+
+                <!-- 生成中遮罩 -->
+                <div v-if="storyGenLoading" class="story-loading-overlay">
+                  <el-icon class="is-loading" :size="28"><Loading /></el-icon>
+                  <p>{{ selectedStrategy === 'llm' ? 'Kimi 正在分析需求内容，识别角色/场景/闭环…' : '正在生成用户故事…' }}</p>
+                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? 'Kimi 带推理能力，通常需要 20-40 秒，请耐心等待' : '预计 1-3 秒完成' }}</p>
+                </div>
+
+                <!-- 未生成提示 -->
+                <div v-if="!storyGenLoading && !stories.length && !storiesConfirmed" class="story-empty">
+                  <p>👈 在左侧填写澄清内容，选择生成策略后点击「生成用户故事」</p>
+                </div>
+
+                <!-- 待确认提示条 -->
+                <div v-if="!storyGenLoading && stories.length && !storiesConfirmed" class="story-pending-bar">
+                  ⚠️ 已生成 <b>{{ stories.length }}</b> 条用户故事，请预览确认后点击右上角「确认落库」保存到数据库
+                </div>
+                <div v-if="!storyGenLoading" v-for="(st, i) in stories" :key="i" class="story-card" :class="{ finalized: st.finalized }">
                   <div class="story-head">
                     <span class="story-seq">US{{ i + 1 }}</span>
                     <input v-model="st.title" class="story-title-input" placeholder="故事标题" />
@@ -500,7 +600,10 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="!stories.length" class="text-muted" style="padding: 16px 0">点击左侧「生成用户故事」基于澄清内容自动产出。</div>
+                <div v-if="!stories.length" class="text-muted" style="padding: 16px 0">点击上方「合并生成」基于澄清内容自动产出用户故事（预览模式，需确认后落库）。</div>
+                <div v-else-if="!storiesConfirmed" class="text-muted" style="padding: 8px 16px; background: #fff8e1; border-radius: 4px; margin-top: 8px">
+                  ⚠ 用户故事已生成但尚未确认落库，请预览内容无误后点击「确认落库」保存。
+                </div>
               </div>
             </div>
           </div>
@@ -683,7 +786,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
@@ -693,7 +796,7 @@ import {
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
   deleteRequirementAttachment, generateUserStories, getUserStories, saveUserStories,
-  generateRequirementDoc, searchUserStories,
+  generateRequirementDoc, searchUserStories, getLlmStatus,
 } from '@/api/requirement'
 import {
   getDevTickets, createDevTicket, updateDevTicket, deleteDevTicket,
@@ -932,6 +1035,10 @@ const attachments = ref([])
 const evaluations = ref([])
 const evalLoading = ref(false)
 const stories = ref([])
+const strategyLabel = ref('')
+const storiesConfirmed = ref(false)
+const llmStatus = ref({ enabled: false, provider: '', model: '', reachable: false, error: null })
+const llmChecking = ref(false)
 const docTemplate = ref('std')
 const docFileName = ref('')
 const genHistory = ref([])
@@ -1009,8 +1116,10 @@ async function loadStories(reqId) {
       rules: s.rules && s.rules.length ? s.rules : [],
       finalized: s.finalized,
     }))
+    storiesConfirmed.value = stories.value.length > 0
   } catch (err) {
     stories.value = []
+    storiesConfirmed.value = false
   }
 }
 
@@ -1129,17 +1238,48 @@ async function removeEval(row) {
   await loadEvaluations(current.value.req_id)
 }
 
-/* 用户故事（真实端点：基于 DDD 生成固定 4 段模板，落库） */
+/* 用户故事生成 */
+const selectedStrategy = ref('rules_v2')         // 当前选中的策略
+const storyGenLoading = ref(false)                // 生成中
+const storyGenElapsed = ref(0)                    // 已耗时（秒）
+let _storyGenTimer = null                         // 耗时计时器
+
+const llmProviderLabel = computed(() => {
+  const p = llmStatus.value.provider
+  const map = { kimi: 'Kimi', ollama: 'Ollama', openai: 'OpenAI', deepseek: 'DeepSeek' }
+  return map[p] || p || 'AI'
+})
+async function checkLlmStatus() {
+  llmChecking.value = true
+  try {
+    const res = await getLlmStatus()
+    llmStatus.value = res
+  } catch {
+    llmStatus.value = { enabled: false, provider: '', model: '', reachable: false, error: null }
+  } finally {
+    llmChecking.value = false
+  }
+}
 function addStory() {
   stories.value.push({ title: '', desc: '', scene: '', acceptance: [''], rules: [], finalized: false })
+  storiesConfirmed.value = false
 }
-async function generateStories() {
+function _startGenTimer() {
+  storyGenElapsed.value = 0
+  _storyGenTimer = setInterval(() => { storyGenElapsed.value++ }, 1000)
+}
+function _stopGenTimer() {
+  if (_storyGenTimer) { clearInterval(_storyGenTimer); _storyGenTimer = null }
+}
+async function generateStories(strategy = 'rules_v2') {
   if (!clarification.value.trim()) {
     ElMessage.warning('请先填写澄清后需求内容')
     return
   }
+  storyGenLoading.value = true
+  _startGenTimer()
   try {
-    const res = await generateUserStories(current.value.req_id, clarification.value)
+    const res = await generateUserStories(current.value.req_id, clarification.value, strategy)
     dddView.value = res.ddd || dddView.value
     stories.value = (res.stories || []).map((s) => ({
       id: s.id,
@@ -1151,9 +1291,27 @@ async function generateStories() {
       rules: s.rules && s.rules.length ? s.rules : [],
       finalized: false,
     }))
-    ElMessage.success(`已基于工作量(约20人天/故事)生成 ${stories.value.length} 条用户故事并落库`)
+    storiesConfirmed.value = false
+    const labelMap = { rules_v2: '合并优先', rules_v1: '按工作量拆分', rules_v2_fallback: '合并优先', llm: 'Kimi 智能拆分' }
+    strategyLabel.value = labelMap[res.strategy_used] || res.strategy_used || ''
+    ElMessage.success(`已生成 ${stories.value.length} 条用户故事（${strategyLabel.value}），请预览后点击「确认落库」保存`)
   } catch (err) {
     ElMessage.error('生成失败，请重试')
+  } finally {
+    _stopGenTimer()
+    storyGenLoading.value = false
+  }
+}
+async function confirmStories() {
+  if (!stories.value.length) return
+  try {
+    await saveUserStories(current.value.req_id, stories.value.map((s, i) => ({
+      ...s, seq: i + 1,
+    })))
+    storiesConfirmed.value = true
+    ElMessage.success(`已保存 ${stories.value.length} 条用户故事到数据库`)
+  } catch {
+    ElMessage.error('保存失败，请重试')
   }
 }
 
@@ -1247,6 +1405,11 @@ onMounted(async () => {
   await loadRequirements()
   await loadTickets()
   applyDeepLink()
+  checkLlmStatus()  // 后台检测 Kimi/LLM 状态，不阻塞主流程
+})
+
+onBeforeUnmount(() => {
+  _stopGenTimer()
 })
 </script>
 
@@ -1313,6 +1476,46 @@ onMounted(async () => {
 .gen-meta { flex: 1; min-width: 0 }
 
 .w-full { width: 100% }
+
+/* ── 生成策略选择器 ── */
+.strategy-selector { display: flex; flex-direction: column; gap: 8px }
+.strategy-card {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  border: 2px solid var(--border-subtle); border-radius: 10px;
+  cursor: pointer; transition: all .2s; position: relative;
+}
+.strategy-card:hover { border-color: var(--border); background: var(--bg-app) }
+.strategy-card.active { border-color: var(--accent); background: var(--accent-soft) }
+.strategy-card.disabled { opacity: .45; cursor: not-allowed; background: var(--bg-app) }
+.strategy-card.disabled:hover { border-color: var(--border-subtle) }
+.sc-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0 }
+.sc-icon-merge { background: #e6f4ff; color: #1677ff }
+.sc-icon-ai { background: #f0e6ff; color: #722ed1 }
+.sc-icon-old { background: #f5f5f5; color: #999 }
+.sc-body { flex: 1; min-width: 0 }
+.sc-title { font-size: 13px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px }
+.sc-desc { font-size: 11.5px; color: var(--text-muted); margin-top: 2px }
+.sc-badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; line-height: 1.5 }
+.sc-badge { background: var(--accent-soft); color: var(--accent) }
+.sc-badge-on { background: #e6ffe6; color: #389e0d }
+.sc-badge-off { background: #fff2e8; color: #d48806 }
+.sc-badge-old { background: #f5f5f5; color: #999 }
+.sc-badge-info { background: #e6f4ff; color: #1677ff }
+.sc-check { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0 }
+
+/* ── 生成中 & 空状态 ── */
+.story-loading-overlay {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 40px 20px; color: var(--text-secondary);
+}
+.story-loading-overlay p { margin: 8px 0 0; font-size: 14px }
+.story-loading-hint { font-size: 12px !important; color: var(--text-muted) !important }
+.story-empty { padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 13px }
+.story-pending-bar {
+  background: #fffbe6; border: 1px solid #ffe58f; border-radius: 8px;
+  padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px; color: #8c6d00
+}
+.confirm-badge :deep(.el-badge__content) { margin-top: 2px }
 
 /* 用户故事只读详情 */
 .us-detail { padding: 4px 24px 32px }

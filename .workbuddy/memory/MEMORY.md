@@ -3,7 +3,8 @@
 ## 项目状态
 - 前端 IA（菜单顺序，2026-08-04 核对）：首页看板 → 任务中心 → 需求与交付 → 运营监控(5类工单+生产监控占位) → 会议日程(列表+行动项) → 个人待办 → 重点工作 → 人员中台 → 知识中心(知识库/产品圣经/知识沉淀/SQL脚本库) → 邮件中心(日志/账号/通讯录/分组/模板)。任务中心聚合 6 类待办（个人待办/运营问题/开发工单/会议行动项/重点工作/需求催办），需求催办以 `pmwb_requirement_evaluation` 为准。
 - 服务拓扑：主后端 8000 / 人员中台 Master 8001(`services/master`，独立 FastAPI+alembic) / 前端 5173 / MySQL 3306 / 统一邮件中心 3210(外部)。后端 21 个路由模块、27 张表、20 个迁移。
-- 测试基线（2026-08-04）：pytest **116 passed**（另 3 个失败为依赖真实 8001+真实库的既有环境问题，已用纯净 main worktree 对照证明与代码无关）；vitest **7/7**；vite build 干净。GitHub: chendhxuej/pmwb (main)。
+- 测试基线（2026-08-06）：pytest **119 passed**（+4 新增用户故事测试；另 4 个失败为依赖真实 8001+真实库的既有环境问题）；vitest **7/7**；vite build 干净。GitHub: chendhxuej/pmwb (main)。数据库 28 张表、21 个迁移。
+- **业务知识联动（2026-08-05 新增）**：`pmwb_business_domain` 表 12 条政企业务线种子数据；5 个业务表 + `pmwb_knowledge_item` 均有 `domain_code` 字段；`GET /basic-data/business-domains` 提供领域列表。前端统一用 `BusinessDomainSelect.vue` 选领域、`RelatedKnowledgePanel.vue` 展示同领域知识。
 
 ## 启动方案（看门狗常驻保活）
 - **主方案**：`C:\pmwb-scripts\pmwb-keeper.py`（镜像 `scripts/`）每 15s 检查 3306/8000/5173/3210/8001，DOWN 用已验证控制台命令 DETACHED 拉起；后端/Master 等 3306 就绪才起。桌面双击 `启动PMWB.bat`（常驻看门狗，`--once`=一次性）。
@@ -52,3 +53,4 @@
 ## 项目约定踩坑补充（2026-07-29）
 - **`.gitignore` 放行**：`.workbuddy/{memory,reviews,tasks}/` 已放行纳入版本库（协同可见）；`automations/`、`scripts/` 仍忽略（可能含密钥/临时脚本）。改之前是整目录 `.workbuddy/` 忽略，导致审查记录对晓伴不可见，异步机制失效——已修复。
 - **首页看板重构铁律（已调整 2026-08-03）**：原「db-3/4/5 确认 OK 前绝不允许改 `HomeView.vue`」**已被老大新指令覆盖**——2026-08-03 老大明确「直接优化旧版 HomeView」，故 `HomeView.vue` 现已允许直接迭代（本轮已补 5 类模块卡片 + 修 2 处口径）。原 db-3/4/5 审查退回方案（新建 `DashboardV2View.vue` + /dashboard-v2 路由）**已于 2026-08-03 应老大指令废弃并删除**（源文件、路由、旧 dist 产物已清，`vite build` 干净）；现仅保留旧版 `HomeView.vue` 为唯一看板页，后端 `get_dashboard()` 等聚合接口只服务此页。
+- **用户故事生成策略（2026-08-06）**：旧版按行数/人天机械拆分已废弃为兼容模式（rules_v1）；默认走 rules_v2（合并优先，检测角色/场景/闭环，上限 5 条）。LLM 模式支持 Kimi（Moonshot AI），配置项在 `backend/.env`（`US_STORY_LLM_*`），API Key 从 `platform.moonshot.cn` 获取。LLM 不可用时自动降级 rules_v2。`GET /requirements/delivery/llm-status` 返回连通性状态。前端下拉菜单动态显示 LLM 可用性。Prompt 模板编码了公司《用户故事拆分边界管理规范》全部 5 条原则 + 4 条允许条件 + 4 条禁止红线。

@@ -110,9 +110,26 @@ def generate_user_stories(
     payload: UserStoryGenIn,
     db: Session = Depends(get_db),
 ):
-    """基于澄清内容，按 DDD 理念生成固定 4 段模板用户故事。"""
-    data = svc.generate_user_stories(db, req_id, payload.content)
+    """基于澄清内容生成用户故事（策略可切换）。
+
+    strategy 可选值：
+    - rules_v2（默认/推荐）：合并优先策略，符合公司最新管理规范
+    - rules_v1：旧版按行/人天拆分
+    - llm：LLM 智能拆分（需先配置 US_STORY_LLM_ENABLED=true）
+    """
+    data = svc.generate_user_stories(db, req_id, payload.content, strategy=payload.strategy)
     return success(data=UserStoryGenOut(**data).model_dump())
+
+
+@router.get("/delivery/llm-status")
+def get_llm_status():
+    """查询 LLM 用户故事生成服务的状态。
+
+    Returns:
+        { enabled, provider, model, reachable, error }
+    """
+    from services.storygen_llm import check_llm_available
+    return success(data=check_llm_available())
 
 
 @router.post("/{req_id}/delivery/generate-doc")

@@ -59,6 +59,67 @@ def test_generate_user_stories_persists(client: TestClient, db):
     assert len(rows) == len(data["stories"])
 
 
+def test_generate_user_stories_v1_backward_compat(client: TestClient, db):
+    """旧版 strategy=rules_v1 应保持可用。"""
+    _create_sent_email(db, req_id="REQ-STORY-V1-001", description="功能A。功能B。功能C。")
+    response = client.post(
+        "/api/v1/requirements/REQ-STORY-V1-001/delivery/generate-user-stories",
+        json={"content": "功能A。功能B。功能C。", "strategy": "rules_v1"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["strategy_used"] == "rules_v1"
+    assert len(data["stories"]) > 0
+
+
+def test_generate_user_stories_v2_merge(client: TestClient, db):
+    """合并优先策略：同一角色完整闭环应合并为 1 条。"""
+    content = (
+        "管理员操作预警反馈流程：\n"
+        "1、查看预警信息详情\n"
+        "2、填写反馈内容并提交\n"
+        "3、同步反馈结果至任务工单"
+    )
+    _create_sent_email(db, req_id="REQ-STORY-V2-001", description=content)
+    response = client.post(
+        "/api/v1/requirements/REQ-STORY-V2-001/delivery/generate-user-stories",
+        json={"content": content, "strategy": "rules_v2"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["strategy_used"] == "rules_v2"
+    # 同一场景同一角色，应合并为 1 条（v1 可能拆成 2-3 条）
+    assert 1 <= len(data["stories"]) <= 2
+
+
+def test_generate_user_stories_v2_role_detect(client: TestClient, db):
+    """角色检测：故事标题应包含角色标签。"""
+    content = "操作员负责处理订单录入与审核。"
+    _create_sent_email(db, req_id="REQ-STORY-V2-002", description=content)
+    response = client.post(
+        "/api/v1/requirements/REQ-STORY-V2-002/delivery/generate-user-stories",
+        json={"content": content, "strategy": "rules_v2"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data["stories"]) > 0
+    # 标题应包含角色标签（"作为「"）
+    title = data["stories"][0]["title"]
+    assert "作为" in title
+
+
+def test_generate_user_stories_v2_without_strategy_defaults_to_v2(client: TestClient, db):
+    """不传 strategy 默认走 rules_v2。"""
+    _create_sent_email(db, req_id="REQ-STORY-V2-003", description="简单需求描述。")
+    response = client.post(
+        "/api/v1/requirements/REQ-STORY-V2-003/delivery/generate-user-stories",
+        json={"content": "简单需求描述。"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["strategy_used"] == "rules_v2"
+
+
 def test_save_and_list_user_stories(client: TestClient, db):
     """全量保存用户故事后应能读取。"""
     _create_sent_email(db, req_id="REQ-STORY-002")

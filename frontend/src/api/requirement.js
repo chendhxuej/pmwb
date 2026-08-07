@@ -61,8 +61,14 @@ export function deleteRequirementAttachment(reqId, filename) {
   return request.post(`/requirements/${reqId}/delivery/attachments/delete`, { filename })
 }
 
-export function generateUserStories(reqId, content) {
-  return request.post(`/requirements/${reqId}/delivery/generate-user-stories`, { content })
+export function generateUserStories(reqId, content, strategy = 'rules_v2') {
+  // LLM 策略（kimi-k2.6 带 reasoning）响应较慢，单独放宽到 120s
+  const timeout = strategy === 'llm' ? 120000 : 30000
+  return request.post(`/requirements/${reqId}/delivery/generate-user-stories`, { content, strategy }, { timeout })
+}
+
+export function getLlmStatus() {
+  return request.get('/requirements/delivery/llm-status')
 }
 
 export function getUserStories(reqId) {

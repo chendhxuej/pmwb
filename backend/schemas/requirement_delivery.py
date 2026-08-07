@@ -68,12 +68,14 @@ class UserStoryGenIn(BaseModel):
     """用户故事生成入参：澄清后的需求内容。"""
 
     content: str = ""
+    strategy: str = "rules_v2"  # rules_v2（默认/推荐） | rules_v1（旧版） | llm（智能拆分）
 
 
 class UserStoryGenOut(BaseModel):
     req_id: str
     ddd: DDDView
     stories: List[UserStoryItem]
+    strategy_used: str = "rules_v2"
 
 
 class DocGenIn(BaseModel):

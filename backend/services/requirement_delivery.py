@@ -18,6 +18,7 @@ from docx.text.paragraph import Paragraph
 
 from db.models import PmwbUserStory, PmwbRequirementEvaluation, SentEmail
 from core.config import settings
+from services.storygen_rules import split_into_user_stories
 
 
 # ---------------------------------------------------------------------------
@@ -398,8 +399,18 @@ def save_user_stories(db, req_id: str, stories: List[Dict[str, Any]]) -> Dict[st
     return get_user_stories(db, req_id)
 
 
-def generate_user_stories(db, req_id: str, content: str) -> Dict[str, Any]:
-    """基于澄清内容 + DDD 理念生成固定 4 段模板用户故事，并落库。"""
+def generate_user_stories(
+    db, req_id: str, content: str, strategy: str = "rules_v2"
+) -> Dict[str, Any]:
+    """基于澄清内容生成用户故事，并落库。
+
+    strategy 支持：
+    - "rules_v2"（默认）：合并优先的规则引擎 v2，符合公司最新管理规范
+    - "rules_v1"：旧版按行/人天拆分（兼容模式，不推荐）
+    - "llm"：LLM 智能拆分（需配置 US_STORY_LLM_ENABLED=true）
+
+    旧版兼容：不传 strategy 走 v2。
+    """
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     req_name = item.req_name if item else req_id
     system_name = item.system_name if item else None
@@ -414,18 +425,44 @@ def generate_user_stories(db, req_id: str, content: str) -> Dict[str, Any]:
             "在相关系统中实现受理、配置、查询与监控等闭环功能。"
         )
 
+    if strategy == "rules_v1":
+        stories = _generate_v1(source, ddd, db, req_id)
+        strategy_used = "rules_v1"
+    elif strategy == "llm":
+        # LLM 策略：尝试调用 LLM，失败回退 rules_v2
+        stories, strategy_used = _generate_with_llm_fallback(source, ddd, db, req_id)
+    else:
+        # 默认 rules_v2
+        stories = _generate_v2(source, ddd)
+        strategy_used = "rules_v2"
+
+    # 落库并返回持久化后的完整数据
+    saved = save_user_stories(db, req_id, stories)
+    return {
+        "req_id": req_id,
+        "ddd": ddd,
+        "proposer": proposer,
+        "stories": saved["stories"],
+        "strategy_used": strategy_used,
+    }
+
+
+def _generate_v2(source: str, ddd: Dict[str, str]) -> List[Dict[str, Any]]:
+    """规则引擎 v2：合并优先策略。"""
+    return split_into_user_stories(source, ddd)
+
+
+def _generate_v1(source: str, ddd: Dict[str, str], db, req_id: str) -> List[Dict[str, Any]]:
+    """规则引擎 v1（旧版兼容）：按行/人天拆分。"""
     features = _coarse_features(source)
     if not features:
         features = [source]
 
-    # 依据团队评估总工作量，推算用户故事条数（约 20 人天 / 条）
     total_wl = _total_workload(db, req_id)
     if total_wl and total_wl > 0:
         target = max(1, round(total_wl / WORKLOAD_PER_STORY))
     else:
-        # 无评估工作量时，按内容规模粗估：每 2 个功能块并 1 条，至少 1 条
         target = max(1, (len(features) + 1) // 2)
-    # 上限保护：单需求故事数不超过 8，且不超过功能块数
     target = min(target, 8, len(features))
 
     groups = _chunk(features, target)
@@ -436,11 +473,7 @@ def generate_user_stories(db, req_id: str, content: str) -> Dict[str, Any]:
     purpose = "支撑政企业务数字化运营，保障业务连续性与客户体验"
     stories = []
     for i, group in enumerate(groups, start=1):
-        if len(group) == 1:
-            function = group[0]
-        else:
-            # 多能力合并到一条故事，标题保持精炼
-            function = f"{group[0]}等{len(group)}项能力"
+        function = group[0] if len(group) == 1 else f"{group[0]}等{len(group)}项能力"
         feat_text = "；".join(group)
         title = f"US{i}：作为{role}，希望{function}，以便{purpose}"
         desc = (
@@ -463,10 +496,23 @@ def generate_user_stories(db, req_id: str, content: str) -> Dict[str, Any]:
             "rules": [],
             "finalized": False,
         })
+    return stories
 
-    # 落库并返回持久化后的完整数据
-    saved = save_user_stories(db, req_id, stories)
-    return {"req_id": req_id, "ddd": ddd, "proposer": proposer, "stories": saved["stories"]}
+
+def _generate_with_llm_fallback(
+    source: str, ddd: Dict[str, str], db, req_id: str
+) -> tuple:
+    """LLM 生成，失败回退 rules_v2。"""
+    try:
+        if not settings.US_STORY_LLM_ENABLED:
+            raise RuntimeError("LLM 未启用（US_STORY_LLM_ENABLED=false）")
+        from services.storygen_llm import generate_with_llm
+        stories = generate_with_llm(source, ddd)
+        return stories, "llm"
+    except Exception:
+        # 降级到 v2
+        stories = _generate_v2(source, ddd)
+        return stories, "rules_v2_fallback"
 
 
 # ---------------------------------------------------------------------------
