@@ -1029,3 +1029,44 @@ class PmwbStaff(Base):
         Index("idx_staff_org", "org_id"),
         {"comment": "基础数据-人员表"},
     )
+
+class PmwbWorkReport(Base):
+    """AI 工作总结报告表（日报/周报/月报/自定义）。"""
+
+    __tablename__ = "pmwb_work_report"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    report_type = Column(
+        String(20),
+        nullable=False,
+        default="daily",
+        comment="类型: daily(日报)/weekly(周报)/monthly(月报)/custom(自定义)",
+    )
+    title = Column(String(255), comment="报告标题")
+    content = Column(Text, comment="报告正文(Markdown)")
+    date_start = Column(Date, comment="统计起始日期")
+    date_end = Column(Date, comment="统计结束日期")
+    status = Column(
+        String(20),
+        default="draft",
+        comment="状态: draft(草稿)/finalized(已定稿)/sent(已发送)",
+    )
+    recipient = Column(Text, comment="收件人邮箱(逗号分隔)")
+    cc = Column(Text, comment="抄送邮箱(逗号分隔)")
+    error_msg = Column(Text, comment="发送/归档错误信息")
+    obsidian_path = Column(String(512), comment="定稿后归档到 Obsidian Vault 的相对路径")
+    finalized_at = Column(DateTime, comment="定稿时间")
+    sent_at = Column(DateTime, comment="发送时间")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("ix_work_report_status", "status"),
+        Index("ix_work_report_type", "report_type"),
+        {"comment": "AI 工作总结报告表"},
+    )

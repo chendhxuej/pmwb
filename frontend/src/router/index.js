@@ -239,6 +239,13 @@ const routes = [
         component: () => import('@/views/RequirementGroupView.vue'),
         meta: { hidden: true },
       },
+      // ── AI 总结 ──
+      {
+        path: 'work-report',
+        name: 'WorkReport',
+        component: () => import('@/views/WorkReportView.vue'),
+        meta: { title: 'AI总结', icon: 'EditPen' },
+      },
     ],
   },
   {
