@@ -482,13 +482,24 @@
         <div class="dw-section">
           <div class="pm-section-title">
             会议纪要知识备忘
-            <el-button
-              type="primary"
-              size="small"
-              class="sec-act"
-              :loading="sedimenting"
-              @click="generateMemo"
-            >{{ detailMeeting.obsidian_path ? '重新生成 Obsidian 备忘' : '生成 Obsidian 备忘' }}</el-button>
+            <span class="sec-acts">
+              <el-button
+                type="primary"
+                size="small"
+                class="sec-act"
+                :loading="sedimenting"
+                @click="generateMemo"
+              >{{ detailMeeting.obsidian_path ? '重新生成 Obsidian 备忘' : '生成 Obsidian 备忘' }}</el-button>
+              <el-button
+                v-if="detailMeeting.obsidian_path"
+                type="danger"
+                size="small"
+                plain
+                class="sec-act"
+                :loading="deletingMemo"
+                @click="deleteMemo"
+              >删除纪要</el-button>
+            </span>
           </div>
           <div v-if="detailMeeting.status === 'held' && !detailMeeting.obsidian_path" class="memo-alert">
             ⚠️ 该会议已召开但尚未归档纪要，建议尽快补录议题结论与待办后点击「生成 Obsidian 备忘」归档。
@@ -504,8 +515,11 @@
 
         <!-- 6. 关联业务知识 -->
         <div class="dw-section">
-          <div class="pm-section-title">关联业务知识</div>
-          <RelatedKnowledgePanel :domain-code="detailMeeting.domain_code" />
+          <KnowledgeLinker
+            source-type="meeting"
+            :source-id="detailMeeting.id"
+            :domain-code="detailMeeting.domain_code"
+          />
         </div>
       </div>
       <template #footer>
@@ -731,7 +745,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
-import RelatedKnowledgePanel from '@/components/Common/RelatedKnowledgePanel.vue'
+import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -1166,12 +1180,12 @@ const syncTodo = async (act) => {
 
 const goTodoCenter = () => router.push('/reminder-center')
 
-/* 生成 Obsidian 纪要备忘 */
+/* 生成 Obsidian 纪要备忘（强制覆盖，内容更新后重新生成即同步） */
 const generateMemo = async () => {
   if (!detailMeeting.value?.id) return
   sedimenting.value = true
   try {
-    const res = await meetingApi.sedimentMeeting(detailMeeting.value.id)
+    const res = await meetingApi.sedimentMeeting(detailMeeting.value.id, true)
     detailMeeting.value.obsidian_path = res.obsidian_path
     ElMessage.success('已按会议模板写入 05-会议纪要')
     loadMeetings()
@@ -1179,6 +1193,32 @@ const generateMemo = async () => {
     ElMessage.error(e?.response?.data?.message || '生成备忘失败')
   } finally {
     sedimenting.value = false
+  }
+}
+
+/* 删除会议纪要：清理文件 / 索引 / 关联 */
+const deletingMemo = ref(false)
+const deleteMemo = async () => {
+  if (!detailMeeting.value?.id) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除该会议纪要吗？将同时清理 Obsidian 文件、知识索引与关联记录。`,
+      '删除确认',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  deletingMemo.value = true
+  try {
+    await meetingApi.deleteMeetingMinutes(detailMeeting.value.id)
+    detailMeeting.value.obsidian_path = null
+    ElMessage.success('纪要已删除')
+    loadMeetings()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '删除失败')
+  } finally {
+    deletingMemo.value = false
   }
 }
 const copyPath = async () => {

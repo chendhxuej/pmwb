@@ -64,6 +64,10 @@ class OperationIssueBase(BaseModel):
     go_live_date: Optional[datetime] = Field(None, description="计划完成时间")
     result_feedback: Optional[str] = Field(None, description="处理结果反馈")
     attachments: Optional[str] = Field(None, description="附件元信息(JSON 数组字符串)")
+    root_cause_type: Optional[str] = Field(None, max_length=64, description="根因分类：system_config/business_rule/data_issue/process_gap/external_dependency/other")
+    impact_scope: Optional[str] = Field(None, max_length=64, description="影响范围：single_customer/partial_region/full_region/business_line/platform")
+    solution_type: Optional[str] = Field(None, max_length=64, description="解决方案类型：config_fix/code_fix/data_repair/process_optimization/training/escalation/other")
+    lesson_learned: Optional[str] = Field(None, description="经验总结/防止复发措施")
 
     @field_validator("discovery_date", "resolve_date", "go_live_date", mode="before")
     @classmethod
@@ -98,6 +102,10 @@ class OperationIssueUpdate(BaseModel):
     go_live_date: Optional[datetime] = None
     result_feedback: Optional[str] = None
     attachments: Optional[str] = None
+    root_cause_type: Optional[str] = Field(None, max_length=64)
+    impact_scope: Optional[str] = Field(None, max_length=64)
+    solution_type: Optional[str] = Field(None, max_length=64)
+    lesson_learned: Optional[str] = None
 
     @field_validator("discovery_date", "resolve_date", "go_live_date", mode="before")
     @classmethod

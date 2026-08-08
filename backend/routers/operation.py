@@ -105,9 +105,13 @@ def delete_issue(issue_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/issues/{issue_id}/sediment")
-def sediment_issue(issue_id: int, db: Session = Depends(get_db)):
+def sediment_issue(
+    issue_id: int,
+    force: bool = Query(False, description="true 时覆盖已存在的工单知识文件"),
+    db: Session = Depends(get_db),
+):
     """一键沉淀：把运营工单生成知识条目写入 Obsidian 并建双向索引。"""
-    return success(data=sediment_operation_issue(db, issue_id))
+    return success(data=sediment_operation_issue(db, issue_id, force=force))
 
 
 @router.get("/issues/{issue_id}/attachments")

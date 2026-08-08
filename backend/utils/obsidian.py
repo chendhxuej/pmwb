@@ -126,3 +126,154 @@ def build_frontmatter(data: Dict[str, str]) -> str:
 
 def format_datetime(dt: Optional[datetime] = None, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     return (dt or datetime.now()).strftime(fmt)
+
+
+def delete_markdown(relative_path: str) -> bool:
+    """删除 Obsidian Vault 中指定相对路径的笔记，返回是否实际删除。"""
+    if not relative_path:
+        return False
+    vault = get_vault_path()
+    file_path = vault / relative_path
+    if file_path.exists():
+        file_path.unlink()
+        return True
+    return False
+
+
+def force_write_markdown(relative_path: str, content: str) -> str:
+    """强制覆盖写入 Markdown（用于重新生成纪要/需求等幂等更新场景）。"""
+    return write_markdown(relative_path, content)
+
+
+def _split_frontmatter(content: str):
+    """拆分 Markdown 为 (frontmatter_dict, frontmatter_raw, body)。
+
+    frontmatter_dict: 解析后的键值对（支持简单标量与列表）。
+    frontmatter_raw: 原始 frontmatter 文本（含 --- 边界），无则为空串。
+    body: 正文（不含 frontmatter）。
+    """
+    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", content, re.DOTALL)
+    if not m:
+        return {}, "", content
+    raw = m.group(1)
+    body = m.group(2)
+    fm = {}
+    for line in raw.split("\n"):
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        # 列表值如 [a, b] 或 ["a", "b"]
+        if value.startswith("[") and value.endswith("]"):
+            inner = value[1:-1].strip()
+            items = [v.strip().strip('"').strip("'") for v in inner.split(",") if v.strip()]
+            fm[key] = items
+        else:
+            fm[key] = value.strip('"').strip("'")
+    return fm, f"---\n{raw}\n--", body
+
+
+def set_frontmatter_value(content: str, key: str, value) -> str:
+    """设置/新增 frontmatter 中某个标量字段，返回新内容。"""
+    fm, raw, body = _split_frontmatter(content)
+    fm[key] = value
+    lines = ["---"]
+    for k, v in fm.items():
+        if isinstance(v, list):
+            if not v:
+                lines.append(f"{k}: []")
+            else:
+                lines.append(f'{k}: [{", ".join(v)}]')
+        else:
+            lines.append(f'{k}: "{v}"' if isinstance(v, str) and ("," in v or " " in v or not v) else f"{k}: {v}")
+    lines.append("---")
+    return "\n".join(lines) + "\n" + body
+
+
+def append_frontmatter_list(content: str, key: str, value: str) -> str:
+    """向 frontmatter 的列表字段追加一项（去重），返回新内容。"""
+    fm, raw, body = _split_frontmatter(content)
+    existing = fm.get(key)
+    if isinstance(existing, str):
+        existing = [existing] if existing else []
+    elif existing is None:
+        existing = []
+    if value not in existing:
+        existing.append(value)
+    fm[key] = existing
+    lines = ["---"]
+    for k, v in fm.items():
+        if isinstance(v, list):
+            if not v:
+                lines.append(f"{k}: []")
+            else:
+                lines.append(f'{k}: [{", ".join(v)}]')
+        else:
+            lines.append(f'{k}: "{v}"' if isinstance(v, str) and ("," in v or " " in v or not v) else f"{k}: {v}")
+    lines.append("---")
+    return "\n".join(lines) + "\n" + body
+
+
+def remove_frontmatter_list(content: str, key: str, value: str) -> str:
+    """从 frontmatter 列表字段移除一项，返回新内容。"""
+    fm, raw, body = _split_frontmatter(content)
+    existing = fm.get(key)
+    if isinstance(existing, str):
+        existing = [existing]
+    elif existing is None:
+        return content
+    existing = [x for x in existing if x != value]
+    fm[key] = existing
+    lines = ["---"]
+    for k, v in fm.items():
+        if isinstance(v, list):
+            if not v:
+                lines.append(f"{k}: []")
+            else:
+                lines.append(f'{k}: [{", ".join(v)}]')
+        else:
+            lines.append(f'{k}: "{v}"' if isinstance(v, str) and ("," in v or " " in v or not v) else f"{k}: {v}")
+    lines.append("---")
+    return "\n".join(lines) + "\n" + body
+
+
+def replace_section(content: str, heading: str, new_body: str) -> str:
+    """替换或追加一个名为 `## heading` 的章节（保留其余内容）。
+
+    new_body 不含标题行，调用方传入纯正文（可多行）。
+    """
+    lines = content.split("\n")
+    new_lines = []
+    i = 0
+    replaced = False
+    n = len(lines)
+    heading_pat = re.compile(r"^##\s+" + re.escape(heading) + r"\s*$")
+    while i < n:
+        line = lines[i]
+        if heading_pat.match(line):
+            replaced = True
+            new_lines.append(f"## {heading}")
+            new_lines.append("")
+            # 跳过直到下一个同级或更高级标题
+            j = i + 1
+            while j < n and not re.match(r"^##\s+", lines[j]) and not re.match(r"^#\s+", lines[j]):
+                j += 1
+            # 插入新正文
+            for bl in new_body.strip("\n").split("\n"):
+                new_lines.append(bl)
+            new_lines.append("")
+            i = j
+            continue
+        new_lines.append(line)
+        i += 1
+    if not replaced:
+        new_lines.append("")
+        new_lines.append(f"## {heading}")
+        new_lines.append("")
+        for bl in new_body.strip("\n").split("\n"):
+            new_lines.append(bl)
+        new_lines.append("")
+    return "\n".join(new_lines).rstrip("\n") + "\n"

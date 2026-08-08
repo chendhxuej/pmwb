@@ -25,7 +25,7 @@ from db.models import (
 from services.knowledge import knowledge_item_service
 from services.meeting import meeting_service
 from services.operation import operation_issue_service
-from utils.obsidian import read_markdown, sanitize_filename, write_markdown
+from utils.obsidian import delete_markdown, read_markdown, sanitize_filename, write_markdown
 
 
 def _fmt_dt(value) -> str:
@@ -119,15 +119,18 @@ def _build_issue_markdown(issue, note_type: str) -> str:
     return "\n".join(lines)
 
 
-def sediment_operation_issue(db, issue_id: int) -> Dict:
-    """把运营工单沉淀为知识条目，返回 {obsidian_path, knowledge_item_id, item_id, created}。"""
+def sediment_operation_issue(db, issue_id: int, force: bool = False) -> Dict:
+    """把运营工单沉淀为知识条目，返回 {obsidian_path, knowledge_item_id, item_id, created}。
+
+    force=True 时覆盖已存在的工单知识文件。
+    """
     issue = operation_issue_service.get(db, issue_id)
     if not issue:
         raise NotFoundException(f"运营工单不存在：id={issue_id}")
 
-    # 去重：已存在索引则直接返回（幂等）
+    # 去重：已存在索引则直接返回（幂等，除非 force 覆盖）
     existing = _find_existing_index(db, "operation", str(issue.id))
-    if existing:
+    if existing and not force:
         if not issue.obsidian_path:
             issue.obsidian_path = existing.obsidian_path
             db.commit()
@@ -142,9 +145,21 @@ def sediment_operation_issue(db, issue_id: int) -> Dict:
     filename = f"{sanitize_filename(issue.issue_no)}-{sanitize_filename(issue.title)}.md"
     rel_path = f"{subdir}/{filename}"
 
-    # 仅当文件不存在时才写，避免覆盖用户已在 Obsidian 中的编辑
-    if not read_markdown(rel_path):
-        write_markdown(rel_path, _build_issue_markdown(issue, note_type))
+    md = _build_issue_markdown(issue, note_type)
+    if force and read_markdown(rel_path):
+        write_markdown(rel_path, md)
+    elif not read_markdown(rel_path):
+        write_markdown(rel_path, md)
+
+    if existing:
+        issue.obsidian_path = rel_path
+        db.commit()
+        return {
+            "obsidian_path": rel_path,
+            "knowledge_item_id": existing.id,
+            "item_id": existing.item_id,
+            "created": False,
+        }
 
     summary = (issue.solution or issue.situation_desc or issue.title)[:200]
     item = knowledge_item_service.create(
@@ -307,14 +322,17 @@ def _build_meeting_markdown(meeting) -> str:
 MEETING_SEDIMENT_DIR = "05-会议纪要"
 
 
-def sediment_meeting(db, meeting_id: int) -> Dict:
-    """把会议沉淀为知识条目，返回 {obsidian_path, knowledge_item_id, item_id, created}。"""
+def sediment_meeting(db, meeting_id: int, force: bool = False) -> Dict:
+    """把会议沉淀为知识条目，返回 {obsidian_path, knowledge_item_id, item_id, created}。
+
+    force=True 时覆盖已存在的纪要文件与索引（用于会议内容更新后重新生成）。
+    """
     meeting = meeting_service.get(db, meeting_id)
     if not meeting:
         raise NotFoundException(f"会议不存在：id={meeting_id}")
 
     existing = _find_existing_index(db, "meeting", str(meeting.id))
-    if existing:
+    if existing and not force:
         if not meeting.obsidian_path:
             meeting.obsidian_path = existing.obsidian_path
             db.commit()
@@ -329,8 +347,21 @@ def sediment_meeting(db, meeting_id: int) -> Dict:
     filename = f"【{day}】{sanitize_filename(meeting.title)}.md"
     rel_path = f"{MEETING_SEDIMENT_DIR}/{filename}"
 
-    if not read_markdown(rel_path):
-        write_markdown(rel_path, _build_meeting_markdown(meeting))
+    md = _build_meeting_markdown(meeting)
+    if force and read_markdown(rel_path):
+        write_markdown(rel_path, md)
+    elif not read_markdown(rel_path):
+        write_markdown(rel_path, md)
+
+    if existing:
+        meeting.obsidian_path = rel_path
+        db.commit()
+        return {
+            "obsidian_path": rel_path,
+            "knowledge_item_id": existing.id,
+            "item_id": existing.item_id,
+            "created": False,
+        }
 
     summary = (meeting.summary or meeting.title)[:200]
     item = knowledge_item_service.create(
@@ -356,6 +387,32 @@ def sediment_meeting(db, meeting_id: int) -> Dict:
         "item_id": item.item_id,
         "created": True,
     }
+
+
+def delete_meeting_minutes(db, meeting_id: int) -> Dict:
+    """删除会议纪要：清理 Obsidian 文件、知识索引与关联记录。"""
+    from services.knowledge_link import _sync_backlinks  # noqa: WPS433
+    from db.models import PmwbKnowledgeLink
+
+    meeting = meeting_service.get(db, meeting_id)
+    if not meeting:
+        raise NotFoundException(f"会议不存在：id={meeting_id}")
+
+    existing = _find_existing_index(db, "meeting", str(meeting.id))
+    removed_path = None
+    if existing:
+        removed_path = existing.obsidian_path
+        # 清理反链
+        _sync_backlinks(db, existing.id)
+        # 删除关联记录
+        db.query(PmwbKnowledgeLink).filter(
+            PmwbKnowledgeLink.knowledge_item_id == existing.id
+        ).delete(synchronize_session=False)
+        knowledge_item_service.delete(db, existing.id)
+        delete_markdown(removed_path)
+    meeting.obsidian_path = None
+    db.commit()
+    return {"removed_path": removed_path, "removed": bool(existing)}
 
 
 # ---------------------------------------------------------------------------
@@ -462,8 +519,11 @@ def _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issu
     return "\n".join(fm)
 
 
-def sediment_requirement(db, req_id: str) -> Dict:
-    """把需求沉淀为知识条目，返回 {obsidian_path, knowledge_item_id, item_id, created}。"""
+def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
+    """把需求沉淀为知识条目，返回 {obsidian_path, knowledge_item_id, item_id, created}。
+
+    force=True 时覆盖已存在的需求知识文件（用于需求更新后重新沉淀）。
+    """
     # 查找需求扩展信息
     ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
     # 查找原始邮件信息
@@ -471,9 +531,9 @@ def sediment_requirement(db, req_id: str) -> Dict:
     if not ext and not email:
         raise NotFoundException(f"需求不存在：req_id={req_id}")
 
-    # 幂等：已存在索引则直接返回
+    # 幂等：已存在索引则不重复创建（除非 force 覆盖）
     existing = _find_existing_index(db, "requirement", req_id)
-    if existing:
+    if existing and not force:
         return {
             "obsidian_path": existing.obsidian_path,
             "knowledge_item_id": existing.id,
@@ -491,12 +551,23 @@ def sediment_requirement(db, req_id: str) -> Dict:
     filename = f"{sanitize_filename(req_id)}_{sanitize_filename(req_name)}.md"
     rel_path = f"{REQUIREMENT_SEDIMENT_DIR}/{filename}"
 
-    # 仅当文件不存在时才写
-    if not read_markdown(rel_path):
-        write_markdown(rel_path, _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues))
+    md = _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues)
+    if force and read_markdown(rel_path):
+        write_markdown(rel_path, md)
+    elif not read_markdown(rel_path):
+        write_markdown(rel_path, md)
+
+    if existing:
+        return {
+            "obsidian_path": rel_path,
+            "knowledge_item_id": existing.id,
+            "item_id": existing.item_id,
+            "created": False,
+        }
 
     domain_code = getattr(ext, "domain_code", None) if ext else None
-    summary = (background if ext and ext.background else (email.background if email else req_name))[:200]
+    background_text = (ext.background if ext and ext.background else (email.background if email else "")) or ""
+    summary = (background_text[:200] if background_text else req_name)
     item = knowledge_item_service.create(
         db,
         {
@@ -512,6 +583,113 @@ def sediment_requirement(db, req_id: str) -> Dict:
             "summary": summary,
         },
     )
+    return {
+        "obsidian_path": rel_path,
+        "knowledge_item_id": item.id,
+        "item_id": item.item_id,
+        "created": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 用户故事业务规则沉淀
+# ---------------------------------------------------------------------------
+
+USER_STORY_RULE_DIR = "10-业务建设/业务规则"
+
+
+def _build_user_story_rule_markdown(story, req_id: str, domain_code: str) -> str:
+    rules = story.rules or []
+    rule_lines = "\n".join(f"{i+1}. {r}" for i, r in enumerate(rules)) or "（暂无）"
+    fm = [
+        "---",
+        f'title: "{story.title or "业务规则"} · 业务规则"',
+        f"req_id: {req_id}",
+        f'domain_code: "{domain_code or ""}"',
+        "source_type: user_story",
+        "created: " + _fmt_dt(datetime.now()),
+        "tags: [业务规则, 用户故事]",
+        "---",
+        "",
+        f"# {story.title or '用户故事'} · 业务规则",
+        "",
+        f"- 关联需求：{req_id}",
+        f"- 业务领域：{domain_code or '—'}",
+        "",
+        "## 业务规则",
+        rule_lines,
+        "",
+        "## 故事描述",
+        story.desc or "（待补充）",
+        "",
+        "## 场景",
+        story.scene or "（待补充）",
+        "",
+    ]
+    return "\n".join(fm)
+
+
+def sediment_user_story(db, story_id: int, force: bool = False) -> Dict:
+    """把用户故事的业务规则沉淀为知识笔记（业务规则知识），并关联到所属需求。
+
+    force=True 时覆盖已存在的规则笔记。
+    """
+    story = db.query(PmwbUserStory).filter(PmwbUserStory.id == story_id).first()
+    if not story:
+        raise NotFoundException(f"用户故事不存在：id={story_id}")
+    rules = story.rules or []
+    if not rules:
+        raise NotFoundException("该用户故事暂无业务规则，无法沉淀")
+
+    req_id = story.req_id
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    domain_code = getattr(ext, "domain_code", None) if ext else None
+
+    existing = _find_existing_index(db, "user_story", str(story_id))
+    if existing and not force:
+        return {
+            "obsidian_path": existing.obsidian_path,
+            "knowledge_item_id": existing.id,
+            "item_id": existing.item_id,
+            "created": False,
+        }
+
+    filename = f"{sanitize_filename(req_id)}-{sanitize_filename(story.title or 'story')}-规则.md"
+    rel_path = f"{USER_STORY_RULE_DIR}/{filename}"
+    md = _build_user_story_rule_markdown(story, req_id, domain_code)
+    if force and read_markdown(rel_path):
+        write_markdown(rel_path, md)
+    elif not read_markdown(rel_path):
+        write_markdown(rel_path, md)
+
+    if existing:
+        return {
+            "obsidian_path": rel_path,
+            "knowledge_item_id": existing.id,
+            "item_id": existing.item_id,
+            "created": False,
+        }
+
+    from services.knowledge_link import link_to_item  # noqa: WPS433
+
+    summary = (rules[0] or "")[:200]
+    item = knowledge_item_service.create(
+        db,
+        {
+            "item_id": _gen_item_id(),
+            "title": f"{story.title or '用户故事'} · 业务规则",
+            "category": "requirement",
+            "sub_category": "业务规则",
+            "tags": "业务规则,用户故事",
+            "obsidian_path": rel_path,
+            "source_type": "user_story",
+            "source_id": str(story_id),
+            "domain_code": domain_code,
+            "summary": summary,
+        },
+    )
+    # 关联到所属需求，便于需求详情页查看
+    link_to_item(db, "requirement", req_id, item.id, link_type="sub", note="业务规则", domain_code=domain_code)
     return {
         "obsidian_path": rel_path,
         "knowledge_item_id": item.id,

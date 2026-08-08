@@ -77,6 +77,18 @@ class DomainRelatedItem(BaseModel):
     obsidian_path: Optional[str] = None
 
 
+class DomainLinkItem(BaseModel):
+    """关联表驱动的跨对象关联（知识笔记 ↔ 需求/工单/会议）。"""
+
+    link_id: int
+    source_type: str
+    source_id: str
+    knowledge_item_id: int
+    note_title: Optional[str] = None
+    link_note: Optional[str] = None
+    created_at: Optional[str] = None
+
+
 class DomainRelatedOut(BaseModel):
     """业务领域关联聚合（知识中心按领域浏览详情）。"""
 
@@ -86,5 +98,6 @@ class DomainRelatedOut(BaseModel):
     requirements: List[DomainRelatedItem] = []
     meetings: List[DomainRelatedItem] = []
     issues: List[DomainRelatedItem] = []
+    timeline: List[DomainLinkItem] = []
 
     model_config = {"from_attributes": True}

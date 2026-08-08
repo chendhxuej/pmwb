@@ -7,6 +7,13 @@ from core.response import success
 from db.base import get_db
 from schemas.knowledge import KnowledgeItemCreate, KnowledgeItemUpdate
 from services.knowledge import knowledge_item_service
+from services.knowledge_link import (
+    link_to_item,
+    link_to_path,
+    list_links,
+    unlink,
+)
+from services.obsidian_link import sediment_requirement, sediment_user_story
 from services.vault_sync import sync_from_vault
 
 router = APIRouter(prefix="/knowledge", tags=["知识库"])
@@ -36,6 +43,80 @@ def list_items(
         page=page,
         page_size=page_size,
     ))
+
+
+# ---------------------------------------------------------------------------
+# 多对多关联（需求/工单/会议 ↔ 知识笔记）
+# 注意：必须注册在 /{item_id} 动态路由之前，否则 /links 会被 /{item_id} 抢匹配。
+# ---------------------------------------------------------------------------
+
+@router.get("/links")
+def get_links(
+    source_type: str = Query(..., description="来源类型 requirement/ticket/operation/meeting"),
+    source_id: str = Query(..., description="来源业务ID"),
+    db: Session = Depends(get_db),
+):
+    """获取某来源对象已关联的知识笔记列表。"""
+    return success(data=list_links(db, source_type, source_id))
+
+
+@router.post("/links")
+def create_link(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+):
+    """关联某来源对象到指定知识条目。
+
+    payload: {source_type, source_id, knowledge_item_id, link_type?, note?, domain_code?}
+    """
+    return success(data=link_to_item(
+        db,
+        source_type=payload["source_type"],
+        source_id=payload["source_id"],
+        knowledge_item_id=payload["knowledge_item_id"],
+        link_type=payload.get("link_type", "main"),
+        note=payload.get("note"),
+        domain_code=payload.get("domain_code"),
+    ))
+
+
+@router.post("/links/by-path")
+def create_link_by_path(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+):
+    """按 Obsidian 路径关联到已有/新建知识条目。"""
+    return success(data=link_to_path(
+        db,
+        source_type=payload["source_type"],
+        source_id=payload["source_id"],
+        obsidian_path=payload["obsidian_path"],
+        link_type=payload.get("link_type", "main"),
+        note=payload.get("note"),
+        domain_code=payload.get("domain_code"),
+    ))
+
+
+@router.delete("/links/{link_id}")
+def delete_link(link_id: int, db: Session = Depends(get_db)):
+    """取消关联。"""
+    return success(data=unlink(db, link_id))
+
+
+@router.post("/sediment/requirement/{req_id}")
+def sediment_requirement_endpoint(req_id: str, force: bool = False, db: Session = Depends(get_db)):
+    """把需求沉淀为知识条目（force=True 覆盖更新）。"""
+    return success(data=sediment_requirement(db, req_id, force=force))
+
+
+@router.post("/sediment/user-story/{story_id}")
+def sediment_user_story_endpoint(
+    story_id: int,
+    force: bool = Query(False, description="true 时覆盖已存在的规则笔记"),
+    db: Session = Depends(get_db),
+):
+    """把用户故事的业务规则沉淀为业务知识笔记（force=True 覆盖更新）。"""
+    return success(data=sediment_user_story(db, story_id, force=force))
 
 
 @router.get("/{item_id}")
@@ -106,7 +187,7 @@ def sync_knowledge_from_vault(
     db: Session = Depends(get_db),
 ):
     """从 Obsidian Vault 反向同步笔记到知识索引。
-    
+
     - dirs: 要扫描的目录列表，默认扫描业务知识/会议/业务建设/运营/知识沉淀等目录
     - dry_run: True 时只统计不写入
     """

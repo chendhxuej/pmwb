@@ -81,9 +81,10 @@
               </template>
             </el-table-column>
             <el-table-column prop="dev_ticket_no" label="开发单号" width="140" show-overflow-tooltip />
-            <el-table-column label="操作" width="120" align="center" fixed="right">
+            <el-table-column label="操作" width="170" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openReqDialog(row)">编辑</el-button>
+                <el-button link type="warning" size="small" @click.stop="openSupervise(row)">督办</el-button>
                 <el-button link type="danger" size="small" @click.stop="removeReq(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -239,6 +240,15 @@
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 邮件督办（sup-3：统一走 /api/v1/supervise/ticket） -->
+    <SuperviseDialog
+      v-model="superviseVisible"
+      ticket-type="requirement"
+      :ticket-id="superviseReq?.req_id"
+      :ticket-brief="superviseReqBrief"
+      :default-recipients="superviseDefaultRecipients"
+    />
 
     <!-- ════════ 4步工作流抽屉 ════════ -->
     <el-drawer v-model="wfVisible" size="70%" :title="null" destroy-on-close>
@@ -591,6 +601,14 @@
                   </div>
                   <div class="story-field">
                     <span class="story-field-label">业务规则（每条一栏，可空，生成文档时每种子下将落规则表）</span>
+                    <el-button
+                      size="small"
+                      link
+                      type="primary"
+                      :disabled="!st.id || !(st.rules || []).length"
+                      :loading="st._sed"
+                      @click="sedimentStoryRules(st)"
+                    >沉淀为业务知识</el-button>
                     <div class="ac-list">
                       <div v-for="(r, ri) in (st.rules || [])" :key="ri" class="ac-row">
                         <el-input v-model="st.rules[ri]" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="提炼本故事的业务规则…" />
@@ -647,6 +665,27 @@
                   <el-button link type="primary" size="small" @click="openGen(g)">打开</el-button>
                 </div>
                 <div v-if="!genHistory.length" class="text-muted">暂无生成记录</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───── 知识沉淀 ───── -->
+        <div class="wf-step-panel" v-if="current.req_id">
+          <div class="bento-grid">
+            <div class="card" style="grid-column: span 12">
+              <div class="card-header flex-between">
+                <span class="card-label">知识沉淀与业务知识关联</span>
+                <el-button size="small" type="primary" :loading="sedimenting" @click="sedimentRequirement">
+                  沉淀需求为知识笔记
+                </el-button>
+              </div>
+              <div class="card-body">
+                <KnowledgeLinker
+                  source-type="requirement"
+                  :source-id="current.req_id"
+                  :domain-code="current.ext?.domain_code"
+                />
               </div>
             </div>
           </div>
@@ -791,6 +830,9 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
+import SuperviseDialog from '@/components/SuperviseDialog.vue'
+import { knowledgeApi } from '@/api/knowledge.js'
 import {
   getRequirements, getRequirement, updateRequirement, deleteRequirement,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
@@ -853,6 +895,29 @@ const reqForm = reactive({
   tags: '',
   personal_note: '',
 })
+// ---- 邮件督办（sup-3） ----
+const superviseVisible = ref(false)
+const superviseReq = ref(null)
+
+const superviseReqBrief = computed(() => {
+  const r = superviseReq.value
+  if (!r) return ''
+  return `${r.req_id ? r.req_id + ' ' : ''}${r.req_name || r.title || ''}`
+})
+
+const superviseDefaultRecipients = computed(() => {
+  const r = superviseReq.value
+  if (!r) return []
+  // 优先取 SA / 负责人，其次提案人
+  return String(r.sa_name || r.owner || r.proposer || '').split(',').filter(Boolean)
+})
+
+function openSupervise(row) {
+  if (!row) return
+  superviseReq.value = row
+  superviseVisible.value = true
+}
+
 function openReqDialog(row) {
   Object.assign(reqForm, {
     req_id: row.req_id,
@@ -1148,6 +1213,38 @@ async function saveClarification() {
     ElMessage.success('澄清内容已保存')
   } catch (err) {
     ElMessage.error('保存失败')
+  }
+}
+
+/* 沉淀需求为知识笔记 */
+const sedimenting = ref(false)
+async function sedimentRequirement() {
+  if (!current.value.req_id) return
+  sedimenting.value = true
+  try {
+    const res = await knowledgeApi.sedimentRequirement(current.value.req_id, true)
+    ElMessage.success('需求已沉淀为知识笔记：' + (res.obsidian_path || ''))
+  } catch (e) {
+    ElMessage.error('沉淀失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    sedimenting.value = false
+  }
+}
+
+/* 沉淀用户故事业务规则为业务知识笔记 */
+async function sedimentStoryRules(st) {
+  if (!st.id) {
+    ElMessage.warning('请先确认落库用户故事再沉淀')
+    return
+  }
+  st._sed = true
+  try {
+    await knowledgeApi.sedimentUserStory(st.id, true)
+    ElMessage.success('业务规则已沉淀为业务知识笔记')
+  } catch (e) {
+    ElMessage.error('沉淀失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    st._sed = false
   }
 }
 

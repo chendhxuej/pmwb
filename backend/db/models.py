@@ -43,6 +43,8 @@ class PmwbRequirementExt(Base):
     clarification = Column(Text, comment="澄清内容（可编辑覆盖）")
     system_name = Column(String(255), comment="涉及系统（可编辑覆盖）")
     sa_name = Column(String(255), comment="SA（可编辑覆盖）")
+    manual_archived = Column(Integer, default=0, comment="操作手册是否已归档到业务知识")
+    manual_obsidian_path = Column(String(512), comment="已归档操作手册的 Obsidian 路径")
     eval_seeded = Column(Integer, default=0, comment="团队评估是否已从 sent_emails 播种(避免删除后复活)")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
@@ -274,6 +276,10 @@ class PmwbOperationIssue(Base):
     impact_level = Column(Enum("P0", "P1", "P2", "P3"), default="P2", comment="影响等级")
     root_cause = Column(Text, comment="根因分析")
     solution = Column(Text, comment="解决方案")
+    root_cause_type = Column(String(64), comment="根因分类：system_config/business_rule/data_issue/process_gap/external_dependency/other")
+    impact_scope = Column(String(64), comment="影响范围：single_customer/partial_region/full_region/business_line/platform")
+    solution_type = Column(String(64), comment="解决方案类型：config_fix/code_fix/data_repair/process_optimization/training/escalation/other")
+    lesson_learned = Column(Text, comment="经验总结/防止复发措施")
     related_req_id = Column(String(64), comment="关联需求编号")
     related_ticket_no = Column(String(64), comment="关联开发工单编号")
     related_system = Column(String(128), comment="关联系统")
@@ -494,6 +500,34 @@ class PmwbKnowledgeItem(Base):
         Index("idx_knowledge_source", "source_type", "source_id"),
         Index("idx_knowledge_domain", "domain_code"),
         {"comment": "知识库条目索引表"},
+    )
+
+
+class PmwbKnowledgeLink(Base):
+    """知识笔记与过程性对象多对多关联表。"""
+
+    __tablename__ = "pmwb_knowledge_link"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    knowledge_item_id = Column(Integer, nullable=False, comment="关联知识条目索引ID")
+    source_type = Column(String(64), nullable=False, comment="关联对象类型：requirement/ticket/operation/meeting/deliverable/key_work")
+    source_id = Column(String(255), nullable=False, comment="关联对象业务ID（req_id / 工单id / 会议id / 运营id 等）")
+    link_type = Column(String(32), default="main", comment="链接类型：main(主笔记)/sub(子笔记)/deliverable(交付物)")
+    domain_code = Column(String(64), comment="冗余领域编码，便于按领域查询")
+    note = Column(Text, comment="关联说明（如：本次工单修复了该规则下的异常）")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kl_item_source", "knowledge_item_id", "source_type", "source_id", unique=True),
+        Index("idx_kl_source", "source_type", "source_id"),
+        Index("idx_kl_domain", "domain_code"),
+        {"comment": "知识笔记与过程性对象多对多关联表"},
     )
 
 
@@ -1029,6 +1063,7 @@ class PmwbStaff(Base):
         Index("idx_staff_org", "org_id"),
         {"comment": "基础数据-人员表"},
     )
+
 
 class PmwbWorkReport(Base):
     """AI 工作总结报告表（日报/周报/月报/自定义）。"""

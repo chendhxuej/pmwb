@@ -32,6 +32,7 @@ from routers import (
     task_center,
     todo,
     user_story,
+    work_report,
 )
 
 
@@ -114,6 +115,7 @@ app.include_router(task_center.router, prefix="/api/v1", tags=["任务中心"])
 app.include_router(sql_script.router, prefix="/api/v1", tags=["SQL脚本库"])
 app.include_router(product_bible.router, prefix="/api/v1", tags=["产品圣经"])
 app.include_router(obsidian.router, prefix="/api/v1", tags=["Obsidian 联动"])
+app.include_router(work_report.router, prefix="/api/v1", tags=["AI总结报告"])
 
 
 @app.on_event("startup")

@@ -9,6 +9,7 @@ from core.exceptions import NotFoundException, ValidationException
 from db.models import (
     PmwbBusinessDomain,
     PmwbKnowledgeItem,
+    PmwbKnowledgeLink,
     PmwbMeeting,
     PmwbOperationIssue,
     PmwbRequirementExt,
@@ -178,6 +179,27 @@ def get_related(db: Session, domain_code: str) -> DomainRelatedOut:
         for i in i_rows
     ]
 
+    # 关联表驱动的跨对象关联（覆盖通过 KnowledgeLinker 关联、笔记自身 domain_code 不同的场景）
+    link_rows = (
+        db.query(PmwbKnowledgeLink, PmwbKnowledgeItem)
+        .join(PmwbKnowledgeItem, PmwbKnowledgeItem.id == PmwbKnowledgeLink.knowledge_item_id)
+        .filter(PmwbKnowledgeLink.domain_code == domain_code)
+        .order_by(PmwbKnowledgeLink.created_at.desc())
+        .all()
+    )
+    timeline = [
+        DomainLinkItem(
+            link_id=lk.id,
+            source_type=lk.source_type,
+            source_id=lk.source_id,
+            knowledge_item_id=lk.knowledge_item_id,
+            note_title=item.title,
+            link_note=lk.note,
+            created_at=lk.created_at.strftime("%Y-%m-%d %H:%M") if lk.created_at else None,
+        )
+        for lk, item in link_rows
+    ]
+
     return DomainRelatedOut(
         domain_code=domain_code,
         domain_name=domain.domain_name,
@@ -185,6 +207,7 @@ def get_related(db: Session, domain_code: str) -> DomainRelatedOut:
         requirements=requirements,
         meetings=meetings,
         issues=issues,
+        timeline=timeline,
     )
 
 

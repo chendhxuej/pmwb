@@ -43,21 +43,21 @@
     <el-dialog v-model="detailVisible" :title="`${selectedDomain?.domain_name} - 关联内容`" width="820px">
       <el-tabs v-model="detailTab">
         <el-tab-pane label="知识条目" name="knowledge">
-          <el-table :data="related.knowledge_items" size="small" max-height="420" v-loading="relLoading">
+          <el-table :data="related.knowledge_items" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => row.obsidian_path && openNote(row.obsidian_path)">
             <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
             <el-table-column prop="category" label="分类" width="110" />
             <el-table-column prop="sub_title" label="子分类" width="110" />
             <el-table-column prop="status" label="来源" width="100" />
             <el-table-column label="操作" width="80">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="openNote(row.obsidian_path)">查看</el-button>
+                <el-button link type="primary" size="small" @click.stop="openNote(row.obsidian_path)">查看</el-button>
               </template>
             </el-table-column>
           </el-table>
           <el-empty v-if="!relLoading && !related.knowledge_items.length" description="暂无关联知识条目" />
         </el-tab-pane>
         <el-tab-pane label="需求" name="requirements">
-          <el-table :data="related.requirements" size="small" max-height="420" v-loading="relLoading">
+          <el-table :data="related.requirements" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => goTo('requirement', row.code)">
             <el-table-column prop="code" label="需求编号" width="160" />
             <el-table-column prop="title" label="需求名称" min-width="220" show-overflow-tooltip />
             <el-table-column prop="status" label="状态" width="100" />
@@ -65,26 +65,40 @@
           <el-empty v-if="!relLoading && !related.requirements.length" description="暂无关联需求" />
         </el-tab-pane>
         <el-tab-pane label="会议" name="meetings">
-          <el-table :data="related.meetings" size="small" max-height="420" v-loading="relLoading">
+          <el-table :data="related.meetings" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => row.obsidian_path ? openNote(row.obsidian_path) : goTo('meeting', row.code)">
             <el-table-column prop="code" label="会议编号" width="160" />
             <el-table-column prop="title" label="会议主题" min-width="220" show-overflow-tooltip />
             <el-table-column prop="sub_title" label="时间" width="120" />
             <el-table-column label="操作" width="80">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="openNote(row.obsidian_path)">查看</el-button>
+                <el-button link type="primary" size="small" @click.stop="row.obsidian_path ? openNote(row.obsidian_path) : goTo('meeting', row.code)">查看</el-button>
               </template>
             </el-table-column>
           </el-table>
           <el-empty v-if="!relLoading && !related.meetings.length" description="暂无关联会议" />
         </el-tab-pane>
         <el-tab-pane label="运营工单" name="issues">
-          <el-table :data="related.issues" size="small" max-height="420" v-loading="relLoading">
+          <el-table :data="related.issues" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => goTo('issue', row.code)">
             <el-table-column prop="code" label="工单编号" width="150" />
             <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
             <el-table-column prop="category" label="大类" width="100" />
             <el-table-column prop="status" label="状态" width="100" />
           </el-table>
           <el-empty v-if="!relLoading && !related.issues.length" description="暂无关联运营工单" />
+        </el-tab-pane>
+        <el-tab-pane label="关联时间线" name="timeline">
+          <el-table :data="related.timeline" size="small" max-height="420" v-loading="relLoading">
+            <el-table-column label="来源" width="110">
+              <template #default="{ row }">
+                <el-tag size="small">{{ sourceLabel(row.source_type) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="source_id" label="来源ID" width="170" show-overflow-tooltip />
+            <el-table-column prop="note_title" label="关联知识笔记" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="link_note" label="关联说明" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="created_at" label="关联时间" width="140" />
+          </el-table>
+          <el-empty v-if="!relLoading && !related.timeline.length" description="暂无通过关联建立的跨对象关联" />
         </el-tab-pane>
       </el-tabs>
     </el-dialog>
@@ -93,15 +107,39 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { basicDataApi } from '@/api/basicData.js'
 
+const router = useRouter()
 const loading = ref(false)
 const domains = ref([])
 const detailVisible = ref(false)
 const detailTab = ref('knowledge')
 const selectedDomain = ref(null)
 const relLoading = ref(false)
-const related = ref({ knowledge_items: [], requirements: [], meetings: [], issues: [] })
+const related = ref({ knowledge_items: [], requirements: [], meetings: [], issues: [], timeline: [] })
+
+const SOURCE_LABELS = {
+  requirement: '需求',
+  ticket: '开发工单',
+  operation: '运营工单',
+  meeting: '会议',
+  deliverable: '交付物',
+  key_work: '重点工作',
+}
+const sourceLabel = (t) => SOURCE_LABELS[t] || t
+
+const goTo = (type, code) => {
+  const map = {
+    requirement: '/requirement-delivery',
+    meeting: '/meeting',
+    issue: '/operation',
+    operation: '/operation',
+    ticket: '/dev-ticket',
+  }
+  const target = map[type] || '/knowledge'
+  router.push({ path: target, query: code ? { q: code } : {} })
+}
 
 const loadDomains = async () => {
   loading.value = true

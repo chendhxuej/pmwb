@@ -138,7 +138,7 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <el-button link type="warning" @click="openEmail(row)">督办</el-button>
+            <el-button link type="warning" @click="openSupervise(row)">督办</el-button>
           </div>
         </template>
       </el-table-column>
@@ -223,18 +223,22 @@
           </div>
         </div>
 
-        <!-- 关联知识库 -->
-        <div class="dt-sec">
-          <div class="dt-sec-title">关联知识库（Obsidian）</div>
-          <div v-if="detailRow?.obsidian_path" class="dt-link-row">
+        <!-- 关联业务知识（多选直接关联，无需进编辑页） -->
+        <KnowledgeLinker
+          v-if="detailRow?.id"
+          source-type="operation"
+          :source-id="detailRow.id"
+          :domain-code="detailRow.domain_code"
+        />
+        <div v-if="detailRow?.obsidian_path" class="dt-sec">
+          <div class="dt-sec-title">已沉淀知识笔记</div>
+          <div class="dt-link-row">
             <div class="lk-ico"><el-icon><Document /></el-icon></div>
             <div>
               <div class="dt-link-name">{{ noteTitle(detailRow.obsidian_path) }}</div>
               <div class="dt-link-meta">{{ detailRow.obsidian_path }}</div>
             </div>
           </div>
-          <div v-else class="dt-link-meta">尚未关联知识条目</div>
-          <el-button size="small" link type="primary" @click="openLinkPicker('detail')">+ 关联知识条目</el-button>
         </div>
 
         <!-- 督办记录 -->
@@ -265,8 +269,7 @@
             <el-icon><RefreshRight /></el-icon><span>确认变更</span>
           </el-button>
           <el-button @click="openEditFromDetail"><el-icon><Edit /></el-icon><span>编辑</span></el-button>
-          <el-button @click="openLinkPicker('detail')"><el-icon><Connection /></el-icon><span>关联知识</span></el-button>
-          <el-button type="primary" @click="openEmail(detailRow)"><el-icon><Promotion /></el-icon><span>邮件督办</span></el-button>
+          <el-button type="primary" @click="openSupervise(detailRow)"><el-icon><Promotion /></el-icon><span>邮件督办</span></el-button>
         </div>
       </template>
     </el-drawer>
@@ -329,6 +332,45 @@
             <el-button v-if="form.obsidian_path" link type="danger" @click="form.obsidian_path = ''">清除</el-button>
           </div>
         </el-form-item>
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <el-form-item label="根因分类">
+              <el-select v-model="form.root_cause_type" clearable placeholder="选填" style="width:100%">
+                <el-option label="系统配置问题" value="system_config" />
+                <el-option label="业务规则问题" value="business_rule" />
+                <el-option label="数据问题" value="data_issue" />
+                <el-option label="流程缺口" value="process_gap" />
+                <el-option label="外部依赖" value="external_dependency" />
+                <el-option label="其他" value="other" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="影响范围">
+              <el-select v-model="form.impact_scope" clearable placeholder="选填" style="width:100%">
+                <el-option label="单个客户" value="single_customer" />
+                <el-option label="部分区域" value="partial_region" />
+                <el-option label="全区域" value="full_region" />
+                <el-option label="业务线" value="business_line" />
+                <el-option label="平台级" value="platform" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="解决方案类型">
+          <el-select v-model="form.solution_type" clearable placeholder="选填" style="width:100%">
+            <el-option label="配置修复" value="config_fix" />
+            <el-option label="代码修复" value="code_fix" />
+            <el-option label="数据修复" value="data_repair" />
+            <el-option label="流程优化" value="process_optimization" />
+            <el-option label="培训" value="training" />
+            <el-option label="升级处理" value="escalation" />
+            <el-option label="其他" value="other" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="经验总结">
+          <el-input v-model="form.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
+        </el-form-item>
         <el-form-item label="附件">
           <div class="att-block">
             <el-button size="small" :loading="attUploading" @click="pickAttachment">+ 添加附件</el-button>
@@ -351,27 +393,15 @@
       </template>
     </el-dialog>
 
-    <!-- 邮件督办弹层 -->
-    <el-dialog v-model="emailVisible" title="邮件督办" width="600px" destroy-on-close>
-      <div v-if="currentEmailIssue" class="email-body">
-        <div class="form-label">收件人（统一邮件中心按姓名解析）</div>
-        <div class="recp-list">
-          <span v-for="h in emailRecipients" :key="h" class="recp-chip"><span class="dot"></span>{{ h }}</span>
-        </div>
-        <div class="form-label" style="margin-top:16px">督办模板</div>
-        <div class="tpl-pick">
-          <button class="tpl-btn" :class="{active: emailTpl==='urgent'}" @click="useTpl('urgent')">催办（逾期）</button>
-          <button class="tpl-btn" :class="{active: emailTpl==='progress'}" @click="useTpl('progress')">进度确认</button>
-          <button class="tpl-btn" :class="{active: emailTpl==='close'}" @click="useTpl('close')">闭环确认</button>
-        </div>
-        <div class="form-label" style="margin-top:16px">正文（bodyFormat: text，口语化、禁敬语）</div>
-        <el-input v-model="emailBody" type="textarea" :rows="6" style="margin-top:6px" />
-      </div>
-      <template #footer>
-        <el-button @click="emailVisible = false">取消</el-button>
-        <el-button type="primary" :loading="sendingEmail" @click="sendEmail">发送督办邮件</el-button>
-      </template>
-    </el-dialog>
+    <!-- 邮件督办弹层（sup-3：统一走 /api/v1/supervise/ticket） -->
+    <SuperviseDialog
+      v-model="superviseVisible"
+      :ticket-type="'operation'"
+      :ticket-id="superviseIssue?.id"
+      :ticket-brief="superviseBrief"
+      :default-recipients="superviseDefaultRecipients"
+      @success="recordSupervise"
+    />
 
     <!-- 关联笔记选择弹窗 -->
     <el-dialog v-model="notePickerVisible" title="选择关联知识笔记" width="640px" append-to-body>
@@ -402,6 +432,8 @@ import { ElMessage } from 'element-plus'
 import { Plus, Edit, Promotion, RefreshRight, Connection, Document, ArrowDown } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import SuperviseDialog from '@/components/SuperviseDialog.vue'
+import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import { operationApi } from '@/api/operation'
 import { obsidianApi } from '@/api/obsidian'
 import { formatDateTime } from '@/utils/format'
@@ -614,6 +646,7 @@ const formRef = ref(null)
 const form = reactive({
   id: null, issue_no: '', category: 'prod', issue_type: 'other', title: '', handler: [],
   impact_level: 'P2', go_live_date: '', result_feedback: '', situation_desc: '', obsidian_path: '',
+  root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
   attachments: [],
 })
 // 录入/编辑表单草稿持久化（按工单 id 区分，避免不同工单草稿串台）
@@ -655,7 +688,8 @@ const openEntry = () => {
   Object.assign(form, {
     id: null, issue_no: '', category: activeTab.value === 'all' ? 'prod' : activeTab.value,
     issue_type: 'other', title: '', handler: [], impact_level: 'P2', go_live_date: '', result_feedback: '',
-    situation_desc: '', obsidian_path: '', attachments: [],
+    situation_desc: '', obsidian_path: '', root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
+    attachments: [],
   })
   onCatChange()
   if (restoreEntryDraft()) ElMessage.info('已恢复上次未保存的草稿')
@@ -677,6 +711,10 @@ const openEditFromDetail = () => {
     result_feedback: detailRow.value.result_feedback || '',
     situation_desc: detailRow.value.situation_desc || '',
     obsidian_path: detailRow.value.obsidian_path || '',
+    root_cause_type: detailRow.value.root_cause_type || '',
+    impact_scope: detailRow.value.impact_scope || '',
+    solution_type: detailRow.value.solution_type || '',
+    lesson_learned: detailRow.value.lesson_learned || '',
     attachments: parseAttachments(detailRow.value.attachments),
   })
   onCatChange()
@@ -696,6 +734,10 @@ const submitEntry = () => {
       impact_level: form.impact_level,
       situation_desc: form.situation_desc.trim(),
       obsidian_path: form.obsidian_path || null,
+      root_cause_type: form.root_cause_type || null,
+      impact_scope: form.impact_scope || null,
+      solution_type: form.solution_type || null,
+      lesson_learned: (form.lesson_learned || '').trim() || null,
       go_live_date: form.go_live_date || null,
       result_feedback: (form.result_feedback || '').trim() || null,
     }
@@ -830,72 +872,35 @@ const confirmPickNote = async () => {
   }
 }
 
-// ---- 邮件督办 ----
-const emailVisible = ref(false)
-const currentEmailIssue = ref(null)
-const emailBody = ref('')
-const emailTpl = ref('progress')
-const sendingEmail = ref(false)
+// ---- 邮件督办（sup-3：统一走 /api/v1/supervise/ticket，由后端代理模板渲染与发送） ----
+const superviseVisible = ref(false)
+const superviseIssue = ref(null)
 
-const emailRecipients = computed(() => (currentEmailIssue.value?.handler || '').split(',').filter(Boolean))
+const superviseBrief = computed(() => {
+  const i = superviseIssue.value
+  if (!i) return ''
+  return `${i.issue_no ? i.issue_no + ' ' : ''}${i.title || ''}`
+})
 
-const handlerText = (i) => (i.handler || '').split(',').filter(Boolean).join('、')
-const EMAIL_TPL = {
-  urgent: (i) => `${handlerText(i)}好：\n工单 ${i.issue_no}（${i.title}）已逾期，请尽快推进处理，有进展随时同步我。`,
-  progress: (i) => `${handlerText(i)}好：\n工单 ${i.issue_no}（${i.title}）当前在「${statusBadgeOptions[i.status]?.label || i.status}」，麻烦更新下最新进展。`,
-  close: (i) => `${handlerText(i)}好：\n工单 ${i.issue_no}（${i.title}）如已处理完成，请确认闭环，我这边同步关闭。`,
-}
+const superviseDefaultRecipients = computed(() => (superviseIssue.value?.handler || '').split(',').filter(Boolean))
 
-const openEmail = (row) => {
+const openSupervise = (row) => {
   if (!row) return
-  currentEmailIssue.value = row
-  emailTpl.value = 'progress'
-  emailBody.value = EMAIL_TPL.progress(row)
-  emailVisible.value = true
+  superviseIssue.value = row
+  superviseVisible.value = true
 }
 
-const useTpl = (key) => {
-  emailTpl.value = key
-  if (currentEmailIssue.value) emailBody.value = EMAIL_TPL[key](currentEmailIssue.value)
-}
-
-const sendEmail = async () => {
-  const issue = currentEmailIssue.value
-  if (!issue) return
-  const body = emailBody.value.trim()
-  if (!body) { ElMessage.warning('请输入邮件正文'); return }
-  const handlers = emailRecipients.value
-  const payload = {
-    to: handlers,
-    subject: `【工单督办】${issue.issue_no} ${issue.title}`,
-    body,
-    bodyFormat: 'text',
-  }
-  let simulated = false
-  sendingEmail.value = true
-  try {
-    const res = await request.post('/plugins/send', payload)
-    if (res && res.success === false) simulated = true
-  } catch (e) {
-    simulated = true
-  } finally {
-    sendingEmail.value = false
-  }
-  // 写入该工单督办记录（前端记录，因后端暂无督办记录存储字段）
-  const time = formatDateTime(new Date())
+/** 发送成功后写入该工单督办记录（前端记录，因后端暂无督办记录存储字段） */
+const recordSupervise = () => {
+  const issue = superviseIssue.value
+  if (!issue?.id) return
   const rec = {
-    to: handlers.join('、'),
-    time,
-    result: simulated ? '已提交（模拟·待联调）' : '已送达（统一邮件中心）',
+    to: (issue.handler || '').split(',').filter(Boolean).join('、'),
+    time: formatDateTime(new Date()),
+    result: '已送达（统一邮件中心）',
   }
   if (!supervisionRecords[issue.id]) supervisionRecords[issue.id] = []
   supervisionRecords[issue.id].push(rec)
-  emailVisible.value = false
-  if (simulated) {
-    ElMessage({ message: '督办邮件已提交（模拟）· 待后端 /plugins/send 联调', type: 'warning' })
-  } else {
-    ElMessage.success('督办邮件已发送')
-  }
 }
 
 // ---- 路由联动：从总览带 query 跳转 ----
@@ -910,7 +915,7 @@ watch(
     } else if (q.email) {
       try {
         const res = await operationApi.getIssue(Number(q.email))
-        openEmail(res)
+        openSupervise(res)
       } catch (e) { /* ignore */ }
     }
   },
@@ -1043,14 +1048,5 @@ onMounted(async () => {
 .dot-suspended { background: #909399; }
 
 
-/* 邮件督办 */
-.email-body { padding: 2px 4px; }
-.form-label { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
-.recp-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.recp-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: 500; padding: 5px 11px; border-radius: 8px; }
-.recp-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
-.tpl-pick { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-.tpl-btn { font-size: 12px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-secondary); cursor: pointer; transition: all var(--transition-fast); }
-.tpl-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-.tpl-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* 邮件督办（sup-3：弹窗由 SuperviseDialog 组件承载，样式随组件） */
 </style>
