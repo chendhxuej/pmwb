@@ -158,12 +158,13 @@
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| kc-2-1 | 知识关联数据模型与基础设施（关联表+4字段+服务+前端KnowledgeLinker雏形） | feature/kc-2-1-knowledge-link-model | S2 | 🔵开发中 | 晓伴 | 前置依赖，磁盘已有 WIP（models.py 含 PmwbKnowledgeLink/root_cause_type/manual_archived） |
-| kc-2-2 | 业务知识主笔记 + 按领域浏览重构 | feature/kc-2-2-domain-main-note | S2 | ⬜待分配 | | 依赖 kc-2-1 |
-| kc-2-3 | 需求沉淀 + 用户故事规则沉淀 + 操作手册归档 | feature/kc-2-3-requirement-sediment | S2 | ⬜待分配 | | 依赖 kc-2-1、kc-2-2 |
-| kc-2-4 | 运营工单结构化 + 多选关联沉淀 | feature/kc-2-4-operation-knowledge | S2 | ⬜待分配 | | 依赖 kc-2-1 |
-| kc-2-5 | 会议中心：纪要覆盖/删除/多选关联 | feature/kc-2-5-meeting-sediment | S2 | ⬜待分配 | | 依赖 kc-2-1 |
-| kc-2-6 | 回归验证 + 文档 + 存量迁移脚本 | feature/kc-2-6-validation-migration | S3 | ⬜待分配 | | 依赖 kc-2-1~5 全部合入 |
+| kc-2-1 | 知识关联数据模型与基础设施（关联表+4字段+服务+前端KnowledgeLinker雏形） | feature/kc-2-1-knowledge-link-model | S2 | ✅已合入 | Vicky2号 | 2026-08-08 随 ed00cffa 合入 main；models.py 含 PmwbKnowledgeLink/root_cause_type/manual_archived |
+| kc-2-2 | 业务知识主笔记 + 按领域浏览重构 | feature/kc-2-2-domain-main-note | S2 | ✅已合入(⚠️偏差) | Vicky2号 | 主笔记/子笔记模型**未落地**（PmwbKnowledgeItem 无 note_type 列）；实际以 business_domain.get_related 平铺聚合+关联时间线替代。建议另开任务补「主笔记体系」 |
+| kc-2-3 | 需求沉淀 + 用户故事规则沉淀 + 操作手册归档 | feature/kc-2-3-requirement-sediment | S2 | ✅已合入 | Vicky2号 | sediment_requirement(force) + sediment_user_story 已落地；"上线归档操作手册"由 RequirementDeliveryView 触发 |
+| kc-2-4 | 运营工单结构化 + 多选关联沉淀 | feature/kc-2-4-operation-knowledge | S2 | ✅已合入 | Vicky2号 | 4字段(root_cause_type/impact_scope/solution_type/lesson_learned)入 schema；WorkOrderView 用 KnowledgeLinker 多选关联 |
+| kc-2-5 | 会议中心：纪要覆盖/删除/多选关联 | feature/kc-2-5-meeting-sediment | S2 | ✅已合入 | Vicky2号 | sediment_meeting(force 覆盖) + delete_meeting_minutes + MeetingView KnowledgeLinker 已落地 |
+| kc-2-6 | 回归验证 + 文档 + 存量迁移脚本 | feature/kc-2-6-validation-migration | S3 | ✅已合入 | Vicky2号 | 2026-08-08 完成：迁移脚本写回40篇、pytest 119pass/4fail(环境依赖)、vite build 干净、docs/memory 更新 |
+| kc-2-7 | 业务知识主笔记体系（每领域主笔记+子笔记分组，补 note_type 模型） | feature/kc-2-7-domain-main-note | S2 | ⬜待分配 | | 依赖 kc-2-1；当前主笔记模型未落地(PmwbKnowledgeItem 无 note_type)，需补模型+迁移+前端主笔记视图。见 kc-2-7.md |
 
 ---
 

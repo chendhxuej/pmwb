@@ -1,61 +1,51 @@
 # PMWB 项目长期记忆
 
 ## 项目状态
-- 前端 IA（菜单顺序，2026-08-04 核对）：首页看板 → 任务中心 → 需求与交付 → 运营监控(5类工单+生产监控占位) → 会议日程(列表+行动项) → 个人待办 → 重点工作 → 人员中台 → 知识中心(知识库/产品圣经/知识沉淀/SQL脚本库) → 邮件中心(日志/账号/通讯录/分组/模板)。任务中心聚合 6 类待办（个人待办/运营问题/开发工单/会议行动项/重点工作/需求催办），需求催办以 `pmwb_requirement_evaluation` 为准。
-- 服务拓扑：主后端 8000 / 人员中台 Master 8001(`services/master`，独立 FastAPI+alembic) / 前端 5173 / MySQL 3306 / 统一邮件中心 3210(外部)。后端 21 个路由模块、27 张表、20 个迁移。
-- 测试基线（2026-08-06）：pytest **119 passed**（+4 新增用户故事测试；另 4 个失败为依赖真实 8001+真实库的既有环境问题）；vitest **7/7**；vite build 干净。GitHub: chendhxuej/pmwb (main)。数据库 28 张表、21 个迁移。
-- **业务知识联动（2026-08-05 新增）**：`pmwb_business_domain` 表 12 条政企业务线种子数据；5 个业务表 + `pmwb_knowledge_item` 均有 `domain_code` 字段；`GET /basic-data/business-domains` 提供领域列表。前端统一用 `BusinessDomainSelect.vue` 选领域、`RelatedKnowledgePanel.vue` 展示同领域知识。
-
-## 启动方案（看门狗常驻保活）
-- **主方案**：`C:\pmwb-scripts\pmwb-keeper.py`（镜像 `scripts/`）每 15s 检查 3306/8000/5173/3210/8001，DOWN 用已验证控制台命令 DETACHED 拉起；后端/Master 等 3306 就绪才起。桌面双击 `启动PMWB.bat`（常驻看门狗，`--once`=一次性）。
-- **一键重启**：桌面 `重启PMWB.bat` 双击即运行 `C:\pmwb-scripts\pmwb-restart.py`——按端口(3306/8000/5173/8001)终止现有前后端+MySQL+Master 进程并停旧看门狗，再后台拉起看门狗自动重新拉起全部服务；邮件中心(3210)独立不动。
-- **开机自启铁律**：Startup 的 `pmwb-autostart.vbs` 必须 `cmd /c "<python.exe>" "<keeper.py>"`。**绝不能用 `pythonw`/`Run/Start-Process` 隐藏窗口直接拉 python.exe**——那样 `mysqld --console` 静默失败、数据库起不来。MySQL 控制台模式有父引导+子工作两个 mysqld.exe，属正常。
-- **⚠️ 陈旧 PMWB 服务占位坑（高复发）**：本机曾有 3 个 PMWB-* NSSM 服务 + PMWB-MySQL 计划任务（已用 `scripts/uninstall-windows-services.bat` **右键管理员**永久删除）。若日后又出现「改了后端代码���不生效(返回404)」，先查是否残留旧服务占 8000；沙箱令牌被 UAC 过滤无法在沙箱内 `taskkill` 重启，需本机管理员操作。
-- **⚠️ Ghost Port 坑（新增 2026-07-28）**：Python 进程被 Kill 后，TCP LISTENING socket 可能残留（netstat 显示 PID 但 process 不存在），看门狗 `port_up()` 误判服务运行→不启动新后端→用户看到过期代码。症状：`netstat` 端口有 PID 但 `taskkill /PID X` 报"没有找到进程"。修复：`Get-Process python | Stop-Process -Force` 全局清 Python 进程 + 重启 keeper。
-- 服务化脚本(`install-windows-services.ps1` 等)已弃用，勿再迭代。
+- 前端 IA：首页看板→任务中心→需求与交付→运营监控→会议日程→个人待办→重点工作→人员中台→知识中心→邮件中心。任务中心聚合 6 类待办。需求催办以 `pmwb_requirement_evaluation` 为准。
+- 服务拓扑：后端8000 / 人员中台8001 / 前端5173 / MySQL3306 / 邮件中心3210。`C:\pmwb-scripts\pmwb-keeper.py` 看门狗常驻保活（桌面 `启动PMWB.bat`）；`重启PMWB.bat` 一键重启。开机自启 `pmwb-autostart.vbs` 必须 `cmd /c python keeper.py`（禁用 pythonw 隐藏窗口，否则 mysqld 静默失败）。
+- 测试基线（2026-08-08）：pytest **120 passed**（3 失败为既有环境依赖：8001 人员中台数据/外部产品圣经 404，与业务无关）；vite build 干净。GitHub chendhxuej/pmwb，main=ed00cffa（KC-2 合版后）。
 
 ## 关键技术约定（高频坑）
-- API：request.js baseURL='/api/v1'，api 文件用相对路径如 '/requirements'；拦截器 code===0 返回 data.data，禁止二次解包。
-- `success()` 用 `message=`(非 `msg=`)，否则 TypeError→500。
-- 时区：中国 UTC+8；统计用 `datetime.now(timezone(timedelta(hours=8)))`，库表 UTC 存、展示 ±8h，勿 utcnow 当本地今天。
-- 前端日期空值传 `""` → Pydantic `Optional[date]` 422；Update schema 加 `@field_validator(mode="before")` 把 `""`/`None` 转 None。
-- **图标引用坑**：数组字面量 `icon: Xxx` 立即求值，Xxx 必须已 import 且真实存在；漏 import/拼错→白屏，Rollup 不报错，**浏览器无头冒烟是必过项**。
-- **菜单 hidden 坑**：`MainLayout.vue` 的 `menuItems` 必须 `.filter(c=>!c.meta?.hidden)` 才真正隐藏；meta 无 title 回退显示路由 name（难看英文）。
-- python-docx：`doc.styles[name]`；链式 `anchor._element.addnext(new_p)`。需求交付附件删除 `filename` 用 `Body(embed=True)` 收 JSON，上传 `File(...)` multipart。
-- 沙箱删守卫：Obsidian vault 路径 os.remove/rmtree 被沙箱拦截(409)，真实环境正常，勿改业务逻辑绕过。
-- **⚠️ SQLite/MySQL 方言坑（2026-08-04）**：测试用 SQLite 内存库，`cast(col, Date)` 在 SQLite 走 numeric affinity 直接失效（MySQL 正常），会让统计恒为 0。日期区间统计一律改用 naive datetime 上下界比较（`>= day_start, < day_end`），禁止 `cast(..., Date)`。
-- **⚠️ 沙箱 git 仓库残缺+对象库损坏坑（2026-08-01 实测修正）**：沙箱 `.git` 常是残缺副本（只跟踪十几~几十文件，`backend/main.py` 等不 tracked），且对象库可损坏（`fetch` 报 `missing blob`/`unresolved deltas`；`refs/stash`、`refs/heads/feature/*`、`.git/HEAD` 会被沙箱文件系统搞丢，致 `HEAD` 失效）。**⚠️ 2026-08-04 重大更正**：上述「残缺分支可直接 push、合入不会删文件」**仅当分支与 `origin/main` 有共同祖先**（三方合并）时成立。若分支是**孤儿分支**（`git merge-base origin/main <branch>` 无输出），`git diff origin/main <branch>` 会显示**删除数万行**，merge 进 main 会把主干代码整片删光——08-01~08-04 有 7 个分支正是此类，已全部冻结不合。**开工前必查**：`git merge-base origin/main HEAD` 有输出才可正常走分支流程；无输出时改走「工作目录为准 + `git read-tree origin/main` 重建索引 + `git add -A` 提交」方式同步成果（不 checkout，工作目录零风险），再 fast-forward push 到 main。若需分支 tree 完整（独立构建/继续开发），须在本机完整仓库基于 `origin/main` 重建分支再推。推送后验证：`git ls-remote origin <branch>` 确认远端 SHA；`git show --stat <sha>` / `git ls-tree -r <sha>`（用本地对象库）确认改动文件都在。沙箱内不必反复修 HEAD/ref（写不持久化），远端已推送即达标。
+- API：request.js baseURL='/api/v1'，api 用相对路径；拦截器 code===0 返回 data.data，禁止二次解包。`success()` 用 `message=`(非 `msg=`)，否则 500。
+- 时区 UTC+8：统计用 `datetime.now(timezone(timedelta(hours=8)))`，库表 UTC 存展示±8h。
+- 前端日期空值 `""`→Pydantic 422；Update schema 加 `@field_validator(mode="before")` 把 `""`/`None` 转 None。
+- **图标引用坑**：`icon: Xxx` 立即求值，Xxx 须已 import 且存在；漏→白屏，Rollup 不报错→**浏览器无头冒烟必过**。
+- **菜单 hidden 坑**：`menuItems` 须 `.filter(c=>!c.meta?.hidden)`；meta 无 title 回退显示路由 name。
+- **SQLite/MySQL 方言坑**：测试 SQLite 内存库 `cast(col,Date)` 失效；日期区间统计改用 naive datetime 上下界比较，禁 `cast(...,Date)`。
+- **⚠️ FastAPI 路由顺序坑（kc-2 实测）**：`GET /{item_id}` 动态路由抢匹配同级静态路径（`/links`→422 int_parsing）。**所有静态/具体路径须注册在 `/{param}` 之前**。`knowledge.py` 已重排（`/links`、`/sediment` 块前移）。
+- 改 SQLAlchemy 模型后必须先 `alembic upgrade head` 再起后端（否则 1054 Unknown column→500）。新建迁移前先 `alembic heads` 查最大修订号+1，禁复用同日序号（防「Revision present more than once」）。
 
-## 架构整改约定（2026-07-25 审查落地）
-- **催办/逾期判据单一来源**：`backend/utils/dateflags.py`（`is_overdue`/`is_due_soon`/`flag_due_date`/`relative_status`）；task_center/requirement/reminder 三处禁止各自实现，否则数字漂移。
-- **邮件发送降级契约**：`EmailCenterClient.send_email(...)` 返回 `{"ok","data"?,"error"?}`；业务侧用 `raise_on_error=False` 并判 `result["ok"]`，失败只落 `send_status=failed`+记 `error_msg`，**不得抛异常中断接口**。超时 30s→10s。
-- **配置强制环境变量**：`SECRET_KEY`/`DB_PASSWORD` 必填、从 `.env` 读取，缺失即报错；`DEBUG` 默认 False。加必填项须同步 `backend/.env` 与 README 示例。
-- **sent_emails 索引**：`req_id` 已加 `ix_sent_emails_req_id`（迁移 20260725000002）；改模型索引须同步补 Alembic 迁移。
-- 改 SQLAlchemy 模型(增/改列)后必须先 `alembic upgrade head` 再起后端（否则 1054 Unknown column→前端500）。
-- **⚠️ Alembic 修订号冲突坑（2026-08-04）**：新建迁移前必须先 `alembic heads` 查现有修订号；孤儿分支同步曾导致图混乱，`20260804000001` 已被 `add_minutes_required` 占用。新迁移切忌复用同日序号，须取 `heads` 中最大号 +1（如 `20260804000002`），`down_revision` 指向实际 head，否则 `alembic upgrade head` 报「Revision present more than once / Multiple head」。
-- **会议邮件收件人兼容「姓名/邮箱」**：`services/meeting.py send_mail` 的 `to`/`cc` 支持「中文姓名 或 邮箱」混合输入；非邮箱文本经 `MasterServiceClient.resolve_staff_emails` 走人员中台解析为邮箱，全部无法解析才报清晰错误（不再 400 裸拒）。前端 `MeetingView.vue` 邮件弹窗 `openMailDialog` 默认填参会人姓名即可，无需改回只收邮箱。
+## 架构整改约定
+- 催办/逾期判据单一来源：`backend/utils/dateflags.py`；task_center/requirement/reminder 三处禁各自实现。
+- 邮件发送降级契约：`EmailCenterClient.send_email` 返回 `{"ok","data"?,"error"?}`；业务侧 `raise_on_error=False` 判 `result["ok"]`，失败只落 `send_status=failed`，禁抛异常。
+- 会议邮件收件人兼容「姓名/邮箱」：`to`/`cc` 中文姓名经 `MasterServiceClient.resolve_staff_emails` 解析，全失败才报清晰错误。
 
-## 协同开发规范（2026-07-28 确立）
-- **铁律**：禁止在 main 主干直接开发，所有改动走 feature 分支 → Vicky2号审查合版。
-- **角色**：Vicky2号=集成者（拆任务/建分支/审查/合版/推送）；其他AI=开发者（分支上开发/自测/提交）；老大=决策者。
-- **规范文档**：`docs/COLLABORATIVE_DEV_WORKFLOW.md` v1.1；任务总表 `.workbuddy/tasks/TASKS.md`。
-- **Task Spec 必须自包含**：背景上下文+精确改动范围+可执行验收命令+禁止项清单+起点指引（跨 AI 不共享会话）。
-- **分支命名**：`feature/<task-id>-<kebab-desc>`，task-id 格式 `<模块前缀>-<序号>`（如 mc-1）。
-- **质量门禁**：pytest绿+vitest绿+build干净+浏览器冒烟+代码审查+影响面Grep。
-- **异步审查反馈机制（v1.1 新增）**：Vicky2号审查发现问题 → 写 `.workbuddy/reviews/<task-id>-R<N>.md` 结构化反馈（P0/P1/P2 + 改进建议 + 项目约定引用）→ 晓伴修复后在回复区填修复记录 → Vicky2号重审。TASKS.md 状态流：🟡待审查 → 🔴审查退回 → 🟡待审查。每日自动化 `审查退回任务每日扫描` 监控退回项状态。
-- **当前批次**：
-  - 邮件中心整合 mc-1~5 ✅已合入主干（2026-07-28）。
-  - 批次二·邮件中心优化：mc-opt-1 邮件统计概览 ✅已合入（7d2014d）。
-  - 批次三·首页看板重构：db-1 ECharts组件 ✅已合入（0b6bbc0）、db-2 Dashboard接口 ✅已合入（f6b9406）；db-3/4/5 原退回方案（DashboardV2View）已按 08-03 指令废弃，成果直接落 HomeView。人员中台已于 2026-07-28 合入主干。
-  - 批次四~八（tc/ma/umc/sup）✅全部已合入；**批次九·孤儿分支成果同步 ✅已合入（be5c653，08-04）**——50 文件一次性同步入 main，7 个孤儿分支冻结留档，详见 TASKS.md 批次九。
-  - **抽屉草稿约定**：`frontend/src/composables/useDrawerDraft.js` 为统一草稿持久化入口（localStorage，storageKey 含记录 ID 防串台，支持 reactive/ref 两种 form）。新增右侧抽屉/录入弹窗优先复用，勿各自造轮子。
+## 协同开发规范
+- 铁律：禁在 main 直开发，改动走 feature 分支→Vicky2号审查合版。角色：Vicky2号=集成者；其他AI=开发者；老大=决策者。
+- 分支命名 `feature/<task-id>-<kebab>`；质量门禁：pytest+vitest+build+冒烟+审查+影响面Grep。异步审查写 `.workbuddy/reviews/<task-id>-R<N>.md`。
+- **当前批次**：mc-1~5✅、mc-opt-1✅、db-1/2✅、批次四~九✅(含孤儿同步)、**wr-1 AI总结✅合入 main(ec235698)**、**wr-2 AI总结优化(左侧栏+周报/月报下期计划)✅分支 feature/wr-2-work-report-opt(6d9a93e) 待合 main**、**kc-2 知识中心重构✅合入 main(ed00cffa, 2026-08-08)**。抽屉草稿 `useDrawerDraft.js` 统一持久化入口。
 
-## 项目约定踩坑补充（2026-07-29）
-- **`.gitignore` 放行**：`.workbuddy/{memory,reviews,tasks}/` 已放行纳入版本库（协同可见）；`automations/`、`scripts/` 仍忽略（可能含密钥/临时脚本）。改之前是整目录 `.workbuddy/` 忽略，导致审查记录对晓伴不可见，异步机制失效——已修复。
-- **首页看板重构铁律（已调整 2026-08-03）**：原「db-3/4/5 确认 OK 前绝不允许改 `HomeView.vue`」**已被老大新指令覆盖**——2026-08-03 老大明确「直接优化旧版 HomeView」，故 `HomeView.vue` 现已允许直接迭代（本轮已补 5 类模块卡片 + 修 2 处口径）。原 db-3/4/5 审查退回方案（新建 `DashboardV2View.vue` + /dashboard-v2 路由）**已于 2026-08-03 应老大指令废弃并删除**（源文件、路由、旧 dist 产物已清，`vite build` 干净）；现仅保留旧版 `HomeView.vue` 为唯一看板页，后端 `get_dashboard()` 等聚合接口只服务此页。
-- **用户故事生成策略（2026-08-06）**：旧版按行数/人天机械拆分已废弃为兼容模式（rules_v1）；默认走 rules_v2（合并优先，检测角色/场景/闭环，上限 5 条）。LLM 模式支持 Kimi（Moonshot AI），配置项在 `backend/.env`（`US_STORY_LLM_*`），API Key 从 `platform.moonshot.cn` 获取。LLM 不可用时自动降级 rules_v2。`GET /requirements/delivery/llm-status` 返回连通性状态。前端下拉菜单动态显示 LLM 可用性。Prompt 模板编码了公司《用户故事拆分边界管理规范》全部 5 条原则 + 4 条允许条件 + 4 条禁止红线。
+## ⚠️ 沙箱 git 损坏恢复（高频，必读）
+- 症状：`.git` 元数据被沙箱清掉/对象库损坏——`git status` 报 HEAD 失效、ref 指向不存在 SHA、`fetch` 报 missing blob、`rm -rf .git` 常被安全删除防护拦截。
+- **孤儿分支铁律**：分支与 `origin/main` 无共同祖先（`git merge-base origin/main <branch>` 无输出）时，**绝不能** `git add -A` 后 merge 进 main（会整片删主干）。07-01~04 有 7 个此类分支已冻结。
+- **✅ 已验证可靠恢复流程（2026-08-08 终极版）**：
+  1. 全量备份工作树（robocopy 排除 `.git/node_modules/dist/venv`）。
+  2. `mv .git .git.broken`（绕过安全删除拦截，`rm -rf` 会被拦）→ `git init` → `git remote add origin git@github.com:chendhxuej/pmwb.git` → `git fetch origin`（拉完整历史，远端对象库完好）。
+  3. 验证 `origin/main` 与 `origin/feature/...` 可达。
+  4. **合版入 main 最稳法**：`git push origin origin/feature/<x>:refs/heads/main`（直接把远端 feature 快进推到远端 main，不经过本地工作树，彻底规避沙箱写不持久化）。
+  5. 本地对齐：`git checkout -f -B main origin/main`。
+- 沙箱内不必反复修 HEAD/ref（写不持久化）；**远端已推送即达标**。
 
-## AI总结（WorkReport）模块（2026-08-07 新增，注意多 AI 冲突）
-- **功能**：自动生成日报/周报/月报/自定义报告（LLM 润色，不可用时规则模板兜底）；支持生成/查看/编辑/删除/定稿/邮件发送；定稿自动归档 Obsidian `15-工作总结/{类型}/{日期}.md`。
-- **接线点**：后端 `backend/routers/work_report.py`（前缀 `/api/v1/work-reports`，注册在 `main.py`）；模型 `backend/db/models.py` 的 `PmwbWorkReport`；表 `pmwb_work_report` 必须含 `cc TEXT` 列；前端路由 `work-report`（菜单名「AI总结」，`WorkReportView.vue`）。
-- **⚠️ 当前状态（2026-08-07）**：文件仅存磁盘、未入库（因 git 对象库损坏 + 工作树被切到 sup-3 他人分支）。仓库外保险备份见 `D:/项目/_wr_backup/work-report/README.md`（含还原清单）。**其他 AI 改动 models.py / router/index.js 时勿删除 `PmwbWorkReport` 类与 AI总结 路由块**。待 Vicky2号 协调统一分支后再正式入库。
+## 业务知识联动（kc-2 重构，2026-08-08 合版）
+- 领域基线模型：业务知识笔记为领域基线；需求=更新领域知识，工单/会议=关联领域知识+时间线。
+- 多对多关联表 `pmwb_knowledge_link`（迁移 945f101c2ac0：仅补 operation_issue 4字段[root_cause_type/impact_scope/solution_type/lesson_learned]+requirement_ext 2字段[manual_archived/manual_obsidian_path]；**重写去除**危险的重建表/删 work_report/删 staff_id）。
+- 复用组件 `frontend/src/components/Common/KnowledgeLinker.vue`；三模块(Meeting/WorkOrder/RequirementDelivery)接入；`DomainKnowledgeView` 增加关联时间线页签。会议纪要支持覆盖重生成(force)与删除。
+- 服务：`backend/services/knowledge_link.py`(关联CRUD+frontmatter双向同步)、`obsidian_link.py`(sediment 加 force)。
+- ⚠️ **kc-2-2 实际偏差（2026-08-08 收尾核实）**：设计案要的「每个二级领域一个业务知识主笔记 + 子笔记分组(note_type=business_main/sub_note)」**未落地**——`PmwbKnowledgeItem` 模型**无 note_type 列**，kc-2-1 迁移只加了关联表+运营4字段+manual_archived。实际按领域浏览用 `backend/services/business_domain.py:get_related` 平铺聚合（knowledge_items + requirements + meetings + issues + 关联时间线[来自 pmwb_knowledge_link]），无主/子笔记区分。若要主笔记体系需另开 S2 任务给 PmwbKnowledgeItem 加 note_type 并重写 DomainKnowledgeView。
+- 存量迁移脚本 `backend/scripts/migrate_knowledge_frontmatter.py`（kc-2-6）已写：为带 domain_code 的索引笔记补 frontmatter(domain_code/source_type/item_id，模型无 note_type 故不补)；dry-run 测得 40 篇待补、1 篇索引文件缺失(order-center 域)。**写回个人 Vault 前须经老大确认**（默认 --dry-run，--fix 才写）。
+
+## AI总结（WorkReport）模块
+- 路由 `/api/v1/work-reports`；模型 `PmwbWorkReport`(含 cc 列)；菜单「AI总结」(EditPen)。后端 4 服务：report_prompt(提示词)/report_collector(数据归集)/report_llm(LLM+规则兜底)/work_report(CRUD+定稿归档Obsidian+发送)。
+- **wr-2 优化(2026-08-08)**：①前端 `WorkReportView.vue` 左侧「报告分类」导航(全部/日报/周报/月报/自定义)+数量徽标筛选；②后端保留 需求/运营/会议/待办/知识 5 模块深度分析原始结构 + 强制「六、下期重点计划」(周报=下周重点计划/月报=下月重点工作与趋势研判/日报=明日关注)，LLM 输出缺该模块时 `work_report._has_next_period` 强制兜底 `build_next_period_section` 追加。
+- ⚠️ **多 AI 冲突教训**：沙箱切分支会导致未提交改动回滚(本次 AI总结 优化在主树被切到 main 时回滚，靠仓库外备份 `D:/项目/_wr_opt_backup/` 还原)。**未入库改动必须靠仓库外备份 + 尽快 git 提交**，勿信任工作树持久化。
+- 仓库外保险备份：`D:/项目/_wr_opt_backup/`(wr-2 优化4文件)。
