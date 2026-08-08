@@ -1,39 +1,62 @@
 <template>
   <div class="work-report-page">
-    <div class="page-header">
-      <div class="page-title">AI总结</div>
-      <div class="page-actions">
-        <el-button type="primary" :icon="EditPen" @click="openGenerate">生成报告</el-button>
-        <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-      </div>
-    </div>
+    <el-container class="wr-layout">
+      <el-aside width="184px" class="wr-aside">
+        <div class="aside-title">报告分类</div>
+        <ul class="cat-list">
+          <li
+            v-for="c in categoryList"
+            :key="c.value"
+            :class="['cat-item', { active: activeCategory === c.value }]"
+            @click="activeCategory = c.value"
+          >
+            <span class="cat-name">{{ c.label }}</span>
+            <el-badge :value="c.count" :max="999" class="cat-badge" />
+          </li>
+        </ul>
+      </el-aside>
 
-    <el-table :data="list" v-loading="loading" border stripe style="width: 100%">
-      <el-table-column prop="id" label="ID" width="70" />
-      <el-table-column prop="report_type_label" label="类型" width="90" />
-      <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
-      <el-table-column label="统计区间" width="200">
-        <template #default="{ row }">
-          {{ row.date_start || '-' }} ~ {{ row.date_end || '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="100">
-        <template #default="{ row }">
-          <el-tag :type="statusTagType(row.status)">{{ row.status_label }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="170" />
-      <el-table-column label="操作" width="160" fixed="right">
-        <template #default="{ row }">
-          <el-button link type="primary" @click="openDetail(row)">查看</el-button>
-          <el-button link type="danger" @click="doDelete(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <el-container class="wr-main">
+        <div class="page-header">
+          <div class="page-title">AI总结</div>
+          <div class="page-actions">
+            <el-button type="primary" :icon="EditPen" @click="openGenerate">生成报告</el-button>
+            <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+          </div>
+        </div>
+
+        <el-table :data="filteredList" v-loading="loading" border stripe style="width: 100%">
+          <el-table-column prop="id" label="ID" width="70" />
+          <el-table-column prop="report_type_label" label="类型" width="90" />
+          <el-table-column label="标题" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span class="title-link" @click="openDetail(row)">{{ row.title }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="统计区间" width="200">
+            <template #default="{ row }">
+              {{ row.date_start || '-' }} ~ {{ row.date_end || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="statusTagType(row.status)">{{ row.status_label }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="创建时间" width="170" />
+          <el-table-column label="操作" width="160" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openDetail(row)">查看</el-button>
+              <el-button link type="danger" @click="doDelete(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-container>
+    </el-container>
 
     <!-- 生成报告弹窗 -->
-    <el-dialog v-model="generateVisible" title="生成AI总结" width="460px">
-      <el-form label-width="90px">
+    <el-dialog v-model="generateVisible" title="生成AI总结" width="460px" :close-on-click-modal="false" :close-on-press-escape="false">
+      <el-form v-if="!genLoading" label-width="90px">
         <el-form-item label="报告类型">
           <el-select v-model="genForm.report_type" style="width: 100%">
             <el-option label="日报" value="daily" />
@@ -46,17 +69,22 @@
           <el-date-picker v-model="genForm.date_start" type="date" value-format="YYYY-MM-DD" placeholder="缺省自动推算" style="width: 100%" />
         </el-form-item>
         <el-form-item label="结束日期">
-          <el-date-picker v-model="genForm.date_end" type="date" value-format="YYYY-MM-DD" placeholder="缺省为今天" style="width: 100%" />
+          <el-date-picker v-model="genForm.date_end" type="date" value-format="YYYY-MM-DD" placeholder="默认今天，可改" style="width: 100%" />
         </el-form-item>
       </el-form>
+      <div v-else class="gen-loading-overlay">
+        <el-icon class="is-loading" :size="30"><Loading /></el-icon>
+        <p>AI 正在生成报告，请稍候…</p>
+        <p class="gen-elapsed">已用时 {{ genElapsed }} 秒</p>
+      </div>
       <template #footer>
-        <el-button @click="generateVisible = false">取消</el-button>
+        <el-button :disabled="genLoading" @click="generateVisible = false">取消</el-button>
         <el-button type="primary" :loading="genLoading" @click="doGenerate">生成</el-button>
       </template>
     </el-dialog>
 
     <!-- 详情抽屉 -->
-    <el-drawer v-model="detailVisible" :size="720" :title="current.title || '报告详情'">
+    <el-drawer v-model="detailVisible" :size="'70%'" :title="current.title || '报告详情'">
       <template #header>
         <div class="detail-header">
           <span class="detail-title">{{ current.title || '报告详情' }}</span>
@@ -119,9 +147,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { EditPen, Edit, Check, Message, Delete, Stamp, FolderChecked, CopyDocument, Refresh } from '@element-plus/icons-vue'
+import { EditPen, Edit, Check, Message, Delete, Stamp, FolderChecked, CopyDocument, Refresh, Loading } from '@element-plus/icons-vue'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import {
@@ -131,9 +159,56 @@ import {
 
 const list = ref([])
 const loading = ref(false)
+
+// 左侧栏分类（含数量徽标）
+const activeCategory = ref('all')
+const categoryList = computed(() => {
+  const counts = { all: list.value.length, daily: 0, weekly: 0, monthly: 0, custom: 0 }
+  for (const r of list.value) counts[r.report_type] = (counts[r.report_type] || 0) + 1
+  return [
+    { label: '全部', value: 'all', count: counts.all },
+    { label: '日报', value: 'daily', count: counts.daily },
+    { label: '周报', value: 'weekly', count: counts.weekly },
+    { label: '月报', value: 'monthly', count: counts.monthly },
+    { label: '自定义', value: 'custom', count: counts.custom },
+  ]
+})
+const filteredList = computed(() =>
+  activeCategory.value === 'all'
+    ? list.value
+    : list.value.filter(r => r.report_type === activeCategory.value)
+)
 const generateVisible = ref(false)
 const genLoading = ref(false)
+const genElapsed = ref(0)
+let _genTimer = null
+function _startGenTimer() {
+  genElapsed.value = 0
+  _genTimer = setInterval(() => { genElapsed.value++ }, 1000)
+}
+function _stopGenTimer() {
+  if (_genTimer) { clearInterval(_genTimer); _genTimer = null }
+}
 const genForm = reactive({ report_type: 'daily', date_start: '', date_end: '' })
+
+function todayStr() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+function shiftDays(n) {
+  const d = new Date()
+  d.setDate(d.getDate() + n)
+  const p = (x) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+function applyDefaultDates(type) {
+  genForm.date_end = todayStr()
+  if (type === 'weekly' || type === 'custom') genForm.date_start = shiftDays(-6)
+  else if (type === 'monthly') genForm.date_start = shiftDays(1 - new Date().getDate())
+  else genForm.date_start = todayStr()
+}
+watch(() => genForm.report_type, (t) => applyDefaultDates(t))
 
 const detailVisible = ref(false)
 const current = ref({})
@@ -165,13 +240,13 @@ async function load() {
 
 function openGenerate() {
   genForm.report_type = 'daily'
-  genForm.date_start = ''
-  genForm.date_end = ''
+  applyDefaultDates('daily')
   generateVisible.value = true
 }
 
 async function doGenerate() {
   genLoading.value = true
+  _startGenTimer()
   try {
     const r = await generateWorkReport({ ...genForm })
     ElMessage.success('已生成')
@@ -181,6 +256,7 @@ async function doGenerate() {
   } catch (e) {
     ElMessage.error('生成失败')
   } finally {
+    _stopGenTimer()
     genLoading.value = false
   }
 }
@@ -290,6 +366,25 @@ onMounted(load)
 
 <style scoped>
 .work-report-page { padding: 16px; }
+.wr-layout { min-height: calc(100vh - 120px); }
+.wr-aside {
+  background: var(--el-bg-color-page, #f5f7fa);
+  border-right: 1px solid var(--el-border-color-lighter, #ebeef5);
+  padding: 12px 8px;
+}
+.aside-title { font-size: 13px; color: #909399; padding: 4px 8px 10px; letter-spacing: 1px; }
+.cat-list { list-style: none; margin: 0; padding: 0; }
+.cat-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 12px; border-radius: 6px; cursor: pointer;
+  font-size: 14px; color: #303133; margin-bottom: 4px; transition: background .15s;
+}
+.cat-item:hover { background: rgba(64, 158, 255, .08); }
+.cat-item.active { background: var(--el-color-primary, #409eff); color: #fff; }
+.cat-item.active .cat-badge :deep(.el-badge__content) { border-color: #fff; color: var(--el-color-primary, #409eff); background: #fff; }
+.cat-badge :deep(.el-badge__content) { font-size: 11px; }
+.wr-main { padding-left: 16px; flex-direction: column; }
+.wr-main .page-header { margin-bottom: 16px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .page-title { font-size: 20px; font-weight: 600; }
 .detail-header { display: flex; align-items: center; gap: 10px; }
@@ -300,4 +395,9 @@ onMounted(load)
 .detail-body { padding: 4px 8px; }
 .detail-footer { display: flex; gap: 8px; flex-wrap: wrap; }
 .email-body-bar { margin-bottom: 6px; text-align: right; }
+.title-link { color: var(--el-color-primary); cursor: pointer; }
+.title-link:hover { text-decoration: underline; }
+.gen-loading-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 20px; gap: 10px; color: var(--el-text-color-secondary); }
+.gen-loading-overlay p { margin: 0; }
+.gen-elapsed { font-size: 13px; color: var(--el-color-primary); font-weight: 600; }
 </style>

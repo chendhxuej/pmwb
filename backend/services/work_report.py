@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from core.exceptions import ValidationException
 from db.models import PmwbWorkReport
 from services.report_collector import ReportDataCollector
-from services.report_llm import generate_report_markdown, render_rule_template
+from services.report_llm import generate_report_markdown, render_rule_template, build_next_period_section
 from services.report_prompt import build_system_prompt, build_user_message
 from utils.email import EmailCenterClient
 from utils.master_service import master_service_client
@@ -119,17 +119,67 @@ def delete_report(db: Session, report_id: int) -> None:
     db.commit()
 
 
+def _has_next_period(content: str, report_type: str) -> bool:
+    """判断 LLM 输出是否已包含下期重点计划小节。"""
+    _markers = {
+        "daily": "明日关注",
+        "weekly": "下周重点计划",
+        "monthly": "下月重点工作与趋势研判",
+        "custom": "下阶段重点",
+    }
+    return _markers.get(report_type, "下阶段重点") in (content or "")
+
+
+def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
+    """保证 LLM 输出包含所有必备小节（防止偶发漏模块），缺失则补占位说明。"""
+    required = [
+        ("一、本期概述", "本期概述"),
+        ("二、需求与交付", "需求与交付"),
+        ("三、运营支撑", "运营支撑"),
+        ("四、会议与协同", "会议与协同"),
+        ("五、个人待办", "个人待办"),
+        ("六、知识中心", "知识中心"),
+    ]
+    out = md or ""
+    for title, marker in required:
+        if marker not in out:
+            out = out.rstrip() + f"\n\n## {title}\n（本期暂无相关数据与进展，建议补充）\n"
+    return out
+
+
+def _strip_next_period(md: str, report_type: str) -> str:
+    """剥离 LLM 输出中自带的「下期重点计划」小节，便于用确定性按模块版覆盖。"""
+    _m = {
+        "daily": "明日关注",
+        "weekly": "下周重点计划",
+        "monthly": "下月重点工作与趋势研判",
+        "custom": "下阶段重点",
+    }.get(report_type, "下阶段重点")
+    idx = (md or "").find(_m)
+    if idx == -1:
+        return md or ""
+    line_start = (md or "").rfind("\n", 0, idx) + 1
+    return (md or "")[:line_start].rstrip()
+
+
 def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     report_type = params.get("report_type", "daily")
     ds = params.get("date_start")
     de = params.get("date_end")
     start, end = _date_range(report_type, ds, de)
     data = ReportDataCollector(db).collect(start, end)
+    data["report_type"] = report_type
     system = build_system_prompt(report_type)
     user = build_user_message(data, report_type)
     md, _used_llm = generate_report_markdown(system, user)
     if not md:
-        md = render_rule_template(data)
+        md = render_rule_template(data, report_type)
+    else:
+        # LLM 负责「一~六」深度内容；下期重点计划统一用确定性按模块版，
+        # 保证「对标本期进展 + 结构稳定」，不依赖 LLM 自觉
+        md = _strip_next_period(md, report_type)
+        md = _ensure_sections(data, md, report_type)
+        md = md.rstrip() + "\n\n" + build_next_period_section(data, report_type)
     title = f"{_type_label(report_type)}（{start.isoformat()}~{end.isoformat()}）"
     r = PmwbWorkReport(
         report_type=report_type, title=title, content=md,
