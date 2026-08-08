@@ -54,3 +54,8 @@
 - **`.gitignore` 放行**：`.workbuddy/{memory,reviews,tasks}/` 已放行纳入版本库（协同可见）；`automations/`、`scripts/` 仍忽略（可能含密钥/临时脚本）。改之前是整目录 `.workbuddy/` 忽略，导致审查记录对晓伴不可见，异步机制失效——已修复。
 - **首页看板重构铁律（已调整 2026-08-03）**：原「db-3/4/5 确认 OK 前绝不允许改 `HomeView.vue`」**已被老大新指令覆盖**——2026-08-03 老大明确「直接优化旧版 HomeView」，故 `HomeView.vue` 现已允许直接迭代（本轮已补 5 类模块卡片 + 修 2 处口径）。原 db-3/4/5 审查退回方案（新建 `DashboardV2View.vue` + /dashboard-v2 路由）**已于 2026-08-03 应老大指令废弃并删除**（源文件、路由、旧 dist 产物已清，`vite build` 干净）；现仅保留旧版 `HomeView.vue` 为唯一看板页，后端 `get_dashboard()` 等聚合接口只服务此页。
 - **用户故事生成策略（2026-08-06）**：旧版按行数/人天机械拆分已废弃为兼容模式（rules_v1）；默认走 rules_v2（合并优先，检测角色/场景/闭环，上限 5 条）。LLM 模式支持 Kimi（Moonshot AI），配置项在 `backend/.env`（`US_STORY_LLM_*`），API Key 从 `platform.moonshot.cn` 获取。LLM 不可用时自动降级 rules_v2。`GET /requirements/delivery/llm-status` 返回连通性状态。前端下拉菜单动态显示 LLM 可用性。Prompt 模板编码了公司《用户故事拆分边界管理规范》全部 5 条原则 + 4 条允许条件 + 4 条禁止红线。
+
+## AI总结（WorkReport）模块（2026-08-07 新增，注意多 AI 冲突）
+- **功能**：自动生成日报/周报/月报/自定义报告（LLM 润色，不可用时规则模板兜底）；支持生成/查看/编辑/删除/定稿/邮件发送；定稿自动归档 Obsidian `15-工作总结/{类型}/{日期}.md`。
+- **接线点**：后端 `backend/routers/work_report.py`（前缀 `/api/v1/work-reports`，注册在 `main.py`）；模型 `backend/db/models.py` 的 `PmwbWorkReport`；表 `pmwb_work_report` 必须含 `cc TEXT` 列；前端路由 `work-report`（菜单名「AI总结」，`WorkReportView.vue`）。
+- **⚠️ 当前状态（2026-08-07）**：文件仅存磁盘、未入库（因 git 对象库损坏 + 工作树被切到 sup-3 他人分支）。仓库外保险备份见 `D:/项目/_wr_backup/work-report/README.md`（含还原清单）。**其他 AI 改动 models.py / router/index.js 时勿删除 `PmwbWorkReport` 类与 AI总结 路由块**。待 Vicky2号 协调统一分支后再正式入库。
