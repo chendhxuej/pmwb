@@ -1,35 +1,54 @@
 <template>
   <div class="work-report-page">
-    <div class="page-header">
-      <div class="page-title">AI总结</div>
-      <div class="page-actions">
-        <el-button type="primary" :icon="EditPen" @click="openGenerate">生成报告</el-button>
-        <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-      </div>
-    </div>
+    <el-container class="wr-layout">
+      <el-aside width="184px" class="wr-aside">
+        <div class="aside-title">报告分类</div>
+        <ul class="cat-list">
+          <li
+            v-for="c in categoryList"
+            :key="c.value"
+            :class="['cat-item', { active: activeCategory === c.value }]"
+            @click="activeCategory = c.value"
+          >
+            <span class="cat-name">{{ c.label }}</span>
+            <el-badge :value="c.count" :max="999" class="cat-badge" />
+          </li>
+        </ul>
+      </el-aside>
 
-    <el-table :data="list" v-loading="loading" border stripe style="width: 100%">
-      <el-table-column prop="id" label="ID" width="70" />
-      <el-table-column prop="report_type_label" label="类型" width="90" />
-      <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
-      <el-table-column label="统计区间" width="200">
-        <template #default="{ row }">
-          {{ row.date_start || '-' }} ~ {{ row.date_end || '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="100">
-        <template #default="{ row }">
-          <el-tag :type="statusTagType(row.status)">{{ row.status_label }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="170" />
-      <el-table-column label="操作" width="160" fixed="right">
-        <template #default="{ row }">
-          <el-button link type="primary" @click="openDetail(row)">查看</el-button>
-          <el-button link type="danger" @click="doDelete(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <el-container class="wr-main">
+        <div class="page-header">
+          <div class="page-title">AI总结</div>
+          <div class="page-actions">
+            <el-button type="primary" :icon="EditPen" @click="openGenerate">生成报告</el-button>
+            <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+          </div>
+        </div>
+
+        <el-table :data="filteredList" v-loading="loading" border stripe style="width: 100%">
+          <el-table-column prop="id" label="ID" width="70" />
+          <el-table-column prop="report_type_label" label="类型" width="90" />
+          <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
+          <el-table-column label="统计区间" width="200">
+            <template #default="{ row }">
+              {{ row.date_start || '-' }} ~ {{ row.date_end || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="statusTagType(row.status)">{{ row.status_label }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="创建时间" width="170" />
+          <el-table-column label="操作" width="160" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openDetail(row)">查看</el-button>
+              <el-button link type="danger" @click="doDelete(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-container>
+    </el-container>
 
     <!-- 生成报告弹窗 -->
     <el-dialog v-model="generateVisible" title="生成AI总结" width="460px">
@@ -119,7 +138,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, Edit, Check, Message, Delete, Stamp, FolderChecked, CopyDocument, Refresh } from '@element-plus/icons-vue'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
@@ -131,6 +150,25 @@ import {
 
 const list = ref([])
 const loading = ref(false)
+
+// 左侧栏分类（含数量徽标）
+const activeCategory = ref('all')
+const categoryList = computed(() => {
+  const counts = { all: list.value.length, daily: 0, weekly: 0, monthly: 0, custom: 0 }
+  for (const r of list.value) counts[r.report_type] = (counts[r.report_type] || 0) + 1
+  return [
+    { label: '全部', value: 'all', count: counts.all },
+    { label: '日报', value: 'daily', count: counts.daily },
+    { label: '周报', value: 'weekly', count: counts.weekly },
+    { label: '月报', value: 'monthly', count: counts.monthly },
+    { label: '自定义', value: 'custom', count: counts.custom },
+  ]
+})
+const filteredList = computed(() =>
+  activeCategory.value === 'all'
+    ? list.value
+    : list.value.filter(r => r.report_type === activeCategory.value)
+)
 const generateVisible = ref(false)
 const genLoading = ref(false)
 const genForm = reactive({ report_type: 'daily', date_start: '', date_end: '' })
@@ -290,6 +328,25 @@ onMounted(load)
 
 <style scoped>
 .work-report-page { padding: 16px; }
+.wr-layout { min-height: calc(100vh - 120px); }
+.wr-aside {
+  background: var(--el-bg-color-page, #f5f7fa);
+  border-right: 1px solid var(--el-border-color-lighter, #ebeef5);
+  padding: 12px 8px;
+}
+.aside-title { font-size: 13px; color: #909399; padding: 4px 8px 10px; letter-spacing: 1px; }
+.cat-list { list-style: none; margin: 0; padding: 0; }
+.cat-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 12px; border-radius: 6px; cursor: pointer;
+  font-size: 14px; color: #303133; margin-bottom: 4px; transition: background .15s;
+}
+.cat-item:hover { background: rgba(64, 158, 255, .08); }
+.cat-item.active { background: var(--el-color-primary, #409eff); color: #fff; }
+.cat-item.active .cat-badge :deep(.el-badge__content) { border-color: #fff; color: var(--el-color-primary, #409eff); background: #fff; }
+.cat-badge :deep(.el-badge__content) { font-size: 11px; }
+.wr-main { padding-left: 16px; flex-direction: column; }
+.wr-main .page-header { margin-bottom: 16px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .page-title { font-size: 20px; font-weight: 600; }
 .detail-header { display: flex; align-items: center; gap: 10px; }

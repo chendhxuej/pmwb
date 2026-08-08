@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from core.exceptions import ValidationException
 from db.models import PmwbWorkReport
 from services.report_collector import ReportDataCollector
-from services.report_llm import generate_report_markdown, render_rule_template
+from services.report_llm import generate_report_markdown, render_rule_template, build_next_period_section
 from services.report_prompt import build_system_prompt, build_user_message
 from utils.email import EmailCenterClient
 from utils.master_service import master_service_client
@@ -119,17 +119,33 @@ def delete_report(db: Session, report_id: int) -> None:
     db.commit()
 
 
+def _has_next_period(content: str, report_type: str) -> bool:
+    """判断 LLM 输出是否已包含下期重点计划小节。"""
+    _markers = {
+        "daily": "明日关注",
+        "weekly": "下周重点计划",
+        "monthly": "下月重点工作与趋势研判",
+        "custom": "下阶段重点",
+    }
+    return _markers.get(report_type, "下阶段重点") in (content or "")
+
+
 def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     report_type = params.get("report_type", "daily")
     ds = params.get("date_start")
     de = params.get("date_end")
     start, end = _date_range(report_type, ds, de)
     data = ReportDataCollector(db).collect(start, end)
+    data["report_type"] = report_type
     system = build_system_prompt(report_type)
     user = build_user_message(data, report_type)
     md, _used_llm = generate_report_markdown(system, user)
     if not md:
-        md = render_rule_template(data)
+        md = render_rule_template(data, report_type)
+    else:
+        # LLM 偶发不严格遵守下期计划模块，强制兜底追加（避免内容缺基本结构）
+        if not _has_next_period(md, report_type):
+            md = md.rstrip() + "\n\n" + build_next_period_section(data, report_type)
     title = f"{_type_label(report_type)}（{start.isoformat()}~{end.isoformat()}）"
     r = PmwbWorkReport(
         report_type=report_type, title=title, content=md,

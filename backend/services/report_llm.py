@@ -1,4 +1,4 @@
-"""工作总结 LLM 生成客户端 —— 复用底层 LLM（Kimi/Moonshot）。
+"""AI总结 LLM 生成客户端 —— 复用底层 LLM（Kimi/Moonshot）。
 
 LLM 不可用时自动降级到规则模板（render_rule_template），保证报告永远有内容。
 """
@@ -10,6 +10,22 @@ from typing import Any, Dict, Tuple
 from services.storygen_llm import _call_llm, check_llm_available
 
 logger = logging.getLogger(__name__)
+
+# 规则模板兜底标题（随报告类型）
+_RULE_TITLE = {
+    "daily": "工作日报",
+    "weekly": "工作周报",
+    "monthly": "工作月报",
+    "custom": "专项报告",
+}
+
+# 下期重点计划小节标题（随报告类型）
+_NEXT_TITLE = {
+    "daily": "明日关注",
+    "weekly": "下周重点计划",
+    "monthly": "下月重点工作与趋势研判",
+    "custom": "下阶段重点",
+}
 
 
 def llm_available() -> bool:
@@ -28,15 +44,44 @@ def generate_report_markdown(system_prompt: str, user_message: str) -> Tuple[str
         raw = _call_llm(system_prompt, user_message)
         return (raw or "").strip(), True
     except Exception as e:  # noqa: BLE001
-        logger.warning("工作总结 LLM 生成失败，将降级规则模板: %s", e)
+        logger.warning("AI总结 LLM 生成失败，将降级规则模板: %s", e)
         return "", False
 
 
-def render_rule_template(data: Dict[str, Any]) -> str:
-    """LLM 不可用时的规则模板渲染（结构化汇总）。"""
+def build_next_period_section(data: Dict[str, Any], report_type: str) -> str:
+    """构造「下期重点计划」小节（规则模板与 LLM 兜底共用）。"""
+    title = _NEXT_TITLE.get(report_type, "下阶段重点")
+    lines = [f"## 六、{title}", ""]
+    po = (data.get("requirement", {}) or {}).get("po_risk", []) or []
+    ma = data.get("meeting_action", {}) or {}
+    td = data.get("todo", {}) or {}
+    added = 0
+    for p in po[:5]:
+        lines.append(
+            f"- 推进 {p.get('req_name')}（{p.get('priority')}/{p.get('status')}，"
+            f"风险：{p.get('risk_note') or '待补充'}）"
+        )
+        added += 1
+    ma_total = ma.get("total") or 0
+    ma_done = ma.get("done") or 0
+    if ma_total and ma_done < ma_total:
+        lines.append(f"- 闭环未完成的会议行动项（剩 {ma_total - ma_done} 项）")
+        added += 1
+    if td.get("overdue"):
+        lines.append(f"- 处理超期个人待办（{td['overdue']} 项）")
+        added += 1
+    if added == 0:
+        lines.append("- （本期无显著风险线索，建议按既定计划推进，可补充具体事项）")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> str:
+    """LLM 不可用时的规则模板渲染（结构化汇总，含下期重点计划）。"""
     lines: list[str] = []
     ds, de = data.get("date_start"), data.get("date_end")
-    lines.append(f"# 工作总结（{ds} ~ {de}）")
+    title = _RULE_TITLE.get(report_type, "工作日报")
+    lines.append(f"# {title}（{ds} ~ {de}）")
     lines.append("")
 
     req = data.get("requirement", {}) or {}
@@ -102,4 +147,7 @@ def render_rule_template(data: Dict[str, Any]) -> str:
     else:
         lines.append("- 本期暂无知识沉淀。")
     lines.append("")
+
+    # 六、下期重点计划
+    lines.append(build_next_period_section(data, report_type))
     return "\n".join(lines)
