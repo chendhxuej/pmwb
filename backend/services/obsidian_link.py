@@ -2,8 +2,9 @@
 
 职责：
 - 一键沉淀：把运营工单 / 会议 / 需求 / 开发工单 生成知识条目 Markdown，写入 Obsidian vault
-  的对应目录（11-业务运营 / 05-会议纪要 / 10-业务建设），并在 pmwb_knowledge_item 建索引，
-  同时回填来源对象的 obsidian_path，形成双向关联。
+  的对应目录，并在 pmwb_knowledge_item 建索引，同时回填来源对象的 obsidian_path，形成双向关联。
+  - 需求知识笔记同置到需求自身文件夹（业务建设/需求分析说明书/{req_id}_{safe(req_name)}/）；
+  - 运营/会议/开发交付经 P0 路径权威源归入 01-业务知识/{领域}/ 树（见 resolve_domain_path）。
 - 沉淀时按 domain_code 回链到对应业务知识主笔记，并写 pmwb_knowledge_link（主笔记已存在时）。
 - 落盘位置遵循 docs/需求规格说明书.md 第四节「Obsidian 知识库归档方案」。
 """
@@ -430,10 +431,8 @@ def delete_meeting_minutes(db, meeting_id: int) -> Dict:
 
 
 # ---------------------------------------------------------------------------
-# 需求沉淀
+# 需求沉淀（知识笔记同置到需求自身文件夹 业务建设/需求分析说明书/{req_id}_{safe(req_name)}/）
 # ---------------------------------------------------------------------------
-
-REQUIREMENT_SEDIMENT_DIR = "10-业务建设/需求沉淀"
 
 
 def _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues, main_note_title: Optional[str] = None) -> str:
@@ -584,8 +583,13 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
     issues = db.query(PmwbOperationIssue).filter(PmwbOperationIssue.related_req_id == req_id).all()
 
     req_name = (ext.req_name if ext and ext.req_name else (email.req_name if email else req_id))
-    filename = f"{sanitize_filename(req_id)}_{sanitize_filename(req_name)}.md"
-    rel_path = f"{REQUIREMENT_SEDIMENT_DIR}/{filename}"
+    # 同置：需求知识笔记写入需求自身文件夹（业务建设/需求分析说明书/{req_id}_{safe(req_name)}/），
+    # 与需求分析说明书/附件同目录，不再漂到独立的 10-业务建设/需求沉淀 树。
+    from services import requirement_delivery
+    folder_abs = requirement_delivery._resolve_paths(req_id, req_name)["folder"]
+    rel_folder = os.path.relpath(folder_abs, settings.OBSIDIAN_VAULT_PATH)
+    filename = f"{requirement_delivery._safe_name(req_name or req_id)}-知识沉淀.md"
+    rel_path = os.path.join(rel_folder, filename)
 
     md = _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues, main_note_title=main_note_title)
     if force and read_markdown(rel_path):
