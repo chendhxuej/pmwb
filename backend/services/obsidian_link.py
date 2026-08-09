@@ -763,13 +763,18 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
     stories = (
         db.query(PmwbUserStory)
         .filter(PmwbUserStory.req_id == req_id)
-        .filter(PmwbUserStory.finalized == 1)
         .order_by(PmwbUserStory.seq)
         .all()
     )
-    stories = [s for s in stories if s.rules]
+    # 与单条故事沉淀(sediment_user_story)保持一致：只要故事含业务规则即可沉淀，
+    # 不再硬性要求「已定稿」(finalized==1)，避免含规则但未定稿的故事永远无法沉淀。
+    stories = [
+        s
+        for s in stories
+        if s.rules and str(s.rules).strip() not in ("", "[]", "null")
+    ]
     if not stories:
-        raise NotFoundException("该需求暂无「已定稿且含业务规则」的用户故事，无法沉淀")
+        raise NotFoundException("该需求暂无含业务规则的用户故事，无法沉淀")
 
     sub_note = _ensure_scenario_rules_sub_note(db, domain_code)
     req_name = (ext.req_name if ext and ext.req_name else req_id)

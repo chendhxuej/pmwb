@@ -177,3 +177,51 @@ def test_kc2_5_meeting_force_overwrite_and_delete(db, vault_tmp):
         PmwbKnowledgeLink.source_type == "meeting", PmwbKnowledgeLink.source_id == str(m.id)
     ).first()
     assert link is None  # 关联已删
+
+
+
+def test_sediment_requirement_rules_draft_story_with_rules(db, vault_tmp, monkeypatch):
+    """kc-3：需求级沉淀不再要求「已定稿」，含业务规则但未定稿的故事也能沉淀。"""
+    import json
+
+    from core.exceptions import NotFoundException
+    from db.models import PmwbBusinessDomain, PmwbRequirementExt, PmwbUserStory
+    from services.obsidian_link import sediment_requirement_rules
+
+    monkeypatch.setattr(
+        "services.knowledge_link_service._sync_frontmatter_and_section",
+        lambda db, kid: None,
+    )
+    db.add(PmwbBusinessDomain(domain_code="ywt-broadband", domain_name="一网通宽带", domain_group="商客业务"))
+    db.add(PmwbRequirementExt(req_id="REQ-TEST-001", req_name="测试需求", domain_code="ywt-broadband", status="closed"))
+    db.add(PmwbUserStory(req_id="REQ-TEST-001", seq=1, title="故事1",
+                         rules=json.dumps(["规则A：需实名认证"]), finalized=0))
+    db.commit()
+    res = sediment_requirement_rules(db, "REQ-TEST-001")
+    assert res["stories_sedimented"] == 1
+    written = vault_tmp / res["obsidian_path"]
+    assert written.exists()
+    assert "规则A" in written.read_text(encoding="utf-8")
+
+
+def test_sediment_requirement_rules_no_rules_404(db, vault_tmp, monkeypatch):
+    """无业务规则的用户故事不应沉淀（抛出 NotFoundException）。"""
+    import json
+
+    from core.exceptions import NotFoundException
+    from db.models import PmwbBusinessDomain, PmwbRequirementExt, PmwbUserStory
+    from services.obsidian_link import sediment_requirement_rules
+
+    monkeypatch.setattr(
+        "services.knowledge_link_service._sync_frontmatter_and_section",
+        lambda db, kid: None,
+    )
+    db.add(PmwbBusinessDomain(domain_code="ywt-broadband", domain_name="一网通宽带", domain_group="商客业务"))
+    db.add(PmwbRequirementExt(req_id="REQ-TEST-002", req_name="测试需求2", domain_code="ywt-broadband", status="closed"))
+    db.add(PmwbUserStory(req_id="REQ-TEST-002", seq=1, title="故事无规则", rules="", finalized=0))
+    db.commit()
+    try:
+        sediment_requirement_rules(db, "REQ-TEST-002")
+        assert False, "应抛出 NotFoundException"
+    except NotFoundException:
+        pass
