@@ -211,6 +211,19 @@
           <div class="dt-desc">{{ detailRow?.result_feedback || '—' }}</div>
         </div>
 
+        <!-- 结构化分析（根因/影响/方案/经验） -->
+        <div class="dt-sec" v-if="hasStructuredAnalysis">
+          <div class="dt-sec-title">结构化分析</div>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="根因分类">{{ opsFieldLabel(ROOT_CAUSE_LABELS, detailRow?.root_cause_type) }}</el-descriptions-item>
+            <el-descriptions-item label="影响范围">{{ opsFieldLabel(IMPACT_SCOPE_LABELS, detailRow?.impact_scope) }}</el-descriptions-item>
+            <el-descriptions-item label="解决方案类型">{{ opsFieldLabel(SOLUTION_TYPE_LABELS, detailRow?.solution_type) }}</el-descriptions-item>
+            <el-descriptions-item label="根因分析">{{ detailRow?.root_cause || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="解决方案">{{ detailRow?.solution || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="经验总结">{{ detailRow?.lesson_learned || '—' }}</el-descriptions-item>
+          </el-descriptions>
+        </div>
+
         <!-- 附件 -->
         <div class="dt-sec" v-if="detailAttachments.length">
           <div class="dt-sec-title">附件</div>
@@ -269,6 +282,9 @@
             <el-icon><RefreshRight /></el-icon><span>确认变更</span>
           </el-button>
           <el-button @click="openEditFromDetail"><el-icon><Edit /></el-icon><span>编辑</span></el-button>
+          <el-button v-if="detailRow?.status === 'closed'" type="success" :loading="sedimentRulesLoading" @click="sedimentRules">
+            <el-icon><Connection /></el-icon><span>沉淀业务规则</span>
+          </el-button>
           <el-button type="primary" @click="openSupervise(detailRow)"><el-icon><Promotion /></el-icon><span>邮件督办</span></el-button>
         </div>
       </template>
@@ -301,6 +317,9 @@
         </el-row>
         <el-form-item label="工单标题" prop="title">
           <el-input v-model="form.title" placeholder="简短描述问题或任务" />
+        </el-form-item>
+        <el-form-item label="业务领域" prop="domain_code">
+          <BusinessDomainSelect v-model="form.domain_code" />
         </el-form-item>
         <el-form-item label="责任人" prop="handler">
           <StaffSelect v-model="form.handler" multiple placeholder="可多选，逗号存储" />
@@ -434,8 +453,10 @@ import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import SuperviseDialog from '@/components/SuperviseDialog.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import { operationApi } from '@/api/operation'
 import { obsidianApi } from '@/api/obsidian'
+import { knowledgeApi } from '@/api/knowledge'
 import { formatDateTime } from '@/utils/format'
 import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
@@ -578,6 +599,25 @@ const supervisionList = computed(() => (detailRow.value && supervisionRecords[de
 
 const detailAttachments = computed(() => parseAttachments(detailRow.value?.attachments))
 
+const ROOT_CAUSE_LABELS = {
+  system_config: '系统配置问题', business_rule: '业务规则问题', data_issue: '数据问题',
+  process_gap: '流程缺口', external_dependency: '外部依赖', other: '其他',
+}
+const IMPACT_SCOPE_LABELS = {
+  single_customer: '单个客户', partial_region: '部分区域', full_region: '全区域',
+  business_line: '业务线', platform: '平台级',
+}
+const SOLUTION_TYPE_LABELS = {
+  config_fix: '配置修复', code_fix: '代码修复', data_repair: '数据修复',
+  process_optimization: '流程优化', training: '培训', escalation: '升级处理', other: '其他',
+}
+const opsFieldLabel = (map, val) => map[val] || val || '—'
+const hasStructuredAnalysis = computed(() => {
+  const d = detailRow.value
+  if (!d) return false
+  return !!(d.root_cause_type || d.impact_scope || d.solution_type || d.root_cause || d.solution || d.lesson_learned)
+})
+
 const openDetail = async (row) => {
   detailRow.value = row
   nextStatus.value = row?.status || ''
@@ -618,6 +658,22 @@ const changeStatusFromDetail = async () => {
   }
 }
 
+// ---- 沉淀业务规则（kc-2-4：结构化经验追加到主笔记「场景规则」子笔记） ----
+const sedimentRulesLoading = ref(false)
+const sedimentRules = async () => {
+  if (!detailRow.value?.id) return
+  sedimentRulesLoading.value = true
+  try {
+    const res = await knowledgeApi.sedimentOperationRules(detailRow.value.id)
+    ElMessage.success('业务规则已沉淀到主笔记「场景规则」子笔记')
+    await refreshDetail()
+  } catch (e) {
+    ElMessage.error('沉淀失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    sedimentRulesLoading.value = false
+  }
+}
+
 // ---- 列表快速改状态 ----
 const statusLoadingMap = ref({})
 const changeStatus = async (row, status) => {
@@ -646,6 +702,7 @@ const formRef = ref(null)
 const form = reactive({
   id: null, issue_no: '', category: 'prod', issue_type: 'other', title: '', handler: [],
   impact_level: 'P2', go_live_date: '', result_feedback: '', situation_desc: '', obsidian_path: '',
+  domain_code: '',
   root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
   attachments: [],
 })
@@ -668,6 +725,7 @@ const entryRules = {
   title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
   handler: [{ required: true, type: 'array', min: 1, message: '请至少选择一名责任人', trigger: 'change' }],
   situation_desc: [{ required: true, message: '请输入情况说明', trigger: 'blur' }],
+  domain_code: [{ required: true, message: '请选择业务领域', trigger: 'change' }],
 }
 
 const generateIssueNo = (cat) => {
@@ -688,7 +746,7 @@ const openEntry = () => {
   Object.assign(form, {
     id: null, issue_no: '', category: activeTab.value === 'all' ? 'prod' : activeTab.value,
     issue_type: 'other', title: '', handler: [], impact_level: 'P2', go_live_date: '', result_feedback: '',
-    situation_desc: '', obsidian_path: '', root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
+    situation_desc: '', obsidian_path: '', domain_code: '', root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
     attachments: [],
   })
   onCatChange()
@@ -711,6 +769,7 @@ const openEditFromDetail = () => {
     result_feedback: detailRow.value.result_feedback || '',
     situation_desc: detailRow.value.situation_desc || '',
     obsidian_path: detailRow.value.obsidian_path || '',
+    domain_code: detailRow.value.domain_code || '',
     root_cause_type: detailRow.value.root_cause_type || '',
     impact_scope: detailRow.value.impact_scope || '',
     solution_type: detailRow.value.solution_type || '',
@@ -734,6 +793,7 @@ const submitEntry = () => {
       impact_level: form.impact_level,
       situation_desc: form.situation_desc.trim(),
       obsidian_path: form.obsidian_path || null,
+      domain_code: form.domain_code || null,
       root_cause_type: form.root_cause_type || null,
       impact_scope: form.impact_scope || null,
       solution_type: form.solution_type || null,

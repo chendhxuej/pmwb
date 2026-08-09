@@ -27,6 +27,7 @@ from services.knowledge_link_service import (
 )
 from services.obsidian_link import (
     archive_requirement_manual,
+    sediment_operation_rules,
     sediment_requirement,
     sediment_requirement_rules,
     sediment_user_story,
@@ -235,6 +236,12 @@ def sediment_requirement_rules_endpoint(req_id: str, db: Session = Depends(get_d
 def archive_requirement_manual_endpoint(req_id: str, db: Session = Depends(get_db)):
     """把需求关联开发工单的操作手册交付物归档到业务知识交付物目录并登记主笔记。"""
     return success(data=archive_requirement_manual(db, req_id))
+
+
+@router.post("/sediment/operation/{issue_id}/rules")
+def sediment_operation_rules_endpoint(issue_id: int, db: Session = Depends(get_db)):
+    """把运营工单的结构化经验（根因分类/影响范围/解决方案类型/根因/方案/经验）追加到目标领域主笔记的「场景规则」子笔记（重复触发幂等更新）。"""
+    return success(data=sediment_operation_rules(db, issue_id))
 
 
 @router.get("/{item_id}")

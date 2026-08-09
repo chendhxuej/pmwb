@@ -93,4 +93,9 @@ export const knowledgeApi = {
   archiveRequirementManual(reqId) {
     return request.post(`/knowledge/sediment/requirement/${reqId}/archive-manual`)
   },
+
+  // 把运营工单的结构化经验追加到主笔记「场景规则」子笔记
+  sedimentOperationRules(issueId) {
+    return request.post(`/knowledge/sediment/operation/${issueId}/rules`)
+  },
 }

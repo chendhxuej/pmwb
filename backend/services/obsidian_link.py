@@ -795,6 +795,85 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
     }
 
 
+# 运营工单结构化字段枚举中文标签（用于沉淀到场景规则子笔记时的人类可读展示）
+OPERATION_ROOT_CAUSE_LABELS = {
+    "system_config": "系统配置问题",
+    "business_rule": "业务规则问题",
+    "data_issue": "数据问题",
+    "process_gap": "流程缺口",
+    "external_dependency": "外部依赖",
+    "other": "其他",
+}
+OPERATION_IMPACT_SCOPE_LABELS = {
+    "single_customer": "单个客户",
+    "partial_region": "部分区域",
+    "full_region": "全区域",
+    "business_line": "业务线",
+    "platform": "平台级",
+}
+OPERATION_SOLUTION_TYPE_LABELS = {
+    "config_fix": "配置修复",
+    "code_fix": "代码修复",
+    "data_repair": "数据修复",
+    "process_optimization": "流程优化",
+    "training": "培训",
+    "escalation": "升级处理",
+    "other": "其他",
+}
+
+
+def sediment_operation_rules(db, issue_id: int) -> Dict:
+    """把运营工单的结构化经验（根因分类/影响范围/解决方案类型/根因/解决方案/经验总结）追加到
+    目标领域主笔记的「场景规则」子笔记。
+
+    以「### 工单编号」为界追加，重复触发时同工单规则块被覆盖更新（不重复堆积）。
+    同时在 pmwb_knowledge_link 记录工单与场景规则子笔记的关联。
+    """
+    issue = operation_issue_service.get(db, issue_id)
+    if not issue:
+        raise NotFoundException(f"运营工单不存在：id={issue_id}")
+    domain_code = getattr(issue, "domain_code", None)
+    if not domain_code:
+        raise NotFoundException("运营工单未设置业务领域(domain_code)，无法沉淀规则")
+
+    sub_note = _ensure_scenario_rules_sub_note(db, domain_code)
+
+    # 结构化规则块（以 ### 工单编号 为界，便于重复触发时整体替换）
+    lines = [
+        f"> 来源工单：{issue.issue_no}（{issue.title}）",
+        "",
+        f"- 根因分类：{OPERATION_ROOT_CAUSE_LABELS.get(issue.root_cause_type, issue.root_cause_type or '—')}",
+        f"- 影响范围：{OPERATION_IMPACT_SCOPE_LABELS.get(issue.impact_scope, issue.impact_scope or '—')}",
+        f"- 解决方案类型：{OPERATION_SOLUTION_TYPE_LABELS.get(issue.solution_type, issue.solution_type or '—')}",
+        "",
+    ]
+    if issue.root_cause:
+        lines += ["**根因分析**", "", issue.root_cause, ""]
+    if issue.solution:
+        lines += ["**解决方案**", "", issue.solution, ""]
+    if issue.lesson_learned:
+        lines += ["**经验总结 / 预防措施**", "", issue.lesson_learned, ""]
+    block = "\n".join(lines).rstrip()
+
+    content = read_markdown(sub_note["obsidian_path"]) or ""
+    new_content = append_or_replace_section(content, f"场景规则 · {issue.issue_no}", block)
+    write_markdown(sub_note["obsidian_path"], new_content)
+
+    # 记录工单 → 场景规则子笔记 的关联（canonical）
+    try:
+        link_note(db, sub_note["id"], source_type="operation", source_id=str(issue_id),
+                   link_type="sub", domain_code=domain_code, note="业务规则")
+    except Exception:
+        pass
+
+    return {
+        "sub_note_id": sub_note["id"],
+        "sub_note_title": sub_note["title"],
+        "obsidian_path": sub_note["obsidian_path"],
+        "issue_sedimented": issue.issue_no,
+    }
+
+
 def archive_requirement_manual(db, req_id: str) -> Dict:
     """把需求关联开发工单中的操作手册交付物归档到业务知识交付物目录并登记主笔记。
 

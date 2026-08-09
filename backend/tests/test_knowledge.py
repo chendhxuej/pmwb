@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tests.factories import KnowledgeFactory, RequirementExtFactory
+from tests.factories import KnowledgeFactory, RequirementExtFactory, OperationIssueFactory
 
 
 def test_list_knowledge_items(client: TestClient, db):
@@ -206,4 +206,48 @@ def test_kc2_3_archive_operation_manual(client, db, monkeypatch, tmp_path):
     main_path = f"01-业务知识/政企业务/一网通/一网通 业务知识主笔记.md"
     fm = read_frontmatter(main_path)
     assert "操作手册.pdf" in (fm.get("related_deliverables") or [])
+
+
+def test_kc2_4_operation_rules_sediment_and_link(client, db, monkeypatch, tmp_path):
+    """kc-2-4：运营工单结构化经验沉淀到场景规则子笔记，并记录工单→子笔记关联。"""
+    from db.models import PmwbBusinessDomain, PmwbKnowledgeItem, PmwbKnowledgeLink
+    from services.knowledge_link_service import ensure_domain_main_note
+
+    monkeypatch.setattr("core.config.settings.OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    domain = PmwbBusinessDomain(domain_code="ywt", domain_name="一网通", domain_group="政企业务", enabled=True)
+    db.add(domain)
+    db.commit()
+    ensure_domain_main_note(db, "ywt")
+
+    issue = OperationIssueFactory.create(
+        db, issue_no="OP-KC24", title="工单沉淀测试", domain_code="ywt", status="closed",
+        root_cause_type="data_issue", impact_scope="partial_region", solution_type="data_repair",
+        root_cause="数据口径不一致", solution="修正计算逻辑", lesson_learned="增加校验",
+    )
+
+    resp = client.post(f"/api/v1/knowledge/sediment/operation/{issue.id}/rules")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["issue_sedimented"] == "OP-KC24"
+
+    sub = db.query(PmwbKnowledgeItem).filter(PmwbKnowledgeItem.sub_category == "场景规则").first()
+    assert sub is not None
+    from utils.obsidian import read_markdown
+    content = read_markdown(sub.obsidian_path)
+    assert "OP-KC24" in content
+    assert "数据问题" in content  # 根因分类标签
+
+    link = (
+        db.query(PmwbKnowledgeLink)
+        .filter(PmwbKnowledgeLink.source_type == "operation", PmwbKnowledgeLink.source_id == str(issue.id))
+        .first()
+    )
+    assert link is not None
+
+    # 重复触发幂等（整体替换，不重复堆积）
+    resp2 = client.post(f"/api/v1/knowledge/sediment/operation/{issue.id}/rules")
+    assert resp2.status_code == 200
+    content2 = read_markdown(sub.obsidian_path)
+    assert content2.count("## 场景规则 · OP-KC24") == 1
 

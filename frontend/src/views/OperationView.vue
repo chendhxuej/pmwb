@@ -253,11 +253,50 @@
         </el-row>
         <el-row :gutter="14">
           <el-col :span="12">
-            <el-form-item label="业务领域">
+            <el-form-item label="业务领域" prop="domain_code">
               <BusinessDomainSelect v-model="entryForm.domain_code" />
             </el-form-item>
           </el-col>
         </el-row>
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <el-form-item label="根因分类">
+              <el-select v-model="entryForm.root_cause_type" clearable placeholder="选填" style="width:100%">
+                <el-option label="系统配置问题" value="system_config" />
+                <el-option label="业务规则问题" value="business_rule" />
+                <el-option label="数据问题" value="data_issue" />
+                <el-option label="流程缺口" value="process_gap" />
+                <el-option label="外部依赖" value="external_dependency" />
+                <el-option label="其他" value="other" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="影响范围">
+              <el-select v-model="entryForm.impact_scope" clearable placeholder="选填" style="width:100%">
+                <el-option label="单个客户" value="single_customer" />
+                <el-option label="部分区域" value="partial_region" />
+                <el-option label="全区域" value="full_region" />
+                <el-option label="业务线" value="business_line" />
+                <el-option label="平台级" value="platform" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="解决方案类型">
+          <el-select v-model="entryForm.solution_type" clearable placeholder="选填" style="width:100%">
+            <el-option label="配置修复" value="config_fix" />
+            <el-option label="代码修复" value="code_fix" />
+            <el-option label="数据修复" value="data_repair" />
+            <el-option label="流程优化" value="process_optimization" />
+            <el-option label="培训" value="training" />
+            <el-option label="升级处理" value="escalation" />
+            <el-option label="其他" value="other" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="经验总结">
+          <el-input v-model="entryForm.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
+        </el-form-item>
         <el-form-item label="情况说明" prop="situation_desc">
           <el-input v-model="entryForm.situation_desc" type="textarea" :rows="3" placeholder="现象、影响范围、初步定位…" />
         </el-form-item>
@@ -478,6 +517,7 @@ const entryRef = ref(null)
 const noteOptions = ref([])
 const entryForm = reactive({
   category: 'bug', issue_type: 'bug', title: '', handler: [], impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '', domain_code: '',
+  root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
 })
 const entryTypeOptions = computed(() => TYPE_BY_CAT[entryForm.category] || [])
 const entryRules = {
@@ -486,6 +526,7 @@ const entryRules = {
   title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
   handler: [{ required: true, type: 'array', min: 1, message: '请至少选择一名责任人', trigger: 'change' }],
   situation_desc: [{ required: true, message: '请输入情况说明', trigger: 'blur' }],
+  domain_code: [{ required: true, message: '请选择业务领域', trigger: 'change' }],
 }
 
 const onEntryCatChange = () => {
@@ -495,7 +536,8 @@ const onEntryCatChange = () => {
 
 const openEntry = async () => {
   Object.assign(entryForm, {
-    category: 'bug', issue_type: 'bug', title: '', handler: [], impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '',
+    category: 'bug', issue_type: 'bug', title: '', handler: [], impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '', domain_code: '',
+    root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
   })
   entryVisible.value = true
   if (!noteOptions.value.length) {
@@ -532,6 +574,10 @@ const submitEntry = () => {
       situation_desc: entryForm.situation_desc.trim(),
       obsidian_path: entryForm.obsidian_path || null,
       domain_code: entryForm.domain_code || null,
+      root_cause_type: entryForm.root_cause_type || null,
+      impact_scope: entryForm.impact_scope || null,
+      solution_type: entryForm.solution_type || null,
+      lesson_learned: (entryForm.lesson_learned || '').trim() || null,
       discovery_date: new Date().toISOString(),
     }
     try {
