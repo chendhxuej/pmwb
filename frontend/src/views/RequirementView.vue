@@ -187,7 +187,7 @@
     </div>
 
     <el-dialog v-model="dialogVisible" title="需求跟踪" width="600px">
-      <el-form :model="form" label-width="100px">
+      <el-form :model="form" :rules="rules" label-width="100px">
         <el-form-item label="需求编号">
           <el-input v-model="form.req_id" disabled />
         </el-form-item>
@@ -214,7 +214,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="业务领域">
+        <el-form-item label="业务领域" prop="domain_code">
           <BusinessDomainSelect v-model="form.domain_code" />
         </el-form-item>
         <el-form-item label="标签">
@@ -472,6 +472,9 @@ const evalForm = reactive({
   review_workload: null, opinion: '', dev_ticket_no: '',
 })
 const form = reactive({ req_id: '', req_name: '', status: '', priority: '', domain_code: '', tags: '', personal_note: '', dev_ticket_no: '' })
+const rules = {
+  domain_code: [{ required: true, message: '请选择业务领域', trigger: 'change' }],
+}
 const detail = ref({})
 const reminderRecords = ref([])
 const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
@@ -715,6 +718,7 @@ function handleEdit(row) {
   form.req_name = row.req_name
   form.status = row.ext?.status || 'proposed'
   form.priority = row.ext?.priority || 'P2'
+  form.domain_code = row.ext?.domain_code || ''
   form.tags = row.ext?.tags || ''
   form.personal_note = row.ext?.personal_note || ''
   form.dev_ticket_no = row.dev_ticket_no || ''

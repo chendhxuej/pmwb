@@ -690,6 +690,11 @@
                 </div>
               </div>
               <div class="card-body">
+                <el-form label-width="84px" label-position="left" class="mb-12">
+                  <el-form-item label="业务领域">
+                    <BusinessDomainSelect v-model="domainCode" @change="saveDomainCode" />
+                  </el-form-item>
+                </el-form>
                 <KnowledgeLinker
                   source-type="requirement"
                   :source-id="current.req_id"
@@ -840,6 +845,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import SuperviseDialog from '@/components/SuperviseDialog.vue'
 import { knowledgeApi } from '@/api/knowledge.js'
 import {
@@ -1104,6 +1110,18 @@ const steps = [
 const wfVisible = ref(false)
 const step = ref('collect')
 const current = ref({})
+const domainCode = ref('')
+watch(current, (c) => { domainCode.value = c?.ext?.domain_code || '' }, { immediate: true })
+async function saveDomainCode() {
+  if (!current.value.req_id) return
+  try {
+    await updateRequirement(current.value.req_id, { domain_code: domainCode.value || null })
+    if (current.value.ext) current.value.ext.domain_code = domainCode.value
+    ElMessage.success('业务领域已保存')
+  } catch (e) {
+    ElMessage.error('保存业务领域失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  }
+}
 const clarification = ref('')
 const attachments = ref([])
 const evaluations = ref([])
