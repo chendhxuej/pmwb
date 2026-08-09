@@ -127,3 +127,53 @@ def test_sediment_meeting(client, vault_tmp):
     know = client.get("/api/v1/knowledge", params={"source_type": "meeting"})
     assert know.json()["data"]["total"] == 1
     assert know.json()["data"]["items"][0]["category"] == "meeting"
+
+
+def test_kc2_5_meeting_force_overwrite_and_delete(db, vault_tmp):
+    """kc-2-5：会议纪要 force=true 整体覆盖（无残留/无重复）；删除纪要三者一致（文件+索引+关联）。"""
+    from db.models import PmwbKnowledgeItem, PmwbKnowledgeLink
+    from services.meeting import meeting_service
+    from services.obsidian_link import sediment_meeting, delete_meeting_minutes
+    from services.knowledge_link_service import link_note
+
+    m = meeting_service.create_with_relations(db, {
+        "meeting_id": "MEET-KC25-001",
+        "title": "纪要标题",
+        "meeting_type": "internal_regular",
+        "status": "held",
+        "agendas": [{"seq": 1, "topic": "议题A", "conclusion": "结论一"}],
+    })
+
+    # 首次沉淀（非 force）
+    res = sediment_meeting(db, m.id, force=False)
+    assert res["created"] is True
+    path = res["obsidian_path"]
+    text0 = (vault_tmp / path).read_text(encoding="utf-8")
+    assert "结论一" in text0
+    assert text0.count("## 三、会议决议") == 1
+
+    # force=true 再次沉淀：整体覆盖，不产生重复区块（幂等）
+    res2 = sediment_meeting(db, m.id, force=True)
+    assert res2["created"] is False
+    text1 = (vault_tmp / path).read_text(encoding="utf-8")
+    assert text1.count("## 三、会议决议") == 1  # 无重复区块（force 覆盖非追加）
+    assert text1.count("## 一、会议信息") == 1
+
+    # 额外建一条关联，再删除纪要应一并清理（文件 + 索引 + 关联 三者一致）
+    item = db.query(PmwbKnowledgeItem).filter(
+        PmwbKnowledgeItem.source_type == "meeting", PmwbKnowledgeItem.source_id == str(m.id)
+    ).first()
+    assert item is not None
+    link_note(db, item.id, source_type="meeting", source_id=str(m.id), link_type="main")
+    db.commit()
+
+    delete_meeting_minutes(db, m.id)
+    assert not (vault_tmp / path).exists()  # 文件已删
+    idx = db.query(PmwbKnowledgeItem).filter(
+        PmwbKnowledgeItem.source_type == "meeting", PmwbKnowledgeItem.source_id == str(m.id)
+    ).first()
+    assert idx is None  # 索引已删
+    link = db.query(PmwbKnowledgeLink).filter(
+        PmwbKnowledgeLink.source_type == "meeting", PmwbKnowledgeLink.source_id == str(m.id)
+    ).first()
+    assert link is None  # 关联已删

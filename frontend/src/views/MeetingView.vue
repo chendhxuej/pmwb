@@ -661,7 +661,7 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="业务领域">
+        <el-form-item label="业务领域" prop="domain_code">
           <BusinessDomainSelect v-model="form.domain_code" />
         </el-form-item>
         <el-form-item label="会议议题">
@@ -1504,6 +1504,7 @@ const rules = {
   status: [{ required: true, message: '请选择状态', trigger: 'change' }],
   start_time: [{ required: true, message: '请选择开始时间', trigger: 'change' }],
   host: [{ required: true, message: '请输入组织者', trigger: 'blur' }],
+  domain_code: [{ required: true, message: '请选择业务领域', trigger: 'change' }],
 }
 
 const generateMeetingId = () => {
