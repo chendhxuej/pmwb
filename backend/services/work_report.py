@@ -162,6 +162,37 @@ def _strip_next_period(md: str, report_type: str) -> str:
     return (md or "")[:line_start].rstrip()
 
 
+def _ensure_delivered_summaries(md: str, data: Dict[str, Any]) -> str:
+    """强制保证「二、需求与交付」中对本期上线需求逐条写完成总结；缺失则补齐。"""
+    req = data.get("requirement", {}) or {}
+    items = req.get("delivered_items") or []
+    if not items:
+        return md
+    marker = "## 二、需求与交付"
+    idx = md.find(marker)
+    if idx == -1:
+        return md
+    sec_start = idx + len(marker)
+    next_h2 = md.find("## ", sec_start)
+    sec_end = next_h2 if next_h2 != -1 else len(md)
+    section = md[sec_start:sec_end]
+    count = section.count("完成【")
+    if count >= len(items):
+        return md
+    missing = [it for it in items if it.get("req_name") and f"完成【{it.get('req_name')}】" not in section]
+    if not missing:
+        return md
+    # 从 report_llm 复用标准句式
+    from services.report_llm import _build_delivered_item_summary
+    block = ["", "- 本期上线需求逐一总结如下："]
+    block.extend(_build_delivered_item_summary(it) for it in missing)
+    insert_pos = sec_start
+    # 在标题后第一行空行后插入
+    if md[insert_pos:insert_pos + 1] == "\n":
+        insert_pos += 1
+    return md[:insert_pos] + "\n".join(block) + "\n" + md[insert_pos:]
+
+
 def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     report_type = params.get("report_type", "daily")
     ds = params.get("date_start")
@@ -179,6 +210,7 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
         # 保证「对标本期进展 + 结构稳定」，不依赖 LLM 自觉
         md = _strip_next_period(md, report_type)
         md = _ensure_sections(data, md, report_type)
+        md = _ensure_delivered_summaries(md, data)
         md = md.rstrip() + "\n\n" + build_next_period_section(data, report_type)
     title = f"{_type_label(report_type)}（{start.isoformat()}~{end.isoformat()}）"
     r = PmwbWorkReport(

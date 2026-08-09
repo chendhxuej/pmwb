@@ -73,6 +73,7 @@ class ReportDataCollector:
             return {"items": [], "buckets": {}, "po_risk": []}
 
         buckets = {"added": [], "evaluated": [], "dev_start": [], "delivered": [], "ongoing": []}
+        delivered_items: List[Dict[str, Any]] = []
         po_risk: List[Dict[str, Any]] = []
         items: List[Dict[str, Any]] = []
         for r in rows:
@@ -95,6 +96,7 @@ class ReportDataCollector:
             workload = sum(float(_g(e, "workload") or 0) for e in evals)
             risk_notes = "; ".join(str(_g(t, "risk_note") or "") for t in tickets if _g(t, "risk_note"))
 
+            # 本期新增/评估/启动开发/交付/进行中分桶
             if _in_range(created, start, end):
                 buckets["added"].append(req_name)
             if any(_in_range(_date_of(_g(e, "created_at")), start, end) for e in evals):
@@ -107,6 +109,7 @@ class ReportDataCollector:
                 buckets["dev_start"].append(req_name)
             if go_live and _in_range(go_live, start, end):
                 buckets["delivered"].append(req_name)
+                delivered_items.append(item)
             if status != "closed":
                 buckets["ongoing"].append(req_name)
 
@@ -135,7 +138,7 @@ class ReportDataCollector:
                 "workload": workload,
                 "dev_status": [(_g(t, "status") or "") for t in tickets],
             })
-        return {"items": items, "buckets": buckets, "po_risk": po_risk}
+        return {"items": items, "buckets": buckets, "delivered_items": delivered_items, "po_risk": po_risk}
 
     # ---- 运营支撑 ----
     def _collect_operation_issue(self, start, end):

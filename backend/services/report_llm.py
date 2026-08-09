@@ -28,6 +28,28 @@ _NEXT_TITLE = {
 }
 
 
+def _build_delivered_item_summary(it: Dict[str, Any]) -> str:
+    """把一条上线/交付需求明细写成「完成了XX开发部署，核心实现...，体现...」的标准句式。"""
+    req_name = it.get("req_name") or "未命名需求"
+    system = it.get("system_name") or ""
+    sa = it.get("sa_name") or ""
+    go_live = it.get("go_live") or "未定"
+    desc = (it.get("description") or "").strip()
+    bg = (it.get("background") or "").strip()
+    clarification = (it.get("clarification") or "").strip()
+    # 取最能说明「核心实现」的字段
+    core = desc or clarification or bg or "具体功能待补充"
+    # 业务价值：优先从背景/需求名+系统推导
+    value = bg or f"支撑{system}相关业务能力提升" if system else "支撑相关业务落地"
+    meta_parts = [p for p in [
+        f"系统：{system}" if system else None,
+        f"SA：{sa}" if sa else None,
+        f"上线：{go_live}" if go_live else None,
+    ] if p]
+    meta = "（" + "，".join(meta_parts) + "）" if meta_parts else ""
+    return f"  - 完成【{req_name}】开发部署{meta}：核心实现「{core}」，体现「{value}」"
+
+
 def llm_available() -> bool:
     try:
         st = check_llm_available()
@@ -168,9 +190,16 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     )
     lines.append("")
 
-    # 二、需求与交付（分析型）
+    # 二、需求与交付（分析型，上线需求逐一总结）
     lines.append("## 二、需求与交付")
-    if delivered:
+    delivered_items = req.get("delivered_items") or []
+    if delivered_items:
+        lines.append(f"- 本期完成上线/交付 {len(delivered_items)} 项需求，逐一总结如下：")
+        for it in delivered_items[:15]:
+            lines.append(_build_delivered_item_summary(it))
+        lines.append(f"- 交付节奏判断：{len(delivered_items)} 项需求已按计划上线，交付侧有实质产出。")
+    elif delivered:
+        # 兼容无 delivered_items 明细的旧数据
         tail = " 等" if len(delivered) > 5 else ""
         lines.append(f"- 交付：完成 {len(delivered)} 项需求开发交付（{'; '.join(delivered[:5])}{tail}），交付侧有实质产出。")
     else:
