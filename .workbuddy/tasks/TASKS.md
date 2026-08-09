@@ -175,8 +175,8 @@
 | kc-2-1 | 知识关联数据模型与基础设施（关联表+4字段+服务+前端KnowledgeLinker雏形） | feature/kc-2-1-knowledge-link-model | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 9e597eb 合入；含 knowledge_link_service + FK 迁移 |
 | kc-2-2 | 业务知识主笔记 + 按领域浏览重构（前端树形） | feature/kc-2-2-domain-main-note | S2 | ✅已合入 | Vicky2号 | 与 kc-2-7 合并实现；note_type 列+迁移(20260809000002)+ensure自动保活+子笔记摘要聚合+DomainKnowledgeView 树形 |
 | kc-2-3 | 需求沉淀 + 用户故事规则沉淀 + 操作手册归档 | feature/kc-2-3-requirement-sediment | S2 | ✅已合入 | Vicky2号 | 8bc88ff 合入；sediment_requirement 回链主笔记 + sediment_requirement_rules(场景规则子笔记幂等替换) + archive_requirement_manual(交付物归档)；前端 KnowledgeLinker 接入+已关闭→已上线文案 |
-| kc-2-4 | 运营工单结构化 + 多选关联沉淀 | feature/kc-2-4-operation-knowledge | S2 | ⬜待分配 | | 依赖 kc-2-1 ✅ |
-| kc-2-5 | 会议中心：纪要覆盖/删除/多选关联 | feature/kc-2-5-meeting-sediment | S2 | ⬜待分配 | | 依赖 kc-2-1 ✅ |
+| kc-2-4 | 运营工单结构化 + 多选关联沉淀 | feature/kc-2-4-operation-knowledge | S2 | ✅已合入 | Vicky2号 | 14b03a4 合入；sediment_operation_rules(场景规则子笔记幂等替换+中文枚举标签)+domain_code 必填+4 结构化下拉；WorkOrderView/OperationView 接入 |
+| kc-2-5 | 会议中心：纪要覆盖/删除/多选关联 | feature/kc-2-5-meeting-sediment | S2 | ✅已合入 | Vicky2号 | 6a88b14 合入；MeetingView 业务领域必填+force 覆盖/删除纪要锁定测试(test_obsidian_link 6 passed)；后端 force/delete 能力前序 kc-2-1 已具备 |
 | kc-2-6 | 回归验证 + 文档 + 存量迁移脚本 | feature/kc-2-6-clean | S3 | ✅已合入 | Vicky2号 | b15df23 合入（抢救资产）；⚠️ 已删除污染分支 `feature/kc-2-6-validation-migration`(e407acb)，其会回退 kc-2-1/sup-3/wr 成果，切勿合入 |
 | kc-2-7 | 业务知识主笔记体系（Domain Main Note）补全 | feature/kc-2-7-domain-main-note | S2 | ✅已随 kc-2-2 合并实现 | Vicky2号 | 方案门禁已确认（系统自动保活/自动汇总子笔记摘要/树形），功能并入 kc-2-2 一并合入；分支 feature/kc-2-7-* 不再独立建 |
 
