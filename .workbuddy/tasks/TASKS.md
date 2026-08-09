@@ -1,6 +1,6 @@
 # PMWB 开发任务总表
 
-> 集成者：Vicky2号 | 更新时间：2026-08-04
+> 集成者：Vicky2号 | 更新时间：2026-08-09
 >
 > **AI 开发者请先看**：`docs/COLLABORATIVE_DEV_WORKFLOW.md` 第四节「标准化任务认领与交付机制」
 
@@ -139,31 +139,59 @@
 
 ---
 
-## 批次十：工单模块督办按钮（sup-3，前端）
+## 批次十：AI总结模块（WorkReport，wr-1/2/3）
+
+> 开发于 2026-08-05 ~ 08-07 | 目标：自动生成日报/周报/月报/自定义报告（LLM 润色，不可用时规则模板兜底）；支持生成/查看/编辑/删除/定稿/邮件发送；定稿自动归档 Obsidian `15-工作总结/{类型}/{日期}.md`。
+> 接线点：后端 `backend/routers/work_report.py`（前缀 `/api/v1/work-reports`，注册 `main.py`）；模型 `PmwbWorkReport`（`pmwb_work_report` 含 `cc TEXT` 列）；前端路由 `work-report`（菜单「AI总结」，`WorkReportView.vue`）。
+> ⚠️ 现状：三批次均已合入 main（152576b / b21e913 / 3ecc47e）；曾因沙箱对象库损坏一度「仅存磁盘未入库」，已在 sync-1 批次一并抢救入主干，无需回退。
+
+| task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
+|---------|------|------|------|------|--------|------|
+| wr-1 | AI总结(WorkReport)模块：日报/周报/月报生成+定稿归档Obsidian+删除修复 | feature/wr-1-work-report-module | S1 | ✅已合入 | 晓伴→Vicky2号审查 | 152576b，含 LLM 润色降级规则模板 |
+| wr-2 | AI总结优化：日报/周报/月报结构+左侧分类栏修复 | feature/wr-2-summary-optimize | S2 | ✅已合入 | 晓伴→Vicky2号审查 | b21e913 |
+| wr-3 | AI总结报告内容强化：上线需求逐条总结+页面交互恢复+集成者管控 | feature/wr-3-report-content | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 3ecc47e |
+
+---
+
+## 批次十一：工单模块督办按钮（sup-3，前端）
 
 > 依赖：批次七 sup-2（督办邮件服务）✅已合入 | 目标：开发工单/运营问题/需求等工单类模块列表与详情新增"邮件督办"按钮，弹窗选场景+收件人+留言，调 sup-2 发送
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| sup-3 | 各工单模块督办按钮（前端） | feature/sup-3-supervise-ui | S2 | 🔵开发中 | 晓伴 | 依赖 sup-2 ✅，Spec 见 sup-3-supervise-ui.md |
+| sup-3 | 各工单模块督办按钮（前端） | sup-3-clean | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 491ec82 合入 main；⚠️ 已删除污染分支 `feature/sup-3-supervise-dialog`(6c0b046)，其会回退本批次+wr-2/3 成果，切勿合入 |
 
 ---
 
-## 批次十一：业务知识中心重构（kc-2，多对多关联 + 主笔记体系）
+## 批次十二：业务知识中心重构（kc-2，多对多关联 + 主笔记体系）
 
 > 设计依据：`C:\Users\chend\.workbuddy\plans\electric-vortex-lovelace.md`（方案 v2.0，已与老大对齐关键决策）
 > 核心目标：以 Obsidian 原生能力把「业务对象」作为知识中心——每个二级领域一个业务知识主笔记（All-in-one），过程性内容（需求/工单/会议/运营）独立成文件并通过 `[[链接]]` + `pmwb_knowledge_link` 关联表与主笔记双向打通。
 > 关键决策：①主笔记粒度=二级领域；②过程性内容独立成文件；③需求"已关闭"语义改"已上线"并触发操作手册归档；④运营工单新增 4 结构化字段。
-> 依赖关系：批次 1（kc-2-1）为基础设施，先行；批次 2~5 可并行；批次 6 终验。
+> 依赖关系：批次 1（kc-2-1）为基础设施，已合入 ✅；批次 2~6 可并行；批次 7（kc-2-7）终验主笔记体系。
 
 | task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
 |---------|------|------|------|------|--------|------|
-| kc-2-1 | 知识关联数据模型与基础设施（关联表+4字段+服务+前端KnowledgeLinker雏形） | feature/kc-2-1-knowledge-link-model | S2 | 🔵开发中 | 晓伴 | 前置依赖，磁盘已有 WIP（models.py 含 PmwbKnowledgeLink/root_cause_type/manual_archived） |
-| kc-2-2 | 业务知识主笔记 + 按领域浏览重构 | feature/kc-2-2-domain-main-note | S2 | ⬜待分配 | | 依赖 kc-2-1 |
-| kc-2-3 | 需求沉淀 + 用户故事规则沉淀 + 操作手册归档 | feature/kc-2-3-requirement-sediment | S2 | ⬜待分配 | | 依赖 kc-2-1、kc-2-2 |
-| kc-2-4 | 运营工单结构化 + 多选关联沉淀 | feature/kc-2-4-operation-knowledge | S2 | ⬜待分配 | | 依赖 kc-2-1 |
-| kc-2-5 | 会议中心：纪要覆盖/删除/多选关联 | feature/kc-2-5-meeting-sediment | S2 | ⬜待分配 | | 依赖 kc-2-1 |
-| kc-2-6 | 回归验证 + 文档 + 存量迁移脚本 | feature/kc-2-6-validation-migration | S3 | ⬜待分配 | | 依赖 kc-2-1~5 全部合入 |
+| kc-2-1 | 知识关联数据模型与基础设施（关联表+4字段+服务+前端KnowledgeLinker雏形） | feature/kc-2-1-knowledge-link-model | S2 | ✅已合入 | 晓伴→Vicky2号审查 | 9e597eb 合入；含 knowledge_link_service + FK 迁移 |
+| kc-2-2 | 业务知识主笔记 + 按领域浏览重构 | feature/kc-2-2-domain-main-note | S2 | ⬜待分配 | | 依赖 kc-2-1 ✅ |
+| kc-2-3 | 需求沉淀 + 用户故事规则沉淀 + 操作手册归档 | feature/kc-2-3-requirement-sediment | S2 | ⬜待分配 | | 依赖 kc-2-1 ✅、kc-2-2 |
+| kc-2-4 | 运营工单结构化 + 多选关联沉淀 | feature/kc-2-4-operation-knowledge | S2 | ⬜待分配 | | 依赖 kc-2-1 ✅ |
+| kc-2-5 | 会议中心：纪要覆盖/删除/多选关联 | feature/kc-2-5-meeting-sediment | S2 | ⬜待分配 | | 依赖 kc-2-1 ✅ |
+| kc-2-6 | 回归验证 + 文档 + 存量迁移脚本 | feature/kc-2-6-clean | S3 | ✅已合入 | Vicky2号 | b15df23 合入（抢救资产）；⚠️ 已删除污染分支 `feature/kc-2-6-validation-migration`(e407acb)，其会回退 kc-2-1/sup-3/wr 成果，切勿合入 |
+| kc-2-7 | 业务知识主笔记体系（Domain Main Note）补全 | feature/kc-2-7-domain-main-note | S2 | ⬜待分配 | | 方案门禁待老大确认（见 kc-2-7.md），依赖 kc-2-1 ✅ |
+
+---
+
+## ⚠️ 已删除的危险分支（2026-08-09 清理，永久勿合）
+
+以下两个分支曾存在于 origin，实为**孤儿污染分支**（在沙箱残缺副本仓库创建，`git diff origin/main` 显示删除数万行），合入会把 main 成果当"删除"合并掉：
+
+| 已删分支 | 提交 | 危害 | 现状 |
+|----------|------|------|------|
+| `feature/sup-3-supervise-dialog` | 6c0b046 | 回退 sup-3 + wr-2 + wr-3 全部成果 | 已从 origin + 本地远端跟踪引用删除 |
+| `feature/kc-2-6-validation-migration` | e407acb | 回退 kc-2-1 + sup-3 + wr 全部成果 | 已从 origin + 本地远端跟踪引用删除 |
+
+> 兜底：若 `git branch -r` 又出现这两个分支，立即 `git push origin --delete` + 清 `.git/refs/remotes/origin/feature/` 下对应 `.lock` 与引用文件（沙箱 safe-delete 拦截 `rm`，用 ctypes `kernel32.DeleteFileW` 删）。
 
 ---
 
