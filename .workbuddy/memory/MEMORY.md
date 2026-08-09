@@ -3,7 +3,7 @@
 ## 项目状态
 - 技术栈：FastAPI + Vue3 + Element Plus + MySQL + Obsidian 联动；GitHub chendhxuej/pmwb (main)。服务拓扑：主后端 8000 / 人员中台 8001(独立 FastAPI+alembic) / 前端 5173 / MySQL 3306 / 统一邮件中心 3210(外部)。
 - 前端 IA（2026-08-04 核对）：首页看板 → 任务中心 → 需求与交付 → 运营监控 → 会议日程 → 个人待办 → 重点工作 → 人员中台 → 知识中心 → 邮件中心。
-- 业务知识联动（2026-08-05）：`pmwb_business_domain` 12 条种子；`domain_code` 已铺到业务表 + `pmwb_knowledge_item`；前端统一用 `BusinessDomainSelect.vue` 选领域、`RelatedKnowledgePanel.vue` 展示同领域知识。知识中心批次十二 kc-2（kc-2-1~7）已全部合入 main：关联基础设施 + 主笔记体系(note_type列/ensure主笔记保活/子笔记摘要聚合/树形) + 需求沉淀(回链主笔记+场景规则子笔记+操作手册归档) + 运营结构化(4字段+场景规则沉淀) + 会议关联(force覆盖/删除纪要/多选关联)。Obsidian 业务知识结构优化 kc-3 进行中：kc-3-1~3 已合入 main（需求 domain_code 端到端贯通 / 需求知识笔记同置到需求自身文件夹 / 领域浏览聚合改为源表+链接并集并回填源记录 domain_code）；kc-3-4(路径权威源 obsidian_paths) + kc-3-5(运营/会议/开发交付归入 `01-业务知识/{领域}/` 树) 待做。
+- 业务知识联动（2026-08-05）：`pmwb_business_domain` 12 条种子；`domain_code` 已铺到业务表 + `pmwb_knowledge_item`；前端统一用 `BusinessDomainSelect.vue` 选领域、`RelatedKnowledgePanel.vue` 展示同领域知识。知识中心批次十二 kc-2（kc-2-1~7）已全部合入 main：关联基础设施 + 主笔记体系(note_type列/ensure主笔记保活/子笔记摘要聚合/树形) + 需求沉淀(回链主笔记+场景规则子笔记+操作手册归档) + 运营结构化(4字段+场景规则沉淀) + 会议关联(force覆盖/删除纪要/多选关联)。Obsidian 业务知识结构优化 kc-3 全部完成（kc-3-1~5 均合入 main）：需求 domain_code 端到端贯通 / 需求知识笔记同置到需求自身文件夹 / 领域浏览聚合改为源表+链接并集并回填源记录 domain_code / 新增 `services/obsidian_paths.py` 路径权威源（resolve_domain_path 统一 `01-业务知识/{领域}/`）/ 运营·会议·开发交付沉淀经路径权威源归入领域树（domain_code 缺失时安全回退旧路径）。Obsidian 业务知识结构已从散落多树收敛为以 `01-业务知识/{领域}/` 为根的清晰体系。
 - 测试基线：pytest 131 passed / 4 failed（4 失败均为 Master 8001 沙箱故障 ×2 + dashboard 日期 + product_bible vault OSError 等既有环境问题，与功能改动无关）；vitest 7/7；vite build 干净。
 
 ## 启动方案（看门狗常驻保活）

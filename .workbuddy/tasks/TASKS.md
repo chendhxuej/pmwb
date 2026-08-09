@@ -193,8 +193,8 @@
 | kc-3-1 | 需求 domain_code 端到端贯通（修规则沉淀404） | feature/kc-3-1-requirement-domain-code | S2 | ✅已合入 | Vicky2号 | 32cfd62；`requirement._merge_ext` 补 `domain_code` + 前端必填/回显，根因是 API 漏返字段致库空 |
 | kc-3-2 | 需求知识笔记同置到需求自身文件夹 | feature/kc-3-2-requirement-sediment-colocated | S2 | ✅已合入 | Vicky2号 | 4b10f47；废弃 `10-业务建设/需求沉淀`，`sediment_requirement` 改写需求文件夹；迁移脚本移动 2 条真实笔记 |
 | kc-3-3 | 领域浏览聚合改为源表+链接并集 + 源记录 domain_code 回填 | feature/kc-3-3-domain-browse-aggregation | S2 | ✅已合入 | Vicky2号 | c94af0e；消除"时间线有、需求/运营空"错位；`link_note` 建关联时回填源记录 domain_code；新增回归测试 6 passed + 存量回填脚本（已对真实库回填 2 条） |
-| kc-3-4 | 路径权威源（obsidian_paths.resolve_domain_path） | feature/kc-3-4-path-authority | S2 | ⬜待分配 | Vicky2号 | P0；新增 `backend/services/obsidian_paths.py` + `config.BUSINESS_KNOWLEDGE_DIR`，替换散落 `*_SEDIMENT_DIR` |
-| kc-3-5 | 运营/会议/开发交付归入 `01-业务知识/{领域}/` 树 | feature/kc-3-5-domain-tree-routing | S2 | ⬜待分配 | Vicky2号 | P4；废弃 11-/05-/14- 编号树，迁移脚本 + 前端领域树展示 |
+| kc-3-4 | 路径权威源（obsidian_paths.resolve_domain_path） | feature/kc-3-4-domain-tree-routing | S2 | ✅已合入 | Vicky2号 | cbfe3d0；新增 `backend/services/obsidian_paths.py` 统一领域树路径，取代散落硬编码 |
+| kc-3-5 | 运营/会议/开发交付归入 `01-业务知识/{领域}/` 树 | feature/kc-3-4-domain-tree-routing | S2 | ✅已合入 | Vicky2号 | cbfe3d0（与 kc-3-4 同分支合并）；sediment_operation/meeting/dev_ticket 经路径权威源落 `运营/会议/开发交付/` 子目录；domain_code 缺失时安全回退旧路径；迁移脚本已对真实库执行（1 条会议迁入订单中心/会议/，13 条无 domain_code 跳过） |
 
 ---
 
