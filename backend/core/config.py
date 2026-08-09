@@ -38,7 +38,7 @@ class Settings(BaseSettings):
         {
             "key": "group-sms",
             "name": "集团短信业务",
-            "path": "01-业务知识/政企业务知识库/集团短信业务/集团短信产品业务知识.md",
+            "path": "01-业务知识/政企业务知识库/集团短信/集团短信产品业务知识.md",
         },
         {
             "key": "e-contract",
