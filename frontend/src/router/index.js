@@ -246,6 +246,13 @@ const routes = [
         component: () => import('@/views/WorkReportView.vue'),
         meta: { title: 'AI总结', icon: 'EditPen' },
       },
+      // ── 大模型管理（紧邻 AI总结） ──
+      {
+        path: 'llm-provider',
+        name: 'LlmProvider',
+        component: () => import('@/views/LlmProviderManage.vue'),
+        meta: { title: '大模型管理', icon: 'Cpu' },
+      },
     ],
   },
   {

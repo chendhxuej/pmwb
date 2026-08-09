@@ -5,9 +5,9 @@ LLM 不可用时自动降级到规则模板（render_rule_template），保证�
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
-from services.storygen_llm import _call_llm, check_llm_available
+from services.llm_provider import call_best_available
 
 logger = logging.getLogger(__name__)
 
@@ -50,24 +50,18 @@ def _build_delivered_item_summary(it: Dict[str, Any]) -> str:
     return f"  - 完成【{req_name}】开发部署{meta}：核心实现「{core}」，体现「{value}」"
 
 
-def llm_available() -> bool:
-    try:
-        st = check_llm_available()
-        return bool(st.get("enabled")) and st.get("reachable") is True
-    except Exception:  # noqa: BLE001
-        return False
+def generate_report_markdown(db, system_prompt: str, user_message: str):
+    """调用 LLM 生成报告正文，返回 (markdown, used_llm, provider_name, notice)。
 
-
-def generate_report_markdown(system_prompt: str, user_message: str) -> Tuple[str, bool]:
-    """调用 LLM 生成报告正文，返回 (markdown, used_llm)。"""
+    底层走多模型注册表（services.llm_provider），按优先级 fallback；
+    全部不可用时返回 ("", False, None, notice)，由上层降级到规则模板。
+    """
     try:
-        if not llm_available():
-            return "", False
-        raw = _call_llm(system_prompt, user_message)
-        return (raw or "").strip(), True
+        res = call_best_available(db, system_prompt, user_message)
+        return res["text"], res["used_llm"], res["provider_name"], res["notice"]
     except Exception as e:  # noqa: BLE001
         logger.warning("AI总结 LLM 生成失败，将降级规则模板: %s", e)
-        return "", False
+        return "", False, None, f"LLM 调用异常：{str(e)[:200]}"
 
 
 def build_next_period_section(data: Dict[str, Any], report_type: str) -> str:

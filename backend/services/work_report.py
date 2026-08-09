@@ -50,6 +50,9 @@ def to_out(r: PmwbWorkReport) -> Dict[str, Any]:
         "sent_at": r.sent_at.isoformat() if r.sent_at else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        "gen_used_llm": r.gen_used_llm or 0,
+        "gen_model": r.gen_model,
+        "gen_notice": r.gen_notice,
     }
 
 
@@ -202,7 +205,7 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     data["report_type"] = report_type
     system = build_system_prompt(report_type)
     user = build_user_message(data, report_type)
-    md, _used_llm = generate_report_markdown(system, user)
+    md, used_llm, provider_name, notice = generate_report_markdown(db, system, user)
     if not md:
         md = render_rule_template(data, report_type)
     else:
@@ -217,10 +220,13 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
         report_type=report_type, title=title, content=md,
         date_start=start, date_end=end, status="draft",
     )
+    r.gen_used_llm = 1 if used_llm else 0
+    r.gen_model = provider_name or ""
+    r.gen_notice = notice or ""
     db.add(r)
     db.commit()
     db.refresh(r)
-    return to_out(r)
+    return {**to_out(r), "used_llm": bool(used_llm), "provider_name": provider_name, "llm_notice": notice}
 
 
 def _archive_to_obsidian(r: PmwbWorkReport) -> str:
