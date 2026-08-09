@@ -17,6 +17,7 @@ from routers import (
     health,
     keywork,
     knowledge,
+    llm_provider,
     mail_center,
     meeting,
     meeting_action,
@@ -116,6 +117,7 @@ app.include_router(sql_script.router, prefix="/api/v1", tags=["SQL脚本库"])
 app.include_router(product_bible.router, prefix="/api/v1", tags=["产品圣经"])
 app.include_router(obsidian.router, prefix="/api/v1", tags=["Obsidian 联动"])
 app.include_router(work_report.router, prefix="/api/v1", tags=["AI总结报告"])
+app.include_router(llm_provider.router, prefix="/api/v1", tags=["大模型管理"])
 
 
 @app.on_event("startup")
@@ -123,6 +125,14 @@ async def startup_event():
     logger.info("PMWB backend started")
     # 幂等创建缺失的数据表（对已有表无副作用；与 Alembic 不冲突）
     Base.metadata.create_all(bind=engine)
+    # 首次运行种子化大模型提供方（从 settings 迁移 Kimi 配置，向后兼容）
+    try:
+        from db.base import SessionLocal
+        from services.llm_provider import ensure_seed
+        with SessionLocal() as s:
+            ensure_seed(s)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("LLM provider seed skipped: %s", e)
 
 
 @app.on_event("shutdown")

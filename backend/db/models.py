@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Float,
     Index,
     Integer,
     Numeric,
@@ -1116,4 +1117,41 @@ class PmwbWorkReport(Base):
         Index("ix_work_report_status", "status"),
         Index("ix_work_report_type", "report_type"),
         {"comment": "AI 工作总结报告表"},
+    )
+
+
+class PmwbLlmProvider(Base):
+    """底层大模型提供方注册表（多模型管理：Kimi/混元/DeepSeek/OpenAI兼容等）。"""
+
+    __tablename__ = "pmwb_llm_provider"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    name = Column(String(128), nullable=False, comment="显示名称，如 默认Kimi / 腾讯混元")
+    provider_type = Column(
+        String(32),
+        nullable=False,
+        default="openai",
+        comment="类型: kimi/hunyuan/tokenhub/openai/deepseek/ollama/custom",
+    )
+    base_url = Column(String(512), nullable=False, comment="API Base URL（OpenAI 兼容 chat/completions 前缀）")
+    model = Column(String(128), nullable=False, comment="模型名，如 kimi-k2.6 / hunyuan-turbos-latest / hy3")
+    api_key = Column(Text, comment="API Key（混淆存储，接口脱敏）")
+    temperature = Column(Float, default=0.3, comment="采样温度")
+    max_tokens = Column(Integer, default=4096, comment="单次生成最大 token")
+    timeout = Column(Integer, default=120, comment="请求超时(秒)")
+    is_enabled = Column(Integer, default=1, comment="是否启用(0/1)")
+    is_default = Column(Integer, default=0, comment="是否主用(0/1)，同一时刻至多一个")
+    priority = Column(Integer, default=0, comment="fallback 优先级，越小越优先")
+    last_error = Column(Text, comment="最近一次连通性探测错误（便于页面反馈）")
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("ix_llm_provider_default", "is_default"),
+        {"comment": "底层大模型提供方注册表"},
     )

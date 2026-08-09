@@ -98,6 +98,22 @@
       </template>
 
       <div class="detail-body">
+        <el-alert
+          v-if="showRuleBanner"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="rule-banner"
+        >
+          <template #title>本次未使用大模型（规则模板版，非 AI 润色）</template>
+          <div class="rule-banner-body">
+            <span>{{ current.gen_notice || '所有已启用的大模型均不可用，已按规则模板生成，内容仍可使用。' }}</span>
+            <div class="rule-banner-actions">
+              <el-button size="small" type="primary" @click="goManage">前往大模型管理</el-button>
+              <el-button size="small" @click="openGenerate">重试生成</el-button>
+            </div>
+          </div>
+        </el-alert>
         <MarkdownRender v-if="!editing" :content="current.content || ''" />
         <el-input v-else type="textarea" v-model="editContent" :rows="26" placeholder="可手工编辑报告内容" />
       </div>
@@ -148,6 +164,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, Edit, Check, Message, Delete, Stamp, FolderChecked, CopyDocument, Refresh, Loading } from '@element-plus/icons-vue'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
@@ -212,6 +229,13 @@ watch(() => genForm.report_type, (t) => applyDefaultDates(t))
 
 const detailVisible = ref(false)
 const current = ref({})
+const router = useRouter()
+
+// 规则模板版横幅：仅当本次确实未用大模型且有说明（gen_notice）时提示，避免历史报告误弹
+const showRuleBanner = computed(() => current.value && current.value.gen_used_llm === 0 && !!current.value.gen_notice)
+function goManage() {
+  router.push('/llm-provider')
+}
 const editing = ref(false)
 const editContent = ref('')
 const finalizeLoading = ref(false)
@@ -249,7 +273,11 @@ async function doGenerate() {
   _startGenTimer()
   try {
     const r = await generateWorkReport({ ...genForm })
-    ElMessage.success('已生成')
+    if (r.used_llm) {
+      ElMessage.success(`已生成（${r.provider_name || 'AI'} 润色）`)
+    } else {
+      ElMessage.warning('大模型不可用，已生成规则模板版（详见报告顶部提示）')
+    }
     generateVisible.value = false
     await load()
     openDetail(r)
@@ -393,6 +421,9 @@ onMounted(load)
 .path-text { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .copy-icon { cursor: pointer; }
 .detail-body { padding: 4px 8px; }
+.rule-banner { margin-bottom: 12px; }
+.rule-banner-body { font-size: 13px; line-height: 1.6; }
+.rule-banner-actions { margin-top: 10px; display: flex; gap: 8px; }
 .detail-footer { display: flex; gap: 8px; flex-wrap: wrap; }
 .email-body-bar { margin-bottom: 6px; text-align: right; }
 .title-link { color: var(--el-color-primary); cursor: pointer; }
