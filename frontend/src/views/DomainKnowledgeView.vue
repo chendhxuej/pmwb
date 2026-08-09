@@ -40,21 +40,46 @@
     </el-row>
 
     <!-- 领域详情弹窗 -->
-    <el-dialog v-model="detailVisible" :title="`${selectedDomain?.domain_name} - 关联内容`" width="820px">
+    <el-dialog v-model="detailVisible" :title="`${selectedDomain?.domain_name} - 关联内容`" width="860px">
+      <div class="dk-dialog-bar">
+        <span class="dk-dialog-hint">主笔记为该领域知识总入口，子笔记按下分类分组展示</span>
+        <el-button size="small" type="primary" :loading="ensureLoading" @click="ensureMainNotes">
+          确保主笔记
+        </el-button>
+      </div>
       <el-tabs v-model="detailTab">
-        <el-tab-pane label="知识条目" name="knowledge">
-          <el-table :data="related.knowledge_items" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => row.obsidian_path && openNote(row.obsidian_path)">
-            <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="category" label="分类" width="110" />
-            <el-table-column prop="sub_title" label="子分类" width="110" />
-            <el-table-column prop="status" label="来源" width="100" />
-            <el-table-column label="操作" width="80">
-              <template #default="{ row }">
-                <el-button link type="primary" size="small" @click.stop="openNote(row.obsidian_path)">查看</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!relLoading && !related.knowledge_items.length" description="暂无关联知识条目" />
+        <el-tab-pane label="知识主笔记" name="knowledge">
+          <!-- 主笔记概述 -->
+          <div v-if="related.main_note" class="dk-main-note">
+            <div class="dk-main-note-head">
+              <el-icon><Star /></el-icon>
+              <span class="dk-main-note-title">{{ related.main_note.title }}</span>
+              <el-button link type="primary" size="small" @click="openNote(related.main_note.obsidian_path)">打开主笔记</el-button>
+            </div>
+            <div class="dk-main-note-sub" v-if="related.main_note.sub_title">{{ related.main_note.sub_title }}</div>
+          </div>
+          <el-empty v-else description="该领域暂无主笔记，点击右上角「确保主笔记」自动生成" />
+
+          <!-- 子笔记按分类分组 -->
+          <div v-for="g in groupedSubNotes" :key="g.category" class="dk-sub-group">
+            <div class="dk-sub-group-head">
+              <span class="dk-sub-group-label">{{ g.label }}</span>
+              <span class="dk-sub-group-count">{{ g.items.length }}</span>
+            </div>
+            <div class="dk-sub-list">
+              <div
+                v-for="n in g.items"
+                :key="n.id"
+                class="dk-sub-item"
+                @click="n.obsidian_path && openNote(n.obsidian_path)"
+              >
+                <span class="dk-sub-title">{{ n.title }}</span>
+                <span class="dk-sub-cat" v-if="n.sub_title">{{ n.sub_title }}</span>
+                <el-button link type="primary" size="small" @click.stop="openNote(n.obsidian_path)">查看</el-button>
+              </div>
+            </div>
+          </div>
+          <el-empty v-if="!relLoading && !related.sub_notes.length" description="暂无子笔记" />
         </el-tab-pane>
         <el-tab-pane label="需求" name="requirements">
           <el-table :data="related.requirements" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => goTo('requirement', row.code)">
@@ -106,9 +131,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { basicDataApi } from '@/api/basicData.js'
+import { knowledgeApi } from '@/api/knowledge.js'
+import { Star } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -117,7 +145,16 @@ const detailVisible = ref(false)
 const detailTab = ref('knowledge')
 const selectedDomain = ref(null)
 const relLoading = ref(false)
-const related = ref({ knowledge_items: [], requirements: [], meetings: [], issues: [], timeline: [] })
+const ensureLoading = ref(false)
+const related = ref({
+  knowledge_items: [],
+  main_note: null,
+  sub_notes: [],
+  requirements: [],
+  meetings: [],
+  issues: [],
+  timeline: [],
+})
 
 const SOURCE_LABELS = {
   requirement: '需求',
@@ -128,6 +165,47 @@ const SOURCE_LABELS = {
   key_work: '重点工作',
 }
 const sourceLabel = (t) => SOURCE_LABELS[t] || t
+
+const CATEGORY_LABELS = {
+  product: '产品知识',
+  operation: '运营知识',
+  requirement: '需求沉淀',
+  meeting: '会议沉淀',
+  personal: '个人笔记',
+  study: '学习沉淀',
+}
+const categoryLabel = (c) => CATEGORY_LABELS[c] || (c || '其他')
+
+// 子笔记按分类分组（树形展示）
+const groupedSubNotes = computed(() => {
+  const map = {}
+  for (const n of related.value.sub_notes || []) {
+    const c = n.category || 'other'
+    if (!map[c]) map[c] = []
+    map[c].push(n)
+  }
+  return Object.keys(map).map((c) => ({
+    category: c,
+    label: categoryLabel(c),
+    items: map[c],
+  }))
+})
+
+const ensureMainNotes = async () => {
+  ensureLoading.value = true
+  try {
+    const res = await knowledgeApi.ensureMainNotes()
+    ElMessage.success(res?.message || '主笔记已保活')
+    if (selectedDomain.value) {
+      const r = await basicDataApi.getDomainRelated(selectedDomain.value.domain_code)
+      related.value = r || related.value
+    }
+  } catch {
+    ElMessage.error('保活失败')
+  } finally {
+    ensureLoading.value = false
+  }
+}
 
 const goTo = (type, code) => {
   const map = {
@@ -240,6 +318,90 @@ onMounted(loadDomains)
   color: #409eff;
 }
 .dk-stat-label {
+  font-size: 12px;
+  color: #888;
+}
+.dk-dialog-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.dk-dialog-hint {
+  font-size: 12px;
+  color: #888;
+}
+.dk-main-note {
+  background: rgba(64, 158, 255, .08);
+  border: 1px solid #2a3a55;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.dk-main-note-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dk-main-note-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0e0;
+  flex: 1;
+}
+.dk-main-note-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #999;
+}
+.dk-sub-group {
+  margin-bottom: 14px;
+}
+.dk-sub-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  border-left: 3px solid #409eff;
+  padding-left: 8px;
+}
+.dk-sub-group-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cfcfcf;
+}
+.dk-sub-group-count {
+  font-size: 12px;
+  color: #888;
+  background: #2a2a3e;
+  border-radius: 10px;
+  padding: 0 8px;
+}
+.dk-sub-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dk-sub-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #1e1e2e;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.dk-sub-item:hover {
+  border-color: #409eff;
+}
+.dk-sub-title {
+  flex: 1;
+  font-size: 13px;
+  color: #dcdcdc;
+}
+.dk-sub-cat {
   font-size: 12px;
   color: #888;
 }

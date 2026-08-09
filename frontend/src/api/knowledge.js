@@ -41,6 +41,11 @@ export const knowledgeApi = {
     return request.get('/knowledge/meta/tags')
   },
 
+  // 为所有「有子笔记但缺主笔记」的领域自动保活主笔记并重建子笔记摘要
+  ensureMainNotes() {
+    return request.post('/knowledge/ensure-main-notes')
+  },
+
   // 从 Obsidian Vault 反向同步笔记到知识索引
   syncFromVault(data) {
     return request.post('/knowledge/sync-from-vault', data)

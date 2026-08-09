@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from db.models import PmwbKnowledgeItem
 from schemas.knowledge import KnowledgeItemCreate
 from services.base import BaseService
+from services.knowledge_link_service import ensure_domain_main_note, rebuild_main_note_subnotes
 from utils.obsidian import read_markdown, write_markdown
 
 
@@ -75,7 +76,27 @@ class KnowledgeItemService(BaseService[PmwbKnowledgeItem]):
         if content:
             write_markdown(data["obsidian_path"], content)
 
-        return self.create(db, data)
+        item = self.create(db, data)
+        # 系统自动保活：新建笔记归属某领域时，确保其主笔记存在并重建子笔记摘要
+        if item.domain_code:
+            try:
+                ensure_domain_main_note(db, item.domain_code)
+                rebuild_main_note_subnotes(db, item.domain_code)
+            except Exception:
+                # 保活失败不应阻断主流程（如领域不存在等）
+                pass
+        return item
+
+    def update(self, db: Session, id: int, obj_in: Dict[str, Any]) -> PmwbKnowledgeItem | None:
+        item = super().update(db, id, obj_in)
+        if item and obj_in.get("domain_code"):
+            # 领域变更/归属时自动保活主笔记并重建子笔记摘要
+            try:
+                ensure_domain_main_note(db, obj_in["domain_code"])
+                rebuild_main_note_subnotes(db, obj_in["domain_code"])
+            except Exception:
+                pass
+        return item
 
     def get_content(self, db: Session, id: int) -> Dict[str, Any]:
         item = self.get(db, id)

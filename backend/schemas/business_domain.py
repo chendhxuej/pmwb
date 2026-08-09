@@ -95,6 +95,8 @@ class DomainRelatedOut(BaseModel):
     domain_code: str
     domain_name: str
     knowledge_items: List[DomainRelatedItem] = []
+    main_note: Optional[DomainRelatedItem] = None
+    sub_notes: List[DomainRelatedItem] = []
     requirements: List[DomainRelatedItem] = []
     meetings: List[DomainRelatedItem] = []
     issues: List[DomainRelatedItem] = []

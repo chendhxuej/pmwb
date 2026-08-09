@@ -68,3 +68,60 @@ def test_get_knowledge_categories(client: TestClient, db):
     data = response.json()
     assert "product" in data["data"]
     assert "operation" in data["data"]
+
+
+def test_domain_related_main_note_and_sub_notes(client: TestClient, db):
+    """kc-2-2/7：get_related 应区分主笔记(main)与子笔记(sub)。"""
+    from db.models import PmwbBusinessDomain
+
+    domain = PmwbBusinessDomain(
+        domain_code="ftto", domain_name="FTTO", domain_group="政企业务", enabled=True
+    )
+    db.add(domain)
+    db.commit()
+
+    KnowledgeFactory.create(
+        db, item_id="KN-MAIN", title="FTTO 业务知识主笔记",
+        domain_code="ftto", note_type="main", sub_category="主笔记",
+    )
+    KnowledgeFactory.create(
+        db, item_id="KN-SUB1", title="子笔记1", domain_code="ftto",
+        note_type="sub", category="requirement",
+    )
+    KnowledgeFactory.create(
+        db, item_id="KN-SUB2", title="子笔记2", domain_code="ftto",
+        note_type="sub", category="operation",
+    )
+
+    response = client.get("/api/v1/basic-data/business-domains/ftto/related")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["main_note"] is not None
+    assert data["main_note"]["title"] == "FTTO 业务知识主笔记"
+    assert len(data["sub_notes"]) == 2
+
+
+def test_ensure_main_notes_creates_missing_main(client: TestClient, db, monkeypatch):
+    """kc-2-2/7：ensure-main-notes 为缺主笔记的领域自动保活主笔记。"""
+    import services.knowledge_link_service as kls
+
+    monkeypatch.setattr(kls, "write_markdown", lambda path, content: None)
+    from db.models import PmwbBusinessDomain
+
+    domain = PmwbBusinessDomain(
+        domain_code="ftto2", domain_name="FTTO2", domain_group="政企业务", enabled=True
+    )
+    db.add(domain)
+    db.commit()
+    # 只有子笔记，无主笔记
+    KnowledgeFactory.create(
+        db, item_id="KN-SUB", title="子笔记", domain_code="ftto2", note_type="sub"
+    )
+
+    resp = client.post("/api/v1/knowledge/ensure-main-notes")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["main_notes_created"] >= 1
+
+    rel = client.get("/api/v1/basic-data/business-domains/ftto2/related").json()["data"]
+    assert rel["main_note"] is not None

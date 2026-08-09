@@ -20,6 +20,7 @@ from services.knowledge_link import (
 )
 from services.knowledge_link_service import (
     create_main_note as create_main_note_service,
+    ensure_domain_main_notes,
     link_note,
     list_by_item,
     unlink as unlink_by_source,
@@ -132,6 +133,16 @@ def create_main_note(
     return success(
         data=result,
         message="主笔记已生成" if result["created"] else "主笔记已存在",
+    )
+
+
+@router.post("/ensure-main-notes")
+def ensure_main_notes(db: Session = Depends(get_db)):
+    """为所有「有子笔记但缺主笔记」的启用领域自动保活主笔记并重建子笔记摘要（批量回填）。"""
+    result = ensure_domain_main_notes(db)
+    return success(
+        data=result,
+        message=f"扫描 {result['domains_scanned']} 个领域，新建主笔记 {result['main_notes_created']} 个，保活/重建 {result['main_notes_ensured']} 个",
     )
 
 

@@ -416,6 +416,7 @@ def create_main_note(db: Session, domain_code: str) -> dict:
         source_type="manual",
         source_id=domain_code,
         domain_code=domain_code,
+        note_type="main",
         summary=f"{domain.domain_name} 业务知识主笔记（业务概述/产商品资费/SOP/规则/变更轨迹/交付物）",
     )
     db.add(item)
@@ -434,5 +435,99 @@ def _item_dict(item: PmwbKnowledgeItem) -> dict:
         "tags": item.tags,
         "obsidian_path": item.obsidian_path,
         "domain_code": item.domain_code,
+        "note_type": getattr(item, "note_type", "sub"),
         "summary": item.summary,
     }
+
+
+def ensure_domain_main_note(db: Session, domain_code: str) -> dict:
+    """确保某业务领域存在唯一主笔记（系统自动保活）；不存在则按标准模板创建。
+
+    返回 {created: bool, item: {...}}。
+    """
+    domain = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.domain_code == domain_code)
+        .first()
+    )
+    if not domain:
+        raise NotFoundException(f"业务领域 '{domain_code}' 不存在")
+    existing = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+    if existing:
+        return {"created": False, "item": _item_dict(existing)}
+    return create_main_note(db, domain_code)
+
+
+def ensure_domain_main_notes(db: Session) -> dict:
+    """为所有「有子笔记但缺主笔记」的启用业务领域自动保活主笔记，并重建子笔记摘要索引。"""
+    domains = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.enabled == True).all()
+    created = 0
+    ensured = 0
+    for d in domains:
+        has_sub = (
+            db.query(PmwbKnowledgeItem.id)
+            .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
+            .filter(PmwbKnowledgeItem.note_type != "main")
+            .first()
+        )
+        main = (
+            db.query(PmwbKnowledgeItem.id)
+            .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
+            .filter(PmwbKnowledgeItem.note_type == "main")
+            .first()
+        )
+        if has_sub and not main:
+            ensure_domain_main_note(db, d.domain_code)
+            created += 1
+        if main or (has_sub and not main):
+            rebuild_main_note_subnotes(db, d.domain_code)
+            ensured += 1
+    return {
+        "domains_scanned": len(domains),
+        "main_notes_created": created,
+        "main_notes_ensured": ensured,
+    }
+
+
+def rebuild_main_note_subnotes(db: Session, domain_code: str) -> bool:
+    """重建主笔记正文「## 相关子笔记 MOC」章节：聚合该领域全部子笔记的标题+摘要（自动汇总）。"""
+    main = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+    if not main or not main.obsidian_path:
+        return False
+    sub_notes = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type != "main")
+        .order_by(PmwbKnowledgeItem.updated_at.desc())
+        .all()
+    )
+    lines = [
+        "> 以下子笔记摘要由系统自动维护（按更新时间倒序），新增/删除子笔记或改动摘要时同步更新。",
+        "",
+    ]
+    if not sub_notes:
+        lines.append("_暂无子笔记_")
+        lines.append("")
+    else:
+        for n in sub_notes:
+            summary = (n.summary or "").strip().replace("\n", " ")
+            lines.append(f"- **[{n.title}]({n.obsidian_path})** — {summary or '（无摘要）'}")
+        lines.append("")
+    section = "\n".join(lines).rstrip()
+    content = read_markdown(main.obsidian_path)
+    if content is None:
+        return False
+    new_content = append_or_replace_section(content, "相关子笔记 MOC", section)
+    if new_content != content:
+        write_markdown(main.obsidian_path, new_content)
+    return True

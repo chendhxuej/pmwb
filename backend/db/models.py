@@ -486,6 +486,12 @@ class PmwbKnowledgeItem(Base):
     )
     source_id = Column(String(64), comment="来源对象ID")
     domain_code = Column(String(64), comment="关联业务领域编码")
+    note_type = Column(
+        String(16),
+        default="sub",
+        server_default="sub",
+        comment="笔记类型：main(业务知识主笔记)/sub(子笔记/过程性内容)。系统自动保活每领域的唯一 main 笔记",
+    )
     summary = Column(Text, comment="摘要")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
@@ -499,6 +505,7 @@ class PmwbKnowledgeItem(Base):
         Index("idx_knowledge_category", "category"),
         Index("idx_knowledge_source", "source_type", "source_id"),
         Index("idx_knowledge_domain", "domain_code"),
+        Index("idx_knowledge_domain_type", "domain_code", "note_type"),
         {"comment": "知识库条目索引表"},
     )
 

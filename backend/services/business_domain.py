@@ -141,6 +141,35 @@ def get_related(db: Session, domain_code: str) -> DomainRelatedOut:
         for i in k_items
     ]
 
+    # 主笔记体系：区分 main(业务知识主笔记) 与 sub(子笔记/过程性内容)
+    main_note = next((i for i in k_items if i.note_type == "main"), None)
+    sub_notes = [i for i in k_items if i.note_type != "main"]
+    main_note_out = (
+        DomainRelatedItem(
+            id=main_note.id,
+            code=str(main_note.id),
+            title=main_note.title or "",
+            sub_title=main_note.sub_category,
+            category=main_note.category,
+            status=main_note.source_type,
+            obsidian_path=main_note.obsidian_path,
+        )
+        if main_note
+        else None
+    )
+    sub_notes_out = [
+        DomainRelatedItem(
+            id=i.id,
+            code=str(i.id),
+            title=i.title or "",
+            sub_title=i.sub_category,
+            category=i.category,
+            status=i.source_type,
+            obsidian_path=i.obsidian_path,
+        )
+        for i in sub_notes
+    ]
+
     req_rows = (
         db.query(PmwbRequirementExt, SentEmail)
         .outerjoin(SentEmail, SentEmail.req_id == PmwbRequirementExt.req_id)
@@ -205,6 +234,8 @@ def get_related(db: Session, domain_code: str) -> DomainRelatedOut:
         domain_code=domain_code,
         domain_name=domain.domain_name,
         knowledge_items=knowledge_items,
+        main_note=main_note_out,
+        sub_notes=sub_notes_out,
         requirements=requirements,
         meetings=meetings,
         issues=issues,
