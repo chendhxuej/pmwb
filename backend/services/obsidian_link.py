@@ -32,6 +32,7 @@ from services.knowledge import knowledge_item_service
 from services.knowledge_link_service import ensure_domain_main_note, link_note
 from services.meeting import meeting_service
 from services.operation import operation_issue_service
+from services import obsidian_paths
 from utils.obsidian import (
     append_or_replace_section,
     delete_markdown,
@@ -156,7 +157,15 @@ def sediment_operation_issue(db, issue_id: int, force: bool = False) -> Dict:
             "created": False,
         }
 
-    subdir, note_type = ISSUE_SEDIMENT_DIR.get(issue.category, ("11-业务运营/Bug解决方案", "bug"))
+    domain_code = getattr(issue, "domain_code", None)
+    if domain_code:
+        # kc-3 P4：归入领域树 01-业务知识/{group}/{name}/运营/{分类子目录}
+        base = obsidian_paths.resolve_domain_path(db, domain_code)
+        legacy_sub, note_type = ISSUE_SEDIMENT_DIR.get(issue.category, ("11-业务运营/Bug解决方案", "bug"))
+        cat_sub = legacy_sub.split("/")[-1]
+        subdir = f"{base}/{obsidian_paths.SUBDIR_OPERATION}/{cat_sub}"
+    else:
+        subdir, note_type = ISSUE_SEDIMENT_DIR.get(issue.category, ("11-业务运营/Bug解决方案", "bug"))
     filename = f"{sanitize_filename(issue.issue_no)}-{sanitize_filename(issue.title)}.md"
     rel_path = f"{subdir}/{filename}"
 
@@ -360,7 +369,9 @@ def sediment_meeting(db, meeting_id: int, force: bool = False) -> Dict:
 
     day = (meeting.start_time or datetime.now()).strftime("%Y%m%d")
     filename = f"【{day}】{sanitize_filename(meeting.title)}.md"
-    rel_path = f"{MEETING_SEDIMENT_DIR}/{filename}"
+    domain_code = getattr(meeting, "domain_code", None)
+    meet_dir = obsidian_paths.meeting_dir(db, domain_code) if domain_code else MEETING_SEDIMENT_DIR
+    rel_path = f"{meet_dir}/{filename}"
 
     md = _build_meeting_markdown(meeting)
     if force and read_markdown(rel_path):
@@ -1175,7 +1186,9 @@ def sediment_dev_ticket(db, ticket_id: int) -> Dict:
     email = db.query(SentEmail).filter(SentEmail.req_id == ticket.req_id).first()
 
     filename = f"{sanitize_filename(ticket.ticket_no)}_{sanitize_filename(ticket.system_name)}.md"
-    rel_path = f"{DEV_TICKET_SEDIMENT_DIR}/{filename}"
+    domain_code = getattr(ticket, "domain_code", None)
+    dev_dir = obsidian_paths.dev_ticket_dir(db, domain_code) if domain_code else DEV_TICKET_SEDIMENT_DIR
+    rel_path = f"{dev_dir}/{filename}"
 
     if not read_markdown(rel_path):
         write_markdown(rel_path, _build_dev_ticket_markdown(ticket, deliverables, logs, email))

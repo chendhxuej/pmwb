@@ -15,6 +15,7 @@ from db.models import (
     PmwbRequirementExt,
 )
 from services import business_domain
+from services import obsidian_paths
 from services.knowledge_link_service import link_note
 
 
@@ -161,3 +162,12 @@ def test_link_note_writeback_domain_code(db, monkeypatch):
     )
     db.refresh(r)
     assert r.domain_code == "ywt-broadband"
+
+
+def test_resolve_domain_path_authority(db):
+    _domain(db)
+    p = obsidian_paths.resolve_domain_path(db, "ywt-broadband")
+    assert p == "01-业务知识/商客业务/一网通宽带"
+    assert obsidian_paths.operation_dir(db, "ywt-broadband") == "01-业务知识/商客业务/一网通宽带/运营"
+    assert obsidian_paths.meeting_dir(db, "ywt-broadband") == "01-业务知识/商客业务/一网通宽带/会议"
+    assert obsidian_paths.dev_ticket_dir(db, "ywt-broadband") == "01-业务知识/商客业务/一网通宽带/开发交付"
