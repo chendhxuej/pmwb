@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tests.factories import KnowledgeFactory
+from tests.factories import KnowledgeFactory, RequirementExtFactory
 
 
 def test_list_knowledge_items(client: TestClient, db):
@@ -125,3 +125,85 @@ def test_ensure_main_notes_creates_missing_main(client: TestClient, db, monkeypa
 
     rel = client.get("/api/v1/basic-data/business-domains/ftto2/related").json()["data"]
     assert rel["main_note"] is not None
+
+
+def test_kc2_3_requirement_rules_sediment_and_main_link(client, db, monkeypatch, tmp_path):
+    """kc-2-3：用户故事规则沉淀到场景规则子笔记，且需求沉淀回链主笔记。"""
+    from db.models import PmwbBusinessDomain, PmwbKnowledgeItem, PmwbKnowledgeLink, PmwbUserStory
+    from services.knowledge_link_service import ensure_domain_main_note
+
+    monkeypatch.setattr("core.config.settings.OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    domain = PmwbBusinessDomain(domain_code="ywt", domain_name="一网通", domain_group="政企业务", enabled=True)
+    db.add(domain)
+    db.commit()
+    main = ensure_domain_main_note(db, "ywt")
+
+    RequirementExtFactory.create(db, req_id="REQ-KC23", domain_code="ywt", status="closed")
+    story = PmwbUserStory(req_id="REQ-KC23", seq=1, title="故事1", desc="d",
+                          rules='["规则A", "规则B"]', finalized=1)
+    db.add(story)
+    db.commit()
+
+    # 沉淀规则 → 场景规则子笔记 + 关联
+    resp = client.post("/api/v1/knowledge/sediment/requirement/REQ-KC23/rules")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["stories_sedimented"] == 1
+    sub = db.query(PmwbKnowledgeItem).filter(PmwbKnowledgeItem.sub_category == "场景规则").first()
+    assert sub is not None
+    link = (
+        db.query(PmwbKnowledgeLink)
+        .filter(PmwbKnowledgeLink.source_type == "requirement", PmwbKnowledgeLink.source_id == "REQ-KC23")
+        .first()
+    )
+    assert link is not None
+
+    # 需求沉淀 → 回链主笔记
+    resp2 = client.post("/api/v1/knowledge/sediment/requirement/REQ-KC23")
+    assert resp2.status_code == 200
+    main_link = (
+        db.query(PmwbKnowledgeLink)
+        .filter(PmwbKnowledgeLink.knowledge_item_id == main["item"]["id"],
+                PmwbKnowledgeLink.source_type == "requirement")
+        .first()
+    )
+    assert main_link is not None
+
+
+def test_kc2_3_archive_operation_manual(client, db, monkeypatch, tmp_path):
+    """kc-2-3：操作手册交付物归档到业务知识交付物目录并登记主笔记。"""
+    from db.models import PmwbBusinessDomain, PmwbDevTicket, PmwbDevDeliverable
+    from services.knowledge_link_service import ensure_domain_main_note
+
+    monkeypatch.setattr("core.config.settings.OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    domain = PmwbBusinessDomain(domain_code="ywt", domain_name="一网通", domain_group="政企业务", enabled=True)
+    db.add(domain)
+    db.commit()
+    ensure_domain_main_note(db, "ywt")
+
+    RequirementExtFactory.create(db, req_id="REQ-ARC", domain_code="ywt")
+    ticket = PmwbDevTicket(req_id="REQ-ARC", ticket_no="DEV-ARC", system_name="系统", status="archived")
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+
+    src = tmp_path / "src_manual.pdf"
+    src.write_text("manual")
+    d = PmwbDevDeliverable(ticket_id=ticket.id, deliverable_type="operation_manual",
+                           file_name="操作手册.pdf", local_path=str(src))
+    db.add(d)
+    db.commit()
+
+    resp = client.post("/api/v1/knowledge/sediment/requirement/REQ-ARC/archive-manual")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert len(data["archived"]) == 1
+    assert (tmp_path / "01-业务知识/政企业务/一网通/05-交付物/attachments/操作手册.pdf").exists()
+    # 主笔记 frontmatter related_deliverables 已登记
+    from utils.obsidian import read_frontmatter
+    main_path = f"01-业务知识/政企业务/一网通/一网通 业务知识主笔记.md"
+    fm = read_frontmatter(main_path)
+    assert "操作手册.pdf" in (fm.get("related_deliverables") or [])
+

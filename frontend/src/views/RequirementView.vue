@@ -280,8 +280,20 @@
         <el-empty v-else description="暂无催办记录" />
       </div>
       <div v-if="!detail.is_eval" class="detail-section">
-        <div class="detail-section-title">关联业务知识</div>
-        <RelatedKnowledgePanel :domain-code="detail.ext?.domain_code" />
+        <div class="detail-section-title">
+          <span>关联业务知识</span>
+          <div class="dk-actions">
+            <el-button size="small" type="primary" link @click="sedimentRules(detail)">沉淀业务规则</el-button>
+            <el-button
+              v-if="isRequirementClosed(detail)"
+              size="small"
+              :type="detail.ext?.manual_archived ? 'info' : 'success'"
+              link
+              @click="archiveManual(detail)"
+            >{{ detail.ext?.manual_archived ? '已归档操作手册' : '归档操作手册到业务知识' }}</el-button>
+          </div>
+        </div>
+        <KnowledgeLinker source-type="requirement" :source-id="detail.req_id" :domain-code="detail.ext?.domain_code" />
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
@@ -351,7 +363,8 @@ import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
-import RelatedKnowledgePanel from '@/components/Common/RelatedKnowledgePanel.vue'
+import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
+import { knowledgeApi } from '@/api/knowledge.js'
 import {
   getRequirements, getRequirement, updateRequirement,
   getRequirementStats, getEvaluations, updateEvaluation,
@@ -366,7 +379,7 @@ const searchFields = [
     { label: '已提出', value: 'proposed' },
     { label: '已受理', value: 'accepted' },
     { label: '开发中', value: 'dev' },
-    { label: '已关闭', value: 'closed' },
+    { label: '已上线', value: 'closed' },
     { label: '已暂停', value: 'paused' },
   ]},
   { name: 'priority', label: '优先级', type: 'select', options: [
@@ -386,7 +399,7 @@ const statusOptions = {
   proposed: { label: '已提出', type: 'info' },
   accepted: { label: '已受理', type: 'primary' },
   dev: { label: '开发中', type: 'warning' },
-  closed: { label: '已关闭', type: 'success' },
+  closed: { label: '已上线', type: 'success' },
   paused: { label: '已暂停', type: 'danger' },
 }
 
@@ -443,7 +456,7 @@ const statsItems = computed(() => [
   { label: '需求总数', value: stats.value.total },
   { label: '已受理', value: stats.value.accepted },
   { label: '开发中', value: stats.value.dev },
-  { label: '已关闭', value: stats.value.closed },
+  { label: '已上线', value: stats.value.closed },
   { label: '已暂停', value: stats.value.paused },
   { label: '涉及开发', value: stats.value.involved },
 ])
@@ -738,6 +751,36 @@ async function handleView(row) {
   }
 }
 
+// kc-2-3：需求沉淀 —— 状态为「已上线(closed)」时提供操作手册归档入口
+function isRequirementClosed(d) {
+  return (d?.ext?.status || d?.status) === 'closed'
+}
+
+async function sedimentRules(d) {
+  if (!d?.req_id) return
+  try {
+    await knowledgeApi.sedimentRequirementRules(d.req_id)
+    ElMessage.success('用户故事业务规则已沉淀到对应领域主笔记的「场景规则」子笔记')
+  } catch (e) {
+    ElMessage.error('沉淀失败：' + (e.response?.data?.message || e.message || '未知错误'))
+  }
+}
+
+async function archiveManual(d) {
+  if (!d?.req_id) return
+  try {
+    const res = await knowledgeApi.archiveRequirementManual(d.req_id)
+    const data = res?.data || {}
+    const n = data.archived?.length || 0
+    ElMessage.success(`操作手册已归档 ${n} 个${data.main_note ? '，主笔记：' + data.main_note : ''}`)
+    // 刷新详情以更新 manual_archived 标记
+    const refreshed = await getRequirement(d.req_id)
+    detail.value = refreshed || detail.value
+  } catch (e) {
+    ElMessage.error('归档失败：' + (e.response?.data?.message || e.message || '未知错误'))
+  }
+}
+
 async function fetchReminderRecords(reqId) {
   try {
     const res = await getReminderRecords(reqId)
@@ -952,6 +995,14 @@ onMounted(() => {
 .detail-section-title {
   font-weight: bold;
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dk-actions {
+  display: flex;
+  gap: 8px;
+  font-weight: normal;
 }
 .detail-section-content {
   color: #606266;

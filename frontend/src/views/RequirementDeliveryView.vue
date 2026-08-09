@@ -33,7 +33,7 @@
               <el-option label="建议中" value="proposed" />
               <el-option label="已采纳" value="accepted" />
               <el-option label="开发中" value="dev" />
-              <el-option label="已关闭" value="closed" />
+              <el-option label="已上线" value="closed" />
               <el-option label="暂停" value="paused" />
             </el-select>
             <el-select v-model="reqPriority" placeholder="优先级" clearable style="width: 120px" @change="handleReqSearch">
@@ -313,7 +313,7 @@
                       <el-form-item label="跟踪状态">
                         <el-select v-model="current.status" style="width:100%">
                           <el-option label="建议中" value="proposed" /><el-option label="已采纳" value="accepted" />
-                          <el-option label="开发中" value="dev" /><el-option label="已关闭" value="closed" />
+                          <el-option label="开发中" value="dev" /><el-option label="已上线" value="closed" />
                           <el-option label="暂停" value="paused" />
                         </el-select>
                       </el-form-item>
@@ -608,7 +608,7 @@
                       :disabled="!st.id || !(st.rules || []).length"
                       :loading="st._sed"
                       @click="sedimentStoryRules(st)"
-                    >沉淀为业务知识</el-button>
+                    >沉淀业务规则到主笔记</el-button>
                     <div class="ac-list">
                       <div v-for="(r, ri) in (st.rules || [])" :key="ri" class="ac-row">
                         <el-input v-model="st.rules[ri]" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="提炼本故事的业务规则…" />
@@ -676,9 +676,18 @@
             <div class="card" style="grid-column: span 12">
               <div class="card-header flex-between">
                 <span class="card-label">知识沉淀与业务知识关联</span>
-                <el-button size="small" type="primary" :loading="sedimenting" @click="sedimentRequirement">
-                  沉淀需求为知识笔记
-                </el-button>
+                <div class="flex gap-8">
+                  <el-button
+                    v-if="isRequirementClosed(current)"
+                    size="small"
+                    :type="current.ext?.manual_archived ? 'info' : 'success'"
+                    :loading="archiving"
+                    @click="archiveManual(current)"
+                  >{{ current.ext?.manual_archived ? '已归档操作手册' : '归档操作手册到业务知识' }}</el-button>
+                  <el-button size="small" type="primary" :loading="sedimenting" @click="sedimentRequirement">
+                    沉淀需求为知识笔记
+                  </el-button>
+                </div>
               </div>
               <div class="card-body">
                 <KnowledgeLinker
@@ -775,7 +784,7 @@
         <el-form-item label="跟踪状态">
           <el-select v-model="reqForm.status" style="width:100%">
             <el-option label="建议中" value="proposed" /><el-option label="已采纳" value="accepted" />
-            <el-option label="开发中" value="dev" /><el-option label="已关闭" value="closed" />
+            <el-option label="开发中" value="dev" /><el-option label="已上线" value="closed" />
             <el-option label="暂停" value="paused" />
           </el-select>
         </el-form-item>
@@ -1231,16 +1240,42 @@ async function sedimentRequirement() {
   }
 }
 
-/* 沉淀用户故事业务规则为业务知识笔记 */
+/* kc-2-3：操作手册归档 + 规则沉淀状态判定 */
+const archiving = ref(false)
+function isRequirementClosed(req) {
+  return (req?.ext?.status || req?.status) === 'closed'
+}
+async function archiveManual(req) {
+  if (!req?.req_id) return
+  archiving.value = true
+  try {
+    const res = await knowledgeApi.archiveRequirementManual(req.req_id)
+    const data = res?.data || {}
+    const n = data.archived?.length || 0
+    ElMessage.success(`操作手册已归档 ${n} 个${data.main_note ? '，主笔记：' + data.main_note : ''}`)
+    await refreshCurrent(req.req_id)
+  } catch (e) {
+    ElMessage.error('归档失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    archiving.value = false
+  }
+}
+
+
+/* 沉淀用户故事业务规则到对应领域主笔记的「场景规则」子笔记 */
 async function sedimentStoryRules(st) {
-  if (!st.id) {
+  if (!current.value?.req_id) {
     ElMessage.warning('请先确认落库用户故事再沉淀')
+    return
+  }
+  if (!st.rules || !st.rules.length) {
+    ElMessage.warning('该故事暂无业务规则可沉淀')
     return
   }
   st._sed = true
   try {
-    await knowledgeApi.sedimentUserStory(st.id, true)
-    ElMessage.success('业务规则已沉淀为业务知识笔记')
+    await knowledgeApi.sedimentRequirementRules(current.value.req_id)
+    ElMessage.success('用户故事业务规则已沉淀到对应领域主笔记的「场景规则」子笔记')
   } catch (e) {
     ElMessage.error('沉淀失败：' + (e?.response?.data?.message || e.message || '未知错误'))
   } finally {
@@ -1472,7 +1507,7 @@ function statusType(s) {
   return { proposed: 'info', accepted: 'warning', dev: 'primary', closed: 'success', paused: 'info' }[s] || 'info'
 }
 function statusLabel(s) {
-  return { proposed: '建议中', accepted: '已采纳', dev: '开发中', closed: '已关闭', paused: '暂停' }[s] || s || '建议中'
+  return { proposed: '建议中', accepted: '已采纳', dev: '开发中', closed: '已上线', paused: '暂停' }[s] || s || '建议中'
 }
 function priorityType(p) {
   return { P0: 'danger', P1: 'warning', P2: '', P3: 'info' }[p] || ''

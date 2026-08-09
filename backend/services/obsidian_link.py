@@ -4,14 +4,19 @@
 - 一键沉淀：把运营工单 / 会议 / 需求 / 开发工单 生成知识条目 Markdown，写入 Obsidian vault
   的对应目录（11-业务运营 / 05-会议纪要 / 10-业务建设），并在 pmwb_knowledge_item 建索引，
   同时回填来源对象的 obsidian_path，形成双向关联。
+- 沉淀时按 domain_code 回链到对应业务知识主笔记，并写 pmwb_knowledge_link（主笔记已存在时）。
 - 落盘位置遵循 docs/需求规格说明书.md 第四节「Obsidian 知识库归档方案」。
 """
+import os
+import json
+import shutil
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from core.config import settings
 from core.exceptions import NotFoundException
 from db.models import (
+    PmwbBusinessDomain,
     PmwbDevDeliverable,
     PmwbDevTicket,
     PmwbDevTicketLog,
@@ -23,9 +28,18 @@ from db.models import (
     SentEmail,
 )
 from services.knowledge import knowledge_item_service
+from services.knowledge_link_service import ensure_domain_main_note, link_note
 from services.meeting import meeting_service
 from services.operation import operation_issue_service
-from utils.obsidian import delete_markdown, read_markdown, sanitize_filename, write_markdown
+from utils.obsidian import (
+    append_or_replace_section,
+    delete_markdown,
+    read_frontmatter,
+    read_markdown,
+    sanitize_filename,
+    write_frontmatter,
+    write_markdown,
+)
 
 
 def _fmt_dt(value) -> str:
@@ -422,8 +436,8 @@ def delete_meeting_minutes(db, meeting_id: int) -> Dict:
 REQUIREMENT_SEDIMENT_DIR = "10-业务建设/需求沉淀"
 
 
-def _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues) -> str:
-    """生成需求知识沉淀 Markdown。"""
+def _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues, main_note_title: Optional[str] = None) -> str:
+    """生成需求知识沉淀 Markdown。main_note_title 非空时在 frontmatter 与正文写回链到主笔记。"""
     # 优先使用 ext 中的覆盖值，回退到 email
     req_name = (ext.req_name if ext and ext.req_name else (email.req_name if email else "未知需求"))
     background = (ext.background if ext and ext.background else (email.background if email else ""))
@@ -445,6 +459,10 @@ def _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issu
         f"status: draft",
         f"created: {_fmt_dt(datetime.now())}",
         f"tags: [需求, {system_name or '通用'}]",
+    ]
+    if main_note_title:
+        fm.append(f'related_business_main_note: "{main_note_title}"')
+    fm += [
         "---",
         "",
         f"# {req_name}",
@@ -493,6 +511,12 @@ def _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issu
 
     # 关联
     fm += ["## 关联", ""]
+    if main_note_title:
+        fm += [
+            f"### 业务知识主笔记",
+            f"- 回链：[[{main_note_title}]]",
+            "",
+        ]
     if dev_tickets:
         fm.append("### 关联开发工单")
         for t in dev_tickets:
@@ -531,9 +555,21 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
     if not ext and not email:
         raise NotFoundException(f"需求不存在：req_id={req_id}")
 
+    domain_code = getattr(ext, "domain_code", None) if ext else None
+    # 主笔记已存在时回链（不主动创建主笔记，仅当 domain 已建立主笔记时打通双向链接）
+    main_note = _find_main_note(db, domain_code)
+    main_note_title = main_note.title if main_note else None
+
     # 幂等：已存在索引则不重复创建（除非 force 覆盖）
     existing = _find_existing_index(db, "requirement", req_id)
     if existing and not force:
+        # 仍确保与主笔记的关联存在（历史沉淀可能未回链）
+        if main_note:
+            try:
+                link_note(db, main_note.id, source_type="requirement", source_id=req_id,
+                           link_type="main", domain_code=domain_code)
+            except Exception:
+                pass
         return {
             "obsidian_path": existing.obsidian_path,
             "knowledge_item_id": existing.id,
@@ -551,13 +587,20 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
     filename = f"{sanitize_filename(req_id)}_{sanitize_filename(req_name)}.md"
     rel_path = f"{REQUIREMENT_SEDIMENT_DIR}/{filename}"
 
-    md = _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues)
+    md = _build_requirement_markdown(ext, email, stories, dev_tickets, meetings, issues, main_note_title=main_note_title)
     if force and read_markdown(rel_path):
         write_markdown(rel_path, md)
     elif not read_markdown(rel_path):
         write_markdown(rel_path, md)
 
     if existing:
+        # 历史索引（多为 force 覆盖场景）：重新关联主笔记
+        if main_note:
+            try:
+                link_note(db, main_note.id, source_type="requirement", source_id=req_id,
+                           link_type="main", domain_code=domain_code)
+            except Exception:
+                pass
         return {
             "obsidian_path": rel_path,
             "knowledge_item_id": existing.id,
@@ -565,7 +608,6 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
             "created": False,
         }
 
-    domain_code = getattr(ext, "domain_code", None) if ext else None
     background_text = (ext.background if ext and ext.background else (email.background if email else "")) or ""
     summary = (background_text[:200] if background_text else req_name)
     item = knowledge_item_service.create(
@@ -583,11 +625,248 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
             "summary": summary,
         },
     )
+    # 新建沉淀：若主笔记已存在，注册需求→主笔记的关联并同步主笔记索引
+    if main_note:
+        try:
+            link_note(db, main_note.id, source_type="requirement", source_id=req_id,
+                       link_type="main", domain_code=domain_code)
+        except Exception:
+            pass
     return {
         "obsidian_path": rel_path,
         "knowledge_item_id": item.id,
         "item_id": item.item_id,
         "created": True,
+    }
+
+
+def _find_main_note(db, domain_code: Optional[str]):
+    """查找某领域已存在的业务知识主笔记（不主动创建）。"""
+    if not domain_code:
+        return None
+    return (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+
+
+def _item_public_dict(item: PmwbKnowledgeItem) -> dict:
+    return {
+        "id": item.id,
+        "item_id": item.item_id,
+        "title": item.title,
+        "obsidian_path": item.obsidian_path,
+        "domain_code": item.domain_code,
+        "note_type": getattr(item, "note_type", "sub"),
+        "sub_category": item.sub_category,
+        "summary": item.summary,
+    }
+
+
+def _ensure_scenario_rules_sub_note(db, domain_code: str) -> dict:
+    """确保某领域存在「场景规则」子笔记（03-业务规则/场景规则.md），返回 item 字典。
+
+    找不到则按 domain_code 自动创建（kc-2-3 规则沉淀前置）。
+    注：模型仅有 note_type/sub_category（kc-2-2 实现），sub_type 概念以 sub_category 承载。
+    """
+    if not domain_code:
+        raise NotFoundException("需求未设置业务领域(domain_code)，无法沉淀规则")
+    domain = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.domain_code == domain_code).first()
+    if not domain:
+        raise NotFoundException(f"业务领域不存在：{domain_code}")
+    existing = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.sub_category == "场景规则")
+        .first()
+    )
+    if existing:
+        return _item_public_dict(existing)
+
+    subdir = f"01-业务知识/{domain.domain_group}/{domain.domain_name}/03-业务规则"
+    title = f"{domain.domain_name} 场景规则"
+    rel_path = f"{subdir}/{title}.md"
+    fm = [
+        "---",
+        f'item_id: "KNOW-{datetime.now().strftime("%Y%m%d")}-{str(datetime.now().microsecond % 1000).zfill(3)}"',
+        f'domain_code: "{domain_code}"',
+        f'domain_name: "{domain.domain_name}"',
+        'note_type: "sub"',
+        'sub_category: "场景规则"',
+        f'title: "{title}"',
+        f'created: {_fmt_dt(datetime.now())}',
+        "tags: [业务规则, 场景规则]",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        "> 本笔记沉淀来自需求用户故事的「场景规则」，由系统自动追加维护。",
+        "",
+        "## 沉淀自用户故事的规则",
+        "",
+        "> 以下由各需求「沉淀业务规则」操作自动追加，每条以 `### 需求编号` 为界，可重复触发更新。",
+        "",
+    ]
+    write_markdown(rel_path, "\n".join(fm))
+    item = knowledge_item_service.create(
+        db,
+        {
+            "item_id": f"KNOW-{datetime.now().strftime('%Y%m%d')}-{str(datetime.now().microsecond % 1000).zfill(3)}",
+            "title": title,
+            "category": "业务规则",
+            "sub_category": "场景规则",
+            "tags": "业务规则,场景规则",
+            "obsidian_path": rel_path,
+            "source_type": "manual",
+            "source_id": domain_code,
+            "domain_code": domain_code,
+            "note_type": "sub",
+            "summary": f"{domain.domain_name} 场景规则（沉淀自需求用户故事）",
+        },
+    )
+    # 领域归属时保活主笔记并重建子笔记摘要
+    try:
+        ensure_domain_main_note(db, domain_code)
+    except Exception:
+        pass
+    return _item_public_dict(item)
+
+
+def sediment_requirement_rules(db, req_id: str) -> Dict:
+    """把某需求的用户故事业务规则追加到目标领域主笔记的「场景规则」子笔记。
+
+    规则以「### 需求编号」为界追加，重复触发时同需求规则块被覆盖更新（不重复堆积）。
+    同时在 pmwb_knowledge_link 记录需求与场景规则子笔记的关联。
+    """
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    domain_code = getattr(ext, "domain_code", None) if ext else None
+    if not domain_code:
+        raise NotFoundException("需求未设置业务领域(domain_code)，无法沉淀规则")
+
+    stories = (
+        db.query(PmwbUserStory)
+        .filter(PmwbUserStory.req_id == req_id)
+        .filter(PmwbUserStory.finalized == 1)
+        .order_by(PmwbUserStory.seq)
+        .all()
+    )
+    stories = [s for s in stories if s.rules]
+    if not stories:
+        raise NotFoundException("该需求暂无「已定稿且含业务规则」的用户故事，无法沉淀")
+
+    sub_note = _ensure_scenario_rules_sub_note(db, domain_code)
+    req_name = (ext.req_name if ext and ext.req_name else req_id)
+
+    # 按需求聚合的规则块（以 ### 需求编号 为界，便于重复触发时整体替换）
+    block_lines = [f"> 来源需求：{req_id}（{req_name}）", ""]
+    for i, s in enumerate(stories, 1):
+        block_lines.append(f"#### 故事{i}：{s.title or '—'}")
+        rules = s.rules
+        if isinstance(rules, str):
+            try:
+                rules = json.loads(rules)
+            except Exception:
+                rules = []
+        if not isinstance(rules, list):
+            rules = []
+        for r in rules:
+            block_lines.append(f"- {r}")
+        block_lines.append("")
+    block = "\n".join(block_lines).rstrip()
+
+    content = read_markdown(sub_note["obsidian_path"]) or ""
+    new_content = append_or_replace_section(content, f"场景规则 · {req_id}", block)
+    write_markdown(sub_note["obsidian_path"], new_content)
+
+    # 记录需求 → 场景规则子笔记 的关联（canonical）
+    try:
+        link_note(db, sub_note["id"], source_type="requirement", source_id=req_id,
+                   link_type="sub", domain_code=domain_code, note="业务规则")
+    except Exception:
+        pass
+
+    return {
+        "sub_note_id": sub_note["id"],
+        "sub_note_title": sub_note["title"],
+        "obsidian_path": sub_note["obsidian_path"],
+        "stories_sedimented": len(stories),
+    }
+
+
+def archive_requirement_manual(db, req_id: str) -> Dict:
+    """把需求关联开发工单中的操作手册交付物归档到业务知识交付物目录并登记主笔记。
+
+    复制交付物文件到 01-业务知识/{group}/{name}/05-交付物/attachments/，
+    并在主笔记 frontmatter `related_deliverables` 登记（主笔记已存在时）。
+    返回 {archived: [...], skipped: [...], main_note: title|None}。
+    """
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    domain_code = getattr(ext, "domain_code", None) if ext else None
+    if not domain_code:
+        raise NotFoundException("需求未设置业务领域(domain_code)，无法归档操作手册")
+
+    main_note = _find_main_note(db, domain_code)
+    domain = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.domain_code == domain_code).first()
+    if not domain:
+        raise NotFoundException(f"业务领域不存在：{domain_code}")
+
+    attachments_dir = f"01-业务知识/{domain.domain_group}/{domain.domain_name}/05-交付物/attachments"
+
+    tickets = db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id == req_id).all()
+    ticket_ids = [t.id for t in tickets]
+    archived = []
+    skipped = []
+    if ticket_ids:
+        deliverables = (
+            db.query(PmwbDevDeliverable)
+            .filter(PmwbDevDeliverable.ticket_id.in_(ticket_ids))
+            .filter(PmwbDevDeliverable.deliverable_type == "operation_manual")
+            .all()
+        )
+        for d in deliverables:
+            src = d.obsidian_path or d.local_path
+            if not src:
+                skipped.append({"file_name": d.file_name, "reason": "无源文件路径"})
+                continue
+            vault = settings.OBSIDIAN_VAULT_PATH
+            src_path = os.path.join(vault, src) if not os.path.isabs(src) else src
+            if not os.path.exists(src_path):
+                skipped.append({"file_name": d.file_name, "reason": "源文件不存在"})
+                continue
+            dst_rel = f"{attachments_dir}/{sanitize_filename(d.file_name)}"
+            dst_path = os.path.join(vault, dst_rel)
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+            shutil.copy2(src_path, dst_path)
+            archived.append({"file_name": d.file_name, "obsidian_path": dst_rel})
+
+    # 登记主笔记 frontmatter related_deliverables（主笔记已存在时）
+    if main_note and main_note.obsidian_path:
+        fm = read_frontmatter(main_note.obsidian_path)
+        existing = fm.get("related_deliverables")
+        existing_list = existing if isinstance(existing, list) else ([existing] if existing else [])
+        changed = False
+        for a in archived:
+            if a["file_name"] not in existing_list:
+                existing_list.append(a["file_name"])
+                changed = True
+        if changed:
+            fm["related_deliverables"] = existing_list
+            write_frontmatter(main_note.obsidian_path, fm)
+
+    # 标记需求已归档
+    if ext:
+        ext.manual_archived = 1
+        if archived:
+            ext.manual_obsidian_path = archived[0]["obsidian_path"]
+        db.commit()
+
+    return {
+        "req_id": req_id,
+        "archived": archived,
+        "skipped": skipped,
+        "main_note": main_note.title if main_note else None,
     }
 
 

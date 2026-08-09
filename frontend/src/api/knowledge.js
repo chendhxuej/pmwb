@@ -83,4 +83,14 @@ export const knowledgeApi = {
       params: { force },
     })
   },
+
+  // 把某需求的用户故事业务规则追加到主笔记「场景规则」子笔记
+  sedimentRequirementRules(reqId) {
+    return request.post(`/knowledge/sediment/requirement/${reqId}/rules`)
+  },
+
+  // 把需求关联开发工单的操作手册交付物归档到业务知识
+  archiveRequirementManual(reqId) {
+    return request.post(`/knowledge/sediment/requirement/${reqId}/archive-manual`)
+  },
 }

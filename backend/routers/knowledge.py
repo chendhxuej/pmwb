@@ -25,7 +25,12 @@ from services.knowledge_link_service import (
     list_by_item,
     unlink as unlink_by_source,
 )
-from services.obsidian_link import sediment_requirement, sediment_user_story
+from services.obsidian_link import (
+    archive_requirement_manual,
+    sediment_requirement,
+    sediment_requirement_rules,
+    sediment_user_story,
+)
 from services.vault_sync import sync_from_vault
 
 router = APIRouter(prefix="/knowledge", tags=["知识库"])
@@ -218,6 +223,18 @@ def sediment_user_story_endpoint(
 ):
     """把用户故事的业务规则沉淀为业务知识笔记（force=True 覆盖更新）。"""
     return success(data=sediment_user_story(db, story_id, force=force))
+
+
+@router.post("/sediment/requirement/{req_id}/rules")
+def sediment_requirement_rules_endpoint(req_id: str, db: Session = Depends(get_db)):
+    """把某需求的用户故事业务规则追加到目标领域主笔记的「场景规则」子笔记（重复触发幂等更新）。"""
+    return success(data=sediment_requirement_rules(db, req_id))
+
+
+@router.post("/sediment/requirement/{req_id}/archive-manual")
+def archive_requirement_manual_endpoint(req_id: str, db: Session = Depends(get_db)):
+    """把需求关联开发工单的操作手册交付物归档到业务知识交付物目录并登记主笔记。"""
+    return success(data=archive_requirement_manual(db, req_id))
 
 
 @router.get("/{item_id}")
