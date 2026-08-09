@@ -176,6 +176,49 @@ def _split_frontmatter(content: str):
     return fm, f"---\n{raw}\n--", body
 
 
+def read_frontmatter(relative_path: str) -> Dict[str, object]:
+    """读取 Obsidian 笔记的 frontmatter（支持标量与 YAML 数组字段），无则返回空 dict。"""
+    content = read_markdown(relative_path)
+    if content is None:
+        return {}
+    fm, _, _ = _split_frontmatter(content)
+    return fm
+
+
+def write_frontmatter(relative_path: str, data: Dict[str, object]) -> str:
+    """重写 Obsidian 笔记的 frontmatter（保留正文），支持标量与数组字段，返回完整路径。
+
+    注意：整块重建 frontmatter，调用方需传入完整字段集；
+    如需只改个别字段请用 set_frontmatter_value / append_frontmatter_list / remove_frontmatter_list。
+    """
+    content = read_markdown(relative_path)
+    if content is None:
+        content = ""
+    _, _, body = _split_frontmatter(content)
+    lines = ["---"]
+    for k, v in data.items():
+        if isinstance(v, list):
+            if not v:
+                lines.append(f"{k}: []")
+            else:
+                lines.append(f'{k}: [{ ", ".join(str(x) for x in v)}]')
+        elif v is None:
+            lines.append(f"{k}:")
+        else:
+            lines.append(f'{k}: "{v}"' if isinstance(v, str) and ("," in v or " " in v or not v) else f"{k}: {v}")
+    lines.append("---")
+    new_content = "\n".join(lines) + "\n\n" + body.lstrip("\n")
+    return write_markdown(relative_path, new_content)
+
+
+def append_or_replace_section(content: str, heading: str, body: str) -> str:
+    """按标题替换或追加正文章节（`## heading`），返回新内容。
+
+    body 为纯正文（不含标题行）；与 replace_section 行为一致，提供语义化别名。
+    """
+    return replace_section(content, heading, body)
+
+
 def set_frontmatter_value(content: str, key: str, value) -> str:
     """设置/新增 frontmatter 中某个标量字段，返回新内容。"""
     fm, raw, body = _split_frontmatter(content)

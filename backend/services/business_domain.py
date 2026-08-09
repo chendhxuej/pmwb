@@ -20,6 +20,7 @@ from schemas.business_domain import (
     BusinessDomainOut,
     BusinessDomainTreeNode,
     BusinessDomainUpdate,
+    DomainLinkItem,
     DomainRelatedItem,
     DomainRelatedOut,
 )

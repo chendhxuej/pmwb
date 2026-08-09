@@ -509,7 +509,12 @@ class PmwbKnowledgeLink(Base):
     __tablename__ = "pmwb_knowledge_link"
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
-    knowledge_item_id = Column(Integer, nullable=False, comment="关联知识条目索引ID")
+    knowledge_item_id = Column(
+        Integer,
+        ForeignKey("pmwb_knowledge_item.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="关联知识条目索引ID（指向 pmwb_knowledge_item.id）",
+    )
     source_type = Column(String(64), nullable=False, comment="关联对象类型：requirement/ticket/operation/meeting/deliverable/key_work")
     source_id = Column(String(255), nullable=False, comment="关联对象业务ID（req_id / 工单id / 会议id / 运营id 等）")
     link_type = Column(String(32), default="main", comment="链接类型：main(主笔记)/sub(子笔记)/deliverable(交付物)")

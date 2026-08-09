@@ -20,7 +20,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.config import settings
 from db.models import PmwbBusinessDomain, PmwbKnowledgeItem
-from utils.obsidian import get_vault_path, parse_frontmatter, parse_title
+from utils.obsidian import (
+    get_vault_path,
+    parse_frontmatter,
+    parse_title,
+    _split_frontmatter,
+)
 
 
 def _gen_item_id() -> str:
@@ -151,11 +156,26 @@ def sync_from_vault(
                     text = ""
                 title = parse_title(text) or fn[:-3]
                 fm = parse_frontmatter(text)
+                # kc-2：识别 frontmatter 的 note_type / sub_type / domain_code，回填索引
+                # （存量笔记无这些字段时保持原有领域派生逻辑，向后兼容）
+                fm_full, _, _ = _split_frontmatter(text)
+                fm_note_type = fm_full.get("note_type")
+                fm_sub_type = fm_full.get("sub_type")
+                fm_domain_code = fm_full.get("domain_code")
 
                 domain_code = _classify_domain(
                     rel, title, domain, children_kw, code_info
                 )
+                # frontmatter 显式声明领域时以声明为准（笔记可能放在非默认目录）
+                if fm_domain_code:
+                    fm_dc = str(fm_domain_code).strip()
+                    if fm_dc in code_info:
+                        domain_code = fm_dc
                 grp, name = code_info.get(domain_code, (domain.domain_group, domain.domain_name))
+
+                # 分类回填：note_type/sub_type 优先，缺失时退回领域派生值
+                category = fm_note_type or grp or "业务知识"
+                sub_category = fm_sub_type or name
 
                 scanned_files.append({
                     "path": rel,
@@ -163,8 +183,8 @@ def sync_from_vault(
                     "tags": fm.get("tags", ""),
                     "created_date": fm.get("created_date", ""),
                     "domain_code": domain_code,
-                    "category": grp or "业务知识",
-                    "sub_category": name,
+                    "category": category,
+                    "sub_category": sub_category,
                 })
 
     # 3. 创建索引条目

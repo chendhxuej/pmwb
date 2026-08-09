@@ -5,13 +5,24 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
-from schemas.knowledge import KnowledgeItemCreate, KnowledgeItemUpdate
+from schemas.knowledge import (
+    KnowledgeItemCreate,
+    KnowledgeItemUpdate,
+    KnowledgeLinkCreate,
+    KnowledgeLinkBatch,
+)
 from services.knowledge import knowledge_item_service
 from services.knowledge_link import (
     link_to_item,
     link_to_path,
     list_links,
     unlink,
+)
+from services.knowledge_link_service import (
+    create_main_note as create_main_note_service,
+    link_note,
+    list_by_item,
+    unlink as unlink_by_source,
 )
 from services.obsidian_link import sediment_requirement, sediment_user_story
 from services.vault_sync import sync_from_vault
@@ -101,6 +112,85 @@ def create_link_by_path(
 def delete_link(link_id: int, db: Session = Depends(get_db)):
     """取消关联。"""
     return success(data=unlink(db, link_id))
+
+
+# ---------------------------------------------------------------------------
+# 按知识条目维度管理关联（kc-2：标准实现，前端 KnowledgeLinker 使用）
+# 注意：/main-note 与 /{item_id}/links 为多段路径，注册在 /{item_id} 之前以避免歧义。
+# ---------------------------------------------------------------------------
+
+@router.post("/main-note")
+def create_main_note(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+):
+    """新建业务知识主笔记（选领域后生成标准模板，幂等）。
+
+    payload: {domain_code}
+    """
+    result = create_main_note_service(db, payload["domain_code"])
+    return success(
+        data=result,
+        message="主笔记已生成" if result["created"] else "主笔记已存在",
+    )
+
+
+@router.get("/{item_id}/links")
+def get_item_links(item_id: int, db: Session = Depends(get_db)):
+    """获取某知识条目已关联的全部过程性对象。"""
+    return success(data=list_by_item(db, item_id))
+
+
+@router.post("/{item_id}/links")
+def create_item_link(
+    item_id: int,
+    payload: KnowledgeLinkCreate,
+    db: Session = Depends(get_db),
+):
+    """给某知识条目建立一条关联（幂等），并同步主笔记 frontmatter related_* 数组。"""
+    data = payload.model_dump()
+    return success(data=link_note(
+        db,
+        knowledge_item_id=item_id,
+        source_type=data["source_type"],
+        source_id=data["source_id"],
+        link_type=data.get("link_type", "main"),
+        domain_code=data.get("domain_code"),
+        note=data.get("note"),
+    ))
+
+
+@router.post("/{item_id}/links/batch")
+def create_item_links_batch(
+    item_id: int,
+    payload: KnowledgeLinkBatch,
+    db: Session = Depends(get_db),
+):
+    """给某知识条目批量建立关联（幂等）。"""
+    created = []
+    for lk in payload.links:
+        created.append(link_note(
+            db,
+            knowledge_item_id=item_id,
+            source_type=lk.source_type,
+            source_id=lk.source_id,
+            link_type=lk.link_type,
+            domain_code=lk.domain_code,
+            note=lk.note,
+        ))
+    return success(data=created)
+
+
+@router.delete("/{item_id}/links/{source_type}/{source_id}")
+def delete_item_link(
+    item_id: int,
+    source_type: str,
+    source_id: str,
+    db: Session = Depends(get_db),
+):
+    """删除某知识条目与指定过程性对象的关联，并同步清理 frontmatter。"""
+    ok = unlink_by_source(db, item_id, source_type, source_id)
+    return success(data=ok)
 
 
 @router.post("/sediment/requirement/{req_id}")

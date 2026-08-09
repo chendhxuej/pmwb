@@ -34,6 +34,8 @@ class RequirementExtBase(BaseModel):
     clarification: Optional[str] = Field(None, description="澄清内容（可编辑覆盖）")
     system_name: Optional[str] = Field(None, description="涉及系统（可编辑覆盖）")
     sa_name: Optional[str] = Field(None, description="SA（可编辑覆盖）")
+    manual_archived: Optional[int] = Field(None, description="操作手册是否已归档到业务知识（0/1）")
+    manual_obsidian_path: Optional[str] = Field(None, description="已归档操作手册的 Obsidian 路径")
 
 
 class RequirementExtUpdate(BaseModel):
@@ -51,6 +53,8 @@ class RequirementExtUpdate(BaseModel):
     system_name: Optional[str] = None
     sa_name: Optional[str] = None
     dev_ticket_no: Optional[str] = Field(None, description="需求级开发单号")
+    manual_archived: Optional[int] = Field(None, description="操作手册是否已归档到业务知识（0/1）")
+    manual_obsidian_path: Optional[str] = Field(None, description="已归档操作手册的 Obsidian 路径")
 
     @field_validator("version_required_date", mode="before")
     @classmethod
