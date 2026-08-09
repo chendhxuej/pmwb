@@ -2,7 +2,7 @@
 
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import cast, func, Integer, or_
 from sqlalchemy.orm import Session
 
 from core.exceptions import NotFoundException, ValidationException
@@ -59,32 +59,110 @@ def _to_out(domain: PmwbBusinessDomain, counts: Optional[Tuple[dict, dict, dict,
     )
 
 
+def _group_by_domain(db: Session, model) -> dict:
+    """统计某模型按 domain_code 分组的计数。"""
+    return dict(
+        db.query(model.domain_code, func.count(model.id))
+        .filter(model.domain_code.isnot(None))
+        .group_by(model.domain_code)
+        .all()
+    )
+
+
 def _related_counts(db: Session) -> Tuple[dict, dict, dict, dict]:
-    """聚合各业务领域的关联计数（知识/需求/运营工单/会议），4 条 group-by 查询。"""
-    k = dict(
-        db.query(PmwbKnowledgeItem.domain_code, func.count(PmwbKnowledgeItem.id))
-        .filter(PmwbKnowledgeItem.domain_code.isnot(None))
-        .group_by(PmwbKnowledgeItem.domain_code)
+    """聚合各业务领域的关联计数（知识/需求/运营工单/会议）。
+
+    采用「源表直接归属 + 知识关联链接回溯」的并集口径：一条需求/运营工单/会议
+    只要【自身 domain_code == 某领域】或【存在指向它的 pmwb_knowledge_link 且该
+    link.domain_code == 某领域】，即计入该领域计数。这样领域浏览页的
+    「需求/运营/会议」卡片与「时间线」口径一致，不会出现"时间线有、需求/运营空"。
+    """
+    k = _group_by_domain(db, PmwbKnowledgeItem)
+    r_direct = _group_by_domain(db, PmwbRequirementExt)
+    i_direct = _group_by_domain(db, PmwbOperationIssue)
+    m_direct = _group_by_domain(db, PmwbMeeting)
+
+    # 收集所有带 domain_code 的关联链接，按 source_type 归并 source_id
+    links = (
+        db.query(
+            PmwbKnowledgeLink.source_type,
+            PmwbKnowledgeLink.source_id,
+            PmwbKnowledgeLink.domain_code,
+        )
+        .filter(PmwbKnowledgeLink.domain_code.isnot(None))
         .all()
     )
-    r = dict(
-        db.query(PmwbRequirementExt.domain_code, func.count(PmwbRequirementExt.id))
-        .filter(PmwbRequirementExt.domain_code.isnot(None))
-        .group_by(PmwbRequirementExt.domain_code)
-        .all()
+    req_ids: set = set()
+    issue_ids: set = set()
+    meet_ids: set = set()
+    for st, sid, _ in links:
+        if st == "requirement":
+            req_ids.add(sid)
+        elif st == "operation":
+            try:
+                issue_ids.add(int(sid))
+            except (ValueError, TypeError):
+                pass
+        elif st == "meeting":
+            try:
+                meet_ids.add(int(sid))
+            except (ValueError, TypeError):
+                pass
+
+    # 批量取源记录自身的 domain_code
+    req_dc = (
+        dict(
+            db.query(PmwbRequirementExt.req_id, PmwbRequirementExt.domain_code)
+            .filter(PmwbRequirementExt.req_id.in_(req_ids))
+            .all()
+        )
+        if req_ids
+        else {}
     )
-    i = dict(
-        db.query(PmwbOperationIssue.domain_code, func.count(PmwbOperationIssue.id))
-        .filter(PmwbOperationIssue.domain_code.isnot(None))
-        .group_by(PmwbOperationIssue.domain_code)
-        .all()
+    issue_dc = (
+        dict(
+            db.query(PmwbOperationIssue.id, PmwbOperationIssue.domain_code)
+            .filter(PmwbOperationIssue.id.in_(issue_ids))
+            .all()
+        )
+        if issue_ids
+        else {}
     )
-    m = dict(
-        db.query(PmwbMeeting.domain_code, func.count(PmwbMeeting.id))
-        .filter(PmwbMeeting.domain_code.isnot(None))
-        .group_by(PmwbMeeting.domain_code)
-        .all()
+    meet_dc = (
+        dict(
+            db.query(PmwbMeeting.id, PmwbMeeting.domain_code)
+            .filter(PmwbMeeting.id.in_(meet_ids))
+            .all()
+        )
+        if meet_ids
+        else {}
     )
+
+    r = dict(r_direct)
+    i = dict(i_direct)
+    m = dict(m_direct)
+    for st, sid, dc in links:
+        if st == "requirement":
+            src = req_dc.get(sid)
+            target = r
+        elif st == "operation":
+            try:
+                src = issue_dc.get(int(sid))
+            except (ValueError, TypeError):
+                src = None
+            target = i
+        elif st == "meeting":
+            try:
+                src = meet_dc.get(int(sid))
+            except (ValueError, TypeError):
+                src = None
+            target = m
+        else:
+            continue
+        # 源记录 domain_code 与该链接 domain_code 不同（含源记录为空）→ 计入增量，
+        # 避免与「直接归属」重复计数
+        if src != dc:
+            target[dc] = target.get(dc, 0) + 1
     return k, r, i, m
 
 
@@ -170,22 +248,46 @@ def get_related(db: Session, domain_code: str) -> DomainRelatedOut:
         for i in sub_notes
     ]
 
+    # 需求：自身 domain_code == 领域，或存在指向它的关联链接且该链接 domain_code == 领域
+    req_linked = (
+        db.query(PmwbKnowledgeLink)
+        .filter(
+            PmwbKnowledgeLink.source_type == "requirement",
+            PmwbKnowledgeLink.domain_code == domain_code,
+            PmwbKnowledgeLink.source_id == PmwbRequirementExt.req_id,
+        )
+        .exists()
+    )
     req_rows = (
         db.query(PmwbRequirementExt, SentEmail)
         .outerjoin(SentEmail, SentEmail.req_id == PmwbRequirementExt.req_id)
-        .filter(PmwbRequirementExt.domain_code == domain_code)
+        .filter(or_(PmwbRequirementExt.domain_code == domain_code, req_linked))
         .all()
     )
     requirements = []
+    _seen_req = set()
     for ext, sent in req_rows:
+        if ext.id in _seen_req:
+            continue  # 同一需求有多封关联邮件时 outerjoin 会产生重复行，按需求去重
+        _seen_req.add(ext.id)
         name = ext.req_name or (sent.req_name if sent else None) or ext.req_id
         requirements.append(
             DomainRelatedItem(code=ext.req_id, title=name, status=ext.status or "proposed")
         )
 
+    # 会议：自身 domain_code == 领域，或存在指向它的关联链接（source_id == meeting.id）
+    meet_linked = (
+        db.query(PmwbKnowledgeLink)
+        .filter(
+            PmwbKnowledgeLink.source_type == "meeting",
+            PmwbKnowledgeLink.domain_code == domain_code,
+            cast(PmwbKnowledgeLink.source_id, Integer) == PmwbMeeting.id,
+        )
+        .exists()
+    )
     m_rows = (
         db.query(PmwbMeeting)
-        .filter(PmwbMeeting.domain_code == domain_code)
+        .filter(or_(PmwbMeeting.domain_code == domain_code, meet_linked))
         .order_by(PmwbMeeting.start_time.desc())
         .all()
     )
@@ -199,9 +301,19 @@ def get_related(db: Session, domain_code: str) -> DomainRelatedOut:
         for m in m_rows
     ]
 
+    # 运营工单：自身 domain_code == 领域，或存在指向它的关联链接（source_id == issue.id）
+    issue_linked = (
+        db.query(PmwbKnowledgeLink)
+        .filter(
+            PmwbKnowledgeLink.source_type == "operation",
+            PmwbKnowledgeLink.domain_code == domain_code,
+            cast(PmwbKnowledgeLink.source_id, Integer) == PmwbOperationIssue.id,
+        )
+        .exists()
+    )
     i_rows = (
         db.query(PmwbOperationIssue)
-        .filter(PmwbOperationIssue.domain_code == domain_code)
+        .filter(or_(PmwbOperationIssue.domain_code == domain_code, issue_linked))
         .all()
     )
     issues = [

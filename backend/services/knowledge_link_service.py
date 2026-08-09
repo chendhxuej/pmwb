@@ -16,7 +16,16 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from core.exceptions import NotFoundException
-from db.models import PmwbBusinessDomain, PmwbKnowledgeItem, PmwbKnowledgeLink
+from db.models import (
+    PmwbBusinessDomain,
+    PmwbDevTicket,
+    PmwbKeyWork,
+    PmwbKnowledgeItem,
+    PmwbKnowledgeLink,
+    PmwbMeeting,
+    PmwbOperationIssue,
+    PmwbRequirementExt,
+)
 from utils.obsidian import (
     append_or_replace_section,
     read_frontmatter,
@@ -119,6 +128,9 @@ def link_note(
         db.refresh(link)
         existing = link
 
+    # 回填源记录 domain_code，使源表与关联链接口径一致（避免领域浏览错位）
+    _writeback_domain_code(db, source_type, str(source_id), existing.domain_code)
+
     _sync_frontmatter_and_section(db, knowledge_item_id)
     return _serialize(existing, item)
 
@@ -140,6 +152,36 @@ def unlink(db: Session, knowledge_item_id: int, source_type: str, source_id: str
     db.commit()
     _sync_frontmatter_and_section(db, knowledge_item_id)
     return True
+
+
+def _writeback_domain_code(db: Session, source_type: str, source_id: str, domain_code: Optional[str]):
+    """关联建立后回填源记录的 domain_code（仅当源记录领域为空时）。
+
+    用于修复「需求/运营/会议经 KnowledgeLinker 关联后，链接带 domain_code 但源记录
+    仍为 NULL」导致领域浏览页"时间线有、需求/运营空"的错位。不覆盖源记录已有领域。
+    """
+    if not domain_code:
+        return
+    rec = None
+    try:
+        if source_type == "requirement":
+            rec = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == source_id).first()
+        elif source_type == "operation":
+            rec = db.query(PmwbOperationIssue).filter(PmwbOperationIssue.id == int(source_id)).first()
+        elif source_type == "meeting":
+            rec = db.query(PmwbMeeting).filter(PmwbMeeting.id == int(source_id)).first()
+        elif source_type == "ticket":
+            rec = db.query(PmwbDevTicket).filter(PmwbDevTicket.ticket_no == source_id).first()
+        elif source_type == "key_work":
+            rec = db.query(PmwbKeyWork).filter(PmwbKeyWork.id == int(source_id)).first()
+        else:
+            return
+    except (ValueError, TypeError):
+        return
+    if rec is None or rec.domain_code:
+        return
+    rec.domain_code = domain_code
+    db.commit()
 
 
 def list_by_source(db: Session, source_type: str, source_id: str) -> List[dict]:
