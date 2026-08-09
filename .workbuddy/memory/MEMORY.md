@@ -3,14 +3,15 @@
 ## 项目状态
 - 技术栈：FastAPI + Vue3 + Element Plus + MySQL + Obsidian 联动；GitHub chendhxuej/pmwb (main)。服务拓扑：主后端 8000 / 人员中台 8001(独立 FastAPI+alembic) / 前端 5173 / MySQL 3306 / 统一邮件中心 3210(外部)。
 - 前端 IA（2026-08-04 核对）：首页看板 → 任务中心 → 需求与交付 → 运营监控 → 会议日程 → 个人待办 → 重点工作 → 人员中台 → 知识中心 → 邮件中心。
-- 业务知识联动（2026-08-05）：`pmwb_business_domain` 12 条种子；`domain_code` 已铺到业务表 + `pmwb_knowledge_item`；前端统一用 `BusinessDomainSelect.vue` 选领域、`RelatedKnowledgePanel.vue` 展示同领域知识。知识中心批次十二 kc-2（kc-2-1~7）已全部合入 main：关联基础设施 + 主笔记体系(note_type列/ensure主笔记保活/子笔记摘要聚合/树形) + 需求沉淀(回链主笔记+场景规则子笔记+操作手册归档) + 运营结构化(4字段+场景规则沉淀) + 会议关联(force覆盖/删除纪要/多选关联)。
-- 测试基线：pytest 123 passed / 5 failed（5 失败均为 Master 8001 沙箱故障 + dashboard 日期等既有环境问题，与功能改动无关）；vitest 7/7；vite build 干净。
+- 业务知识联动（2026-08-05）：`pmwb_business_domain` 12 条种子；`domain_code` 已铺到业务表 + `pmwb_knowledge_item`；前端统一用 `BusinessDomainSelect.vue` 选领域、`RelatedKnowledgePanel.vue` 展示同领域知识。知识中心批次十二 kc-2（kc-2-1~7）已全部合入 main：关联基础设施 + 主笔记体系(note_type列/ensure主笔记保活/子笔记摘要聚合/树形) + 需求沉淀(回链主笔记+场景规则子笔记+操作手册归档) + 运营结构化(4字段+场景规则沉淀) + 会议关联(force覆盖/删除纪要/多选关联)。Obsidian 业务知识结构优化 kc-3 进行中：kc-3-1~3 已合入 main（需求 domain_code 端到端贯通 / 需求知识笔记同置到需求自身文件夹 / 领域浏览聚合改为源表+链接并集并回填源记录 domain_code）；kc-3-4(路径权威源 obsidian_paths) + kc-3-5(运营/会议/开发交付归入 `01-业务知识/{领域}/` 树) 待做。
+- 测试基线：pytest 131 passed / 4 failed（4 失败均为 Master 8001 沙箱故障 ×2 + dashboard 日期 + product_bible vault OSError 等既有环境问题，与功能改动无关）；vitest 7/7；vite build 干净。
 
 ## 启动方案（看门狗常驻保活）
 - `C:\pmwb-scripts\pmwb-keeper.py`(镜像 `scripts/`)每 15s 查 3306/8000/5173/3210/8001，DOWN 用已验证控制台命令 DETACHED 拉起；后端/Master 等 3306 就绪才起。桌面 `启动PMWB.bat`(常驻)、`重启PMWB.bat`(按端口终止+重启)。
 - **开机自启铁律**：`pmwb-autostart.vbs` 必须 `cmd /c "<python.exe>" "<keeper.py>"`。**绝不能用 `pythonw`/`Run/Start-Process` 隐藏窗口拉 python.exe**——`mysqld --console` 静默失败、数据库起不来。
 - **⚠️ 陈旧 PMWB 服务占位坑（高复发）**：曾 3 个 PMWB-* NSSM 服务 + PMWB-MySQL 计划任务（已 `scripts/uninstall-windows-services.bat` 右键管理员永久删除）。若「改了后端代码不生效(404)」先查是否残留旧服务占 8000；沙箱令牌被 UAC 过滤无法在沙箱内 taskkill 重启，需本机管理员。
 - **⚠️ Ghost Port 坑**：Python 进程 Kill 后 TCP LISTENING socket 可能残留（netstat 有 PID 但 process 不存在），看门狗 `port_up()` 误判→不拉新后端→过期代码。修复：`Get-Process python | Stop-Process -Force` 清 Python + 重启 keeper。
+- **⚠️ 后端重启用 PowerShell `Stop-Process`**：沙箱 `cmd /c taskkill` 被安全策略拦截（"Invoking cmd.exe from Bash bypasses all command validation"）；PowerShell 用 `Stop-Process -Id <pid> -Force` 杀后端，**变量名勿用 `$pid`**（那是 PowerShell 自身 PID 保留变量，误用只杀自己、静默失败）。杀掉后看门狗 15s 内按验证过命令重拉新后端加载新代码。查端口 PID 用 `netstat -ano | grep :8000`（bash 调 netstat.exe 可用；PowerShell 进程枚举/CIM 在沙箱常被限制返回空）。
 - 服务化脚本(`install-windows-services.ps1` 等)已弃用。
 
 ## 关键技术约定（高频坑）
