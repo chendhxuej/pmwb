@@ -330,10 +330,37 @@ def call_best_available(db: Session, system: str, user: str) -> Dict[str, Any]:
     return res
 
 
+def _classify_provider_error(status_code: int, body: str):
+    """把模型服务商返回的非 200 状态码翻译成中文可读原因，并归类 kind。
+
+    kind 取值：badrequest / auth / quota / notfound / ratelimit / server / other
+    （timeout、connect 两类在网络异常分支单独处理）
+    """
+    text = (body or "").strip()
+    low = text.lower()
+    if status_code == 400:
+        return "badrequest", f"请求被拒绝（参数错误，请检查 model 名称）：{text[:160]}"
+    if status_code == 401:
+        return "auth", "API Key 无效或缺失（请在「大模型管理」重新填写密钥）"
+    if status_code == 403:
+        if any(k in low for k in ("usage limit", "quota", "insufficient", "exceeded", "额度", "余额")):
+            return "quota", "账号额度已用尽（当月配额耗尽，请到服务商控制台充值或升级套餐后重试）"
+        if any(k in low for k in ("forbidden", "permission", "无权")):
+            return "auth", "无访问权限（当前密钥无权调用该模型，请更换密钥或模型）"
+        return "auth", f"访问被拒绝（HTTP 403：{text[:160]}）"
+    if status_code == 404:
+        return "notfound", "接口路径不存在（请检查 Base URL 与 model 名称是否匹配）"
+    if status_code == 429:
+        return "ratelimit", "请求过于频繁（触发限流，请稍后重试）"
+    if status_code >= 500:
+        return "server", f"模型服务端错误（HTTP {status_code}，服务暂时不可用）"
+    return "other", f"HTTP {status_code}：{text[:160]}"
+
+
 def test_provider(p: PmwbLlmProvider) -> Dict[str, Any]:
     base_url = (p.base_url or "").rstrip("/")
     if not base_url:
-        return {"reachable": False, "error": "未配置 Base URL"}
+        return {"reachable": False, "error": "未配置 Base URL", "kind": "config"}
     url = f"{base_url}/chat/completions"
     headers = {"Content-Type": "application/json"}
     key = decrypt_secret(p.api_key)
@@ -349,11 +376,12 @@ def test_provider(p: PmwbLlmProvider) -> Dict[str, Any]:
         with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
             resp = client.post(url, headers=headers, json=body)
         if resp.status_code == 200:
-            return {"reachable": True, "error": None}
-        return {"reachable": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+            return {"reachable": True, "error": None, "kind": "ok"}
+        kind, msg = _classify_provider_error(resp.status_code, resp.text)
+        return {"reachable": False, "error": msg, "kind": kind}
     except httpx.TimeoutException:
-        return {"reachable": False, "error": "连接超时（请检查网络或 API 地址）"}
+        return {"reachable": False, "error": "连接超时（请检查网络或 API 地址）", "kind": "timeout"}
     except httpx.ConnectError:
-        return {"reachable": False, "error": "无法连接至 API 服务器（请检查 Base URL）"}
+        return {"reachable": False, "error": "无法连接至 API 服务器（请检查 Base URL）", "kind": "connect"}
     except Exception as e:  # noqa: BLE001
-        return {"reachable": False, "error": str(e)[:300]}
+        return {"reachable": False, "error": str(e)[:300], "kind": "other"}

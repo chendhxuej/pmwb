@@ -1112,6 +1112,12 @@ class PmwbWorkReport(Base):
         onupdate=datetime.utcnow,
         comment="更新时间",
     )
+    # 报告生成来源（与迁移 20260809000003 对齐；to_out/send_report 会读写）
+    gen_used_llm = Column(
+        Integer, nullable=True, server_default="0", comment="是否由大模型生成(0/1)"
+    )
+    gen_model = Column(String(255), nullable=True, comment="生成所用模型/提供方名")
+    gen_notice = Column(Text, nullable=True, comment="生成说明（如不可用原因）")
 
     __table_args__ = (
         Index("ix_work_report_status", "status"),
