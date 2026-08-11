@@ -2,45 +2,54 @@
   <div class="home-view">
     <div class="bento-grid">
 
-      <!-- ══ ROW 1: 整体概览（问候 + 实时动态）══ -->
-      <BentoCard class="greeting-tile" :span="12" flat :body-padding="'0'">
+      <!-- ══ ROW 1: 问候区 + 实时动态 ══ -->
+      <BentoCard class="greeting-tile" :span="8" flat :body-padding="'0'">
         <div class="greeting-inner">
-          <div class="g-main">
-            <div class="g-top">
-              <div>
-                <div class="g-hello">{{ helloText }}，<span>{{ greeting.name }}</span></div>
-                <div class="g-sub">{{ greeting.sub }}</div>
-              </div>
-              <div class="g-eff">
-                <div class="g-eff-key">运营闭环率</div>
-                <div class="g-eff-val">{{ greeting.efficiency }}<span class="g-eff-unit">%</span></div>
-              </div>
+          <div class="g-top">
+            <div>
+              <div class="g-hello">{{ helloText }}，<span>{{ greeting.name }}</span></div>
+              <div class="g-sub">{{ greeting.sub }}</div>
             </div>
-            <div class="g-stats">
-              <div class="g-stat" v-for="(s, i) in greeting.stats" :key="i">
-                <span class="g-stat-val" :class="s.cls">{{ s.value }}</span>
-                <span class="g-stat-key">{{ s.key }}</span>
-              </div>
-            </div>
-            <div class="cmd-bar">
-              <div class="cmd-bar-kbd"><span class="kbd">⌘</span><span class="kbd">K</span></div>
-              <div class="cmd-bar-text">快速检索需求 / 工单 / 知识库…</div>
+            <div class="g-eff">
+              <div class="g-eff-key">运营闭环率</div>
+              <div class="g-eff-val">{{ greeting.efficiency }}<span class="g-eff-unit">%</span></div>
             </div>
           </div>
-          <div class="g-live">
-            <div class="g-live-head">
-              <span class="g-live-title">实时动态</span>
-              <span class="g-live-pulse"></span>
+          <div class="g-stats">
+            <div class="g-stat" v-for="(s, i) in greeting.stats" :key="i">
+              <span class="g-stat-val" :class="s.cls">{{ s.value }}</span>
+              <span class="g-stat-key">{{ s.key }}</span>
             </div>
-            <ul class="g-live-list">
-              <li class="g-live-item" v-for="(x, i) in liveStatus" :key="i">
-                <span class="g-live-dot" :class="x.color"></span>
-                <span class="g-live-text">{{ x.text }}</span>
-                <span class="g-live-time">{{ x.time }}</span>
-              </li>
-            </ul>
+          </div>
+          <div class="g-ticker">
+            <span class="g-ticker-label">实时动态</span>
+            <div class="g-ticker-viewport">
+              <div
+                class="ticker-track"
+                :class="{ 'is-paused': tickerPaused }"
+                @mouseenter="tickerPaused = true"
+                @mouseleave="tickerPaused = false"
+              >
+                <span class="ticker-item" v-for="(t, i) in tickerItems" :key="'a' + i">
+                  <span class="ticker-dot" :class="t.color"></span>{{ t.text }}
+                </span>
+                <span class="ticker-item" v-for="(t, i) in tickerItems" :key="'b' + i" aria-hidden="true">
+                  <span class="ticker-dot" :class="t.color"></span>{{ t.text }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
+      </BentoCard>
+
+      <BentoCard title="实时动态" :span="4">
+        <ul class="ls-list">
+          <li class="ls-item" v-for="(item, i) in liveStatus" :key="i">
+            <span class="ls-dot" :class="item.color"></span>
+            <span class="ls-text">{{ item.text }}</span>
+            <span class="ls-time">{{ item.time }}</span>
+          </li>
+        </ul>
       </BentoCard>
 
       <!-- ══ ROW 2: KPI 指标条 ══ -->
@@ -379,6 +388,19 @@ const liveStatus = ref([
   { color: 'green', text: '会议纪要已归档：周例会', time: '3h 前' },
 ])
 
+// 实时滚动字幕：数据驱动（运营动态 + 最近需求更新），无硬编码文案
+const tickerPaused = ref(false)
+const tickerItems = computed(() => {
+  const items = []
+  for (const x of liveStatus.value) {
+    items.push({ color: x.color || 'green', text: `[运营] ${x.text}（${x.time || ''}）` })
+  }
+  for (const r of recentReqs.value) {
+    items.push({ color: 'blue', text: `[需求] ${r.name} · ${r.status} · 更新 ${r.date}` })
+  }
+  return items.length ? items : [{ color: 'green', text: '暂无实时动态，系统运行正常' }]
+})
+
 const kpis = ref([
   { num: 14, color: 'blue', label: '我的待办', delta: '↑ 3 较昨日', deltaType: 'up' },
   { num: 38, color: 'amber', label: '本周新增需求', delta: '评审中 11', deltaType: 'neutral' },
@@ -449,6 +471,8 @@ const issues = ref({ total: 0, pending: 0, processing: 0, resolved: 0, overdue: 
 const meetingStats = ref({ totalThisWeek: 0, today: 0, upcoming: 0, pendingMinutes: 0 })
 const reqStatusDist = ref([])
 const issueTypeDist = ref([])
+
+/* ───────────────── 实时动态滚动（数据驱动，见 tickerItems / g-ticker）───────────────── */
 
 /* ───────────────── 派生：问候语 / 日期 ───────────────── */
 const helloText = computed(() => {
@@ -694,99 +718,10 @@ onActivated(() => {
 .greeting-inner {
   position: relative;
   z-index: 1;
-  padding: 28px 32px;
-  display: flex;
-  gap: 36px;
-  align-items: stretch;
-}
-.g-main {
-  flex: 1;
-  min-width: 0;
+  padding: 28px 30px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-.g-live {
-  width: 340px;
-  flex-shrink: 0;
-  border-left: 1px solid rgba(255, 255, 255, .1);
-  padding-left: 30px;
-  display: flex;
-  flex-direction: column;
-}
-.g-live-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.g-live-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #f1f5f9;
-  letter-spacing: .02em;
-}
-.g-live-pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #4ade80;
-  animation: livePulse 1.8s ease-out infinite;
-}
-@keyframes livePulse {
-  0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, .5); }
-  70% { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
-}
-.g-live-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-.g-live-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, .06);
-}
-.g-live-item:last-child { border-bottom: none; }
-.g-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  margin-top: 5px;
-  flex-shrink: 0;
-}
-.g-live-dot.red { background: #f87171; box-shadow: 0 0 6px rgba(248, 113, 113, .5); }
-.g-live-dot.amber { background: #fbbf24; box-shadow: 0 0 6px rgba(251, 191, 36, .45); }
-.g-live-dot.green { background: #4ade80; }
-.g-live-dot.blue { background: #60a5fa; }
-.g-live-text {
-  flex: 1;
-  min-width: 0;
-  font-size: 12.5px;
-  color: #cbd5e1;
-  line-height: 1.45;
-}
-.g-live-time {
-  font-size: 11px;
-  color: #64748b;
-  font-family: var(--font-mono);
-  white-space: nowrap;
-  margin-left: 6px;
-}
-@media (max-width: 980px) {
-  .greeting-inner { flex-direction: column; gap: 22px; }
-  .g-live {
-    width: 100%;
-    border-left: none;
-    border-top: 1px solid rgba(255, 255, 255, .1);
-    padding-left: 0;
-    padding-top: 18px;
-  }
+  gap: 18px;
 }
 .g-top {
   display: flex;
@@ -826,29 +761,42 @@ onActivated(() => {
 .g-stat-val.accent { color: #93c5fd; }
 .g-stat-key { font-size: 11.5px; color: #64748b; margin-top: 2px; letter-spacing: .03em; }
 
-.cmd-bar {
-  margin-top: auto;
+.g-ticker {
+  margin-top: 4px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(255, 255, 255, .07);
-  border: 1px solid rgba(255, 255, 255, .09);
+  gap: 12px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .1);
   border-radius: 12px;
-  padding: 10px 16px;
-  backdrop-filter: blur(8px);
+  padding: 9px 14px;
+  overflow: hidden;
 }
-.cmd-bar-kbd { display: flex; gap: 4px; }
-.kbd {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  background: rgba(255, 255, 255, .1);
-  border: 1px solid rgba(255, 255, 255, .14);
-  color: #94a3b8;
-  padding: 2px 7px;
-  border-radius: 5px;
+.g-ticker-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #93c5fd;
+  white-space: nowrap;
+  letter-spacing: .03em;
 }
-.cmd-bar-text { flex: 1; font-size: 13px; color: #64748b; min-width: 0; white-space: nowrap; overflow: hidden; }
+.g-ticker-viewport {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+/* ── 实时动态 ── */
+.ls-list { list-style: none; padding: 0 22px 18px; }
+.ls-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }
+.ls-item:last-child { border-bottom: none; }
+.ls-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ls-dot.red { background: var(--danger); box-shadow: 0 0 6px rgba(217, 84, 77, .4); }
+.ls-dot.amber { background: var(--warning); box-shadow: 0 0 6px rgba(217, 138, 31, .35); }
+.ls-dot.green { background: var(--success); }
+.ls-text { font-size: 13px; color: var(--text-primary); flex: 1; min-width: 0; }
+.ls-time { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
 /* ── KPI 增量 ── */
 .kpi-delta {
@@ -1120,4 +1068,32 @@ onActivated(() => {
   .mt-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
   .mt-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
 
+  /* ── 实时滚动字幕（已并入问候卡底部，仅保留卡片内轨道样式）── */
+  .ticker-track {
+    display: inline-flex;
+    align-items: center;
+    gap: 44px;
+    white-space: nowrap;
+    padding-left: 24px;
+    animation: tickerScroll 38s linear infinite;
+    will-change: transform;
+  }
+  .ticker-track.is-paused { animation-play-state: paused; }
+  .ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #cbd5e1;
+    white-space: nowrap;
+  }
+  .ticker-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .ticker-dot.red { background: var(--danger); }
+  .ticker-dot.amber { background: var(--warning); }
+  .ticker-dot.green { background: var(--success); }
+  .ticker-dot.blue { background: #60a5fa; }
+  @keyframes tickerScroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
 </style>
