@@ -200,6 +200,7 @@ class DashboardStats(BaseModel):
     issue_resolved: int
     issue_overdue: int
     knowledge_total: int
+    req_total: int = 0
 
 
 class DashboardData(BaseModel):

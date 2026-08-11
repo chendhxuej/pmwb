@@ -306,12 +306,32 @@
         </div>
       </BentoCard>
 
+      <!-- ══ 实时滚动字幕（数据驱动：运营动态 + 最近需求更新，循环滚动）══ -->
+      <div class="ticker-bar" style="grid-column:1/-1">
+        <div class="ticker-label">实时动态</div>
+        <div class="ticker-viewport">
+          <div
+            class="ticker-track"
+            :class="{ 'is-paused': tickerPaused }"
+            @mouseenter="tickerPaused = true"
+            @mouseleave="tickerPaused = false"
+          >
+            <span class="ticker-item" v-for="(t, i) in tickerItems" :key="'a' + i">
+              <span class="ticker-dot" :class="t.color"></span>{{ t.text }}
+            </span>
+            <span class="ticker-item" v-for="(t, i) in tickerItems" :key="'b' + i" aria-hidden="true">
+              <span class="ticker-dot" :class="t.color"></span>{{ t.text }}
+            </span>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import BentoCard from '@/components/Common/BentoCard.vue'
 import { dashboardApi } from '@/api/dashboard'
@@ -328,15 +348,20 @@ const yMin = 0
 /* ───────────────── Demo 有机数据（默认渲染） ───────────────── */
 const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
-/* 运营问题类型中文映射（后端 distribution_charts.issueTypeDist 含英文 key） */
+/* 运营问题类型中文映射（兜底：后端已返回中文名，这里兼容未覆盖的原始英文 key） */
 const ISSUE_TYPE_CN = {
   bug: 'BUG管理',
+  data_abnormal: '数据异常',
+  system_error: '系统错误',
+  process_block: '流程阻塞',
+  requirement_change: '需求变更',
+  spot_event: '热点投诉',
+  temp_task: '临时交办',
+  topic_analysis: '专题分析',
   系统错误: '系统错误',
   数据异常: '数据异常',
   流程阻塞: '流程阻塞',
   需求变更: '需求变更',
-  spot_event: '热点投诉',
-  temp_task: '临时交办',
   其他: '其他',
 }
 function pct(v, t) {
@@ -369,11 +394,24 @@ const liveStatus = ref([
   { color: 'green', text: '会议纪要已归档：周例会', time: '3h 前' },
 ])
 
+// 实时滚动字幕：数据驱动（运营动态 + 最近需求更新），无硬编码文案
+const tickerPaused = ref(false)
+const tickerItems = computed(() => {
+  const items = []
+  for (const x of liveStatus.value) {
+    items.push({ color: x.color || 'green', text: `[运营] ${x.text}（${x.time || ''}）` })
+  }
+  for (const r of recentReqs.value) {
+    items.push({ color: 'blue', text: `[需求] ${r.name} · ${r.status} · 更新 ${r.date}` })
+  }
+  return items.length ? items : [{ color: 'green', text: '暂无实时动态，系统运行正常' }]
+})
+
 const kpis = ref([
   { num: 14, color: 'blue', label: '我的待办', delta: '↑ 3 较昨日', deltaType: 'up' },
   { num: 38, color: 'amber', label: '本周新增需求', delta: '评审中 11', deltaType: 'neutral' },
-  { num: 9, color: 'blue', label: '进行中工单', delta: '本周完成 23', deltaType: 'up' },
-  { num: 5, color: 'red', label: '运营预警', delta: '超期 2 条', deltaType: 'down' },
+  { num: 0, color: 'blue', label: '本周新增运营工单', delta: '处理中 0', deltaType: 'up' },
+  { num: 0, color: 'red', label: '运营预警', delta: '处理中 0 · 待处理 0', deltaType: 'neutral' },
 ])
 
 const trendValues = ref([18, 24, 21, 33, 29, 38, 42])
@@ -670,6 +708,11 @@ async function loadData() {
 onMounted(() => {
   loadData()
   _timer = setTimeout(_tick, 600)
+})
+
+// 从其它页面返回看板时重新拉取，保证"我的待办/工单信息"为最新（实时性）
+onActivated(() => {
+  loadData()
 })
 
 onUnmounted(() => {
@@ -1062,4 +1105,59 @@ onUnmounted(() => {
   .mt-info { flex: 1; min-width: 0; }
   .mt-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
   .mt-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
+
+  /* ── 实时滚动字幕 ── */
+  .ticker-bar {
+    display: flex;
+    align-items: stretch;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    min-height: 44px;
+  }
+  .ticker-label {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent), #5b8def);
+    white-space: nowrap;
+  }
+  .ticker-viewport {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+  }
+  .ticker-track {
+    display: inline-flex;
+    align-items: center;
+    gap: 44px;
+    white-space: nowrap;
+    padding-left: 24px;
+    animation: tickerScroll 38s linear infinite;
+    will-change: transform;
+  }
+  .ticker-track.is-paused { animation-play-state: paused; }
+  .ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .ticker-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .ticker-dot.red { background: var(--danger); }
+  .ticker-dot.amber { background: var(--warning); }
+  .ticker-dot.green { background: var(--success); }
+  .ticker-dot.blue { background: var(--accent); }
+  @keyframes tickerScroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
 </style>
