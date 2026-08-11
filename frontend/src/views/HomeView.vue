@@ -46,7 +46,7 @@
         :span="3"
         flat
       >
-        <div class="kpi-num" :class="k.color">{{ k.num }}</div>
+        <div class="kpi-num" :class="k.color" v-countup="k.num"></div>
         <div class="kpi-label">{{ k.label }}</div>
         <div class="kpi-delta" :class="k.deltaType">{{ k.delta }}</div>
       </BentoCard>
@@ -91,7 +91,7 @@
               <span class="op-bar-track"><i class="op-bar-fill" :style="{ width: pct(s.value, taskCenter.total) + '%' }"></i></span>
               <span class="op-bar-val">{{ s.value }}</span>
             </div>
-            <div v-if="!taskCenter.by_source.length" class="tc-empty">暂无来源分布</div>
+            <div v-if="!taskCenter.by_source.length" class="empty-hint">暂无来源分布</div>
           </div>
         </div>
       </BentoCard>
@@ -116,7 +116,7 @@
               <span class="rq-bar-track"><i class="rq-bar-fill" :class="rqStatusClass(s.name)" :style="{ width: pct(s.value, reqs.total) + '%' }"></i></span>
               <span class="rq-bar-val">{{ s.value }}</span>
             </div>
-            <div v-if="!reqStatusDist.length" class="tc-empty">暂无需求状态分布</div>
+            <div v-if="!reqStatusDist.length" class="empty-hint">暂无需求状态分布</div>
           </div>
         </div>
       </BentoCard>
@@ -141,7 +141,7 @@
               <span class="op-bar-track"><i class="op-bar-fill" :style="{ width: pct(s.value, issues.total) + '%' }"></i></span>
               <span class="op-bar-val">{{ s.value }}</span>
             </div>
-            <div v-if="!issueTypeDist.length" class="tc-empty">暂无类型分布</div>
+            <div v-if="!issueTypeDist.length" class="empty-hint">暂无类型分布</div>
           </div>
         </div>
       </BentoCard>
@@ -170,7 +170,7 @@
                 </div>
               </div>
             </li>
-            <li v-if="!schedule.length" class="mt-empty">今日暂无会议安排</li>
+            <li v-if="!schedule.length" class="empty-hint">今日暂无会议安排</li>
           </ul>
         </div>
       </BentoCard>
@@ -266,7 +266,7 @@
             </div>
             <div class="kp-bar"><i class="kp-fill" :style="{ width: p.percent + '%' }"></i></div>
           </li>
-          <li v-if="!keyProjects.length" class="kp-empty">暂无进行中的重点工作</li>
+          <li v-if="!keyProjects.length" class="empty-hint">暂无进行中的重点工作</li>
         </ul>
       </BentoCard>
 
@@ -1006,9 +1006,6 @@ onUnmounted(() => {
   .mod-key { font-size: 12.5px; color: var(--text-muted); }
   .mod-sub { font-size: 12.5px; color: var(--text-secondary); }
 
-  /* ── 任务中心 / 运营工单 共用空态 ── */
-  .tc-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
-
   /* ── 重点工作进度 ── */
   .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 14px; }
   .kp-item { display: flex; flex-direction: column; gap: 6px; }
@@ -1017,7 +1014,6 @@ onUnmounted(() => {
   .kp-pct { font-size: 12.5px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
   .kp-bar { height: 6px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
   .kp-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #6aa0ff); border-radius: 4px; }
-  .kp-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
 
   /* ── 分区标题 ── */
   .section-title {
@@ -1066,5 +1062,4 @@ onUnmounted(() => {
   .mt-info { flex: 1; min-width: 0; }
   .mt-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
   .mt-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
-  .mt-empty { font-size: 12.5px; color: var(--text-muted); padding: 12px 0; }
 </style>

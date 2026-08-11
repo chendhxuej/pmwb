@@ -11,25 +11,25 @@
     <!-- 统计卡片 -->
     <el-row :gutter="12" class="stats-row">
       <el-col :span="3">
-        <el-card shadow="hover"><div class="stat-item"><div class="stat-value">{{ stats.total }}</div><div class="stat-label">工单总数</div></div></el-card>
+        <el-card shadow="hover"><div class="stat-item"><div class="stat-value" v-countup="stats.total"></div><div class="stat-label">工单总数</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-pending"><div class="stat-item"><div class="stat-value">{{ stats.pending }}</div><div class="stat-label">待处理</div></div></el-card>
+        <el-card shadow="hover" class="status-pending"><div class="stat-item"><div class="stat-value" v-countup="stats.pending"></div><div class="stat-label">待处理</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-processing"><div class="stat-item"><div class="stat-value">{{ stats.processing }}</div><div class="stat-label">处理中</div></div></el-card>
+        <el-card shadow="hover" class="status-processing"><div class="stat-item"><div class="stat-value" v-countup="stats.processing"></div><div class="stat-label">处理中</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-verify"><div class="stat-item"><div class="stat-value">{{ stats.verify }}</div><div class="stat-label">待验证</div></div></el-card>
+        <el-card shadow="hover" class="status-verify"><div class="stat-item"><div class="stat-value" v-countup="stats.verify"></div><div class="stat-label">待验证</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-resolved"><div class="stat-item"><div class="stat-value">{{ stats.resolved }}</div><div class="stat-label">已解决</div></div></el-card>
+        <el-card shadow="hover" class="status-resolved"><div class="stat-item"><div class="stat-value" v-countup="stats.resolved"></div><div class="stat-label">已解决</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-closed"><div class="stat-item"><div class="stat-value">{{ stats.closed }}</div><div class="stat-label">已关闭</div></div></el-card>
+        <el-card shadow="hover" class="status-closed"><div class="stat-item"><div class="stat-value" v-countup="stats.closed"></div><div class="stat-label">已关闭</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-overdue"><div class="stat-item"><div class="stat-value">{{ stats.overdue }}</div><div class="stat-label">超期</div></div></el-card>
+        <el-card shadow="hover" class="status-overdue"><div class="stat-item"><div class="stat-value" v-countup="stats.overdue"></div><div class="stat-label">超期</div></div></el-card>
       </el-col>
       <el-col :span="3">
         <el-card shadow="hover" class="status-loop"><div class="stat-item"><div class="stat-value">{{ stats.closed_loop_rate }}%</div><div class="stat-label">闭环率</div></div></el-card>
@@ -58,12 +58,12 @@
           @click="statusFilter = s.key"
         >{{ s.label }}</span>
       </div>
-      <el-input
+      <EnlargeInput
         v-model="keyword"
         placeholder="搜索工单号 / 标题 / 责任人"
         clearable
         size="small"
-        style="width:240px"
+        class="w-m"
         @keyup.enter="handleSearch"
         @clear="handleSearch"
       />
@@ -80,7 +80,7 @@
       class="wo-table"
     >
       <el-table-column prop="issue_no" label="工单编号" width="160" />
-      <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip>
+      <el-table-column prop="title" label="标题" min-width="380" show-overflow-tooltip>
         <template #default="{ row }">
           <span class="iss-title" @click="openDetail(row)">{{ row.title }}</span>
         </template>
@@ -275,7 +275,7 @@
       </div>
       <template #footer>
         <div class="drawer-foot">
-          <el-select v-model="nextStatus" size="small" style="width:130px" placeholder="选择状态">
+          <el-select v-model="nextStatus" size="small" class="w-s" placeholder="选择状态">
             <el-option v-for="s in STATUS_OPTIONS" :key="s.key" :label="s.label" :value="s.key" />
           </el-select>
           <el-button :loading="advanceLoading" :disabled="!nextStatus || nextStatus === detailRow?.status" @click="changeStatusFromDetail">
@@ -316,7 +316,7 @@
           </el-col>
         </el-row>
         <el-form-item label="工单标题" prop="title">
-          <el-input v-model="form.title" placeholder="简短描述问题或任务" />
+          <EnlargeInput v-model="form.title" placeholder="简短描述问题或任务" />
         </el-form-item>
         <el-form-item label="业务领域" prop="domain_code">
           <BusinessDomainSelect v-model="form.domain_code" />
@@ -339,14 +339,14 @@
           </el-col>
         </el-row>
         <el-form-item label="情况说明" prop="situation_desc">
-          <el-input v-model="form.situation_desc" type="textarea" :rows="3" placeholder="影响范围/具体情况说明" />
+          <EnlargeInput v-model="form.situation_desc" type="textarea" :rows="3" placeholder="影响范围/具体情况说明" />
         </el-form-item>
         <el-form-item label="处理结果反馈">
-          <el-input v-model="form.result_feedback" type="textarea" :rows="3" placeholder="填写工单处理结果 / 闭环说明（可后续编辑更新）" />
+          <EnlargeInput v-model="form.result_feedback" type="textarea" :rows="3" placeholder="填写工单处理结果 / 闭环说明（可后续编辑更新）" />
         </el-form-item>
         <el-form-item label="关联知识库">
           <div class="note-picker">
-            <el-input v-model="form.obsidian_path" placeholder="选择关联的 Obsidian 知识笔记" readonly style="flex:1" />
+            <EnlargeInput v-model="form.obsidian_path" placeholder="选择关联的 Obsidian 知识笔记" readonly style="flex:1" />
             <el-button @click="openLinkPicker('entry')">选择笔记</el-button>
             <el-button v-if="form.obsidian_path" link type="danger" @click="form.obsidian_path = ''">清除</el-button>
           </div>
@@ -388,7 +388,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="经验总结">
-          <el-input v-model="form.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
+          <EnlargeInput v-model="form.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
         </el-form-item>
         <el-form-item label="附件">
           <div class="att-block">
@@ -424,7 +424,7 @@
 
     <!-- 关联笔记选择弹窗 -->
     <el-dialog v-model="notePickerVisible" title="选择关联知识笔记" width="640px" append-to-body>
-      <el-input v-model="noteSearch" placeholder="搜索笔记标题" clearable style="margin-bottom:12px" />
+      <EnlargeInput v-model="noteSearch" placeholder="搜索笔记标题" clearable style="margin-bottom:12px" />
       <el-table
         :data="filteredNotes"
         height="340"
@@ -969,8 +969,15 @@ watch(
   async (q) => {
     if (q.issue) {
       try {
-        const res = await operationApi.getIssue(Number(q.issue))
-        openDetail(res)
+        const num = Number(q.issue)
+        let res = null
+        if (isFinite(num) && num > 0) {
+          res = await operationApi.getIssue(num)
+        } else {
+          const list = await operationApi.listIssues({ issue_no: String(q.issue), page: 1, page_size: 1 })
+          res = (list.items || [])[0] || null
+        }
+        if (res) openDetail(res)
       } catch (e) { /* ignore */ }
     } else if (q.email) {
       try {

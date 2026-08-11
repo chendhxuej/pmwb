@@ -8,6 +8,7 @@
   --sidebar-bg: #1e293b;
   --sidebar-active: rgba(47, 111, 237, .14);
   --surface: #ffffff;
+  --surface-soft: #f8fafc;
   --border: #e4e9f0;
   --border-subtle: #eff2f8;
   --text-primary: #0f172a;
@@ -28,9 +29,28 @@
   --shadow-card: 0 2px 12px -3px rgba(15, 23, 42, .08), 0 1px 3px -1px rgba(15, 23, 42, .06);
   --shadow-elevated: 0 16px 48px -12px rgba(15, 23, 42, .14);
   --transition-fast: .18s cubic-bezier(.4, 0, .2, 1);
-  --font-display: 'Outfit', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  --transition-normal: .28s cubic-bezier(.4, 0, .2, 1);
+  --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'SFMono-Regular', monospace;
   --sidebar-w: 220px;
+
+  /* ── 字号阶梯（全站文字只允许从以下取值，禁止散写 px） ── */
+  --fs-xs: 11px;
+  --fs-sm: 12.5px;
+  --fs-base: 14px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+  --fs-num: 32px;
+
+  /* ── 表单控件尺寸档 ── */
+  --ctl-h: 36px;
+  --ctl-w-s: 140px;
+  --ctl-w-m: 220px;
+  --ctl-w-l: 320px;
+  --ctl-w-xl: 420px;
+  --ctl-w-xs: 120px;
 }
 
 /* ── RESET & BASE ── */
@@ -47,7 +67,8 @@ html {
   color-scheme: normal;
 }
 
-body {
+body,
+#app {
   font-family: var(--font-display);
   background: var(--bg-app);
   color: var(--text-primary);
@@ -104,6 +125,16 @@ body {
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
   }
 }
 
@@ -453,3 +484,210 @@ body {
 .text-muted { color: var(--text-muted) }
 .text-secondary { color: var(--text-secondary) }
 .font-mono { font-family: var(--font-mono) }
+
+/* ============================================================
+   空状态 — 全站统一占位规范
+   行内轻量空态用 .empty-hint；块级需要图标的用 <el-empty>。
+   ============================================================ */
+.empty-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  padding: 16px 8px;
+  text-align: center;
+  animation: fadeIn var(--transition-normal);
+}
+.empty-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+  animation: fadeIn var(--transition-normal);
+}
+.empty-block .empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+/* ============================================================
+   FORM SYSTEM — 统一表单/搜索区规范
+   （替代散落的 search-form / table-toolbar / filter-bar / el-card.search-card）
+   ============================================================ */
+/* 控件字号统一 */
+.el-input__inner,
+.el-textarea__inner {
+  font-size: var(--fs-base);
+}
+/* 控件尺寸 / 圆角 / 边框 / 聚焦高亮统一 */
+.el-input__wrapper {
+  min-height: var(--ctl-h);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border) inset;
+  transition: box-shadow var(--transition-fast);
+}
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.el-input.is-error .el-input__wrapper {
+  box-shadow: 0 0 0 1px var(--danger) inset;
+}
+/* Element Plus 2.4+ 原生 select wrapper 兼容 */
+.el-select__wrapper {
+  min-height: var(--ctl-h);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+  transition: box-shadow var(--transition-fast);
+}
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--accent) inset !important;
+}
+
+/* 下拉项选中勾选标记（:after）绝对定位在 right:20px，
+   保证选项文字与勾选标记之间始终有留白，避免窄面板下压字 */
+.el-select-dropdown__item {
+  padding-right: 36px;
+}
+.el-select-dropdown__item.is-selected::after {
+  right: 16px;
+}
+
+/* 统一表单容器：搜索区 / 筛选区一律使用 .form-bar */
+.form-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  animation: bentoIn .4s cubic-bezier(.16, 1, .3, 1) both;
+}
+/* 旧 .search-form 兼容别名（Task #3 逐步替换为 .form-bar） */
+.search-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+/* 控件宽度档位：替代各页面手写 style="width:NNNpx" */
+.w-s { width: var(--ctl-w-s) !important; }
+.w-m { width: var(--ctl-w-m) !important; }
+.w-l { width: var(--ctl-w-l) !important; }
+.w-xl { width: var(--ctl-w-xl) !important; }
+.w-xs { width: var(--ctl-w-xs) !important; }
+
+/* 旧容器类名兼容别名：视觉统一为 .form-bar（后续可渐进替换为 .form-bar） */
+.table-toolbar,
+.filter-bar,
+.search-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 表单标签统一 */
+.el-form-item__label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* ============================================================
+   PAGE SKELETON — 原 main.css 迁移，统一由 design.css 接管全局基础样式
+   （main.css 已废弃并删除，消除与 Bento 设计语言的断层）
+   ============================================================ */
+.page-container { padding: 20px; }
+.page-header {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.page-title {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.page-sub {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.table-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+}
+
+/* ── STAT CARD（统计卡统一视觉；各页面 scoped 仅保留语义色变体与布局） ── */
+.stats-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.stat-card {
+  flex: 1 1 150px;
+  min-width: 120px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  text-align: center;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  animation: bentoIn .45s cubic-bezier(.16, 1, .3, 1) both;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elevated);
+}
+.stat-value {
+  font-size: var(--fs-2xl);
+  font-weight: 800;
+  font-family: var(--font-mono);
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+.stat-label {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+/* ── DIALOG / DRAWER 使用协议（统一交互模式） ──
+   详情查看 → el-drawer  size="70%"  direction="rtl"
+   编辑/新建 → el-dialog width="600px" :close-on-click-modal="false"
+   确认操作 → el-dialog width="420px" */
+.el-dialog,
+.el-drawer {
+  transition: all var(--transition-fast);
+}

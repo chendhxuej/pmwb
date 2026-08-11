@@ -4,7 +4,7 @@
       <el-col :span="6" v-for="card in cards" :key="card.key">
         <div class="stat-card" @mouseenter="card.hover = true" @mouseleave="card.hover = false"
              :class="{ 'stat-card--hover': card.hover }">
-          <div class="stat-value">{{ card.value }}</div>
+          <div class="stat-value" v-countup="card.value"></div>
           <div class="stat-label">{{ card.label }}</div>
           <div class="stat-trend" v-if="card.trend != null">
             <span :class="card.trend >= 0 ? 'trend-up' : 'trend-down'">
@@ -63,26 +63,13 @@ onMounted(fetchStats)
   margin-bottom: 16px;
 }
 .stat-card {
-  background: var(--el-bg-color, #fff);
-  border: 1px solid var(--el-border-color-light, #e4e7ed);
-  border-radius: 8px;
   padding: 16px 20px;
-  transition: all 0.25s ease;
   cursor: default;
 }
-.stat-card--hover {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-}
 .stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--el-text-color-primary, #303133);
   line-height: 1.3;
 }
 .stat-label {
-  font-size: 13px;
-  color: var(--el-text-color-secondary, #909399);
   margin-top: 4px;
 }
 .stat-trend {
@@ -90,10 +77,10 @@ onMounted(fetchStats)
   font-size: 12px;
 }
 .trend-up {
-  color: #67c23a;
+  color: var(--success);
 }
 .trend-down {
-  color: #f56c6c;
+  color: var(--danger);
 }
 .trend-period {
   color: var(--el-text-color-placeholder, #c0c4cc);

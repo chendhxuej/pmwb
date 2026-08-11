@@ -19,24 +19,24 @@
       <el-tab-pane label="需求" name="requirement">
         <div class="pm-table-wrap">
           <div class="table-toolbar">
-            <el-input
+            <EnlargeInput
               v-model="reqKeyword"
               placeholder="搜索需求编号 / 名称 / 提出人"
-              style="width: 280px"
+              class="w-m"
               clearable
               @keyup.enter="handleReqSearch"
               @clear="handleReqSearch"
             >
               <template #prefix><el-icon><Search /></el-icon></template>
-            </el-input>
-            <el-select v-model="reqStatus" placeholder="跟踪状态" clearable style="width: 140px" @change="handleReqSearch">
+            </EnlargeInput>
+            <el-select v-model="reqStatus" placeholder="跟踪状态" clearable class="w-s" @change="handleReqSearch">
               <el-option label="建议中" value="proposed" />
               <el-option label="已采纳" value="accepted" />
               <el-option label="开发中" value="dev" />
               <el-option label="已上线" value="closed" />
               <el-option label="暂停" value="paused" />
             </el-select>
-            <el-select v-model="reqPriority" placeholder="优先级" clearable style="width: 120px" @change="handleReqSearch">
+            <el-select v-model="reqPriority" placeholder="优先级" clearable class="w-xs" @change="handleReqSearch">
               <el-option label="P0" value="P0" />
               <el-option label="P1" value="P1" />
               <el-option label="P2" value="P2" />
@@ -110,15 +110,15 @@
       <el-tab-pane label="用户故事" name="story">
         <div class="pm-table-wrap">
           <div class="table-toolbar">
-            <el-input
+            <EnlargeInput
               v-model="usKeyword"
               placeholder="模糊搜索：标题 / 描述 / 场景 / 验收标准 / 业务规则 / 需求编号 / 需求名称（空格分词）"
-              style="width: 420px"
+              class="w-xl"
               clearable
             >
               <template #prefix><el-icon><Search /></el-icon></template>
-            </el-input>
-            <el-select v-model="usFinalized" placeholder="定稿状态" clearable style="width: 130px" @change="handleStorySearch">
+            </EnlargeInput>
+            <el-select v-model="usFinalized" placeholder="定稿状态" clearable class="w-s" @change="handleStorySearch">
               <el-option label="全部" value="" />
               <el-option label="草稿" :value="0" />
               <el-option label="已定稿" :value="1" />
@@ -189,9 +189,9 @@
       <el-tab-pane label="开发工单" name="ticket">
         <div class="pm-table-wrap">
           <div class="table-toolbar">
-            <el-input v-model="ticketKeyword" placeholder="搜索工单号 / 系统 / 开发团队" style="width: 280px" clearable @keyup.enter="handleTicketSearch" @clear="handleTicketSearch">
+            <EnlargeInput v-model="ticketKeyword" placeholder="搜索工单号 / 系统 / 开发团队" class="w-m" clearable @keyup.enter="handleTicketSearch" @clear="handleTicketSearch">
               <template #prefix><el-icon><Search /></el-icon></template>
-            </el-input>
+            </EnlargeInput>
             <el-button @click="loadTickets"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
           <el-table v-loading="ticketLoading" :data="tickets" stripe scrollbar-always-on>
@@ -293,13 +293,13 @@
                 <el-form :model="current" label-width="100px" size="small">
                   <div class="bento-grid" style="gap: 8px">
                     <div style="grid-column: span 6">
-                      <el-form-item label="需求名称"><el-input v-model="current.req_name" /></el-form-item>
+                      <el-form-item label="需求名称"><EnlargeInput v-model="current.req_name" /></el-form-item>
                     </div>
                     <div style="grid-column: span 6">
-                      <el-form-item label="涉及系统"><el-input v-model="current.system_name" /></el-form-item>
+                      <el-form-item label="涉及系统"><EnlargeInput v-model="current.system_name" /></el-form-item>
                     </div>
                     <div style="grid-column: span 6">
-                      <el-form-item label="评估 SA"><el-input v-model="current.sa_name" /></el-form-item>
+                      <el-form-item label="评估 SA"><EnlargeInput v-model="current.sa_name" /></el-form-item>
                     </div>
                     <div style="grid-column: span 6">
                       <el-form-item label="优先级">
@@ -325,17 +325,17 @@
                     </div>
                     <div style="grid-column: span 6">
                       <el-form-item label="开发单号">
-                        <el-input v-model="current.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
+                        <EnlargeInput v-model="current.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
                       </el-form-item>
                     </div>
                     <div style="grid-column: span 12">
-                      <el-form-item label="负责人备忘"><el-input v-model="current.owner_note" type="textarea" :rows="2" /></el-form-item>
+                      <el-form-item label="负责人备忘"><EnlargeInput v-model="current.owner_note" type="textarea" :rows="2" /></el-form-item>
                     </div>
                     <div style="grid-column: span 6">
-                      <el-form-item label="个人标签"><el-input v-model="current.tags" placeholder="逗号分隔" /></el-form-item>
+                      <el-form-item label="个人标签"><EnlargeInput v-model="current.tags" placeholder="逗号分隔" /></el-form-item>
                     </div>
                     <div style="grid-column: span 6">
-                      <el-form-item label="个人备注"><el-input v-model="current.personal_note" type="textarea" :rows="2" /></el-form-item>
+                      <el-form-item label="个人备注"><EnlargeInput v-model="current.personal_note" type="textarea" :rows="2" /></el-form-item>
                     </div>
                   </div>
                 </el-form>
@@ -357,7 +357,7 @@
                     <el-button link type="primary" size="small" @click="downloadAttachment(f)">下载</el-button>
                     <el-button link type="danger" size="small" @click="removeAttachment(f)">删除</el-button>
                   </div>
-                  <div v-if="!attachments.length" class="text-muted" style="padding: 8px 0">暂无文件，可上传附件或生成说明书</div>
+                  <div v-if="!attachments.length" class="empty-hint">暂无文件，可上传附件或生成说明书</div>
                 </div>
                 <input ref="fileInput" type="file" style="display:none" @change="handleFileChange" />
                 <el-button class="mt-12" size="small" @click="triggerUpload">
@@ -373,7 +373,7 @@
                 <el-button size="small" type="primary" @click="saveDetail">保存</el-button>
               </div>
               <div class="card-body">
-                <el-input v-model="current.background" type="textarea" :rows="4" placeholder="可覆盖原始背景…" />
+                <EnlargeInput v-model="current.background" type="textarea" :rows="4" placeholder="可覆盖原始背景…" />
               </div>
             </div>
 
@@ -383,7 +383,7 @@
                 <el-button size="small" type="primary" @click="saveDetail">保存</el-button>
               </div>
               <div class="card-body">
-                <el-input v-model="current.description" type="textarea" :rows="4" placeholder="可覆盖原始描述…" />
+                <EnlargeInput v-model="current.description" type="textarea" :rows="4" placeholder="可覆盖原始描述…" />
               </div>
             </div>
 
@@ -393,7 +393,7 @@
                 <el-button size="small" type="primary" @click="saveClarification">保存澄清</el-button>
               </div>
               <div class="card-body">
-                <el-input
+                <EnlargeInput
                   v-model="clarification"
                   type="textarea"
                   :rows="5"
@@ -449,7 +449,7 @@
             <div class="card" style="grid-column: span 5">
               <div class="card-header"><span class="card-label">澄清后需求内容</span></div>
               <div class="card-body">
-                <el-input v-model="clarification" type="textarea" :rows="10" placeholder="在此梳理、澄清需求内容，作为用户故事生成的输入…" />
+                <EnlargeInput v-model="clarification" type="textarea" :rows="10" placeholder="在此梳理、澄清需求内容，作为用户故事生成的输入…" />
               </div>
 
               <!-- 生成策略选择器 -->
@@ -577,23 +577,23 @@
                 <div v-if="!storyGenLoading" v-for="(st, i) in stories" :key="i" class="story-card" :class="{ finalized: st.finalized }">
                   <div class="story-head">
                     <span class="story-seq">US{{ i + 1 }}</span>
-                    <input v-model="st.title" class="story-title-input" placeholder="故事标题" />
+                    <EnlargeInput v-model="st.title" class="story-title-enlarge" placeholder="故事标题" />
                     <el-switch v-model="st.finalized" active-text="已定稿" inactive-text="草稿" />
                     <el-button link type="danger" size="small" @click="stories.splice(i, 1)">删除</el-button>
                   </div>
                   <div class="story-field">
                     <span class="story-field-label">故事描述</span>
-                    <el-input v-model="st.desc" type="textarea" :autosize="{ minRows: 3, maxRows: 14 }" placeholder="作为…，我想要…，以便…" />
+                    <EnlargeInput v-model="st.desc" type="textarea" :autosize="{ minRows: 3, maxRows: 14 }" placeholder="作为…，我想要…，以便…" />
                   </div>
                   <div class="story-field">
                     <span class="story-field-label">故事场景</span>
-                    <el-input v-model="st.scene" type="textarea" :autosize="{ minRows: 3, maxRows: 14 }" placeholder="典型使用场景…" />
+                    <EnlargeInput v-model="st.scene" type="textarea" :autosize="{ minRows: 3, maxRows: 14 }" placeholder="典型使用场景…" />
                   </div>
                   <div class="story-field">
                     <span class="story-field-label">验收标准</span>
                     <div class="ac-list">
                       <div v-for="(ac, ai) in st.acceptance" :key="ai" class="ac-row">
-                        <el-input v-model="st.acceptance[ai]" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="验证***功能是否成功实现" />
+                        <EnlargeInput v-model="st.acceptance[ai]" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="验证***功能是否成功实现" />
                         <el-button link type="danger" size="small" @click="st.acceptance.splice(ai, 1)">×</el-button>
                       </div>
                       <el-button size="small" link type="primary" @click="st.acceptance.push('')">+ 新增验收标准</el-button>
@@ -611,7 +611,7 @@
                     >沉淀业务规则到主笔记</el-button>
                     <div class="ac-list">
                       <div v-for="(r, ri) in (st.rules || [])" :key="ri" class="ac-row">
-                        <el-input v-model="st.rules[ri]" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="提炼本故事的业务规则…" />
+                        <EnlargeInput v-model="st.rules[ri]" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" placeholder="提炼本故事的业务规则…" />
                         <el-button link type="danger" size="small" @click="st.rules.splice(ri, 1)">×</el-button>
                       </div>
                       <el-button size="small" link type="primary" @click="(st.rules || (st.rules = [])).push('')">+ 新增业务规则</el-button>
@@ -638,7 +638,7 @@
                   <el-option label="政企标准 · 需求分析说明书" value="std" />
                 </el-select>
                 <div class="pm-field-label mt-16">文件名</div>
-                <el-input v-model="docFileName" placeholder="需求分析说明书" />
+                <EnlargeInput v-model="docFileName" placeholder="需求分析说明书" />
                 <div class="pm-field-label mt-16">归档路径</div>
                 <div class="folder-path"><el-icon><Folder /></el-icon><code>{{ folder }}</code></div>
                 <el-button class="mt-16" type="primary" @click="generateDoc">
@@ -664,7 +664,7 @@
                   <div class="gen-meta"><b>{{ g.file }}</b><div class="text-muted" style="font-size:11px">{{ g.time }} · {{ g.path }}</div></div>
                   <el-button link type="primary" size="small" @click="openGen(g)">打开</el-button>
                 </div>
-                <div v-if="!genHistory.length" class="text-muted">暂无生成记录</div>
+                <div v-if="!genHistory.length" class="empty-hint">暂无生成记录</div>
               </div>
             </div>
           </div>
@@ -761,12 +761,12 @@
     <!-- 团队评估弹层 -->
     <el-dialog v-model="evalDialog" :title="evalForm.id ? '编辑系统评估' : '新增系统评估'" width="520px">
       <el-form :model="evalForm" label-width="110px">
-        <el-form-item label="涉及系统"><el-input v-model="evalForm.system_name" placeholder="如：生产运营平台" /></el-form-item>
+        <el-form-item label="涉及系统"><EnlargeInput v-model="evalForm.system_name" placeholder="如：生产运营平台" /></el-form-item>
         <el-form-item label="SA 负责人"><StaffSelect v-model="evalForm.sa_name" placeholder="如：戴晓飞" /></el-form-item>
         <el-form-item label="工作量(人天)"><el-input-number v-model="evalForm.workload" :min="0" :step="0.5" style="width:100%" /></el-form-item>
         <el-form-item label="复核工作量(人天)"><el-input-number v-model="evalForm.review_workload" :min="0" :step="0.5" style="width:100%" /></el-form-item>
-        <el-form-item label="评估意见"><el-input v-model="evalForm.opinion" type="textarea" :rows="3" /></el-form-item>
-        <el-form-item label="开发单号"><el-input v-model="evalForm.dev_ticket_no" placeholder="可选" /></el-form-item>
+        <el-form-item label="评估意见"><EnlargeInput v-model="evalForm.opinion" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="开发单号"><EnlargeInput v-model="evalForm.dev_ticket_no" placeholder="可选" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="evalDialog = false">取消</el-button>
@@ -777,8 +777,8 @@
     <!-- 需求编辑弹层 -->
     <el-dialog v-model="reqDialog" title="编辑需求跟踪信息" width="560px">
       <el-form :model="reqForm" label-width="110px">
-        <el-form-item label="需求名称"><el-input v-model="reqForm.req_name" placeholder="覆盖 sent_emails 原始名称" /></el-form-item>
-        <el-form-item label="涉及系统"><el-input v-model="reqForm.system_name" placeholder="覆盖原始系统" /></el-form-item>
+        <el-form-item label="需求名称"><EnlargeInput v-model="reqForm.req_name" placeholder="覆盖 sent_emails 原始名称" /></el-form-item>
+        <el-form-item label="涉及系统"><EnlargeInput v-model="reqForm.system_name" placeholder="覆盖原始系统" /></el-form-item>
         <el-form-item label="SA"><StaffSelect v-model="reqForm.sa_name" /></el-form-item>
         <el-form-item label="优先级">
           <el-select v-model="reqForm.priority" style="width:100%">
@@ -794,12 +794,12 @@
           </el-select>
         </el-form-item>
         <el-form-item label="期望版本日"><el-date-picker v-model="reqForm.version_required_date" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="选择日期" /></el-form-item>
-        <el-form-item label="需求背景"><el-input v-model="reqForm.background" type="textarea" :rows="3" placeholder="覆盖原始背景" /></el-form-item>
-        <el-form-item label="需求描述"><el-input v-model="reqForm.description" type="textarea" :rows="3" placeholder="覆盖原始描述" /></el-form-item>
-        <el-form-item label="澄清内容"><el-input v-model="reqForm.clarification" type="textarea" :rows="3" placeholder="经评审后的澄清内容" /></el-form-item>
-        <el-form-item label="负责人备忘"><el-input v-model="reqForm.owner_note" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="个人标签"><el-input v-model="reqForm.tags" placeholder="逗号分隔" /></el-form-item>
-        <el-form-item label="个人备注"><el-input v-model="reqForm.personal_note" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="需求背景"><EnlargeInput v-model="reqForm.background" type="textarea" :rows="3" placeholder="覆盖原始背景" /></el-form-item>
+        <el-form-item label="需求描述"><EnlargeInput v-model="reqForm.description" type="textarea" :rows="3" placeholder="覆盖原始描述" /></el-form-item>
+        <el-form-item label="澄清内容"><EnlargeInput v-model="reqForm.clarification" type="textarea" :rows="3" placeholder="经评审后的澄清内容" /></el-form-item>
+        <el-form-item label="负责人备忘"><EnlargeInput v-model="reqForm.owner_note" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="个人标签"><EnlargeInput v-model="reqForm.tags" placeholder="逗号分隔" /></el-form-item>
+        <el-form-item label="个人备注"><EnlargeInput v-model="reqForm.personal_note" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="reqDialog = false">取消</el-button>
@@ -810,10 +810,10 @@
     <!-- 开发工单弹层 -->
     <el-dialog v-model="ticketDialog" :title="ticketForm.id ? '编辑开发工单' : '新增开发工单'" width="560px">
       <el-form :model="ticketForm" label-width="110px">
-        <el-form-item label="工单号"><el-input v-model="ticketForm.ticket_no" :disabled="!!ticketForm.id" placeholder="如：DEV-2026-0718" /></el-form-item>
-        <el-form-item label="关联需求"><el-input v-model="ticketForm.req_id" placeholder="需求编号" /></el-form-item>
-        <el-form-item label="涉及系统"><el-input v-model="ticketForm.system_name" /></el-form-item>
-        <el-form-item label="开发团队"><el-input v-model="ticketForm.dev_team" /></el-form-item>
+        <el-form-item label="工单号"><EnlargeInput v-model="ticketForm.ticket_no" :disabled="!!ticketForm.id" placeholder="如：DEV-2026-0718" /></el-form-item>
+        <el-form-item label="关联需求"><EnlargeInput v-model="ticketForm.req_id" placeholder="需求编号" /></el-form-item>
+        <el-form-item label="涉及系统"><EnlargeInput v-model="ticketForm.system_name" /></el-form-item>
+        <el-form-item label="开发团队"><EnlargeInput v-model="ticketForm.dev_team" /></el-form-item>
         <el-form-item label="开发负责人"><StaffSelect v-model="ticketForm.developer" /></el-form-item>
         <el-form-item label="优先级">
           <el-select v-model="ticketForm.priority" style="width:100%">
@@ -828,7 +828,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="进度"><el-slider v-model="ticketForm.progress" :step="5" show-input /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="ticketForm.description" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="描述"><EnlargeInput v-model="ticketForm.description" type="textarea" :rows="3" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="ticketDialog = false">取消</el-button>
@@ -1606,7 +1606,21 @@ onBeforeUnmount(() => {
 .story-card.finalized { border-color: var(--success); background: var(--success-soft) }
 .story-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
 .story-seq { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; flex-shrink: 0; white-space: nowrap }
-.story-title-input { flex: 1; border: none; border-bottom: 1px dashed var(--border); background: transparent; font-size: 14px; font-weight: 600; color: var(--text-primary); padding: 4px 0; outline: none }
+.story-title-enlarge { flex: 1; min-width: 0 }
+.story-title-enlarge :deep(.el-input__wrapper) {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  border-bottom: 1px dashed var(--border);
+  border-radius: 0;
+  padding: 4px 26px 4px 0;
+}
+.story-title-enlarge :deep(.el-input__inner) {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: 0;
+}
 .story-field { margin-bottom: 10px }
 .story-field-label { font-size: 11.5px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 5px }
 .ac-list { display: flex; flex-direction: column; gap: 6px }

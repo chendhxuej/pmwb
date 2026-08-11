@@ -84,6 +84,7 @@
     </el-container>
 
     <StaffAdminDrawer />
+    <EnlargeInputDialog />
   </el-container>
 </template>
 
@@ -93,6 +94,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores'
 import { Fold, Expand, ArrowDown } from '@element-plus/icons-vue'
 import StaffAdminDrawer from '@/components/Common/StaffAdminDrawer.vue'
+import EnlargeInputDialog from '@/components/Common/EnlargeInputDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -369,6 +371,40 @@ function go(path) {
 /* 折叠态：仅图标居中，隐藏文字/箭头/二级 */
 .sidebar.collapsed .nav-children {
   display: none;
+}
+
+/* 折叠态 Flyout：hover 父项时浮层展示二级菜单，解决折叠后子项不可见 */
+.sidebar.collapsed {
+  overflow: visible;
+}
+.sidebar.collapsed .side-nav {
+  overflow: visible;
+}
+.sidebar.collapsed .nav-block {
+  position: relative;
+}
+.sidebar:not(.collapsed) .nav-block {
+  position: relative;
+}
+.sidebar.collapsed .nav-block:hover .nav-children {
+  display: flex !important;
+  flex-direction: column;
+  position: absolute;
+  left: calc(100% + 6px);
+  top: 0;
+  width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  padding: 6px;
+  z-index: 2000;
+}
+.sidebar.collapsed .nav-block:hover .nav-child {
+  padding: 8px 12px 8px 18px;
+}
+.sidebar.collapsed .nav-block:hover .nav-dot {
+  left: 6px;
 }
 .sidebar.collapsed .nav-caret {
   display: none;

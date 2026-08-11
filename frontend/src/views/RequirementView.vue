@@ -9,7 +9,7 @@
 
     <div class="stats-row">
       <el-card v-for="item in statsItems" :key="item.label" shadow="hover" class="stat-card">
-        <div class="stat-value">{{ item.value }}</div>
+        <div class="stat-value" v-countup="item.value"></div>
         <div class="stat-label">{{ item.label }}</div>
       </el-card>
     </div>
@@ -65,9 +65,12 @@
                   </template>
                 </el-table-column>
               </el-table>
-              <div v-if="!(evaluationsMap[row.req_id] || []).length && !evalLoadingMap[row.req_id]" class="expand-empty">
-                暂无团队评估数据
-              </div>
+              <el-empty
+                v-if="!(evaluationsMap[row.req_id] || []).length && !evalLoadingMap[row.req_id]"
+                description="暂无团队评估数据"
+                :image-size="40"
+                class="expand-empty"
+              />
 
               <div class="expand-title" style="margin-top: 20px">
                 <span>关联开发工单进度（{{ (ticketMap[row.req_id] || []).length }} 个工单）</span>
@@ -102,9 +105,12 @@
                   </el-table-column>
                 </el-table>
               </div>
-              <div v-if="!(ticketMap[row.req_id] || []).length && !evalLoadingMap[row.req_id]" class="expand-empty">
-                该需求暂无关联开发工单
-              </div>
+              <el-empty
+                v-if="!(ticketMap[row.req_id] || []).length && !evalLoadingMap[row.req_id]"
+                description="该需求暂无关联开发工单"
+                :image-size="40"
+                class="expand-empty"
+              />
             </div>
           </template>
         </el-table-column>
@@ -189,10 +195,10 @@
     <el-dialog v-model="dialogVisible" title="需求跟踪" width="600px">
       <el-form :model="form" :rules="rules" label-width="100px">
         <el-form-item label="需求编号">
-          <el-input v-model="form.req_id" disabled />
+          <EnlargeInput v-model="form.req_id" disabled />
         </el-form-item>
         <el-form-item label="需求名称">
-          <el-input v-model="form.req_name" disabled />
+          <EnlargeInput v-model="form.req_name" disabled />
         </el-form-item>
         <el-form-item label="个人状态">
           <el-select v-model="form.status">
@@ -218,13 +224,13 @@
           <BusinessDomainSelect v-model="form.domain_code" />
         </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="form.tags" placeholder="逗号分隔" />
+          <EnlargeInput v-model="form.tags" placeholder="逗号分隔" />
         </el-form-item>
         <el-form-item label="个人备注">
-          <el-input v-model="form.personal_note" type="textarea" :rows="3" />
+          <EnlargeInput v-model="form.personal_note" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="开发单号">
-          <el-input v-model="form.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
+          <EnlargeInput v-model="form.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -302,7 +308,7 @@
     <el-dialog v-model="reminderVisible" title="发送催办邮件" width="600px">
       <el-form :model="reminderForm" label-width="100px">
         <el-form-item label="需求编号">
-          <el-input v-model="reminderForm.req_id" disabled />
+          <EnlargeInput v-model="reminderForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="收件人">
           <StaffSelect v-model="reminderTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
@@ -312,10 +318,10 @@
           <StaffSelect v-model="reminderCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
-          <el-input v-model="reminderForm.subject" />
+          <EnlargeInput v-model="reminderForm.subject" />
         </el-form-item>
         <el-form-item label="正文">
-          <el-input v-model="reminderForm.body" type="textarea" :rows="6" />
+          <EnlargeInput v-model="reminderForm.body" type="textarea" :rows="6" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -327,13 +333,13 @@
     <el-dialog v-model="evalFormVisible" :title="evalForm.id ? '编辑团队评估' : '新增团队评估'" width="560px">
       <el-form :model="evalForm" label-width="110px">
         <el-form-item label="需求编号">
-          <el-input v-model="evalForm.req_id" disabled />
+          <EnlargeInput v-model="evalForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="评估SA" required>
           <StaffSelect v-model="evalForm.sa_name" placeholder="评估SA/团队负责人" />
         </el-form-item>
         <el-form-item label="负责系统">
-          <el-input v-model="evalForm.system_name" placeholder="负责系统" />
+          <EnlargeInput v-model="evalForm.system_name" placeholder="负责系统" />
         </el-form-item>
         <el-form-item label="工作量(人天)">
           <el-input-number v-model="evalForm.workload" :min="0" :precision="1" :step="0.5" controls-position="right" />
@@ -342,10 +348,10 @@
           <el-input-number v-model="evalForm.review_workload" :min="0" :precision="1" :step="0.5" controls-position="right" />
         </el-form-item>
         <el-form-item label="开发单号">
-          <el-input v-model="evalForm.dev_ticket_no" placeholder="开发单号" />
+          <EnlargeInput v-model="evalForm.dev_ticket_no" placeholder="开发单号" />
         </el-form-item>
         <el-form-item label="评估意见">
-          <el-input v-model="evalForm.opinion" type="textarea" :rows="3" placeholder="评估意见登记" />
+          <EnlargeInput v-model="evalForm.opinion" type="textarea" :rows="3" placeholder="评估意见登记" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -978,21 +984,6 @@ onMounted(() => {
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
-.stat-card {
-  flex: 1;
-  min-width: 140px;
-  text-align: center;
-}
-.stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #409eff;
-}
-.stat-label {
-  font-size: 14px;
-  color: #606266;
-  margin-top: 8px;
-}
 .detail-section {
   margin-top: 16px;
 }
@@ -1023,17 +1014,32 @@ onMounted(() => {
   margin-top: 4px;
 }
 .expand-content {
-  padding: 16px 24px;
+  position: relative;
+  margin: 6px 12px 6px 18px;
+  padding: 16px 20px 16px 22px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  animation: expandIn var(--transition-normal);
+}
+@keyframes expandIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .expand-title {
   font-weight: bold;
   margin-bottom: 12px;
-  color: #303133;
+  color: var(--text-primary);
 }
 .expand-empty {
-  text-align: center;
-  color: #909399;
-  padding: 16px;
+  padding: 8px 0;
 }
 .pagination {
   margin-top: 20px;

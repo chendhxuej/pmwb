@@ -16,19 +16,19 @@
     <!-- KPI 概览 -->
     <div class="bento-grid kpi-strip">
       <section class="card kpi-card">
-        <div class="kpi-num blue">{{ stats.by_status ? totalCount : 0 }}</div>
+        <div class="kpi-num blue" v-countup="stats.by_status ? totalCount : 0"></div>
         <div class="kpi-label">重点工作总数</div>
       </section>
       <section class="card kpi-card">
-        <div class="kpi-num">{{ stats.by_status?.in_progress || 0 }}</div>
+        <div class="kpi-num" v-countup="stats.by_status?.in_progress || 0"></div>
         <div class="kpi-label">进行中</div>
       </section>
       <section class="card kpi-card">
-        <div class="kpi-num green">{{ stats.by_status?.completed || 0 }}</div>
+        <div class="kpi-num green" v-countup="stats.by_status?.completed || 0"></div>
         <div class="kpi-label">已完成</div>
       </section>
       <section class="card kpi-card">
-        <div class="kpi-num red">{{ stats.overdue_member_tasks || 0 }}</div>
+        <div class="kpi-num red" v-countup="stats.overdue_member_tasks || 0"></div>
         <div class="kpi-label">超期成员待办</div>
       </section>
     </div>
@@ -42,17 +42,17 @@
         <el-tab-pane label="专题工作" name="special_topic" />
       </el-tabs>
       <div class="table-toolbar">
-        <el-input
+        <EnlargeInput
           v-model="keyword"
           placeholder="搜索工作编号 / 标题 / 负责人"
-          style="width: 280px"
+          class="w-m"
           clearable
           @keyup.enter="fetchList"
           @clear="fetchList"
         >
           <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
-        <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 140px" @change="fetchList">
+        </EnlargeInput>
+        <el-select v-model="statusFilter" placeholder="状态" clearable class="w-s" @change="fetchList">
           <el-option v-for="(v, k) in STATUS_MAP" :key="k" :label="v.label" :value="k" />
         </el-select>
         <el-button @click="fetchList"><el-icon><Refresh /></el-icon> 刷新</el-button>
@@ -190,7 +190,7 @@
               <el-button link type="danger" size="small" @click="removeAccept(i)"><el-icon><Delete /></el-icon></el-button>
             </div>
           </div>
-          <div v-else class="text-muted" style="padding: 12px 0">暂无验收标准</div>
+          <div v-else class="empty-hint">暂无验收标准</div>
         </el-tab-pane>
 
         <!-- 里程碑 -->
@@ -204,7 +204,7 @@
             <el-table-column prop="due_date" label="计划完成" width="130" />
             <el-table-column label="状态" width="140">
               <template #default="{ row }">
-                <el-select :model-value="row.status" size="small" style="width: 110px"
+                <el-select :model-value="row.status" size="small" class="w-xs"
                   @change="(v) => changeMilestoneStatus(row, v)">
                   <el-option v-for="(v, k) in MS_STATUS_MAP" :key="k" :label="v.label" :value="k" />
                 </el-select>
@@ -290,7 +290,7 @@
               </div>
             </el-timeline-item>
           </el-timeline>
-          <div v-if="!(detail?.progresses || []).length" class="text-muted" style="padding: 12px 0">暂无进展记录</div>
+          <div v-if="!(detail?.progresses || []).length" class="empty-hint">暂无进展记录</div>
         </el-tab-pane>
 
         <!-- 成员待办 -->
@@ -305,7 +305,7 @@
             <el-table-column prop="due_date" label="截止" width="120" />
             <el-table-column label="状态" width="140">
               <template #default="{ row }">
-                <el-select :model-value="row.status" size="small" style="width: 110px"
+                <el-select :model-value="row.status" size="small" class="w-xs"
                   @change="(v) => changeTaskStatus(row, v)">
                   <el-option v-for="(v, k) in TASK_STATUS_MAP" :key="k" :label="v.label" :value="k" />
                 </el-select>
@@ -351,7 +351,7 @@
     <el-dialog v-model="basicVisible" :title="basicIsEdit ? '编辑基本信息' : '新建重点工作'" width="640px">
       <el-form :model="basicForm" label-width="100px">
         <el-form-item label="标题" required>
-          <el-input v-model="basicForm.title" placeholder="工作标题" />
+          <EnlargeInput v-model="basicForm.title" placeholder="工作标题" />
         </el-form-item>
         <el-form-item label="分类" required>
           <el-select v-model="basicForm.category" style="width: 100%">
@@ -378,16 +378,16 @@
           <el-date-picker v-model="basicForm.planned_finish_date" type="date" value-format="YYYY-MM-DD" placeholder="计划完成时间" style="width: 100%" />
         </el-form-item>
         <el-form-item label="工作背景">
-          <el-input v-model="basicForm.background" type="textarea" :rows="2" />
+          <EnlargeInput v-model="basicForm.background" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="现状说明">
-          <el-input v-model="basicForm.current_status" type="textarea" :rows="2" />
+          <EnlargeInput v-model="basicForm.current_status" type="textarea" :rows="2" />
         </el-form-item>
         <el-form-item label="工作内容">
-          <el-input v-model="basicForm.content" type="textarea" :rows="3" />
+          <EnlargeInput v-model="basicForm.content" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="验收标准">
-          <el-input v-model="acceptText" type="textarea" :rows="3" placeholder="每行一条验收标准" />
+          <EnlargeInput v-model="acceptText" type="textarea" :rows="3" placeholder="每行一条验收标准" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -399,11 +399,11 @@
     <!-- 目标对话框 -->
     <el-dialog v-model="goalVisible" title="工作目标" width="520px">
       <el-form :model="goalForm" label-width="80px">
-        <el-form-item label="指标"><el-input v-model="goalForm.indicator" /></el-form-item>
-        <el-form-item label="目标值"><el-input v-model="goalForm.target_value" /></el-form-item>
-        <el-form-item label="当前值"><el-input v-model="goalForm.current_value" /></el-form-item>
-        <el-form-item label="单位"><el-input v-model="goalForm.unit" /></el-form-item>
-        <el-form-item label="说明"><el-input v-model="goalForm.description" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="指标"><EnlargeInput v-model="goalForm.indicator" /></el-form-item>
+        <el-form-item label="目标值"><EnlargeInput v-model="goalForm.target_value" /></el-form-item>
+        <el-form-item label="当前值"><EnlargeInput v-model="goalForm.current_value" /></el-form-item>
+        <el-form-item label="单位"><EnlargeInput v-model="goalForm.unit" /></el-form-item>
+        <el-form-item label="说明"><EnlargeInput v-model="goalForm.description" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="goalVisible = false">取消</el-button>
@@ -414,14 +414,14 @@
     <!-- 里程碑对话框 -->
     <el-dialog v-model="milestoneVisible" title="任务里程碑" width="520px">
       <el-form :model="milestoneForm" label-width="90px">
-        <el-form-item label="里程碑" required><el-input v-model="milestoneForm.name" /></el-form-item>
+        <el-form-item label="里程碑" required><EnlargeInput v-model="milestoneForm.name" /></el-form-item>
         <el-form-item label="计划完成"><el-date-picker v-model="milestoneForm.due_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="状态">
           <el-select v-model="milestoneForm.status" style="width:100%">
             <el-option v-for="(v,k) in MS_STATUS_MAP" :key="k" :label="v.label" :value="k" />
           </el-select>
         </el-form-item>
-        <el-form-item label="说明"><el-input v-model="milestoneForm.note" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="说明"><EnlargeInput v-model="milestoneForm.note" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="milestoneVisible = false">取消</el-button>
@@ -433,8 +433,8 @@
     <el-dialog v-model="memberVisible" title="团队成员" width="480px">
       <el-form :model="memberForm" label-width="80px">
         <el-form-item label="姓名" required><StaffSelect v-model="memberForm.name" /></el-form-item>
-        <el-form-item label="角色"><el-input v-model="memberForm.role" /></el-form-item>
-        <el-form-item label="分工"><el-input v-model="memberForm.division" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="角色"><EnlargeInput v-model="memberForm.role" /></el-form-item>
+        <el-form-item label="分工"><EnlargeInput v-model="memberForm.division" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="memberVisible = false">取消</el-button>
@@ -445,8 +445,8 @@
     <!-- 月计划对话框 -->
     <el-dialog v-model="monthlyVisible" title="月度计划" width="480px">
       <el-form :model="monthlyForm" label-width="80px">
-        <el-form-item label="月份" required><el-input v-model="monthlyForm.month" placeholder="如 2026-08" /></el-form-item>
-        <el-form-item label="内容" required><el-input v-model="monthlyForm.content" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="月份" required><EnlargeInput v-model="monthlyForm.month" placeholder="如 2026-08" /></el-form-item>
+        <el-form-item label="内容" required><EnlargeInput v-model="monthlyForm.content" type="textarea" :rows="3" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="monthlyVisible = false">取消</el-button>
@@ -457,8 +457,8 @@
     <!-- 周计划对话框 -->
     <el-dialog v-model="weeklyVisible" title="周计划" width="480px">
       <el-form :model="weeklyForm" label-width="80px">
-        <el-form-item label="周次" required><el-input v-model="weeklyForm.week" placeholder="如 2026-W32" /></el-form-item>
-        <el-form-item label="内容" required><el-input v-model="weeklyForm.content" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="周次" required><EnlargeInput v-model="weeklyForm.week" placeholder="如 2026-W32" /></el-form-item>
+        <el-form-item label="内容" required><EnlargeInput v-model="weeklyForm.content" type="textarea" :rows="3" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="weeklyVisible = false">取消</el-button>
@@ -470,7 +470,7 @@
     <el-dialog v-model="progressVisible" title="记录工作进展" width="520px">
       <el-form :model="progressForm" label-width="80px">
         <el-form-item label="日期"><el-date-picker v-model="progressForm.progress_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
-        <el-form-item label="内容" required><el-input v-model="progressForm.content" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="内容" required><EnlargeInput v-model="progressForm.content" type="textarea" :rows="3" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="progressVisible = false">取消</el-button>
@@ -481,7 +481,7 @@
     <!-- 成员待办对话框 -->
     <el-dialog v-model="taskVisible" title="成员待办" width="520px">
       <el-form :model="taskForm" label-width="80px">
-        <el-form-item label="任务" required><el-input v-model="taskForm.title" /></el-form-item>
+        <el-form-item label="任务" required><EnlargeInput v-model="taskForm.title" /></el-form-item>
         <el-form-item label="负责人"><StaffSelect v-model="taskForm.assignee" /></el-form-item>
         <el-form-item label="截止"><el-date-picker v-model="taskForm.due_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="状态">

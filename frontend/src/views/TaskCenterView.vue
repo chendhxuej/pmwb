@@ -14,15 +14,15 @@
     <!-- 统计卡 -->
     <div class="stats-row">
       <el-card shadow="hover" class="stat-card">
-        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-value" v-countup="stats.total"></div>
         <div class="stat-label">全部待办</div>
       </el-card>
       <el-card shadow="hover" class="stat-card stat-danger">
-        <div class="stat-value">{{ stats.overdue }}</div>
+        <div class="stat-value" v-countup="stats.overdue"></div>
         <div class="stat-label">已超期</div>
       </el-card>
       <el-card shadow="hover" class="stat-card stat-warning">
-        <div class="stat-value">{{ stats.due_soon }}</div>
+        <div class="stat-value" v-countup="stats.due_soon"></div>
         <div class="stat-label">3天内临期</div>
       </el-card>
       <el-card
@@ -33,7 +33,7 @@
         :class="{ 'stat-active': activeTab === src.key }"
         @click="activeTab = src.key"
       >
-        <div class="stat-value">{{ stats.by_source?.[src.key] ?? 0 }}</div>
+        <div class="stat-value" v-countup="stats.by_source?.[src.key] ?? 0"></div>
         <div class="stat-label">{{ src.label }}</div>
       </el-card>
     </div>
@@ -90,7 +90,7 @@
     <!-- 其余 Tab：统一任务表格 -->
     <template v-else>
       <div class="filter-bar">
-        <el-select v-model="filters.status" placeholder="状态" clearable style="width: 130px">
+        <el-select v-model="filters.status" placeholder="状态" clearable class="w-s">
           <el-option label="待处理" value="pending" />
           <el-option label="进行中" value="in_progress" />
           <el-option label="已完成" value="done" />
@@ -98,11 +98,11 @@
         </el-select>
         <el-checkbox v-model="filters.onlyOverdue" label="只看超期" />
         <el-checkbox v-model="filters.includeDone" label="含已完成/挂起" />
-        <el-input
+        <EnlargeInput
           v-model="filters.keyword"
           placeholder="搜索标题 / 负责人"
           clearable
-          style="width: 220px"
+          class="w-m"
           @keyup.enter="loadTasks"
         />
         <el-button type="primary" plain @click="loadTasks">查询</el-button>
@@ -237,10 +237,10 @@
           <StaffSelect v-model="emailCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
-          <el-input v-model="emailForm.subject" />
+          <EnlargeInput v-model="emailForm.subject" />
         </el-form-item>
         <el-form-item label="正文">
-          <el-input v-model="emailForm.body" type="textarea" :rows="8" />
+          <EnlargeInput v-model="emailForm.body" type="textarea" :rows="8" />
           <div class="form-hint">发送时系统会在正文末尾自动附上任务清单（标题/负责人/状态/截止时间）。</div>
         </el-form-item>
       </el-form>
@@ -254,7 +254,7 @@
     <el-dialog v-model="urgeDialogVisible" title="发送催办邮件" width="600px">
       <el-form :model="urgeForm" label-width="100px">
         <el-form-item label="需求编号">
-          <el-input v-model="urgeForm.req_id" disabled />
+          <EnlargeInput v-model="urgeForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="收件人">
           <StaffSelect v-model="urgeTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
@@ -264,10 +264,10 @@
           <StaffSelect v-model="urgeCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
-          <el-input v-model="urgeForm.subject" />
+          <EnlargeInput v-model="urgeForm.subject" />
         </el-form-item>
         <el-form-item label="正文">
-          <el-input v-model="urgeForm.body" type="textarea" :rows="10" />
+          <EnlargeInput v-model="urgeForm.body" type="textarea" :rows="10" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -286,7 +286,7 @@
     >
       <el-form :model="newTodoForm" label-width="92px" :rules="newTodoRules" ref="newTodoFormRef">
         <el-form-item label="标题" prop="title">
-          <el-input v-model="newTodoForm.title" placeholder="待办标题" maxlength="120" show-word-limit />
+          <EnlargeInput v-model="newTodoForm.title" placeholder="待办标题" maxlength="120" show-word-limit />
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
@@ -325,7 +325,7 @@
           </el-col>
         </el-row>
         <el-form-item label="内容">
-          <el-input v-model="newTodoForm.content" type="textarea" :rows="3" placeholder="补充说明（可选）" />
+          <EnlargeInput v-model="newTodoForm.content" type="textarea" :rows="3" placeholder="补充说明（可选）" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -804,33 +804,17 @@ onMounted(() => {
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
-.stat-card {
-  flex: 1;
-  min-width: 110px;
-  text-align: center;
-  cursor: default;
-}
 .stat-mini {
   cursor: pointer;
 }
 .stat-active {
-  border-color: #409eff;
-}
-.stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #409eff;
-}
-.stat-label {
-  font-size: 13px;
-  color: #606266;
-  margin-top: 6px;
+  border-color: var(--accent);
 }
 .stat-danger .stat-value {
-  color: #f56c6c;
+  color: var(--danger);
 }
 .stat-warning .stat-value {
-  color: #e6a23c;
+  color: var(--warning);
 }
 .task-tabs {
   margin-bottom: 4px;

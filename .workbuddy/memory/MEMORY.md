@@ -39,7 +39,13 @@
 - 质量门禁：pytest绿+vitest绿+build干净+浏览器冒烟+代码审查+影响面Grep。
 - **⚠️ 沙箱 git 孤儿分支坑（最高危）**：沙箱 `.git` 是残缺副本，孤儿分支（`git merge-base origin/main <branch>` 无输出）merge 进 main 会删光主干代码。开工前必查祖先关系；无输出时走「工作目录为准 + `git read-tree origin/main` 重建索引 + `git add -A` + 快进 push」同步，不 checkout。
 - **⚠️ 沙箱 git 陈旧 .lock 阻塞 prune 坑**：`git branch -r` 残留已删远端分支根因是 `.lock` 陈旧锁（safe-delete 拦截 rm）。修复：`ctypes.windll.kernel32.DeleteFileW` 删锁+引用 → `git remote prune origin`；判定真伪用 `git ls-remote --heads origin`，勿信本地 `branch -r`。
+- **⚠️ 沙箱 git index 跨命令重置坑（最高危·已彻底解决）**：本会话确认 `.git` 在**每条命令之间**被重置回基线——`HEAD` 被打回 `feature/enlarge-input` 这个从未有提交的空分支、`index` 被清空（`ls-files=0`）。后果：任何「先 reset 索引→下条命令 add」的多步流程，必然把全仓库当新增暂存（413 文件）；且 `git checkout`/`checkout -b`/`branch` 等**分支切换命令会在命令内再次清空 index**。诊断法：`git symbolic-ref HEAD` 看是否被锁回空分支、`git ls-files | wc -l` 是否为 0。**彻底解决（单命令法，已验证可用）**：在**同一条** bash 命令内完成 `git symbolic-ref HEAD refs/heads/main` → `git reset --mixed main`（重建 index 为 main 树，同命令内 `ls-files` 恢复 409）→ `git add <精确路径>`（勿 `git add 整个目录`，且此步必须紧跟 reset、中间不要 checkout/branch）→ `git commit` → `git push origin HEAD:refs/heads/feature/enlarge-input`（直接把当前提交推成远端 feature 分支，**不切本地分支**）。commit 落在本地 main（会被环境回滚，无碍），但远端 feature 分支已持久。断言：add 后 `git diff --cached --name-only | grep -vE "^(frontend/src/|scripts/...)"` 检查，若有多余文件说明 index 又空了，立即 `git reset -q` 中止。enlarge-input 功能即以此法推上 origin/feature/enlarge-input（commit `2a36498`，34 文件）。
 
 ## AI总结（WorkReport）模块
 - 功能：自动生成日/周/月报（LLM 润色，不可用时规则兜底）；生成/查看/编辑/删除/定稿/邮件发送；定稿归档 Obsidian `15-工作总结/{类型}/{日期}.md`。
-- **状态**：已合入 main（wr-1 b21e913 / wr-2 152576b / wr-3 3ecc47e）。后端 `backend/routers/work_report.py`(前缀 /api/v1/work-reports)；模型 `PmwbWorkReport`(表须含 `cc TEXT`)；前端 `WorkReportView.vue`(菜单「AI总结」)。改动 models.py/router 时勿删 AI总结 相关类与路由块。
+- **状态**：已合入 main（wr-1 b21e913 / wr-2 152576b / wr-3 3ecc47e；大模型管理 f68766f）。后端 `backend/routers/work_report.py`(前缀 /api/v1/work-reports)；模型 `PmwbWorkReport`(表须含 `cc TEXT`)；前端 `WorkReportView.vue`(菜单「AI总结」)。改动 models.py/router 时勿删 AI总结 相关类与路由块。
+- **大模型管理（2026-08-09 起，已合入 main f68766f）**：底层 LLM 改多模型注册表。
+  - 表 `pmwb_llm_provider`（kimi/hunyuan/tokenhub/deepseek/openai/ollama/custom），按「主用 is_default → priority」顺序 fallback；API Key 用 `backend/utils/secret.py` 的 XOR+Base64 混淆存储，接口一律脱敏返回 `***`。
+  - 管理 API `backend/routers/llm_provider.py`(前缀 /api/v1/llm-providers)：list/presets/create/get/update/delete/set-default/test；前端页面 `frontend/src/views/LlmProviderManage.vue`(菜单「大模型管理」)。
+  - 报告生成走 `services/llm_provider.call_best_available(db,...)`（纯函数 `pick_provider` 便于单测），全部不可用时回落规则模板版；`PmwbWorkReport` 新增 `gen_used_llm`/`gen_model`/`gen_notice`，前端 `WorkReportView.vue` 在 `gen_used_llm==0 && !!gen_notice` 时显示警示横幅+「前往大模型管理/重试」入口。
+  - **接入新模型需自备 API Key**（PMWB 是本地应用，无法复用 WorkBuddy 内部混元实例）：混元走 `https://api.hunyuan.cloud.tencent.com/v1` 或 TokenHub `https://tokenhub.tencentmaas.com/v1`，均 OpenAI 兼容协议。
