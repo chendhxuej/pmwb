@@ -7,7 +7,7 @@
         <div class="page-crumb">工作台 / 会议日程</div>
       </div>
       <div class="page-actions">
-        <el-input
+        <EnlargeInput
           v-model="keyword"
           placeholder="搜索会议 / 参会人"
           clearable
@@ -16,7 +16,7 @@
           <template #prefix>
             <span class="search-ico">🔍</span>
           </template>
-        </el-input>
+        </EnlargeInput>
         <el-button type="primary" @click="handleAdd">＋ 新增会议</el-button>
       </div>
     </div>
@@ -402,11 +402,11 @@
               <span class="ag-idx">议题 {{ i + 1 }}</span>
               <el-button link type="danger" @click="removeAgenda(i)">移除</el-button>
             </div>
-            <el-input v-model="ag.topic" placeholder="议题标题" class="ag-input" />
+            <EnlargeInput v-model="ag.topic" placeholder="议题标题" class="ag-input" />
             <label class="ag-label">议题背景说明</label>
-            <el-input v-model="ag.background" type="textarea" :rows="2" placeholder="本议题的背景情况（可选）" class="ag-input" />
+            <EnlargeInput v-model="ag.background" type="textarea" :rows="2" placeholder="本议题的背景情况（可选）" class="ag-input" />
             <label class="ag-label">商讨结论</label>
-            <el-input v-model="ag.conclusion" type="textarea" :rows="4" placeholder="本议题的结论/决议" />
+            <EnlargeInput v-model="ag.conclusion" type="textarea" :rows="4" placeholder="本议题的结论/决议" />
           </div>
         </div>
 
@@ -433,7 +433,7 @@
                 <el-button link type="danger" size="small" @click="removeAction(i)">移除</el-button>
               </div>
             </div>
-            <el-input v-model="act.content" type="textarea" :rows="2" placeholder="待办事项内容" class="act-input" />
+            <EnlargeInput v-model="act.content" type="textarea" :rows="2" placeholder="待办事项内容" class="act-input" />
             <div class="act-grid">
               <div>
                 <label class="ag-label">负责人</label>
@@ -549,7 +549,7 @@
     >
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
         <el-form-item label="会议主题" prop="title">
-          <el-input v-model="form.title" placeholder="如：集团客户拜访准备会" />
+          <EnlargeInput v-model="form.title" placeholder="如：集团客户拜访准备会" />
         </el-form-item>
         <el-row :gutter="14">
           <el-col :span="12">
@@ -578,7 +578,7 @@
         <el-row :gutter="14">
           <el-col :span="12">
             <el-form-item label="会议地点">
-              <el-input v-model="form.location" placeholder="会议室 / 线上链接" />
+              <EnlargeInput v-model="form.location" placeholder="会议室 / 线上链接" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -634,7 +634,7 @@
           <StaffSelect v-model="attendeeChips" multiple placeholder="选择参会人（支持手输）" />
         </el-form-item>
         <el-form-item label="参会注意点">
-          <el-input
+          <EnlargeInput
             v-model="form.attendee_notes"
             type="textarea"
             :rows="2"
@@ -642,7 +642,7 @@
           />
         </el-form-item>
         <el-form-item label="缺席人/请假">
-          <el-input
+          <EnlargeInput
             v-model="form.absentees"
             type="textarea"
             :rows="2"
@@ -652,12 +652,12 @@
         <el-row :gutter="14">
           <el-col :span="12">
             <el-form-item label="关联需求">
-              <el-input v-model="form.related_req_id" placeholder="如 REQ-2026-0718" />
+              <EnlargeInput v-model="form.related_req_id" placeholder="如 REQ-2026-0718" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="关联工单">
-              <el-input v-model="form.related_ticket_no" placeholder="如 OP-2026-0456" />
+              <EnlargeInput v-model="form.related_ticket_no" placeholder="如 OP-2026-0456" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -671,11 +671,11 @@
                 <span class="ag-idx">议题 {{ i + 1 }}</span>
                 <el-button link type="danger" @click="removeFormAgenda(i)">移除</el-button>
               </div>
-              <el-input v-model="ag.topic" placeholder="议题标题" class="ag-input" />
+              <EnlargeInput v-model="ag.topic" placeholder="议题标题" class="ag-input" />
               <label class="ag-label">议题背景说明</label>
-              <el-input v-model="ag.background" type="textarea" :rows="2" placeholder="本议题的背景情况（可选）" class="ag-input" />
+              <EnlargeInput v-model="ag.background" type="textarea" :rows="2" placeholder="本议题的背景情况（可选）" class="ag-input" />
               <label class="ag-label">商讨结论</label>
-              <el-input v-model="ag.conclusion" type="textarea" :rows="3" placeholder="本议题的结论/决议（可会后补录）" />
+              <EnlargeInput v-model="ag.conclusion" type="textarea" :rows="3" placeholder="本议题的结论/决议（可会后补录）" />
             </div>
             <el-button link type="primary" class="sec-act" @click="addFormAgenda">＋ 添加议题</el-button>
             <div v-if="!formAgendas.length" class="empty-hint">暂无议题，点击左上添加</div>
@@ -707,7 +707,7 @@
         </div>
         <div class="mail-row">
           <label class="mail-label">主题</label>
-          <el-input v-model="mailSubject" placeholder="邮件主题" />
+          <EnlargeInput v-model="mailSubject" placeholder="邮件主题" />
         </div>
         <div class="mail-row mail-tpl-row">
           <label class="mail-label">正文</label>
@@ -716,7 +716,7 @@
             <el-button size="small" @click="applyTemplate">重置为模板</el-button>
           </div>
         </div>
-        <el-input
+        <EnlargeInput
           v-model="mailBody"
           type="textarea"
           :rows="12"

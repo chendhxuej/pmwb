@@ -98,7 +98,7 @@
         </el-select>
         <el-checkbox v-model="filters.onlyOverdue" label="只看超期" />
         <el-checkbox v-model="filters.includeDone" label="含已完成/挂起" />
-        <el-input
+        <EnlargeInput
           v-model="filters.keyword"
           placeholder="搜索标题 / 负责人"
           clearable
@@ -237,10 +237,10 @@
           <StaffSelect v-model="emailCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
-          <el-input v-model="emailForm.subject" />
+          <EnlargeInput v-model="emailForm.subject" />
         </el-form-item>
         <el-form-item label="正文">
-          <el-input v-model="emailForm.body" type="textarea" :rows="8" />
+          <EnlargeInput v-model="emailForm.body" type="textarea" :rows="8" />
           <div class="form-hint">发送时系统会在正文末尾自动附上任务清单（标题/负责人/状态/截止时间）。</div>
         </el-form-item>
       </el-form>
@@ -254,7 +254,7 @@
     <el-dialog v-model="urgeDialogVisible" title="发送催办邮件" width="600px">
       <el-form :model="urgeForm" label-width="100px">
         <el-form-item label="需求编号">
-          <el-input v-model="urgeForm.req_id" disabled />
+          <EnlargeInput v-model="urgeForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="收件人">
           <StaffSelect v-model="urgeTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
@@ -264,10 +264,10 @@
           <StaffSelect v-model="urgeCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
-          <el-input v-model="urgeForm.subject" />
+          <EnlargeInput v-model="urgeForm.subject" />
         </el-form-item>
         <el-form-item label="正文">
-          <el-input v-model="urgeForm.body" type="textarea" :rows="10" />
+          <EnlargeInput v-model="urgeForm.body" type="textarea" :rows="10" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -286,7 +286,7 @@
     >
       <el-form :model="newTodoForm" label-width="92px" :rules="newTodoRules" ref="newTodoFormRef">
         <el-form-item label="标题" prop="title">
-          <el-input v-model="newTodoForm.title" placeholder="待办标题" maxlength="120" show-word-limit />
+          <EnlargeInput v-model="newTodoForm.title" placeholder="待办标题" maxlength="120" show-word-limit />
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
@@ -325,7 +325,7 @@
           </el-col>
         </el-row>
         <el-form-item label="内容">
-          <el-input v-model="newTodoForm.content" type="textarea" :rows="3" placeholder="补充说明（可选）" />
+          <EnlargeInput v-model="newTodoForm.content" type="textarea" :rows="3" placeholder="补充说明（可选）" />
         </el-form-item>
       </el-form>
       <template #footer>

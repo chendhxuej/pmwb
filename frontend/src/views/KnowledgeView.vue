@@ -7,7 +7,7 @@
         <div class="kv-crumb">工作台 / 知识库 · Obsidian 联动</div>
       </div>
       <div class="kv-actions">
-        <el-input
+        <EnlargeInput
           v-model="searchKeyword"
           class="kv-search"
           placeholder="搜索笔记 / 标签"
@@ -16,7 +16,7 @@
           @clear="onSearch"
         >
           <template #prefix><span class="kv-search-ico">🔍</span></template>
-        </el-input>
+        </EnlargeInput>
         <el-button type="primary" @click="openCreate">＋ 新建条目</el-button>
         <el-button @click="handleSyncFromVault" :loading="syncing">⟳ 从 Vault 同步</el-button>
       </div>
@@ -163,7 +163,7 @@
       <div class="kv-modal-desc">写入 Obsidian vault 对应文件夹，自动同步到知识库</div>
       <el-form ref="createRef" :model="createForm" :rules="createRules" label-width="96px">
         <el-form-item label="标题" prop="title">
-          <el-input v-model="createForm.title" placeholder="如：集团短信实名制处理口径" />
+          <EnlargeInput v-model="createForm.title" placeholder="如：集团短信实名制处理口径" />
         </el-form-item>
         <el-form-item label="分类" prop="category">
           <el-select v-model="createForm.category" placeholder="请选择" filterable allow-create style="width: 100%">
@@ -176,13 +176,13 @@
           </el-select>
         </el-form-item>
         <el-form-item label="关联需求/工单">
-          <el-input v-model="createForm.source_id" placeholder="如 REQ-2026-0718、OP-2026-0441" />
+          <EnlargeInput v-model="createForm.source_id" placeholder="如 REQ-2026-0718、OP-2026-0441" />
         </el-form-item>
         <el-form-item label="Obsidian 路径" prop="obsidian_path">
-          <el-input v-model="createForm.obsidian_path" placeholder="如 01-业务知识/政企业务知识库/xxx.md（留空自动生成）" />
+          <EnlargeInput v-model="createForm.obsidian_path" placeholder="如 01-业务知识/政企业务知识库/xxx.md（留空自动生成）" />
         </el-form-item>
         <el-form-item label="正文">
-          <el-input
+          <EnlargeInput
             v-model="createForm.content"
             type="textarea"
             :rows="8"

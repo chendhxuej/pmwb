@@ -72,7 +72,7 @@
               成员<template v-if="selectedOrg"> · {{ selectedOrg.name }}</template>
             </span>
             <div class="admin-staff-tools">
-              <el-input
+              <EnlargeInput
                 v-model="keyword"
                 class="admin-search"
                 placeholder="搜索姓名/身份/邮箱"
@@ -82,7 +82,7 @@
                 @clear="loadStaffs"
               >
                 <template #prefix><el-icon><Search /></el-icon></template>
-              </el-input>
+              </EnlargeInput>
               <el-button type="primary" :disabled="!selectedOrgId" @click="openStaffCreate" size="small">
                 <el-icon><Plus /></el-icon><span>新增成员</span>
               </el-button>
@@ -137,7 +137,7 @@
     <el-dialog v-model="orgDialogVisible" :title="orgForm.id ? '编辑团队' : '新增团队'" width="400px" append-to-body>
       <el-form :model="orgForm" label-width="72px">
         <el-form-item label="名称" required>
-          <el-input v-model="orgForm.name" placeholder="如：政企业务部" />
+          <EnlargeInput v-model="orgForm.name" placeholder="如：政企业务部" />
         </el-form-item>
         <el-form-item label="排序号">
           <el-input-number v-model="orgForm.sort" :min="0" :step="1" style="width: 100%" />
@@ -156,7 +156,7 @@
     <el-dialog v-model="staffDialogVisible" :title="staffForm.id ? '编辑成员' : '新增成员'" width="440px" append-to-body>
       <el-form :model="staffForm" label-width="72px">
         <el-form-item label="姓名" required>
-          <el-input v-model="staffForm.name" placeholder="姓名" />
+          <EnlargeInput v-model="staffForm.name" placeholder="姓名" />
         </el-form-item>
         <el-form-item label="所属团队" required>
           <el-select v-model="staffForm.org_id" placeholder="选择团队" style="width: 100%" :disabled="!orgs.length">
@@ -164,10 +164,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="邮箱">
-          <el-input v-model="staffForm.email" placeholder="可选，用于邮件提醒" />
+          <EnlargeInput v-model="staffForm.email" placeholder="可选，用于邮件提醒" />
         </el-form-item>
         <el-form-item label="电话">
-          <el-input v-model="staffForm.phone" placeholder="可选" />
+          <EnlargeInput v-model="staffForm.phone" placeholder="可选" />
         </el-form-item>
         <el-form-item label="身份" required>
           <el-select

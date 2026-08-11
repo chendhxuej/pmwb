@@ -84,6 +84,7 @@
     </el-container>
 
     <StaffAdminDrawer />
+    <EnlargeInputDialog />
   </el-container>
 </template>
 
@@ -93,6 +94,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores'
 import { Fold, Expand, ArrowDown } from '@element-plus/icons-vue'
 import StaffAdminDrawer from '@/components/Common/StaffAdminDrawer.vue'
+import EnlargeInputDialog from '@/components/Common/EnlargeInputDialog.vue'
 
 const route = useRoute()
 const router = useRouter()

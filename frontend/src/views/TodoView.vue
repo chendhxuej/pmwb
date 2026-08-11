@@ -66,7 +66,7 @@
     <el-card class="search-card" shadow="never">
       <el-form :model="queryForm" inline>
         <el-form-item label="关键字">
-          <el-input v-model="queryForm.keyword" placeholder="标题/内容" clearable />
+          <EnlargeInput v-model="queryForm.keyword" placeholder="标题/内容" clearable />
         </el-form-item>
         <el-form-item label="分类">
           <el-select v-model="queryForm.category" placeholder="全部" clearable>
@@ -179,7 +179,7 @@
     >
       <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
         <el-form-item label="待办标题" prop="title">
-          <el-input v-model="form.title" placeholder="待办标题" />
+          <EnlargeInput v-model="form.title" placeholder="待办标题" />
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
@@ -267,7 +267,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="关联ID" prop="related_id">
-              <el-input v-model="form.related_id" placeholder="关联对象编号" />
+              <EnlargeInput v-model="form.related_id" placeholder="关联对象编号" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -280,7 +280,7 @@
           />
         </el-form-item>
         <el-form-item label="待办内容" prop="content">
-          <el-input v-model="form.content" type="textarea" :rows="3" />
+          <EnlargeInput v-model="form.content" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>

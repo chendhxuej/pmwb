@@ -189,10 +189,10 @@
     <el-dialog v-model="dialogVisible" title="需求跟踪" width="600px">
       <el-form :model="form" :rules="rules" label-width="100px">
         <el-form-item label="需求编号">
-          <el-input v-model="form.req_id" disabled />
+          <EnlargeInput v-model="form.req_id" disabled />
         </el-form-item>
         <el-form-item label="需求名称">
-          <el-input v-model="form.req_name" disabled />
+          <EnlargeInput v-model="form.req_name" disabled />
         </el-form-item>
         <el-form-item label="个人状态">
           <el-select v-model="form.status">
@@ -218,13 +218,13 @@
           <BusinessDomainSelect v-model="form.domain_code" />
         </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="form.tags" placeholder="逗号分隔" />
+          <EnlargeInput v-model="form.tags" placeholder="逗号分隔" />
         </el-form-item>
         <el-form-item label="个人备注">
-          <el-input v-model="form.personal_note" type="textarea" :rows="3" />
+          <EnlargeInput v-model="form.personal_note" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="开发单号">
-          <el-input v-model="form.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
+          <EnlargeInput v-model="form.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -302,7 +302,7 @@
     <el-dialog v-model="reminderVisible" title="发送催办邮件" width="600px">
       <el-form :model="reminderForm" label-width="100px">
         <el-form-item label="需求编号">
-          <el-input v-model="reminderForm.req_id" disabled />
+          <EnlargeInput v-model="reminderForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="收件人">
           <StaffSelect v-model="reminderTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
@@ -312,10 +312,10 @@
           <StaffSelect v-model="reminderCc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
-          <el-input v-model="reminderForm.subject" />
+          <EnlargeInput v-model="reminderForm.subject" />
         </el-form-item>
         <el-form-item label="正文">
-          <el-input v-model="reminderForm.body" type="textarea" :rows="6" />
+          <EnlargeInput v-model="reminderForm.body" type="textarea" :rows="6" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -327,13 +327,13 @@
     <el-dialog v-model="evalFormVisible" :title="evalForm.id ? '编辑团队评估' : '新增团队评估'" width="560px">
       <el-form :model="evalForm" label-width="110px">
         <el-form-item label="需求编号">
-          <el-input v-model="evalForm.req_id" disabled />
+          <EnlargeInput v-model="evalForm.req_id" disabled />
         </el-form-item>
         <el-form-item label="评估SA" required>
           <StaffSelect v-model="evalForm.sa_name" placeholder="评估SA/团队负责人" />
         </el-form-item>
         <el-form-item label="负责系统">
-          <el-input v-model="evalForm.system_name" placeholder="负责系统" />
+          <EnlargeInput v-model="evalForm.system_name" placeholder="负责系统" />
         </el-form-item>
         <el-form-item label="工作量(人天)">
           <el-input-number v-model="evalForm.workload" :min="0" :precision="1" :step="0.5" controls-position="right" />
@@ -342,10 +342,10 @@
           <el-input-number v-model="evalForm.review_workload" :min="0" :precision="1" :step="0.5" controls-position="right" />
         </el-form-item>
         <el-form-item label="开发单号">
-          <el-input v-model="evalForm.dev_ticket_no" placeholder="开发单号" />
+          <EnlargeInput v-model="evalForm.dev_ticket_no" placeholder="开发单号" />
         </el-form-item>
         <el-form-item label="评估意见">
-          <el-input v-model="evalForm.opinion" type="textarea" :rows="3" placeholder="评估意见登记" />
+          <EnlargeInput v-model="evalForm.opinion" type="textarea" :rows="3" placeholder="评估意见登记" />
         </el-form-item>
       </el-form>
       <template #footer>

@@ -87,7 +87,7 @@
           >{{ t.label }}<span class="cnt">{{ t.count }}</span></div>
         </div>
         <div class="list-toolbar">
-          <el-input
+          <EnlargeInput
             v-model="keyword"
             placeholder="搜索工单号 / 标题 / 责任人"
             clearable
@@ -232,7 +232,7 @@
           </el-col>
         </el-row>
         <el-form-item label="工单标题" prop="title">
-          <el-input v-model="entryForm.title" placeholder="简要描述问题或任务" />
+          <EnlargeInput v-model="entryForm.title" placeholder="简要描述问题或任务" />
         </el-form-item>
         <el-form-item label="责任人" prop="handler">
           <StaffSelect v-model="entryForm.handler" multiple placeholder="可多选，逗号存储" />
@@ -295,10 +295,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="经验总结">
-          <el-input v-model="entryForm.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
+          <EnlargeInput v-model="entryForm.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
         </el-form-item>
         <el-form-item label="情况说明" prop="situation_desc">
-          <el-input v-model="entryForm.situation_desc" type="textarea" :rows="3" placeholder="现象、影响范围、初步定位…" />
+          <EnlargeInput v-model="entryForm.situation_desc" type="textarea" :rows="3" placeholder="现象、影响范围、初步定位…" />
         </el-form-item>
         <el-form-item label="关联知识库">
           <el-select v-model="entryForm.obsidian_path" filterable placeholder="不关联" clearable style="width:100%">

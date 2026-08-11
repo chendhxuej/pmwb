@@ -7,7 +7,7 @@
         <div class="ss-crumb">知识中心 · 业务统计脚本归档</div>
       </div>
       <div class="ss-actions">
-        <el-input
+        <EnlargeInput
           v-model="searchKeyword"
           class="ss-search"
           placeholder="搜索脚本说明 / 编号"
@@ -16,7 +16,7 @@
           @clear="onSearch"
         >
           <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
+        </EnlargeInput>
         <el-select
           v-model="filterCategory"
           class="ss-cat"
@@ -90,7 +90,7 @@
     <el-drawer v-model="editVisible" :title="isEdit ? '编辑 SQL 脚本' : '新增 SQL 脚本'" size="70%" direction="rtl" destroy-on-close>
       <el-form ref="editRef" :model="editForm" :rules="editRules" label-width="92px" class="ss-form">
         <el-form-item label="脚本说明" prop="title">
-          <el-input v-model="editForm.title" placeholder="如：各业务线活跃用户数统计" />
+          <EnlargeInput v-model="editForm.title" placeholder="如：各业务线活跃用户数统计" />
         </el-form-item>
         <el-form-item label="分类">
           <el-select v-model="editForm.category" placeholder="选择或输入业务线" filterable allow-create default-first-option clearable style="width: 100%">
@@ -98,10 +98,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="补充说明">
-          <el-input v-model="editForm.description" type="textarea" :rows="2" placeholder="脚本用途、适用库表等备注" />
+          <EnlargeInput v-model="editForm.description" type="textarea" :rows="2" placeholder="脚本用途、适用库表等备注" />
         </el-form-item>
         <el-form-item label="SQL" prop="sql_text">
-          <el-input
+          <EnlargeInput
             v-model="editForm.sql_text"
             type="textarea"
             :rows="10"
@@ -116,9 +116,9 @@
               <span>字段名</span><span>类型</span><span>说明</span><span></span>
             </div>
             <div v-for="(f, idx) in editForm.output_fields" :key="idx" class="ss-field-row">
-              <el-input v-model="f.name" placeholder="字段名" />
-              <el-input v-model="f.type" placeholder="类型" />
-              <el-input v-model="f.desc" placeholder="说明" />
+              <EnlargeInput v-model="f.name" placeholder="字段名" />
+              <EnlargeInput v-model="f.type" placeholder="类型" />
+              <EnlargeInput v-model="f.desc" placeholder="说明" />
               <el-button circle size="small" type="danger" plain @click="removeField(idx)">
                 <el-icon><Delete /></el-icon>
               </el-button>

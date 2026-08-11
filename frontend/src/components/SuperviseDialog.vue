@@ -31,7 +31,7 @@
       </el-form-item>
 
       <el-form-item label="留言">
-        <el-input
+        <EnlargeInput
           v-model="form.extra_msg"
           type="textarea"
           :rows="3"

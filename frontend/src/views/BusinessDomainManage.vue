@@ -56,10 +56,10 @@
     >
       <el-form :model="form" label-width="100px">
         <el-form-item label="业务编码" required>
-          <el-input v-model="form.domain_code" :disabled="isEdit" placeholder="如 ywt-broadband" />
+          <EnlargeInput v-model="form.domain_code" :disabled="isEdit" placeholder="如 ywt-broadband" />
         </el-form-item>
         <el-form-item label="中文名称" required>
-          <el-input v-model="form.domain_name" placeholder="如一网通宽带" />
+          <EnlargeInput v-model="form.domain_name" placeholder="如一网通宽带" />
         </el-form-item>
         <el-form-item label="所属大类" required>
           <el-select v-model="form.domain_group" style="width:100%">
@@ -72,13 +72,13 @@
           </el-select>
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="2" placeholder="业务领域的简要说明" />
+          <EnlargeInput v-model="form.description" type="textarea" :rows="2" placeholder="业务领域的简要说明" />
         </el-form-item>
         <el-form-item label="Vault 路径">
-          <el-input v-model="form.vault_path" placeholder="Obsidian vault 内目录路径" />
+          <EnlargeInput v-model="form.vault_path" placeholder="Obsidian vault 内目录路径" />
         </el-form-item>
         <el-form-item label="分类关键词">
-          <el-input v-model="form.match_keywords" placeholder="逗号分隔，如 一网通,集客一网通（用于把扁平笔记归入该细分业务）" />
+          <EnlargeInput v-model="form.match_keywords" placeholder="逗号分隔，如 一网通,集客一网通（用于把扁平笔记归入该细分业务）" />
         </el-form-item>
         <el-form-item label="排序号">
           <el-input-number v-model="form.sort_order" :min="0" :max="999" controls-position="right" />

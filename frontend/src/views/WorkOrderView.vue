@@ -58,7 +58,7 @@
           @click="statusFilter = s.key"
         >{{ s.label }}</span>
       </div>
-      <el-input
+      <EnlargeInput
         v-model="keyword"
         placeholder="搜索工单号 / 标题 / 责任人"
         clearable
@@ -316,7 +316,7 @@
           </el-col>
         </el-row>
         <el-form-item label="工单标题" prop="title">
-          <el-input v-model="form.title" placeholder="简短描述问题或任务" />
+          <EnlargeInput v-model="form.title" placeholder="简短描述问题或任务" />
         </el-form-item>
         <el-form-item label="业务领域" prop="domain_code">
           <BusinessDomainSelect v-model="form.domain_code" />
@@ -339,14 +339,14 @@
           </el-col>
         </el-row>
         <el-form-item label="情况说明" prop="situation_desc">
-          <el-input v-model="form.situation_desc" type="textarea" :rows="3" placeholder="影响范围/具体情况说明" />
+          <EnlargeInput v-model="form.situation_desc" type="textarea" :rows="3" placeholder="影响范围/具体情况说明" />
         </el-form-item>
         <el-form-item label="处理结果反馈">
-          <el-input v-model="form.result_feedback" type="textarea" :rows="3" placeholder="填写工单处理结果 / 闭环说明（可后续编辑更新）" />
+          <EnlargeInput v-model="form.result_feedback" type="textarea" :rows="3" placeholder="填写工单处理结果 / 闭环说明（可后续编辑更新）" />
         </el-form-item>
         <el-form-item label="关联知识库">
           <div class="note-picker">
-            <el-input v-model="form.obsidian_path" placeholder="选择关联的 Obsidian 知识笔记" readonly style="flex:1" />
+            <EnlargeInput v-model="form.obsidian_path" placeholder="选择关联的 Obsidian 知识笔记" readonly style="flex:1" />
             <el-button @click="openLinkPicker('entry')">选择笔记</el-button>
             <el-button v-if="form.obsidian_path" link type="danger" @click="form.obsidian_path = ''">清除</el-button>
           </div>
@@ -388,7 +388,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="经验总结">
-          <el-input v-model="form.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
+          <EnlargeInput v-model="form.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
         </el-form-item>
         <el-form-item label="附件">
           <div class="att-block">
@@ -424,7 +424,7 @@
 
     <!-- 关联笔记选择弹窗 -->
     <el-dialog v-model="notePickerVisible" title="选择关联知识笔记" width="640px" append-to-body>
-      <el-input v-model="noteSearch" placeholder="搜索笔记标题" clearable style="margin-bottom:12px" />
+      <EnlargeInput v-model="noteSearch" placeholder="搜索笔记标题" clearable style="margin-bottom:12px" />
       <el-table
         :data="filteredNotes"
         height="340"

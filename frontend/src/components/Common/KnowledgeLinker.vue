@@ -25,7 +25,7 @@
 
     <!-- 关联选择弹窗 -->
     <el-dialog v-model="pickerVisible" title="关联业务知识笔记" width="680px" append-to-body>
-      <el-input
+      <EnlargeInput
         v-model="kw"
         placeholder="按标题/关键字搜索（留空显示当前领域笔记）"
         clearable

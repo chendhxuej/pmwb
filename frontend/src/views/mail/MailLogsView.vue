@@ -3,7 +3,7 @@
     <!-- 筛选区 -->
     <el-form :model="filters" inline class="filter-bar" @keyup.enter="onSearch">
       <el-form-item label="关键词">
-        <el-input
+        <EnlargeInput
           v-model="filters.search"
           placeholder="搜索主题/收件人/需求编号..."
           clearable

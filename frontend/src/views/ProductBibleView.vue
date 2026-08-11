@@ -94,7 +94,7 @@
             直接编辑下方 Markdown 源码，保存后写回 Obsidian 文件，页面立即生效。
             <b>mermaid</b> 代码块、表格请保持原始格式，避免损坏。
           </div>
-          <el-input
+          <EnlargeInput
             v-model="editContent"
             type="textarea"
             class="edit-area"

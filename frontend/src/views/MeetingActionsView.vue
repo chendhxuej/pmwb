@@ -13,10 +13,10 @@
     <el-card shadow="never" class="search-card">
       <el-form :model="queryForm" inline>
         <el-form-item label="关键字">
-          <el-input v-model="queryForm.keyword" placeholder="内容 / 会议主题" clearable />
+          <EnlargeInput v-model="queryForm.keyword" placeholder="内容 / 会议主题" clearable />
         </el-form-item>
         <el-form-item label="负责人">
-          <el-input v-model="queryForm.owner" placeholder="负责人姓名" clearable />
+          <EnlargeInput v-model="queryForm.owner" placeholder="负责人姓名" clearable />
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="queryForm.status" placeholder="全部" clearable style="width: 120px">
@@ -112,7 +112,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="收件人">
-          <el-input
+          <EnlargeInput
             v-model="superviseForm.recipientsText"
             placeholder="多个收件人姓名用逗号分隔，为空则取负责人"
           />
@@ -127,7 +127,7 @@
     <el-dialog v-model="editVisible" title="编辑行动项" width="560px">
       <el-form :model="editForm" label-width="90px" :rules="editRules" ref="editFormRef">
         <el-form-item label="行动项内容" prop="content">
-          <el-input
+          <EnlargeInput
             v-model="editForm.content"
             type="textarea"
             :rows="3"
@@ -135,7 +135,7 @@
           />
         </el-form-item>
         <el-form-item label="负责人">
-          <el-input v-model="editForm.owner" placeholder="负责人姓名" />
+          <EnlargeInput v-model="editForm.owner" placeholder="负责人姓名" />
         </el-form-item>
         <el-form-item label="截止日期">
           <el-date-picker
