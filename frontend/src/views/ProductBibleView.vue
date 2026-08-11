@@ -94,7 +94,7 @@
             直接编辑下方 Markdown 源码，保存后写回 Obsidian 文件，页面立即生效。
             <b>mermaid</b> 代码块、表格请保持原始格式，避免损坏。
           </div>
-          <el-input
+          <EnlargeInput
             v-model="editContent"
             type="textarea"
             class="edit-area"
@@ -108,10 +108,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, onBeforeUnmount, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { productBibleApi } from '@/api/productBible'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
+
+const route = useRoute()
 
 const catalog = ref([])
 const activeKey = ref('')
@@ -161,9 +164,14 @@ const loadCatalog = async () => {
   try {
     const res = await productBibleApi.getCatalog()
     catalog.value = res || []
-    if (!activeKey.value && catalog.value.length) {
-      activeKey.value = catalog.value[0].key
-      await loadBible(activeKey.value)
+    if (!catalog.value.length) return
+    // 支持从 HUB 经 ?domain= 预选业务
+    const pref = route.query.domain
+    const matched =
+      pref && catalog.value.find((c) => c.key === pref) ? pref : catalog.value[0].key
+    if (activeKey.value !== matched) {
+      activeKey.value = matched
+      await loadBible(matched)
     }
   } catch (e) {
     ElMessage.error('加载业务目录失败')

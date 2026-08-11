@@ -1,62 +1,84 @@
 <template>
   <div class="knowledge-center">
-    <!-- 顶部 Tab 条：四个知识子模块快捷切换 -->
-    <div class="kc-tabs">
-      <div
-        v-for="tab in tabs"
-        :key="tab.path"
-        class="kc-tab"
-        :class="{ active: activePath === tab.path }"
-        @click="go(tab.path)"
-      >
-        <el-icon class="kc-tab-ico"><component :is="tab.icon" /></el-icon>
-        <span>{{ tab.label }}</span>
-      </div>
-    </div>
+    <!-- 子路由视图（产品圣经等） -->
+    <template v-if="isChildRoute">
+      <router-view />
+    </template>
 
-    <!-- 子模块内容 -->
-    <div class="kc-body">
-      <router-view v-slot="{ Component }">
-        <keep-alive>
-          <component :is="Component" />
-        </keep-alive>
-      </router-view>
-    </div>
+    <!-- 默认三视图（无子路由时） -->
+    <template v-else>
+      <!-- 三视图 Tab 条 -->
+      <div class="kc-tabs">
+        <div
+          v-for="tab in tabs"
+          :key="tab.key"
+          class="kc-tab"
+          :class="{ active: activeTab === tab.key }"
+          @click="activeTab = tab.key"
+        >
+          <el-icon class="kc-tab-ico"><component :is="tab.icon" /></el-icon>
+          <span>{{ tab.label }}</span>
+        </div>
+      </div>
+
+      <!-- 视图内容 -->
+      <div class="kc-body">
+        <!-- ── 视图1: 业务全景 HUB ── -->
+        <div v-show="activeTab === 'hub'" class="kc-panel">
+          <HubPanel @open-note="openObsidianNote" />
+        </div>
+
+        <!-- ── 视图2: 知识检索 ── -->
+        <div v-show="activeTab === 'search'" class="kc-panel">
+          <SearchPanel />
+        </div>
+
+        <!-- ── 视图3: 沉淀向导 ── -->
+        <div v-show="activeTab === 'sediment'" class="kc-panel">
+          <SedimentPanel />
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 
 const route = useRoute()
-const router = useRouter()
+const isChildRoute = computed(() => route.path !== '/knowledge-center' && route.path !== '/knowledge-center/')
+import { ElMessage } from 'element-plus'
+import HubPanel from './KnowledgeCenter/HubPanel.vue'
+import SearchPanel from './KnowledgeCenter/SearchPanel.vue'
+import SedimentPanel from './KnowledgeCenter/SedimentPanel.vue'
+
+const activeTab = ref('hub')
 
 const tabs = [
-  { path: '/knowledge-center/knowledge', label: '知识库', icon: 'Collection' },
-  { path: '/knowledge-center/product-bible', label: '产品圣经', icon: 'Notebook' },
-  { path: '/knowledge-center/notes', label: '知识沉淀', icon: 'Files' },
-  { path: '/knowledge-center/domain', label: '按领域', icon: 'Grid' },
-  { path: '/knowledge-center/sql-scripts', label: 'SQL脚本库', icon: 'Document' },
+  { key: 'hub', label: '业务全景', icon: 'DataBoard' },
+  { key: 'search', label: '知识检索', icon: 'Search' },
+  { key: 'sediment', label: '沉淀向导', icon: 'Upload' },
 ]
 
-const activePath = computed(() => '/' + (route.path.split('/').slice(1, 3).join('/')))
-
-const go = (path) => {
-  if (activePath.value !== path) router.push(path)
+const openObsidianNote = (path) => {
+  if (!path) return
+  window.open(`obsidian://open?vault=知识图谱&file=${encodeURIComponent(path)}`, '_blank')
 }
 </script>
 
 <style scoped>
 .knowledge-center {
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .kc-tabs {
   display: flex;
   gap: 6px;
   padding: 0 24px;
   margin-bottom: 4px;
-  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 .kc-tab {
   display: flex;
@@ -64,7 +86,7 @@ const go = (path) => {
   gap: 7px;
   font-size: 13.5px;
   font-weight: 600;
-  padding: 9px 16px;
+  padding: 9px 20px;
   border-radius: 11px 11px 0 0;
   color: var(--text-secondary);
   cursor: pointer;
@@ -84,7 +106,13 @@ const go = (path) => {
   font-size: 15px;
 }
 .kc-body {
-  height: calc(100% - 46px);
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+.kc-panel {
+  height: 100%;
   overflow: auto;
+  padding: 16px 24px;
 }
 </style>

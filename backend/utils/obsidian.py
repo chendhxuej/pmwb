@@ -337,8 +337,9 @@ AUTO_END_TPL = "<!-- PMWB:AUTO:END key={key} -->"
 
 
 def _auto_block_pattern(key: str) -> "re.Pattern":
+    # 捕获组 (.*?) 用于 read_auto_block 抽取标记之间的内容
     return re.compile(
-        re.escape(AUTO_BEGIN_TPL.format(key=key)) + r".*?" + re.escape(AUTO_END_TPL.format(key=key)),
+        re.escape(AUTO_BEGIN_TPL.format(key=key)) + r"(.*?)" + re.escape(AUTO_END_TPL.format(key=key)),
         re.DOTALL,
     )
 
@@ -400,3 +401,39 @@ def upsert_auto_block(
     return (
         content.rstrip("\n") + "\n\n" + f"## {anchor_heading}" + "\n\n" + block + "\n"
     )
+
+
+def read_auto_block(content: str, key: str) -> Optional[str]:
+    """读取指定 key 的 AUTO 区块内部内容；区块不存在返回 None。
+
+    用于产品圣经等场景：从主笔记抽取 §2 产商品等系统自动汇总内容。
+    """
+    content = content or ""
+    pat = _auto_block_pattern(key)
+    m = pat.search(content)
+    if not m:
+        return None
+    inner = m.group(1)
+    return inner.strip()
+
+
+def extract_section(content: str, heading: str) -> Optional[str]:
+    """读取主笔记中以 `## {heading}` 开头的章节正文（到下一个 `## ` 为止）。
+
+    heading 为模糊匹配（含子串即可），用于抽取「产商品与资费体系」等章节。
+    """
+    content = content or ""
+    lines = content.splitlines()
+    start_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith("## ") and heading in line:
+            start_idx = i
+            break
+    if start_idx is None:
+        return None
+    end_idx = len(lines)
+    for j in range(start_idx + 1, len(lines)):
+        if lines[j].startswith("## ") or lines[j].startswith("# "):
+            end_idx = j
+            break
+    return "\n".join(lines[start_idx:end_idx]).strip()

@@ -127,7 +127,6 @@ const routes = [
         path: 'knowledge-center',
         name: 'KnowledgeCenter',
         component: () => import('@/views/KnowledgeCenterView.vue'),
-        redirect: '/knowledge-center/knowledge',
         meta: { title: '知识中心', icon: 'Reading' },
         children: [
           {
