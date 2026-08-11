@@ -320,3 +320,83 @@ def replace_section(content: str, heading: str, new_body: str) -> str:
             new_lines.append(bl)
         new_lines.append("")
     return "\n".join(new_lines).rstrip("\n") + "\n"
+
+
+# ---------------------------------------------------------------------------
+# kc4-2：主笔记「自动区」标记块（人工区零覆盖的核心保障）
+# ---------------------------------------------------------------------------
+# 设计要点（相比按标题名替换更科学、更安全）：
+# 1. 自动内容一律夹在 <!-- PMWB:AUTO:BEGIN key=xxx --> / <!-- PMWB:AUTO:END key=xxx --> 之间；
+# 2. 系统只重写标记之间的内容，标记之外（人工撰写的概述/SOP/通用规则）永不触碰；
+# 3. 幂等：每次同步为「整块替换」，不会重复追加；
+# 4. 标记在 Obsidian 中渲染为注释（不可见），但源码可见，用户明确知道哪块由系统维护；
+# 5. 章节改名/挪位不影响（以 key 为契约，不依赖标题文字）。
+
+AUTO_BEGIN_TPL = "<!-- PMWB:AUTO:BEGIN key={key} -->"
+AUTO_END_TPL = "<!-- PMWB:AUTO:END key={key} -->"
+
+
+def _auto_block_pattern(key: str) -> "re.Pattern":
+    return re.compile(
+        re.escape(AUTO_BEGIN_TPL.format(key=key)) + r".*?" + re.escape(AUTO_END_TPL.format(key=key)),
+        re.DOTALL,
+    )
+
+
+def render_auto_block(key: str, body: str) -> str:
+    """渲染一个带标记的自动区块。"""
+    inner = (body or "").strip("\n")
+    return "\n".join(
+        [
+            AUTO_BEGIN_TPL.format(key=key),
+            inner if inner else "_暂无数据_",
+            AUTO_END_TPL.format(key=key),
+        ]
+    )
+
+
+def has_auto_block(content: str, key: str) -> bool:
+    return bool(_auto_block_pattern(key).search(content or ""))
+
+
+def upsert_auto_block(
+    content: str,
+    key: str,
+    body: str,
+    anchor_heading: Optional[str] = None,
+) -> str:
+    """写入/更新自动区块，返回新内容。**只改标记之间的内容，人工区零覆盖。**
+
+    - 已存在同 key 标记块 → 原地整块替换（幂等）；
+    - 不存在且给了 anchor_heading（`## heading` 文本）→ 追加到该章节末尾（章节内人工内容保留）；
+    - 不存在且无 anchor_heading（或章节不存在）→ 追加到文末新建 `## anchor_heading` 章节。
+    """
+    content = content or ""
+    block = render_auto_block(key, body)
+    pat = _auto_block_pattern(key)
+    if pat.search(content):
+        return pat.sub(lambda _m: block, content, count=1)
+
+    if not anchor_heading:
+        return content.rstrip("\n") + "\n\n" + block + "\n"
+
+    lines = content.split("\n")
+    heading_pat = re.compile(r"^##\s+" + re.escape(anchor_heading) + r"\s*$")
+    n = len(lines)
+    for i, line in enumerate(lines):
+        if heading_pat.match(line):
+            # 找到该章节结束位置（下一个同级/更高级标题前）
+            j = i + 1
+            while j < n and not re.match(r"^##\s+", lines[j]) and not re.match(r"^#\s+", lines[j]):
+                j += 1
+            # 去掉章节尾部空行后插入区块
+            k = j
+            while k > i + 1 and not lines[k - 1].strip():
+                k -= 1
+            new_lines = lines[:k] + ["", block, ""] + lines[j:]
+            return "\n".join(new_lines).rstrip("\n") + "\n"
+
+    # 章节不存在：新建章节承载自动区块
+    return (
+        content.rstrip("\n") + "\n\n" + f"## {anchor_heading}" + "\n\n" + block + "\n"
+    )

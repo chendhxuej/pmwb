@@ -23,6 +23,8 @@ from services.knowledge_link_service import (
     ensure_domain_main_notes,
     link_note,
     list_by_item,
+    sync_main_note_from_links,
+    sync_main_note_safe,
     unlink as unlink_by_source,
 )
 from services.obsidian_link import (
@@ -152,6 +154,32 @@ def ensure_main_notes(db: Session = Depends(get_db)):
     )
 
 
+@router.post("/sync-main-note")
+def sync_main_note(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+):
+    """把关联表中的过程性事实回流到业务知识主笔记「自动区」（kc4-2）。
+
+    payload: {domain_code}
+
+    分级回写：产商品/业务流程仅收录「已关闭且勾选变更标记」的需求；场景规则来自用户故事
+    rules；交付物与业务时间线为客观记录全部放开。**人工区（业务概述/通用规则/资费/SOP
+    细节/关联系统）永不触碰。**
+    """
+    result = sync_main_note_from_links(db, payload["domain_code"])
+    if not result.get("main_note_path"):
+        return success(data=result, message=result.get("message", "主笔记不可用"))
+    return success(
+        data=result,
+        message=(
+            f"已同步 {len(result['blocks_written'])} 个自动区块"
+            if result.get("changed")
+            else "自动区内容已是最新，无需更新"
+        ),
+    )
+
+
 @router.get("/{item_id}/links")
 def get_item_links(item_id: int, db: Session = Depends(get_db)):
     """获取某知识条目已关联的全部过程性对象。"""
@@ -210,10 +238,17 @@ def delete_item_link(
     return success(data=ok)
 
 
+def _after_sediment(db: Session, result: Any) -> Any:
+    """kc4-2：沉淀完成后自动回流主笔记自动区（失败静默，不阻断沉淀主流程）。"""
+    if isinstance(result, dict):
+        sync_main_note_safe(db, result.get("domain_code"))
+    return result
+
+
 @router.post("/sediment/requirement/{req_id}")
 def sediment_requirement_endpoint(req_id: str, force: bool = False, db: Session = Depends(get_db)):
-    """把需求沉淀为知识条目（force=True 覆盖更新）。"""
-    return success(data=sediment_requirement(db, req_id, force=force))
+    """把需求沉淀为知识条目（force=True 覆盖更新），并自动回流主笔记自动区。"""
+    return success(data=_after_sediment(db, sediment_requirement(db, req_id, force=force)))
 
 
 @router.post("/sediment/user-story/{story_id}")
@@ -222,26 +257,26 @@ def sediment_user_story_endpoint(
     force: bool = Query(False, description="true 时覆盖已存在的规则笔记"),
     db: Session = Depends(get_db),
 ):
-    """把用户故事的业务规则沉淀为业务知识笔记（force=True 覆盖更新）。"""
-    return success(data=sediment_user_story(db, story_id, force=force))
+    """把用户故事的业务规则沉淀为业务知识笔记（force=True 覆盖更新），并自动回流主笔记。"""
+    return success(data=_after_sediment(db, sediment_user_story(db, story_id, force=force)))
 
 
 @router.post("/sediment/requirement/{req_id}/rules")
 def sediment_requirement_rules_endpoint(req_id: str, db: Session = Depends(get_db)):
-    """把某需求的用户故事业务规则追加到目标领域主笔记的「场景规则」子笔记（重复触发幂等更新）。"""
-    return success(data=sediment_requirement_rules(db, req_id))
+    """把某需求的用户故事业务规则追加到目标领域主笔记的「场景规则」子笔记（幂等），并自动回流主笔记。"""
+    return success(data=_after_sediment(db, sediment_requirement_rules(db, req_id)))
 
 
 @router.post("/sediment/requirement/{req_id}/archive-manual")
 def archive_requirement_manual_endpoint(req_id: str, db: Session = Depends(get_db)):
-    """把需求关联开发工单的操作手册交付物归档到业务知识交付物目录并登记主笔记。"""
-    return success(data=archive_requirement_manual(db, req_id))
+    """把需求操作手册交付物归档到业务知识交付物目录并登记主笔记，同时回流主笔记交付物区。"""
+    return success(data=_after_sediment(db, archive_requirement_manual(db, req_id)))
 
 
 @router.post("/sediment/operation/{issue_id}/rules")
 def sediment_operation_rules_endpoint(issue_id: int, db: Session = Depends(get_db)):
-    """把运营工单的结构化经验（根因分类/影响范围/解决方案类型/根因/方案/经验）追加到目标领域主笔记的「场景规则」子笔记（重复触发幂等更新）。"""
-    return success(data=sediment_operation_rules(db, issue_id))
+    """把运营工单的结构化经验追加到目标领域主笔记的「场景规则」子笔记（幂等），并自动回流主笔记。"""
+    return success(data=_after_sediment(db, sediment_operation_rules(db, issue_id)))
 
 
 @router.get("/{item_id}")

@@ -577,7 +577,8 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
         if main_note:
             try:
                 link_note(db, main_note.id, source_type="requirement", source_id=req_id,
-                           link_type="main", domain_code=domain_code)
+                           link_type="main", domain_code=domain_code,
+                           event_type="requirement", summary=f"需求{req_id}关联业务知识主笔记")
             except Exception:
                 pass
         return {
@@ -613,7 +614,8 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
         if main_note:
             try:
                 link_note(db, main_note.id, source_type="requirement", source_id=req_id,
-                           link_type="main", domain_code=domain_code)
+                           link_type="main", domain_code=domain_code,
+                           event_type="requirement", summary=f"需求{req_id}关联业务知识主笔记")
             except Exception:
                 pass
         return {
@@ -644,7 +646,8 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
     if main_note:
         try:
             link_note(db, main_note.id, source_type="requirement", source_id=req_id,
-                       link_type="main", domain_code=domain_code)
+                       link_type="main", domain_code=domain_code,
+                       event_type="requirement", summary=f"需求{req_id}关联业务知识主笔记")
         except Exception:
             pass
     return {
@@ -803,7 +806,8 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
     # 记录需求 → 场景规则子笔记 的关联（canonical）
     try:
         link_note(db, sub_note["id"], source_type="requirement", source_id=req_id,
-                   link_type="sub", domain_code=domain_code, note="业务规则")
+                   link_type="sub", domain_code=domain_code, note="业务规则",
+                   event_type="rule", summary=f"需求{req_id}沉淀业务规则到场景规则子笔记")
     except Exception:
         pass
 
@@ -882,7 +886,8 @@ def sediment_operation_rules(db, issue_id: int) -> Dict:
     # 记录工单 → 场景规则子笔记 的关联（canonical）
     try:
         link_note(db, sub_note["id"], source_type="operation", source_id=str(issue_id),
-                   link_type="sub", domain_code=domain_code, note="业务规则")
+                   link_type="sub", domain_code=domain_code, note="业务规则",
+                   event_type="operation", summary=f"工单{issue.issue_no}沉淀业务规则到场景规则子笔记")
     except Exception:
         pass
 
