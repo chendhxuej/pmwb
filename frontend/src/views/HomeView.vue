@@ -718,11 +718,10 @@ onActivated(() => {
 .greeting-inner {
   position: relative;
   z-index: 1;
-  padding: 20px 26px;
+  padding: 16px 22px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  justify-content: center;
+  gap: 8px;
 }
 .g-top {
   display: flex;
@@ -731,57 +730,57 @@ onActivated(() => {
   gap: 16px;
 }
 .g-hello {
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: -1px;
-  line-height: 1.2;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: -1.2px;
+  line-height: 1.15;
 }
 .g-hello span { color: #93c5fd; }
 .g-sub {
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 400;
-  color: #8b9bb4;
-  line-height: 1.5;
-  max-width: 460px;
-  margin-top: 6px;
+  color: #7a8ba8;
+  line-height: 1.4;
+  max-width: 480px;
+  margin-top: 4px;
 }
 .g-eff { text-align: right; flex-shrink: 0; }
-.g-eff-key { font-size: 11px; color: #64748b; margin-bottom: 2px; letter-spacing: .04em; }
+.g-eff-key { font-size: 10px; color: #5a6a85; margin-bottom: 1px; letter-spacing: .06em; text-transform: uppercase; }
 .g-eff-val {
-  font-size: 36px;
-  font-weight: 800;
+  font-size: 42px;
+  font-weight: 900;
   font-family: var(--font-mono);
   color: #4ade80;
-  letter-spacing: -1.5px;
+  letter-spacing: -2px;
   line-height: 1;
 }
 .g-eff-unit { font-size: 16px; color: #64748b; }
-.g-stats { display: flex; gap: 22px; flex-wrap: wrap; }
+.g-stats { display: flex; gap: 20px; flex-wrap: wrap; }
 .g-stat { display: flex; flex-direction: column; }
-.g-stat-val { font-size: 26px; font-weight: 800; font-family: var(--font-mono); line-height: 1.1; }
+.g-stat-val { font-size: 30px; font-weight: 900; font-family: var(--font-mono); line-height: 1.05; }
 .g-stat-val.up { color: #4ade80; }
 .g-stat-val.down { color: #f87171; }
 .g-stat-val.accent { color: #93c5fd; }
-.g-stat-key { font-size: 10.5px; color: #64748b; margin-top: 3px; letter-spacing: .04em; }
+.g-stat-key { font-size: 9.5px; color: #5a6a85; margin-top: 2px; letter-spacing: .05em; text-transform: uppercase; }
 
 .g-ticker {
-  margin-top: 2px;
+  margin-top: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   background: rgba(255, 255, 255, .06);
   border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 10px;
-  padding: 7px 12px;
+  border-radius: 8px;
+  padding: 6px 10px;
   overflow: hidden;
 }
 .g-ticker-label {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: #93c5fd;
   white-space: nowrap;
-  letter-spacing: .03em;
+  letter-spacing: .04em;
 }
 .g-ticker-viewport {
   flex: 1;
@@ -791,15 +790,15 @@ onActivated(() => {
 }
 
 /* ── 实时动态 ── */
-.ls-list { list-style: none; padding: 0 18px 12px; }
-.ls-item { display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); }
+.ls-list { list-style: none; padding: 0 16px 8px; }
+.ls-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
 .ls-item:last-child { border-bottom: none; }
-.ls-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.ls-dot.red { background: var(--danger); box-shadow: 0 0 6px rgba(217, 84, 77, .4); }
-.ls-dot.amber { background: var(--warning); box-shadow: 0 0 6px rgba(217, 138, 31, .35); }
+.ls-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.ls-dot.red { background: var(--danger); box-shadow: 0 0 5px rgba(217, 84, 77, .4); }
+.ls-dot.amber { background: var(--warning); box-shadow: 0 0 5px rgba(217, 138, 31, .35); }
 .ls-dot.green { background: var(--success); }
-.ls-text { font-size: 12.5px; color: var(--text-primary); flex: 1; min-width: 0; }
-.ls-time { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+.ls-text { font-size: 12px; color: var(--text-primary); flex: 1; min-width: 0; }
+.ls-time { font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
 /* ── KPI 增量 ── */
 .kpi-delta {
@@ -1086,7 +1085,7 @@ onActivated(() => {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: 12px;
     color: #cbd5e1;
     white-space: nowrap;
   }
