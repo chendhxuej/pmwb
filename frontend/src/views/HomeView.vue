@@ -44,7 +44,7 @@
 
       <BentoCard title="实时动态" :span="4">
         <ul class="ls-list">
-          <li class="ls-item" v-for="(item, i) in liveStatus" :key="i">
+          <li class="ls-item" v-for="(item, i) in liveStatus.slice(0, 4)" :key="i">
             <span class="ls-dot" :class="item.color"></span>
             <span class="ls-text">{{ item.text }}</span>
             <span class="ls-time">{{ item.time }}</span>
@@ -703,6 +703,7 @@ onActivated(() => {
   color: #f8fafc;
   position: relative;
   overflow: hidden;
+  align-self: start;
 }
 .greeting-tile::after {
   content: '';
@@ -745,7 +746,7 @@ onActivated(() => {
   margin-top: 4px;
 }
 .g-eff { text-align: right; flex-shrink: 0; }
-.g-eff-key { font-size: 10px; color: #5a6a85; margin-bottom: 1px; letter-spacing: .06em; text-transform: uppercase; }
+.g-eff-key { font-size: 11px; color: #7a8ba8; margin-bottom: 2px; letter-spacing: .03em; }
 .g-eff-val {
   font-size: 42px;
   font-weight: 900;
@@ -761,7 +762,7 @@ onActivated(() => {
 .g-stat-val.up { color: #4ade80; }
 .g-stat-val.down { color: #f87171; }
 .g-stat-val.accent { color: #93c5fd; }
-.g-stat-key { font-size: 9.5px; color: #5a6a85; margin-top: 2px; letter-spacing: .05em; text-transform: uppercase; }
+.g-stat-key { font-size: 11px; color: #7a8ba8; margin-top: 2px; letter-spacing: .02em; }
 
 .g-ticker {
   margin-top: 0;
