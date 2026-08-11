@@ -51,6 +51,28 @@ export const knowledgeApi = {
     return request.post('/knowledge/sync-from-vault', data)
   },
 
+  // ---- 新建业务知识主笔记（选领域后生成标准模板，幂等） ----
+  createMainNote(domainCode) {
+    return request.post('/knowledge/main-note', { domain_code: domainCode })
+  },
+
+  // ---- 按知识条目维度管理关联（kc-2 标准实现，KnowledgeLinker 使用） ----
+  listByItem(itemId) {
+    return request.get(`/knowledge/${itemId}/links`)
+  },
+
+  createItemLink(itemId, data) {
+    return request.post(`/knowledge/${itemId}/links`, data)
+  },
+
+  deleteItemLink(itemId, sourceType, sourceId) {
+    return request.delete(`/knowledge/${itemId}/links/${sourceType}/${sourceId}`)
+  },
+
+  batchCreateItemLinks(itemId, links) {
+    return request.post(`/knowledge/${itemId}/links/batch`, { links })
+  },
+
   // ---- 多对多关联 ----
   getLinks(sourceType, sourceId) {
     return request.get('/knowledge/links', {
@@ -97,5 +119,15 @@ export const knowledgeApi = {
   // 把运营工单的结构化经验追加到主笔记「场景规则」子笔记
   sedimentOperationRules(issueId) {
     return request.post(`/knowledge/sediment/operation/${issueId}/rules`)
+  },
+
+  // ---- kc4-2 主笔记自动区回流（沉淀后系统自动调用，也可手动触发） ----
+  syncMainNote(domainCode) {
+    return request.post('/knowledge/sync-main-note', { domain_code: domainCode })
+  },
+
+  // ---- kc4-3 业务全过程时间线（按业务聚合全部关联事件，时间倒序） ----
+  getBusinessTimeline(params) {
+    return request.get('/knowledge/business-timeline', { params })
   },
 }

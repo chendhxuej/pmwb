@@ -19,6 +19,7 @@ from services.knowledge_link import (
     unlink,
 )
 from services.knowledge_link_service import (
+    business_timeline,
     create_main_note as create_main_note_service,
     ensure_domain_main_notes,
     link_note,
@@ -178,6 +179,22 @@ def sync_main_note(
             else "自动区内容已是最新，无需更新"
         ),
     )
+
+
+@router.get("/business-timeline")
+def get_business_timeline(
+    domain_code: str = Query(..., description="业务领域编码"),
+    limit: int = Query(200, ge=1, le=1000, description="返回条数上限"),
+    event_type: Optional[str] = Query(None, description="按事件类型过滤"),
+    db: Session = Depends(get_db),
+):
+    """业务全过程时间线（kc4-3）：按业务聚合全部关联事件，时间倒序。
+
+    回答「这个业务历史各时间点干了什么事」——需求、会议、运营工单、交付物、规则沉淀
+    全部汇入同一条时间轴，每条事件可跳源记录或对应 Obsidian 笔记。空业务返回空列表。
+    """
+    data = business_timeline(db, domain_code, limit=limit, event_type=event_type)
+    return success(data=data)
 
 
 @router.get("/{item_id}/links")

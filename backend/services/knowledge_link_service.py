@@ -940,3 +940,184 @@ def sync_main_note_safe(db: Session, domain_code: Optional[str]) -> None:
         sync_main_note_from_links(db, domain_code)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# kc4-3 业务全过程时间线
+# ---------------------------------------------------------------------------
+# 落地老大核心诉求：「从关联关系看这个业务历史各时间点干了什么事」。
+# 数据源为 pmwb_knowledge_link（关联权威源），按 event_date 倒序聚合。
+
+# event_type / source_type -> 展示中文名
+EVENT_LABELS = {
+    "requirement": "需求",
+    "requirement_close": "需求闭环",
+    "meeting": "会议",
+    "operation": "运营工单",
+    "ticket": "开发工单",
+    "deliverable": "交付物",
+    "delivery": "交付归档",
+    "key_work": "重点工作",
+    "rule": "业务规则",
+    "manual": "操作手册",
+    "note": "笔记",
+}
+
+# source_type -> 前端跳转路由（源记录所在模块）
+SOURCE_ROUTES = {
+    "requirement": "/requirement-delivery",
+    "meeting": "/meeting/list",
+    "operation": "/operation/overview",
+    "key_work": "/key-works",
+    "ticket": "/ticket",
+    "deliverable": "/requirement-delivery",
+}
+
+
+def _resolve_source_titles(db: Session, links: List[PmwbKnowledgeLink]) -> Dict[str, str]:
+    """批量解析源记录标题，避免逐条查询（N+1）。
+
+    返回 {f"{source_type}:{source_id}": title}。
+    """
+    buckets: Dict[str, set] = {}
+    for lk in links:
+        if not lk.source_type or not lk.source_id:
+            continue
+        buckets.setdefault(lk.source_type, set()).add(str(lk.source_id))
+
+    titles: Dict[str, str] = {}
+
+    def _fill(source_type: str, rows, key_attr: str, title_attr: str):
+        for row in rows:
+            key = str(getattr(row, key_attr, "") or "")
+            if not key:
+                continue
+            titles[f"{source_type}:{key}"] = (getattr(row, title_attr, "") or "").strip()
+
+    ids = buckets.get("requirement")
+    if ids:
+        rows = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id.in_(ids)).all()
+        _fill("requirement", rows, "req_id", "req_name")
+
+    ids = buckets.get("meeting")
+    if ids:
+        rows = db.query(PmwbMeeting).filter(PmwbMeeting.meeting_id.in_(ids)).all()
+        _fill("meeting", rows, "meeting_id", "title")
+        # 兼容以自增主键作为 source_id 的历史数据
+        numeric = [int(x) for x in ids if str(x).isdigit()]
+        if numeric:
+            for row in db.query(PmwbMeeting).filter(PmwbMeeting.id.in_(numeric)).all():
+                titles.setdefault(f"meeting:{row.id}", (row.title or "").strip())
+
+    ids = buckets.get("operation")
+    if ids:
+        rows = db.query(PmwbOperationIssue).filter(PmwbOperationIssue.issue_no.in_(ids)).all()
+        _fill("operation", rows, "issue_no", "title")
+        numeric = [int(x) for x in ids if str(x).isdigit()]
+        if numeric:
+            for row in db.query(PmwbOperationIssue).filter(PmwbOperationIssue.id.in_(numeric)).all():
+                titles.setdefault(f"operation:{row.id}", (row.title or "").strip())
+
+    ids = buckets.get("key_work")
+    if ids:
+        rows = db.query(PmwbKeyWork).filter(PmwbKeyWork.work_no.in_(ids)).all()
+        _fill("key_work", rows, "work_no", "title")
+
+    ids = buckets.get("ticket")
+    if ids:
+        # 开发工单子模块已取消（数据保留），历史 link 仍需可读，标题取 description
+        rows = db.query(PmwbDevTicket).filter(PmwbDevTicket.ticket_no.in_(ids)).all()
+        _fill("ticket", rows, "ticket_no", "description")
+
+    return titles
+
+
+def business_timeline(
+    db: Session,
+    domain_code: str,
+    limit: int = 200,
+    event_type: Optional[str] = None,
+) -> dict:
+    """业务全过程时间线：按业务聚合全部关联事件，时间倒序。
+
+    - 数据源：`pmwb_knowledge_link`（event_date desc, created_at desc）；
+    - 每条事件带源记录标题 + 前端跳转路由 + 关联笔记路径，前端可双向跳转；
+    - 空业务返回空列表（不报错）。
+    """
+    domain = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.domain_code == domain_code)
+        .first()
+    )
+
+    q = db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.domain_code == domain_code)
+    if event_type:
+        q = q.filter(PmwbKnowledgeLink.event_type == event_type)
+    links = q.all()
+
+    # 统计各事件类型数量（过滤前的全量口径，供前端筛选器展示）
+    all_links = (
+        links
+        if not event_type
+        else db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.domain_code == domain_code).all()
+    )
+    type_counter: Dict[str, int] = {}
+    for lk in all_links:
+        key = lk.event_type or lk.source_type or "other"
+        type_counter[key] = type_counter.get(key, 0) + 1
+
+    # 排序：event_date 倒序（空日期垫底），同日按 created_at 倒序
+    def _sort_key(lk: PmwbKnowledgeLink):
+        d = lk.event_date or date.min
+        c = lk.created_at or datetime.min
+        return (d, c)
+
+    ordered = sorted(links, key=_sort_key, reverse=True)
+    total = len(ordered)
+    if limit and limit > 0:
+        ordered = ordered[:limit]
+
+    titles = _resolve_source_titles(db, ordered)
+
+    item_ids = {lk.knowledge_item_id for lk in ordered if lk.knowledge_item_id}
+    items: Dict[int, PmwbKnowledgeItem] = {}
+    if item_ids:
+        for it in db.query(PmwbKnowledgeItem).filter(PmwbKnowledgeItem.id.in_(item_ids)).all():
+            items[it.id] = it
+
+    events = []
+    for lk in ordered:
+        item = items.get(lk.knowledge_item_id) if lk.knowledge_item_id else None
+        kind = lk.event_type or lk.source_type or "other"
+        skey = f"{lk.source_type}:{lk.source_id}"
+        events.append(
+            {
+                "link_id": lk.id,
+                "event_type": kind,
+                "event_label": EVENT_LABELS.get(kind, kind),
+                "event_date": lk.event_date.strftime("%Y-%m-%d") if lk.event_date else None,
+                "month": lk.event_date.strftime("%Y-%m") if lk.event_date else None,
+                "summary": (lk.summary or lk.note or "").strip() or None,
+                "source_type": lk.source_type,
+                "source_id": lk.source_id,
+                "source_title": titles.get(skey) or None,
+                "source_route": SOURCE_ROUTES.get(lk.source_type or ""),
+                "knowledge_item_id": lk.knowledge_item_id,
+                "knowledge_title": item.title if item else None,
+                "obsidian_path": item.obsidian_path if item else None,
+                "note_type": item.note_type if item else None,
+                "created_at": lk.created_at.strftime("%Y-%m-%d %H:%M:%S") if lk.created_at else None,
+            }
+        )
+
+    return {
+        "domain_code": domain_code,
+        "domain_name": domain.domain_name if domain else domain_code,
+        "total": total,
+        "returned": len(events),
+        "event_types": [
+            {"value": k, "label": EVENT_LABELS.get(k, k), "count": v}
+            for k, v in sorted(type_counter.items(), key=lambda x: -x[1])
+        ],
+        "events": events,
+    }
