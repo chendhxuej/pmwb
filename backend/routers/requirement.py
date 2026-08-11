@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -7,6 +7,12 @@ from core.response import success
 from db.base import get_db
 from schemas.requirement import EvaluationCreate, EvaluationUpdate, RequirementExtUpdate
 from services.requirement import requirement_service
+from services.obsidian_link import (
+    archive_requirement_manual,
+    get_requirement_deliverables,
+    add_requirement_deliverable,
+    remove_requirement_deliverable,
+)
 
 router = APIRouter(prefix="/requirements", tags=["需求管理"])
 
@@ -94,4 +100,42 @@ def update_requirement(req_id: str, obj_in: RequirementExtUpdate, db: Session = 
 def delete_requirement(req_id: str, db: Session = Depends(get_db)):
     """从我的工作台移除需求（删除扩展、团队评估、用户故事；保留只读 sent_emails）。"""
     ok = requirement_service.delete_requirement(db, req_id)
+    return success(data={"deleted": ok})
+
+
+# ---------------------------------------------------------------------------
+# kc4-4 需求交付物（去开发工单中间层）
+# ---------------------------------------------------------------------------
+
+@router.get("/{req_id}/deliverables")
+def list_deliverables(req_id: str, db: Session = Depends(get_db)):
+    """获取需求直挂交付物列表。"""
+    items = get_requirement_deliverables(db, req_id)
+    return success(data=items)
+
+
+@router.post("/{req_id}/deliverables")
+def create_deliverable(
+    req_id: str,
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+):
+    """为需求添加交付物（文件需已上传到 uploads/ 或 vault）。
+
+    payload: {file_name, local_path, note?}
+    """
+    entry = add_requirement_deliverable(
+        db,
+        req_id,
+        file_name=payload["file_name"],
+        local_path=payload["local_path"],
+        note=payload.get("note", ""),
+    )
+    return success(data=entry)
+
+
+@router.delete("/{req_id}/deliverables/{index}")
+def delete_deliverable(req_id: str, index: int, db: Session = Depends(get_db)):
+    """按索引删除需求的某个交付物。"""
+    ok = remove_requirement_deliverable(db, req_id, index)
     return success(data={"deleted": ok})

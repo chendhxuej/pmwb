@@ -55,6 +55,13 @@ class PmwbRequirementExt(Base):
     process_changed = Column(
         Integer, default=0, comment="本需求是否涉及业务流程变更(1是)，用于主笔记业务流程区保守回写"
     )
+    # kc4-4：需求直挂交付物（去开发工单中间层）
+    # JSON 数组: [{"file_name":"xxx.pdf","local_path":"/uploads/...","note":"操作手册","archived_at":null}, ...]
+    deliverables = Column(
+        Text,
+        default="[]",
+        comment="需求直挂交付物(JSON数组),每项含file_name/local_path/note/archived_at",
+    )
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,
