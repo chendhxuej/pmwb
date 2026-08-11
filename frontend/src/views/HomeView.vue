@@ -718,10 +718,11 @@ onActivated(() => {
 .greeting-inner {
   position: relative;
   z-index: 1;
-  padding: 28px 30px;
+  padding: 20px 26px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
+  justify-content: center;
 }
 .g-top {
   display: flex;
@@ -730,46 +731,48 @@ onActivated(() => {
   gap: 16px;
 }
 .g-hello {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -.3px;
-  line-height: 1.25;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.2;
 }
 .g-hello span { color: #93c5fd; }
 .g-sub {
-  font-size: 14px;
-  color: #94a3b8;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: #8b9bb4;
   line-height: 1.5;
-  max-width: 440px;
-  margin-top: 8px;
+  max-width: 460px;
+  margin-top: 6px;
 }
 .g-eff { text-align: right; flex-shrink: 0; }
-.g-eff-key { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+.g-eff-key { font-size: 11px; color: #64748b; margin-bottom: 2px; letter-spacing: .04em; }
 .g-eff-val {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 800;
   font-family: var(--font-mono);
   color: #4ade80;
-  letter-spacing: -1px;
+  letter-spacing: -1.5px;
+  line-height: 1;
 }
 .g-eff-unit { font-size: 16px; color: #64748b; }
-.g-stats { display: flex; gap: 28px; flex-wrap: wrap; }
+.g-stats { display: flex; gap: 22px; flex-wrap: wrap; }
 .g-stat { display: flex; flex-direction: column; }
-.g-stat-val { font-size: 22px; font-weight: 700; font-family: var(--font-mono); line-height: 1.2; }
+.g-stat-val { font-size: 26px; font-weight: 800; font-family: var(--font-mono); line-height: 1.1; }
 .g-stat-val.up { color: #4ade80; }
 .g-stat-val.down { color: #f87171; }
 .g-stat-val.accent { color: #93c5fd; }
-.g-stat-key { font-size: 11.5px; color: #64748b; margin-top: 2px; letter-spacing: .03em; }
+.g-stat-key { font-size: 10.5px; color: #64748b; margin-top: 3px; letter-spacing: .04em; }
 
 .g-ticker {
-  margin-top: 4px;
+  margin-top: 2px;
   display: flex;
   align-items: center;
   gap: 12px;
   background: rgba(255, 255, 255, .06);
   border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 12px;
-  padding: 9px 14px;
+  border-radius: 10px;
+  padding: 7px 12px;
   overflow: hidden;
 }
 .g-ticker-label {
@@ -788,15 +791,15 @@ onActivated(() => {
 }
 
 /* ── 实时动态 ── */
-.ls-list { list-style: none; padding: 0 22px 18px; }
-.ls-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }
+.ls-list { list-style: none; padding: 0 18px 12px; }
+.ls-item { display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); }
 .ls-item:last-child { border-bottom: none; }
 .ls-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .ls-dot.red { background: var(--danger); box-shadow: 0 0 6px rgba(217, 84, 77, .4); }
 .ls-dot.amber { background: var(--warning); box-shadow: 0 0 6px rgba(217, 138, 31, .35); }
 .ls-dot.green { background: var(--success); }
-.ls-text { font-size: 13px; color: var(--text-primary); flex: 1; min-width: 0; }
-.ls-time { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+.ls-text { font-size: 12.5px; color: var(--text-primary); flex: 1; min-width: 0; }
+.ls-time { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
 /* ── KPI 增量 ── */
 .kpi-delta {
@@ -1075,7 +1078,7 @@ onActivated(() => {
     gap: 44px;
     white-space: nowrap;
     padding-left: 24px;
-    animation: tickerScroll 38s linear infinite;
+    animation: tickerScroll 54s linear infinite;
     will-change: transform;
   }
   .ticker-track.is-paused { animation-play-state: paused; }
