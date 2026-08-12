@@ -1,0 +1,151 @@
+import logging
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from core.config import settings
+from core.exceptions import PMWBException
+from db.base import engine
+from db.models import Base  # noqa: F401
+from routers import (
+    basic_data,
+    dashboard,
+    dev_ticket,
+    health,
+    keywork,
+    knowledge,
+    llm_provider,
+    mail_center,
+    meeting,
+    meeting_action,
+    obsidian,
+    plugin,
+    operation,
+    product_bible,
+    reminder,
+    requirement,
+    requirement_delivery,
+    sql_script,
+    supervise,
+    task_center,
+    todo,
+    user_story,
+    work_report,
+)
+
+
+def setup_logging() -> logging.Logger:
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"pmwb_{datetime.now().strftime('%Y%m%d')}.log"
+
+    logging.basicConfig(
+        level=logging.INFO if not settings.DEBUG else logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+    )
+    return logging.getLogger("pmwb")
+
+
+logger = setup_logging()
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description="产品经理个人工作台 API",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(PMWBException)
+async def pmwb_exception_handler(request: Request, exc: PMWBException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": exc.code,
+            "message": exc.message,
+            "data": None,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": 500,
+            "message": "系统内部错误",
+            "data": None,
+        },
+    )
+
+
+app.include_router(health.router, prefix="/api/v1", tags=["健康检查"])
+app.include_router(basic_data.router, prefix="/api/v1", tags=["基础数据"])
+app.include_router(keywork.router, prefix="/api/v1", tags=["重点工作"])
+app.include_router(operation.router, prefix="/api/v1", tags=["业务运营监控"])
+app.include_router(meeting_action.router, prefix="/api/v1", tags=["会议行动项"])
+app.include_router(meeting.router, prefix="/api/v1", tags=["会议管理"])
+app.include_router(knowledge.router, prefix="/api/v1", tags=["知识库"])
+app.include_router(mail_center.router, prefix="/api/v1", tags=["邮件中心"])
+app.include_router(plugin.router, prefix="/api/v1", tags=["插件接入"])
+app.include_router(dashboard.router, prefix="/api/v1", tags=["首页看板"])
+app.include_router(todo.router, prefix="/api/v1", tags=["待办中心"])
+app.include_router(requirement.router, prefix="/api/v1", tags=["需求管理"])
+app.include_router(requirement_delivery.router, prefix="/api/v1", tags=["需求交付"])
+app.include_router(user_story.router, prefix="/api/v1", tags=["用户故事"])
+app.include_router(dev_ticket.router, prefix="/api/v1", tags=["开发工单"])
+app.include_router(reminder.router, prefix="/api/v1", tags=["邮件催办"])
+app.include_router(supervise.router, prefix="/api/v1", tags=["邮件督办"])
+app.include_router(task_center.router, prefix="/api/v1", tags=["任务中心"])
+app.include_router(sql_script.router, prefix="/api/v1", tags=["SQL脚本库"])
+app.include_router(product_bible.router, prefix="/api/v1", tags=["产品圣经"])
+app.include_router(obsidian.router, prefix="/api/v1", tags=["Obsidian 联动"])
+app.include_router(work_report.router, prefix="/api/v1", tags=["AI总结报告"])
+app.include_router(llm_provider.router, prefix="/api/v1", tags=["大模型管理"])
+
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("PMWB backend started")
+    # 幂等创建缺失的数据表（对已有表无副作用；与 Alembic 不冲突）
+    Base.metadata.create_all(bind=engine)
+    # 首次运行种子化大模型提供方（从 settings 迁移 Kimi 配置，向后兼容）
+    try:
+        from db.base import SessionLocal
+        from services.llm_provider import ensure_seed
+        with SessionLocal() as s:
+            ensure_seed(s)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("LLM provider seed skipped: %s", e)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("PMWB backend stopped")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host=settings.BACKEND_HOST,
+        port=settings.BACKEND_PORT,
+        reload=settings.DEBUG,
+    )

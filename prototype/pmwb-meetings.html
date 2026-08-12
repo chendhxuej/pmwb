@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PMWB 工作台 — 会议日程（设计原型）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-app: #f3f5f9;
+    --sidebar-bg: #1e293b;
+    --sidebar-active: rgba(47,111,237,.14);
+    --surface: #ffffff;
+    --border: #e4e9f0;
+    --border-subtle: #eff2f8;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --accent: #2f6fed;
+    --accent-hover: #2659c9;
+    --accent-soft: #eaf1fe;
+    --success: #0f9d6b;
+    --success-soft: #ecfdf3;
+    --warning: #d98a1f;
+    --warning-soft: #fef7ed;
+    --danger: #d9544d;
+    --danger-soft: #fef2f2;
+    --info: #3b82f6;
+    --info-soft: #eff6ff;
+    --purple: #7c3aed;
+    --purple-soft: #f3e8ff;
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 22px;
+    --shadow-card: 0 2px 12px -3px rgba(15,23,42,.08),0 1px 3px -1px rgba(15,23,42,.06);
+    --shadow-elevated: 0 16px 48px -12px rgba(15,23,42,.14);
+    --shadow-modal: 0 24px 70px -16px rgba(15,23,42,.32);
+    --transition-fast: .18s cubic-bezier(.4,0,.2,1);
+    --font-display: 'Outfit', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+    --sidebar-w: 236px;
+  }
+  *,*::before,*::after { box-sizing:border-box;margin:0;padding:0 }
+  html { font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale }
+  body { font-family: var(--font-display); background:var(--bg-app); color:var(--text-primary); display:flex; min-height:100vh; overflow-x:hidden }
+
+  .sidebar { width:var(--sidebar-w); flex-shrink:0; height:100vh; position:fixed;left:0;top:0;z-index:100; background:var(--sidebar-bg); color:#cbd5e1;display:flex;flex-direction:column; }
+  .sb-brand { padding:26px 24px 20px; display:flex;align-items:center;gap:11px;border-bottom:1px solid rgba(255,255,255,.07) }
+  .sb-logo { width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2f6fed 30%,#60a5fa);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:14px;letter-spacing:-.5px }
+  .sb-title { font-size:17px;font-weight:700;color:#f1f5f9;letter-spacing:.3px }
+  .sb-nav { flex:1;padding:16px 12px;display:flex;flex-direction:column;gap:3px;overflow-y:auto }
+  .sb-item { display:flex;align-items:center;gap:13px;padding:11px 14px;border-radius:10px; color:#94a3b8;font-size:14px;font-weight:400;cursor:pointer;transition:all var(--transition-fast); position:relative;text-decoration:none;line-height:1.35 }
+  .sb-item:hover { background:rgba(255,255,255,.05);color:#e2e8f0 }
+  .sb-item.active { background:var(--sidebar-active); color:#60a5fa;font-weight:500 }
+  .sb-item.active::before { content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:20px;background:#60a5fa;border-radius:0 3px 3px 0 }
+  .sb-icon { width:20px;height:20px;flex-shrink:0;opacity:.75 }
+  .sb-item.active .sb-icon { opacity:1 }
+  .sb-bottom { padding:18px 16px;border-top:1px solid rgba(255,255,255,.07) }
+  .sb-user { display:flex;align-items:center;gap:12px;padding:8px;border-radius:10px;cursor:pointer;transition:background var(--transition-fast) }
+  .sb-user:hover { background:rgba(255,255,255,.04) }
+  .sb-avatar { width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#38bdf8,#2dd4bf);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff }
+  .sb-user-info { display:flex;flex-direction:column }
+  .sb-user-name { font-size:13px;font-weight:500;color:#e2e8f0;line-height:1.25 }
+  .sb-user-role { font-size:11.5px;color:#64748b }
+
+  .main { margin-left:var(--sidebar-w); flex:1;min-height:100vh;display:flex;flex-direction:column }
+  .topbar { height:62px;flex-shrink:0;background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(12px); border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between; padding:0 32px;position:sticky;top:0;z-index:90 }
+  .tb-left { display:flex;align-items:center;gap:14px }
+  .tb-title { font-size:18px;font-weight:700;color:var(--text-primary) }
+  .tb-crumb { font-size:12.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px }
+  .tb-right { display:flex;align-items:center;gap:10px }
+  .tb-search { width:240px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--surface); padding:0 14px;font-size:13px;outline:none;transition:all var(--transition-fast) }
+  .tb-search:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .tb-btn { height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);display:inline-flex;align-items:center;gap:6px }
+  .tb-btn:hover { border-color:var(--accent);color:var(--accent) }
+  .tb-btn-primary { background:var(--accent);border-color:var(--accent);color:#fff }
+  .tb-btn-primary:hover { background:var(--accent-hover);border-color:var(--accent-hover);color:#fff }
+
+  .content { padding:28px 32px 40px;max-width:1600px;width:100% }
+  .bento-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:18px;align-items:start }
+  .card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md); box-shadow:var(--shadow-card);overflow:hidden;transition: transform var(--transition-fast), box-shadow var(--transition-fast); animation:bentoIn .45s cubic-bezier(.16,1,.3,1) both }
+  @keyframes bentoIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+  .card-head { padding:18px 20px 0; display:flex;align-items:center;justify-content:space-between }
+  .card-title { font-size:16px;font-weight:700 }
+  .card-sub { font-size:12.5px;color:var(--text-muted);margin-top:3px }
+  .btn { height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);display:inline-flex;align-items:center;gap:7px }
+  .btn:hover { border-color:var(--accent);color:var(--accent) }
+  .btn-primary { background:var(--accent);border-color:var(--accent);color:#fff }
+  .btn-primary:hover { background:var(--accent-hover);border-color:var(--accent-hover);color:#fff }
+  .btn-ghost { border-color:transparent;background:transparent;color:var(--text-secondary) }
+  .btn-ghost:hover { background:var(--border-subtle);color:var(--text-primary) }
+  .btn-sm { height:30px;padding:0 12px;font-size:12px }
+  .btn-danger { color:var(--danger);border-color:transparent }
+  .btn-danger:hover { background:var(--danger-soft);border-color:var(--danger-soft) }
+
+  /* view tabs */
+  .view-tabs { display:inline-flex;background:var(--border-subtle);border-radius:11px;padding:4px;gap:2px }
+  .view-tab { padding:7px 16px;border-radius:8px;font-size:13px;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast);border:none;background:transparent }
+  .view-tab.active { background:var(--surface);color:var(--accent);box-shadow:var(--shadow-card) }
+  .view-tab:hover:not(.active) { color:var(--text-primary) }
+
+  /* month calendar */
+  .cal-grid { display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding:18px 20px 22px }
+  .cal-dow { text-align:center;font-size:12px;font-weight:600;color:var(--text-muted);padding:4px 0 }
+  .cal-cell { min-height:84px;border-radius:10px;border:1px solid var(--border-subtle);background:#fcfdff;padding:8px;cursor:pointer;transition:all var(--transition-fast);position:relative;overflow:hidden }
+  .cal-cell:hover { border-color:var(--accent);background:var(--accent-soft) }
+  .cal-cell.other { background:transparent;opacity:.42 }
+  .cal-cell.today { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .cal-day { font-size:13px;font-weight:700;color:var(--text-primary) }
+  .cal-cell.today .cal-day { color:var(--accent) }
+  .cal-dot { display:inline-block;width:7px;height:7px;border-radius:50%;margin:3px 3px 0 0 }
+  .cal-dot.blue { background:var(--accent) }
+  .cal-dot.green { background:var(--success) }
+  .cal-dot.amber { background:var(--warning) }
+  .cal-meta { font-size:10px;color:var(--text-muted);margin-top:4px;line-height:1.3 }
+
+  /* mini stat */
+  .mini-stat { display:flex;flex-direction:column;gap:3px;padding:14px 16px }
+  .mini-num { font-size:26px;font-weight:800;font-family:var(--font-mono);line-height:1 }
+  .mini-lab { font-size:12px;color:var(--text-secondary) }
+
+  /* meeting row */
+  .mt-row { display:flex;gap:14px;padding:14px 16px;border-bottom:1px solid var(--border-subtle);cursor:pointer;transition:background var(--transition-fast) }
+  .mt-row:last-child { border-bottom:none }
+  .mt-row:hover { background:var(--accent-soft) }
+  .mt-time { width:62px;flex-shrink:0;text-align:center }
+  .mt-hour { font-size:15px;font-weight:800;color:var(--text-primary);font-family:var(--font-mono) }
+  .mt-dur { font-size:10.5px;color:var(--text-muted);margin-top:3px }
+  .mt-line { width:2px;border-radius:2px;background:var(--accent);flex-shrink:0;margin-top:3px }
+  .mt-line.amber { background:var(--warning) }
+  .mt-line.green { background:var(--success) }
+  .mt-body { flex:1;min-width:0 }
+  .mt-title { font-size:14px;font-weight:700;color:var(--text-primary) }
+  .mt-info { font-size:12px;color:var(--text-secondary);margin-top:4px;display:flex;gap:14px;flex-wrap:wrap }
+  .mt-tag { display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:var(--accent-soft);color:var(--accent) }
+  .tag-amber { background:var(--warning-soft);color:var(--warning) }
+  .tag-green { background:var(--success-soft);color:var(--success) }
+  .tag-purple { background:var(--purple-soft);color:var(--purple) }
+  .mt-attendees { display:flex;gap:-6px;margin-top:7px }
+  .av { width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;color:#fff;margin-right:-6px;border:2px solid #fff }
+
+  /* list table */
+  .mt-list { width:100%;border-collapse:collapse }
+  .mt-list th { text-align:left;font-size:11.5px;font-weight:700;color:var(--text-muted);padding:12px 16px;border-bottom:1px solid var(--border);background:var(--border-subtle);letter-spacing:.3px }
+  .mt-list td { padding:13px 16px;border-bottom:1px solid var(--border-subtle);font-size:13px;vertical-align:middle }
+  .mt-list tr:hover td { background:var(--accent-soft) }
+  .mt-strong { font-weight:700;color:var(--text-primary) }
+  .pill { display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px }
+  .pill-blue { background:var(--accent-soft);color:var(--accent) }
+  .pill-gray { background:#eef2f7;color:var(--text-secondary) }
+  .pill-green { background:var(--success-soft);color:var(--success) }
+  .pill-amber { background:var(--warning-soft);color:var(--warning) }
+  .status-dot { width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px }
+
+  /* drawer */
+  .drawer-mask { position:fixed;inset:0;background:rgba(15,23,42,.38);backdrop-filter:blur(2px);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s }
+  .drawer-mask.open { opacity:1;pointer-events:auto }
+  .drawer { position:fixed;top:0;right:0;height:100vh;width:520px;max-width:94vw;background:var(--surface);z-index:201;box-shadow:var(--shadow-modal);transform:translateX(100%);transition:transform .3s cubic-bezier(.16,1,.3,1);display:flex;flex-direction:column }
+  .drawer.open { transform:none }
+  .dw-head { padding:22px 24px 16px;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:flex-start }
+  .dw-title { font-size:18px;font-weight:800;color:var(--text-primary);line-height:1.3 }
+  .dw-close { width:32px;height:32px;border-radius:9px;border:none;background:var(--border-subtle);cursor:pointer;font-size:16px;color:var(--text-secondary) }
+  .dw-close:hover { background:var(--danger-soft);color:var(--danger) }
+  .dw-body { flex:1;overflow-y:auto;padding:20px 24px }
+  .dw-foot { padding:16px 24px;border-top:1px solid var(--border-subtle);display:flex;gap:10px;justify-content:flex-end }
+
+  .detail-block { margin-bottom:20px }
+  .detail-label { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px }
+  .info-grid { display:grid;grid-template-columns:1fr 1fr;gap:14px }
+  .info-item { display:flex;flex-direction:column;gap:3px }
+  .info-k { font-size:11.5px;color:var(--text-muted) }
+  .info-v { font-size:13.5px;font-weight:600;color:var(--text-primary) }
+  .agenda-item { display:flex;gap:11px;padding:9px 0;border-bottom:1px dashed var(--border) }
+  .agenda-item:last-child { border-bottom:none }
+  .agenda-idx { width:22px;height:22px;border-radius:7px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0 }
+  .agenda-txt { font-size:13px;color:var(--text-primary);line-height:1.5 }
+  .link-chip { display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 11px;border-radius:9px;background:var(--border-subtle);color:var(--text-secondary);cursor:pointer;margin:0 6px 6px 0;transition:all var(--transition-fast) }
+  .link-chip:hover { background:var(--accent-soft);color:var(--accent) }
+
+  /* modal */
+  .modal-mask { position:fixed;inset:0;background:rgba(15,23,42,.38);backdrop-filter:blur(2px);z-index:210;opacity:0;pointer-events:none;transition:opacity .25s;display:flex;align-items:center;justify-content:center }
+  .modal-mask.open { opacity:1;pointer-events:auto }
+  .modal { width:560px;max-width:94vw;background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-modal);transform:scale(.96) translateY(8px);transition:transform .26s cubic-bezier(.16,1,.3,1);max-height:90vh;display:flex;flex-direction:column;overflow:hidden }
+  .modal-mask.open .modal { transform:none }
+  .modal-head { padding:22px 26px 16px;border-bottom:1px solid var(--border-subtle) }
+  .modal-title { font-size:18px;font-weight:800 }
+  .modal-body { padding:20px 26px;overflow-y:auto }
+  .modal-foot { padding:16px 26px;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;gap:10px }
+  .form-row { display:flex;gap:14px;margin-bottom:16px }
+  .form-group { flex:1;display:flex;flex-direction:column;gap:6px }
+  .form-label { font-size:12.5px;font-weight:600;color:var(--text-secondary) }
+  .form-input,.form-select,.form-textarea { border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:13px;font-family:var(--font-display);color:var(--text-primary);outline:none;background:var(--surface);transition:all var(--transition-fast) }
+  .form-input:focus,.form-select:focus,.form-textarea:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .form-textarea { resize:vertical;min-height:80px }
+  .chip-input { display:flex;flex-wrap:wrap;gap:6px;align-items:center;border:1px solid var(--border);border-radius:10px;padding:8px 10px }
+  .chip-input input { border:none;outline:none;flex:1;font-size:13px;min-width:80px;font-family:var(--font-display) }
+  .chip { display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 9px;border-radius:8px;background:var(--accent-soft);color:var(--accent) }
+  .chip-x { cursor:pointer;opacity:.7 }
+
+  .toast { position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text-primary);color:#fff;padding:12px 22px;border-radius:12px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow-modal);z-index:300;opacity:0;transition:all .3s;pointer-events:none }
+  .toast.show { opacity:1;transform:translateX(-50%) translateY(0) }
+
+  .hidden { display:none !important }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-logo">P</div>
+      <div class="sb-title">PMWB</div>
+    </div>
+    <nav class="sb-nav">
+      <a class="sb-item" href="pmwb-dashboard.html"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>首页看板</span></a>
+      <a class="sb-item" href="pmwb-requirement-delivery.html"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>需求与交付</span></a>
+      <a class="sb-item" href="pmwb-operations.html"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82-.33h-.06A2 2 0 0011 21h-1a2 2 0 00-2 2 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00.33-1.82v-.06A2 2 0 003 11v-1a2 2 0 00-2-1.82 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001.82.33H11a2 2 0 002-2h1a2 2 0 002 1.82 1.65 1.65 0 001.82.33l.06.06a2 2 0 012.83-2.83l-.06-.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-.33 1.82V11a2 2 0 002 1.82z"/></svg><span>运营监控</span></a>
+      <a class="sb-item active" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span>会议日程</span></a>
+      <a class="sb-item" href="pmwb-knowledge.html"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg><span>知识库</span></a>
+    </nav>
+    <div class="sb-bottom">
+      <div class="sb-user">
+        <div class="sb-avatar">陈</div>
+        <div class="sb-user-info">
+          <div class="sb-user-name">陈大虾</div>
+          <div class="sb-user-role">政企产品经理</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="tb-left">
+        <span class="tb-title">会议日程</span>
+        <span class="tb-crumb">工作台 / 会议日程</span>
+      </div>
+      <div class="tb-right">
+        <input class="tb-search" placeholder="搜索会议 / 参会人" />
+        <button class="tb-btn" onclick="switchTab('list')">📋 列表</button>
+        <button class="tb-btn tb-btn-primary" onclick="openModal('meetingModal')">＋ 新增会议</button>
+      </div>
+    </header>
+
+    <div class="content">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <div class="view-tabs">
+          <button class="view-tab active" data-view="cal" onclick="switchTab('cal')">月历视图</button>
+          <button class="view-tab" data-view="list" onclick="switchTab('list')">会议列表</button>
+          <button class="view-tab" data-view="mine" onclick="switchTab('mine')">我的会议</button>
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary)">2026 年 7 月 · 本周 <b style="color:var(--accent)">12</b> 场 / 我参与 <b style="color:var(--accent)">7</b> 场</div>
+      </div>
+
+      <!-- ===== 月历视图 ===== -->
+      <div id="view-cal" class="bento-grid">
+        <div class="card" style="grid-column:span 8">
+          <div class="card-head">
+            <div>
+              <div class="card-title">2026 年 7 月</div>
+              <div class="card-sub">点击日期查看当日会议安排</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm btn-ghost">‹ 上月</button>
+              <button class="btn btn-sm btn-ghost">今天</button>
+              <button class="btn btn-sm btn-ghost">下月 ›</button>
+            </div>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
+
+        <div class="card" style="grid-column:span 4">
+          <div class="card-head"><div class="card-title">今日会议 · 7/18</div></div>
+          <div style="padding:6px 6px 12px">
+            <div class="mt-row" onclick="openDetail('m1')">
+              <div class="mt-time"><div class="mt-hour">09:30</div><div class="mt-dur">45 分钟</div></div>
+              <div class="mt-line"></div>
+              <div class="mt-body">
+                <div class="mt-title">政企业务周例会</div>
+                <div class="mt-info"><span>📍 数智化部 3F 会议室</span></div>
+                <span class="mt-tag">周例会</span>
+              </div>
+            </div>
+            <div class="mt-row" onclick="openDetail('m2')">
+              <div class="mt-time"><div class="mt-hour">14:00</div><div class="mt-dur">60 分钟</div></div>
+              <div class="mt-line amber"></div>
+              <div class="mt-body">
+                <div class="mt-title">精品互联网专线-国际版 需求评审</div>
+                <div class="mt-info"><span>📍 线上会议</span></div>
+                <span class="mt-tag tag-amber">需求评审</span>
+              </div>
+            </div>
+            <div class="mt-row" onclick="openDetail('m3')">
+              <div class="mt-time"><div class="mt-hour">16:30</div><div class="mt-dur">30 分钟</div></div>
+              <div class="mt-line green"></div>
+              <div class="mt-body">
+                <div class="mt-title">跨省宽带流失预警 数据复盘</div>
+                <div class="mt-info"><span>📍 数智化部 5F 小间</span></div>
+                <span class="mt-tag tag-green">数据复盘</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="grid-column:span 4">
+          <div class="card-head"><div class="card-title">本周概览</div></div>
+          <div style="padding:16px 20px 20px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div class="mini-stat" style="background:var(--accent-soft);border-radius:12px"><div class="mini-num" style="color:var(--accent)">12</div><div class="mini-lab">本周会议</div></div>
+            <div class="mini-stat" style="background:var(--success-soft);border-radius:12px"><div class="mini-num" style="color:var(--success)">7</div><div class="mini-lab">我参与</div></div>
+            <div class="mini-stat" style="background:var(--warning-soft);border-radius:12px"><div class="mini-num" style="color:var(--warning)">3</div><div class="mini-lab">待我发起</div></div>
+            <div class="mini-stat" style="background:var(--purple-soft);border-radius:12px"><div class="mini-num" style="color:var(--purple)">5</div><div class="mini-lab">已生成纪要</div></div>
+          </div>
+        </div>
+
+        <div class="card" style="grid-column:span 4">
+          <div class="card-head"><div class="card-title"> upcoming 待开会议</div></div>
+          <div style="padding:10px 16px 16px;display:flex;flex-direction:column;gap:10px">
+            <div class="up-item"><b style="color:var(--accent)">07/20</b> 集团客户拜访准备会 · 14:00</div>
+            <div class="up-item"><b style="color:var(--accent)">07/21</b> 数据异常闭环复盘 · 10:30</div>
+            <div class="up-item"><b style="color:var(--accent)">07/22</b> 政企产品季度规划 · 09:00</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">点击右上「新增会议」发起安排</div>
+          </div>
+        </div>
+
+        <div class="card" style="grid-column:span 4">
+          <div class="card-head"><div class="card-title">会议室占用</div></div>
+          <div style="padding:14px 20px 18px;display:flex;flex-direction:column;gap:11px">
+            <div class="room-row"><span>3F 主会议室</span><div class="room-bar"><div class="room-fill" style="width:64%"></div></div><span class="room-pct">64%</span></div>
+            <div class="room-row"><span>5F 小间</span><div class="room-bar"><div class="room-fill" style="width:38%;background:var(--success)"></div></div><span class="room-pct">38%</span></div>
+            <div class="room-row"><span>线上腾讯会议</span><div class="room-bar"><div class="room-fill" style="width:82%;background:var(--warning)"></div></div><span class="room-pct">82%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 会议列表视图 ===== -->
+      <div id="view-list" class="bento-grid hidden">
+        <div class="card" style="grid-column:span 12">
+          <div class="card-head" style="padding:18px 20px">
+            <div class="card-title">全部会议</div>
+            <div style="display:flex;gap:8px">
+              <select class="form-select" style="height:34px"><option>全部类型</option><option>周例会</option><option>需求评审</option><option>数据复盘</option><option>客户拜访</option><option>规划会</option></select>
+              <select class="form-select" style="height:34px"><option>全部状态</option><option>已结束</option><option>进行中</option><option>待开始</option></select>
+            </div>
+          </div>
+          <table class="mt-list">
+            <thead><tr><th style="width:90px">日期</th><th style="width:70px">时间</th><th>会议主题</th><th style="width:120px">类型</th><th>组织者</th><th style="width:130px">地点</th><th style="width:90px">状态</th><th style="width:80px">操作</th></tr></thead>
+            <tbody id="mtTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ===== 我的会议视图 ===== -->
+      <div id="view-mine" class="bento-grid hidden">
+        <div class="card" style="grid-column:span 12">
+          <div class="card-head"><div class="card-title">我参与的会议</div><div class="card-sub">陈大虾 作为组织者或参会人</div></div>
+          <div id="mineList" style="padding:8px 6px 12px"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 会议详情抽屉 -->
+  <div class="drawer-mask" id="detailMask" onclick="closeDetail()"></div>
+  <aside class="drawer" id="detailDrawer">
+    <div class="dw-head">
+      <div class="dw-title" id="dTitle">会议标题</div>
+      <button class="dw-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="dw-body" id="dBody"></div>
+    <div class="dw-foot">
+      <button class="btn" onclick="closeDetail()">关闭</button>
+      <button class="btn" onclick="toast('已复制会议链接')">🔗 分享</button>
+      <button class="btn btn-primary" onclick="toast('会议通知已发送给参会人')">📧 发送通知</button>
+    </div>
+  </aside>
+
+  <!-- 新增会议弹层 -->
+  <div class="modal-mask" id="meetingModal" onclick="if(event.target===this)closeModal('meetingModal')">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">新增会议</div>
+        <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">发起后自动同步到日历，并可一键发送参会通知</div>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label">会议主题</label>
+          <input class="form-input" placeholder="如：集团客户拜访准备会" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">日期</label>
+            <input class="form-input" type="date" value="2026-07-20" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">开始时间</label>
+            <input class="form-input" type="time" value="14:00" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">时长（分钟）</label>
+            <input class="form-input" type="number" value="60" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">会议地点</label>
+            <input class="form-input" placeholder="会议室 / 线上链接" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">会议类型</label>
+            <select class="form-select"><option>周例会</option><option>需求评审</option><option>数据复盘</option><option>客户拜访</option><option>规划会</option><option>临时</option></select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label">参会人（回车添加）</label>
+          <div class="chip-input" id="attInput">
+            <span class="chip">王辅松 <span class="chip-x" onclick="this.parentNode.remove()">✕</span></span>
+            <span class="chip">郑文东 <span class="chip-x" onclick="this.parentNode.remove()">✕</span></span>
+            <input placeholder="输入姓名…" onkeydown="if(event.key==='Enter'){addChip(this,'attInput');event.preventDefault()}" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">关联需求 / 工单（可选）</label>
+          <input class="form-input" placeholder="如 REQ-2026-0718、OP-2026-0456" />
+        </div>
+        <div class="form-group" style="margin-top:16px">
+          <label class="form-label">议程要点</label>
+          <textarea class="form-textarea" placeholder="每行一条议程"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('meetingModal')">取消</button>
+        <button class="btn" onclick="closeModal('meetingModal');toast('会议已保存为草稿')">存草稿</button>
+        <button class="btn btn-primary" onclick="addMeetingFromForm();closeModal('meetingModal')">创建并通知</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const meetings = [
+    { id:'m1', date:'07/18', time:'09:30', dur:45, title:'政企业务周例会', type:'周例会', typeCls:'pill-blue', org:'陈大虾', loc:'数智化部 3F 会议室', status:'进行中', statusCls:'pill-amber', attendees:['陈','王','郑','李'], agenda:['上周政企业务指标回顾','精品互联网专线国际版进度同步','跨省宽带流失预警模型排期','一线投诉热点通报'], links:['OP-2026-0441','REQ-2026-0718'], note:'11-业务运营/周例会纪要/2026-07-18.md' },
+    { id:'m2', date:'07/18', time:'14:00', dur:60, title:'精品互联网专线-国际版 需求评审', type:'需求评审', typeCls:'pill-amber', org:'王辅松', loc:'线上会议', status:'待开始', statusCls:'pill-gray', attendees:['王','郑','陈','凌'], agenda:['需求背景与范围确认','团队评估工作量复核','用户故事定稿','需求分析说明书生成'], links:['REQ-2026-0718'], note:'' },
+    { id:'m3', date:'07/18', time:'16:30', dur:30, title:'跨省宽带流失预警 数据复盘', type:'数据复盘', typeCls:'pill-green', org:'李瑞', loc:'数智化部 5F 小间', status:'待开始', statusCls:'pill-gray', attendees:['李','陈','戴'], agenda:['T+1 调度运行情况','流失原因标签口径确认','下钻明细权限'], links:['OP-2026-0433'], note:'' },
+    { id:'m4', date:'07/20', time:'14:00', dur:60, title:'集团客户拜访准备会', type:'客户拜访', typeCls:'tag-purple', org:'陈大虾', loc:'数智化部 3F 会议室', status:'待开始', statusCls:'pill-gray', attendees:['陈','张'], agenda:['拜访客户清单','方案与报价准备','问题预案'], links:[], note:'' },
+    { id:'m5', date:'07/21', time:'10:30', dur:45, title:'数据异常闭环复盘', type:'数据复盘', typeCls:'pill-green', org:'李瑞', loc:'线上会议', status:'待开始', statusCls:'pill-gray', attendees:['李','陈','凌'], agenda:['本月数据异常汇总','根因与修复确认','预防措施'], links:['OP-2026-0433','OP-2026-0440'], note:'' },
+    { id:'m6', date:'07/22', time:'09:00', dur:90, title:'政企产品季度规划', type:'规划会', typeCls:'tag-purple', org:'陈大虾', loc:'数智化部 3F 会议室', status:'待开始', statusCls:'pill-gray', attendees:['陈','王','郑','李','凌','张'], agenda:['上季度复盘','下季度产品路线','资源投入评估'], links:[], note:'' },
+    { id:'m7', date:'07/15', time:'15:00', dur:60, title:'热点投诉专项沟通', type:'临时', typeCls:'pill-gray', org:'张敏', loc:'数智化部 5F 小间', status:'已结束', statusCls:'pill-green', attendees:['张','陈'], agenda:['集团短信实名制投诉','处理口径统一'], links:['OP-2026-0428'], note:'11-业务运营/投诉处理/2026-07-15.md' }
+  ];
+  const avColors = ['#2f6fed','#0f9d6b','#d98a1f','#7c3aed','#d9544d','#3b82f6'];
+
+  function renderTable(){
+    const tb = document.getElementById('mtTable');
+    tb.innerHTML = meetings.slice().sort((a,b)=> (a.date+a.time) < (b.date+b.time)?1:-1).map(m=>`
+      <tr onclick="openDetail('${m.id}')">
+        <td><b style="color:var(--accent)">${m.date}</b></td>
+        <td style="font-family:var(--font-mono);font-weight:700">${m.time}</td>
+        <td class="mt-strong">${m.title}</td>
+        <td><span class="pill ${m.typeCls}">${m.type}</span></td>
+        <td>${m.org}</td>
+        <td>${m.loc}</td>
+        <td><span class="${m.statusCls}"><span class="status-dot" style="background:${m.status==='已结束'?'var(--success)':m.status==='进行中'?'var(--warning)':'var(--text-muted)'}"></span>${m.status}</span></td>
+        <td><a class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openDetail('${m.id}')">详情</a></td>
+      </tr>`).join('');
+  }
+  function renderMine(){
+    const el = document.getElementById('mineList');
+    const mine = meetings.filter(m=> m.attendees.includes('陈') || m.org==='陈大虾');
+    el.innerHTML = mine.map(m=>`
+      <div class="mt-row" onclick="openDetail('${m.id}')">
+        <div class="mt-time"><div class="mt-hour">${m.time}</div><div class="mt-dur">${m.date}</div></div>
+        <div class="mt-line ${m.status==='已结束'?'green':m.status==='进行中'?'amber':''}"></div>
+        <div class="mt-body">
+          <div class="mt-title">${m.title}</div>
+          <div class="mt-info"><span>${m.loc}</span><span>组织者 ${m.org}</span></div>
+          <span class="mt-tag ${m.typeCls==='tag-purple'?'tag-purple':m.typeCls==='pill-green'?'tag-green':m.typeCls==='pill-amber'?'tag-amber':''}">${m.type}</span>
+        </div>
+      </div>`).join('');
+  }
+  function renderCalendar(){
+    const grid = document.getElementById('calGrid');
+    const dows = ['一','二','三','四','五','六','日'];
+    let html = dows.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+    // July 2026: 1st is Wednesday => offset 2 (Mon-start)
+    const firstOffset = 2; const days = 31;
+    for(let i=0;i<firstOffset;i++) html += `<div class="cal-cell other"><div class="cal-day">${30-(firstOffset-1-i)}</div></div>`;
+    for(let d=1;d<=days;d++){
+      const ds = String(d).padStart(2,'0');
+      const dayMeetings = meetings.filter(m=> m.date===`07/${ds}`);
+      const dots = dayMeetings.map(m=>{ const c = m.type==='周例会'?'blue':m.type==='数据复盘'?'green':'amber'; return `<span class="cal-dot ${c}"></span>`;}).join('');
+      const meta = dayMeetings.length? `<div class="cal-meta">${dayMeetings.length} 场会议</div>`:'';
+      const cls = d===18?'cal-cell today':'cal-cell';
+      html += `<div class="${cls}" onclick="toast('7/${ds} ${dayMeetings.length} 场会议')"><div class="cal-day">${d}</div>${dots}${meta}</div>`;
+    }
+    grid.innerHTML = html;
+  }
+  function openDetail(id){
+    const m = meetings.find(x=>x.id===id); if(!m) return;
+    document.getElementById('dTitle').textContent = m.title;
+    document.getElementById('dBody').innerHTML = `
+      <div class="detail-block">
+        <div class="detail-label">基本信息</div>
+        <div class="info-grid">
+          <div class="info-item"><span class="info-k">时间</span><span class="info-v">${m.date} ${m.time} · ${m.dur} 分钟</span></div>
+          <div class="info-item"><span class="info-k">地点</span><span class="info-v">${m.loc}</span></div>
+          <div class="info-item"><span class="info-k">类型</span><span class="info-v">${m.type}</span></div>
+          <div class="info-item"><span class="info-k">状态</span><span class="info-v">${m.status}</span></div>
+          <div class="info-item"><span class="info-k">组织者</span><span class="info-v">${m.org}</span></div>
+          <div class="info-item"><span class="info-k">参会人</span><span class="info-v">${m.attendees.length} 人</span></div>
+        </div>
+      </div>
+      <div class="detail-block">
+        <div class="detail-label">参会人</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${m.attendees.map((a,i)=>`<span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;background:var(--border-subtle);padding:5px 11px;border-radius:9px"><span class="av" style="width:22px;height:22px;font-size:10px;background:${avColors[i%avColors.length]}">${a}</span>${a}工</span>`).join('')}
+        </div>
+      </div>
+      <div class="detail-block">
+        <div class="detail-label">议程要点</div>
+        ${m.agenda.map((a,i)=>`<div class="agenda-item"><span class="agenda-idx">${i+1}</span><span class="agenda-txt">${a}</span></div>`).join('')}
+      </div>
+      <div class="detail-block">
+        <div class="detail-label">关联需求 / 工单</div>
+        ${m.links.length? m.links.map(l=>`<span class="link-chip" onclick="toast('跳转到 ${l}')">🔗 ${l}</span>`).join('') : '<span style="font-size:12.5px;color:var(--text-muted)">无关联</span>'}
+      </div>
+      <div class="detail-block">
+        <div class="detail-label">会议纪要（Obsidian）</div>
+        ${m.note? `<div class="link-chip" onclick="toast('打开 ${m.note}')">📝 ${m.note}</div>` : '<span style="font-size:12.5px;color:var(--text-muted)">尚未生成纪要</span>'}
+      </div>`;
+    document.getElementById('detailMask').classList.add('open');
+    document.getElementById('detailDrawer').classList.add('open');
+  }
+  function closeDetail(){ document.getElementById('detailMask').classList.remove('open'); document.getElementById('detailDrawer').classList.remove('open'); }
+  function switchTab(v){
+    document.querySelectorAll('.view-tab').forEach(t=> t.classList.toggle('active', t.dataset.view===v));
+    ['cal','list','mine'].forEach(x=> document.getElementById('view-'+x).classList.toggle('hidden', x!==v));
+    if(v==='list') renderTable();
+    if(v==='mine') renderMine();
+  }
+  function openModal(id){ document.getElementById(id).classList.add('open'); }
+  function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+  function addChip(input,wrapper){
+    const v = input.value.trim(); if(!v) return;
+    const chip = document.createElement('span'); chip.className='chip';
+    chip.innerHTML = `${v} <span class="chip-x" onclick="this.parentNode.remove()">✕</span>`;
+    input.parentNode.insertBefore(chip, input);
+    input.value='';
+  }
+  function addMeetingFromForm(){
+    meetings.unshift({ id:'m'+Date.now(), date:'07/20', time:'14:00', dur:60, title:'集团客户拜访准备会（新）', type:'客户拜访', typeCls:'tag-purple', org:'陈大虾', loc:'数智化部 3F 会议室', status:'待开始', statusCls:'pill-gray', attendees:['陈','王','郑'], agenda:['拜访客户清单','方案与报价准备'], links:[], note:'' });
+    toast('会议已创建，通知已发送');
+    renderCalendar();
+  }
+  let toastTimer;
+  function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200); }
+  renderCalendar();
+</script>
+<style>
+  .up-item { font-size:13px;color:var(--text-secondary);padding:7px 0;border-bottom:1px dashed var(--border); }
+  .up-item:last-child { border-bottom:none }
+  .room-row { display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--text-secondary) }
+  .room-bar { flex:1;height:7px;border-radius:6px;background:#eef2f7;overflow:hidden }
+  .room-fill { height:100%;border-radius:6px;background:var(--accent) }
+  .room-pct { font-family:var(--font-mono);font-weight:700;color:var(--text-primary);width:38px;text-align:right }
+</style>
+</body>
+</html>

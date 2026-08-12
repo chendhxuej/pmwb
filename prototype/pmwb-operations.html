@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PMWB 工作台 — 运营监控（设计原型 v2）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-app: #f3f5f9;
+    --sidebar-bg: #1e293b;
+    --sidebar-active: rgba(47,111,237,.14);
+    --surface: #ffffff;
+    --border: #e4e9f0;
+    --border-subtle: #eff2f8;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --accent: #2f6fed;
+    --accent-hover: #2659c9;
+    --accent-soft: #eaf1fe;
+    --success: #0f9d6b;
+    --success-soft: #ecfdf3;
+    --warning: #d98a1f;
+    --warning-soft: #fef7ed;
+    --danger: #d9544d;
+    --danger-soft: #fef2f2;
+    --info: #3b82f6;
+    --info-soft: #eff6ff;
+    --purple: #7c3aed;
+    --purple-soft: #f3e8ff;
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 22px;
+    --shadow-card: 0 2px 12px -3px rgba(15,23,42,.08),0 1px 3px -1px rgba(15,23,42,.06);
+    --shadow-elevated: 0 16px 48px -12px rgba(15,23,42,.14);
+    --shadow-modal: 0 24px 70px -16px rgba(15,23,42,.32);
+    --transition-fast: .18s cubic-bezier(.4,0,.2,1);
+    --font-display: 'Outfit', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+    --sidebar-w: 236px;
+  }
+
+  *,*::before,*::after { box-sizing:border-box;margin:0;padding:0 }
+  html { font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;color-scheme:normal }
+  body { font-family: var(--font-display); background:var(--bg-app); color:var(--text-primary); display:flex; min-height:100vh; overflow-x:hidden }
+
+  .sidebar { width:var(--sidebar-w); flex-shrink:0; height:100vh; position:fixed;left:0;top:0;z-index:100; background:var(--sidebar-bg); color:#cbd5e1;display:flex;flex-direction:column; }
+  .sb-brand { padding:26px 24px 20px; display:flex;align-items:center;gap:11px;border-bottom:1px solid rgba(255,255,255,.07) }
+  .sb-logo { width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2f6fed 30%,#60a5fa);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:14px;letter-spacing:-.5px }
+  .sb-title { font-size:17px;font-weight:700;color:#f1f5f9;letter-spacing:.3px }
+  .sb-nav { flex:1;padding:16px 12px;display:flex;flex-direction:column;gap:3px;overflow-y:auto }
+  .sb-item { display:flex;align-items:center;gap:13px;padding:11px 14px;border-radius:10px; color:#94a3b8;font-size:14px;font-weight:400;cursor:pointer;transition:all var(--transition-fast); position:relative;text-decoration:none;line-height:1.35 }
+  .sb-item:hover { background:rgba(255,255,255,.05);color:#e2e8f0 }
+  .sb-item.active { background:var(--sidebar-active); color:#60a5fa;font-weight:500 }
+  .sb-item.active::before { content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:20px;background:#60a5fa;border-radius:0 3px 3px 0 }
+  .sb-icon { width:20px;height:20px;flex-shrink:0;opacity:.75 }
+  .sb-item.active .sb-icon { opacity:1 }
+  .sb-bottom { padding:18px 16px;border-top:1px solid rgba(255,255,255,.07) }
+  .sb-user { display:flex;align-items:center;gap:12px;padding:8px;border-radius:10px;cursor:pointer;transition:background var(--transition-fast) }
+  .sb-user:hover { background:rgba(255,255,255,.04) }
+  .sb-avatar { width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#38bdf8,#2dd4bf);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff }
+  .sb-user-info { display:flex;flex-direction:column }
+  .sb-user-name { font-size:13px;font-weight:500;color:#e2e8f0;line-height:1.25 }
+  .sb-user-role { font-size:11.5px;color:#64748b }
+
+  .main { margin-left:var(--sidebar-w); flex:1;min-height:100vh;display:flex;flex-direction:column }
+  .topbar { height:62px;flex-shrink:0;background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(12px); border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between; padding:0 32px;position:sticky;top:0;z-index:90 }
+  .tb-left { display:flex;align-items:center;gap:14px }
+  .tb-title { font-size:18px;font-weight:700;color:var(--text-primary) }
+  .tb-crumb { font-size:12.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px }
+  .tb-crumb a { color:var(--text-muted);text-decoration:none }
+  .tb-crumb a:hover { color:var(--accent) }
+  .tb-right { display:flex;align-items:center;gap:10px }
+  .tb-search { width:240px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--surface); padding:0 14px;font-size:13px;color:var(--text-primary);outline:none;transition:all var(--transition-fast) }
+  .tb-search:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .tb-search::placeholder { color:var(--text-muted) }
+  .tb-btn { height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);display:inline-flex;align-items:center;gap:6px;color:var(--text-primary) }
+  .tb-btn:hover { border-color:var(--accent);color:var(--accent) }
+  .tb-btn-primary { background:var(--accent);border-color:var(--accent);color:#fff }
+  .tb-btn-primary:hover { background:var(--accent-hover);border-color:var(--accent-hover);color:#fff }
+
+  .content { padding:28px 32px 40px;max-width:1600px;width:100% }
+  .bento-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:18px;align-items:start }
+
+  .card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md); box-shadow:var(--shadow-card);overflow:hidden;transition: transform var(--transition-fast), box-shadow var(--transition-fast); animation:bentoIn .45s cubic-bezier(.16,1,.3,1) both }
+  @keyframes bentoIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+  .card-head { padding:18px 20px 0; display:flex;align-items:center;justify-content:space-between }
+  .card-title { font-size:16px;font-weight:700;color:var(--text-primary) }
+  .card-sub { font-size:12.5px;color:var(--text-muted);margin-top:3px }
+
+  .btn { height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);display:inline-flex;align-items:center;gap:7px }
+  .btn:hover { border-color:var(--accent);color:var(--accent) }
+  .btn-primary { background:var(--accent);border-color:var(--accent);color:#fff }
+  .btn-primary:hover { background:var(--accent-hover);border-color:var(--accent-hover);color:#fff }
+  .btn-ghost { border-color:transparent;background:transparent;color:var(--text-secondary) }
+  .btn-ghost:hover { background:var(--border-subtle);color:var(--text-primary) }
+  .btn-sm { height:30px;padding:0 12px;font-size:12px }
+  .btn-danger { color:var(--danger);border-color:transparent }
+  .btn-danger:hover { background:var(--danger-soft);border-color:var(--danger-soft) }
+  .btn-warn { color:var(--warning);border-color:transparent }
+  .btn-warn:hover { background:var(--warning-soft);border-color:var(--warning-soft) }
+
+  /* ===== Ops specific ===== */
+  .ops-summary { grid-column:span 12; display:flex;align-items:center;gap:22px;padding:22px 24px }
+  .ops-donut { position:relative;width:96px;height:96px;flex-shrink:0 }
+  .ops-donut svg { transform:rotate(-90deg) }
+  .ops-donut-center { position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center }
+  .ops-donut-val { font-size:21px;font-weight:800;color:var(--text-primary);line-height:1 }
+  .ops-donut-label { font-size:10.5px;color:var(--text-muted);margin-top:3px }
+  .ops-summary-meta { display:flex;gap:30px;flex-wrap:wrap }
+  .ops-meta-item { display:flex;flex-direction:column }
+  .ops-meta-num { font-size:24px;font-weight:800;color:var(--text-primary);font-family:var(--font-mono) }
+  .ops-meta-num.warn { color:var(--danger) }
+  .ops-meta-lab { font-size:12px;color:var(--text-secondary);margin-top:2px }
+  .ops-summary-divider { width:1px;height:56px;background:var(--border); }
+
+  .ops-stats { grid-column:span 12; display:grid;grid-template-columns:repeat(5,1fr);gap:16px }
+  .cat-tile { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:18px;cursor:pointer;transition:all var(--transition-fast);position:relative;overflow:hidden }
+  .cat-tile:hover { border-color:var(--accent);box-shadow:var(--shadow-card);transform:translateY(-2px) }
+  .cat-tile.active { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .cat-tile-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:14px }
+  .cat-name { font-size:14px;font-weight:700;color:var(--text-primary) }
+  .cat-ico { width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center }
+  .cat-ico svg { width:17px;height:17px }
+  .cat-count { font-size:30px;font-weight:800;font-family:var(--font-mono);color:var(--text-primary);line-height:1 }
+  .cat-count-sub { font-size:11.5px;color:var(--text-muted);margin-top:3px }
+  .cat-rate { display:flex;align-items:center;justify-content:space-between;margin-top:14px;font-size:11.5px;color:var(--text-secondary) }
+  .cat-bar { height:6px;border-radius:6px;background:#eef2f7;margin-top:6px;overflow:hidden }
+  .cat-bar-fill { height:100%;border-radius:6px;background:var(--accent) }
+  .cat-rate-val { font-weight:700;font-family:var(--font-mono) }
+
+  .ops-list-col { grid-column:span 8 }
+  .ops-tabs { display:flex;gap:6px;padding:14px 16px 0;flex-wrap:wrap }
+  .ops-tab { padding:7px 14px;border-radius:9px;font-size:13px;font-weight:500;color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast);border:1px solid transparent }
+  .ops-tab:hover { background:var(--border-subtle) }
+  .ops-tab.active { background:var(--accent-soft);color:var(--accent);border-color:var(--accent) }
+  .ops-tab .cnt { font-family:var(--font-mono);font-size:11px;opacity:.7;margin-left:5px }
+
+  .issue-table { width:100%;border-collapse:separate;border-spacing:0;font-size:13px }
+  .issue-table th { text-align:left;padding:12px 16px;background:#f8fafc;color:var(--text-secondary);font-weight:600;font-size:12px;border-bottom:1px solid var(--border);position:sticky;top:0 }
+  .issue-table td { padding:13px 16px;border-bottom:1px solid var(--border-subtle);vertical-align:middle }
+  .issue-table tbody tr { transition:background var(--transition-fast) }
+  .issue-table tbody tr:hover { background:#f8fafc }
+  .iss-id { font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);background:#f1f5f9;padding:2px 7px;border-radius:5px;white-space:nowrap }
+  .iss-title { font-weight:600;color:var(--text-primary);max-width:280px }
+  .iss-title:hover { color:var(--accent);cursor:pointer }
+  .iss-type { font-size:12px;color:var(--text-secondary) }
+  .iss-handler { font-size:12.5px;color:var(--text-primary) }
+  .iss-handler .more { color:var(--text-muted);font-size:11px }
+  .iss-date { font-family:var(--font-mono);font-size:12px;color:var(--text-muted);white-space:nowrap }
+
+  .st-badge { display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:3px 10px;border-radius:11px;font-weight:500;white-space:nowrap }
+  .st-pending { background:var(--warning-soft);color:var(--warning) }
+  .st-processing { background:var(--info-soft);color:var(--info) }
+  .st-verify { background:var(--accent-soft);color:var(--accent) }
+  .st-resolved { background:var(--success-soft);color:var(--success) }
+  .st-closed { background:#f1f5f9;color:var(--text-muted) }
+  .overdue-tag { display:inline-flex;align-items:center;gap:3px;font-size:10.5px;padding:2px 7px;border-radius:9px;background:var(--danger-soft);color:var(--danger);font-weight:600;margin-left:7px }
+  .row-actions { display:flex;gap:6px }
+
+  .ops-side-col { grid-column:span 4; display:flex;flex-direction:column;gap:18px }
+  .know-list { display:flex;flex-direction:column;gap:8px;padding:16px 18px }
+  .know-item { display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--border-subtle);border-radius:9px;transition:all var(--transition-fast);cursor:pointer }
+  .know-item:hover { border-color:var(--accent);background:var(--accent-soft) }
+  .know-ico { width:28px;height:28px;border-radius:7px;background:var(--warning-soft);color:var(--warning);display:flex;align-items:center;justify-content:center;flex-shrink:0 }
+  .know-ico svg { width:15px;height:15px }
+  .know-name { font-size:13px;font-weight:600;color:var(--text-primary);line-height:1.4 }
+  .know-meta { font-size:11px;color:var(--text-muted);margin-top:2px }
+  .know-folder { font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted);background:#f1f5f9;padding:1px 6px;border-radius:4px;margin-top:5px;display:inline-block }
+  .know-linked { font-size:10.5px;color:var(--accent);background:var(--accent-soft);padding:1px 6px;border-radius:4px;margin-top:5px;margin-left:5px;display:inline-block }
+
+  .urgent-list { display:flex;flex-direction:column;gap:8px;padding:16px 18px }
+  .urgent-item { display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--danger-soft);border-radius:9px }
+  .urgent-dot { width:8px;height:8px;border-radius:50%;background:var(--danger);flex-shrink:0 }
+  .urgent-text { font-size:12.5px;color:var(--text-primary);line-height:1.4 }
+  .urgent-text b { color:var(--danger) }
+
+  .add-note-btn { width:100%;justify-content:center;border-style:dashed;margin-top:4px }
+
+  /* ===== View router ===== */
+  .view { display:none }
+  .view.active { display:block; animation:viewIn .35s ease both }
+  @keyframes viewIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+  /* ===== KB page ===== */
+  .kb-layout { display:grid; grid-template-columns:240px 1fr; gap:18px; align-items:start }
+  .kb-side { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-card);padding:16px;position:sticky;top:92px }
+  .kb-side-title { font-size:13px;font-weight:700;color:var(--text-secondary);margin:6px 4px 10px;display:flex;align-items:center;gap:7px }
+  .kb-tree { display:flex;flex-direction:column;gap:2px }
+  .kb-tree-item { display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:9px;font-size:13px;color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast) }
+  .kb-tree-item:hover { background:var(--border-subtle);color:var(--text-primary) }
+  .kb-tree-item.active { background:var(--accent-soft);color:var(--accent);font-weight:500 }
+  .kb-tree-dot { width:8px;height:8px;border-radius:3px;flex-shrink:0 }
+  .kb-tree-count { margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted) }
+  .kb-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px }
+  .kb-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-card);padding:16px 18px;transition:all var(--transition-fast);animation:bentoIn .4s both }
+  .kb-card:hover { border-color:var(--accent);box-shadow:var(--shadow-elevated) }
+  .kb-card-head { display:flex;align-items:flex-start;justify-content:space-between;gap:10px }
+  .kb-card-name { font-size:14.5px;font-weight:700;color:var(--text-primary);line-height:1.4 }
+  .kb-card-folder { font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted);background:#f1f5f9;padding:2px 7px;border-radius:5px;margin-top:7px;display:inline-block }
+  .kb-card-meta { font-size:11.5px;color:var(--text-muted);margin-top:10px;display:flex;gap:12px }
+  .kb-card-desc { font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin-top:10px }
+  .kb-card-foot { display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid var(--border-subtle) }
+  .kb-card-linked { font-size:11.5px;color:var(--text-muted) }
+  .kb-card-linked b { color:var(--accent) }
+  .kb-empty { grid-column:1/-1;text-align:center;color:var(--text-muted);padding:60px 0;font-size:14px }
+
+  /* ===== Modal / Drawer ===== */
+  .mask { position:fixed;inset:0;background:rgba(15,23,42,.42);backdrop-filter:blur(3px);z-index:200;display:none;align-items:flex-start;justify-content:center;padding:48px 20px;overflow-y:auto }
+  .mask.show { display:flex; animation:maskIn .2s ease both }
+  @keyframes maskIn { from{opacity:0} to{opacity:1} }
+  .modal { width:560px;max-width:100%;background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-modal);overflow:hidden;animation:modalIn .28s cubic-bezier(.16,1,.3,1) both }
+  .modal.wide { width:720px }
+  @keyframes modalIn { from{opacity:0;transform:translateY(20px) scale(.98)} to{opacity:1;transform:none} }
+  .modal-head { padding:20px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border-subtle) }
+  .modal-title { font-size:17px;font-weight:700;color:var(--text-primary) }
+  .modal-sub { font-size:12.5px;color:var(--text-muted);margin-top:3px }
+  .modal-close { width:32px;height:32px;border-radius:9px;border:none;background:var(--border-subtle);color:var(--text-secondary);cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center;transition:all var(--transition-fast) }
+  .modal-close:hover { background:#e2e8f0;color:var(--text-primary) }
+  .modal-body { padding:22px 24px;max-height:62vh;overflow-y:auto }
+  .modal-foot { padding:16px 24px;display:flex;align-items:center;justify-content:flex-end;gap:10px;border-top:1px solid var(--border-subtle);background:#fcfdff }
+
+  .drawer { position:fixed;top:0;right:0;height:100vh;width:680px;max-width:92vw;background:var(--surface);box-shadow:var(--shadow-modal);z-index:210;transform:translateX(100%);transition:transform .3s cubic-bezier(.16,1,.3,1);display:flex;flex-direction:column }
+  .drawer.show { transform:none }
+  .drawer-head { padding:20px 24px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid var(--border-subtle);flex-shrink:0 }
+  .drawer-body { flex:1;overflow-y:auto;padding:0 }
+  .drawer-foot { padding:16px 24px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--border-subtle);background:#fcfdff;flex-shrink:0 }
+
+  /* ===== Form ===== */
+  .form-grid { display:grid;grid-template-columns:1fr 1fr;gap:16px }
+  .form-group { display:flex;flex-direction:column;gap:7px }
+  .form-group.full { grid-column:1/-1 }
+  .form-label { font-size:12.5px;font-weight:600;color:var(--text-secondary) }
+  .form-label .req { color:var(--danger);margin-left:2px }
+  .form-hint { font-size:11px;color:var(--text-muted) }
+  .form-input,.form-textarea,.form-select { width:100%;border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:13.5px;font-family:var(--font-display);color:var(--text-primary);background:var(--surface);outline:none;transition:all var(--transition-fast) }
+  .form-input:focus,.form-textarea:focus,.form-select:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .form-textarea { resize:vertical;min-height:84px;line-height:1.6 }
+  .chip-input { display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:9px;min-height:42px }
+  .chip-input:focus-within { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .chip { display:inline-flex;align-items:center;gap:5px;background:var(--accent-soft);color:var(--accent);font-size:12.5px;font-weight:500;padding:4px 9px;border-radius:7px }
+  .chip x { cursor:pointer;font-size:14px;line-height:1;opacity:.7 }
+  .chip:hover x { opacity:1 }
+  .chip-input input { border:none;outline:none;flex:1;min-width:90px;font-size:13.5px;font-family:var(--font-display) }
+
+  /* status stepper */
+  .stepper { display:flex;align-items:center;padding:18px 24px;background:#f8fafc;border-bottom:1px solid var(--border-subtle) }
+  .step { display:flex;flex-direction:column;align-items:center;gap:7px;position:relative;flex:0 0 auto }
+  .step-dot { width:30px;height:30px;border-radius:50%;background:#e2e8f0;color:var(--text-muted);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;transition:all var(--transition-fast) }
+  .step.active .step-dot { background:var(--accent);color:#fff }
+  .step.done .step-dot { background:var(--success);color:#fff }
+  .step-label { font-size:11.5px;color:var(--text-muted);font-weight:500 }
+  .step.active .step-label,.step.done .step-label { color:var(--text-primary) }
+  .step-line { flex:1;height:2px;background:#e2e8f0;margin:0 4px;position:relative;top:-12px;min-width:24px }
+  .step-line.done { background:var(--success) }
+
+  /* detail sections */
+  .dt-sec { padding:18px 24px;border-bottom:1px solid var(--border-subtle) }
+  .dt-sec-title { font-size:13px;font-weight:700;color:var(--text-secondary);margin-bottom:14px;display:flex;align-items:center;gap:8px;text-transform:none }
+  .dt-meta { display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px }
+  .dt-meta-item { display:flex;flex-direction:column;gap:4px }
+  .dt-meta-k { font-size:11.5px;color:var(--text-muted) }
+  .dt-meta-v { font-size:14px;font-weight:600;color:var(--text-primary) }
+  .dt-desc { font-size:13.5px;line-height:1.75;color:var(--text-secondary);background:var(--border-subtle);border-radius:11px;padding:14px 16px }
+  .dt-link-row { display:flex;align-items:center;gap:10px;padding:11px 13px;border:1px solid var(--border-subtle);border-radius:9px;margin-bottom:8px }
+  .dt-link-row .lk-ico { width:30px;height:30px;border-radius:8px;background:var(--warning-soft);color:var(--warning);display:flex;align-items:center;justify-content:center;flex-shrink:0 }
+  .dt-link-name { font-size:13px;font-weight:600;color:var(--text-primary) }
+  .dt-link-meta { font-size:11px;color:var(--text-muted);margin-top:2px }
+  .email-log { display:flex;flex-direction:column;gap:8px }
+  .email-log-item { display:flex;align-items:flex-start;gap:10px;padding:11px 13px;background:var(--info-soft);border-radius:9px }
+  .email-log-item .el-ico { width:26px;height:26px;border-radius:7px;background:var(--info);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px }
+  .email-log-to { font-size:12.5px;font-weight:600;color:var(--text-primary) }
+  .email-log-time { font-size:11px;color:var(--text-muted);font-family:var(--font-mono) }
+  .email-log-result { font-size:11px;color:var(--success);font-weight:600 }
+
+  /* email modal */
+  .recp-list { display:flex;flex-wrap:wrap;gap:6px;margin-top:8px }
+  .recp-chip { display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent);font-size:12.5px;font-weight:500;padding:5px 11px;border-radius:8px }
+  .recp-chip .dot { width:6px;height:6px;border-radius:50%;background:var(--success) }
+  .tpl-pick { display:flex;gap:8px;flex-wrap:wrap;margin-top:8px }
+  .tpl-btn { font-size:12px;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast) }
+  .tpl-btn:hover { border-color:var(--accent);color:var(--accent);background:var(--accent-soft) }
+
+  /* toast */
+  .toast { position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text-primary);color:#fff;padding:13px 22px;border-radius:12px;font-size:13.5px;font-weight:500;box-shadow:var(--shadow-elevated);z-index:300;opacity:0;pointer-events:none;transition:all .3s ease;display:flex;align-items:center;gap:9px }
+  .toast.show { opacity:1;transform:translateX(-50%) translateY(0) }
+  .toast .t-ico { width:18px;height:18px;border-radius:50%;background:var(--success);display:flex;align-items:center;justify-content:center;font-size:11px }
+
+  .seg { display:flex;gap:6px;flex-wrap:wrap }
+  .seg-item { padding:8px 14px;border-radius:9px;border:1px solid var(--border);font-size:13px;color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast) }
+  .seg-item:hover { border-color:var(--accent) }
+  .seg-item.active { background:var(--accent);border-color:var(--accent);color:#fff }
+
+  @media (max-width:1280px) {
+    .ops-stats { grid-template-columns:repeat(2,1fr) }
+    .ops-list-col { grid-column:span 12 }
+    .ops-side-col { grid-column:span 12 }
+    .kb-layout { grid-template-columns:1fr }
+    .kb-side { position:static }
+    .form-grid { grid-template-columns:1fr }
+  }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-logo">PM</div>
+    <div class="sb-title">PMWB</div>
+  </div>
+  <nav class="sb-nav">
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>首页看板</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>需求与交付</span></a>
+    <a class="sb-item active" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82-.33h-.06A2 2 0 0011 21h-1a2 2 0 00-2 2 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00.33-1.82v-.06A2 2 0 003 11v-1a2 2 0 00-2-1.82 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001.82.33H11a2 2 0 002-2h1a2 2 0 002 1.82 1.65 1.65 0 001.82.33l.06.06a2 2 0 012.83-2.83l-.06-.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-.33 1.82V11a2 2 0 002 1.82z"/></svg><span>运营监控</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg><span>会议日程</span></a>
+    <a class="sb-item" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.0 0 014 19.5v-15A2.5 2.0 0 016.5 2z"/></svg><span>知识库</span></a>
+  </nav>
+  <div class="sb-bottom">
+    <div class="sb-user">
+      <div class="sb-avatar">陈</div>
+      <div class="sb-user-info">
+        <span class="sb-user-name">产品经理</span>
+        <span class="sb-user-role">政企 · 数智化部</span>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <header class="topbar">
+    <div class="tb-left">
+      <div>
+        <div class="tb-title" id="pageTitle">运营监控</div>
+        <div class="tb-crumb"><a href="#">首页</a> <span>/</span> <span id="crumbNow">运营监控</span></div>
+      </div>
+    </div>
+    <div class="tb-right">
+      <input class="tb-search" id="globalSearch" placeholder="搜索工单号、标题、责任人…" />
+      <button class="tb-btn" id="toggleKbBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 0.0 0 014 19.5v-15A2.5 0.0 0 016.5 2z"/></svg>
+        知识沉淀
+      </button>
+      <button class="tb-btn tb-btn-primary" id="openEntryBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        录入工单
+      </button>
+    </div>
+  </header>
+
+  <section class="content">
+    <!-- ============ LIST VIEW ============ -->
+    <div class="view active" id="view-list">
+      <div class="bento-grid">
+
+        <!-- SUMMARY -->
+        <div class="card ops-summary">
+          <div class="ops-donut">
+            <svg width="96" height="96" viewBox="0 0 96 96">
+              <circle cx="48" cy="48" r="40" fill="none" stroke="#eef2f7" stroke-width="10"/>
+              <circle cx="48" cy="48" r="40" fill="none" stroke="#2f6fed" stroke-width="10" stroke-linecap="round" stroke-dasharray="251.2" stroke-dashoffset="27.6"/>
+            </svg>
+            <div class="ops-donut-center">
+              <div class="ops-donut-val">89%</div>
+              <div class="ops-donut-label">整体闭环率</div>
+            </div>
+          </div>
+          <div class="ops-summary-divider"></div>
+          <div class="ops-summary-meta">
+            <div class="ops-meta-item"><div class="ops-meta-num">37</div><div class="ops-meta-lab">本月工单总量</div></div>
+            <div class="ops-meta-item"><div class="ops-meta-num">17</div><div class="ops-meta-lab">进行中</div></div>
+            <div class="ops-meta-item"><div class="ops-meta-num warn">3</div><div class="ops-meta-lab">已逾期</div></div>
+            <div class="ops-meta-item"><div class="ops-meta-num">15</div><div class="ops-meta-lab">本月已闭环</div></div>
+          </div>
+        </div>
+
+        <!-- CATEGORY STAT TILES -->
+        <div class="ops-stats">
+          <div class="cat-tile active" data-cat="all">
+            <div class="cat-tile-top"><span class="cat-name">全部</span>
+              <div class="cat-ico" style="background:#eef2f7;color:#64748b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
+            </div>
+            <div class="cat-count">37</div><div class="cat-count-sub">本月全部工单</div>
+            <div class="cat-rate"><span>闭环率</span><span class="cat-rate-val">89%</span></div>
+            <div class="cat-bar"><div class="cat-bar-fill" style="width:89%"></div></div>
+          </div>
+          <div class="cat-tile" data-cat="bug">
+            <div class="cat-tile-top"><span class="cat-name">BUG 管理</span>
+              <div class="cat-ico" style="background:var(--danger-soft);color:var(--danger)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="6" width="8" height="12" rx="4"/><path d="M12 2v4M5 10h3M16 10h3M5 16h3M16 16h3"/></svg></div>
+            </div>
+            <div class="cat-count">12</div><div class="cat-count-sub">进行中 5</div>
+            <div class="cat-rate"><span>闭环率</span><span class="cat-rate-val">91.7%</span></div>
+            <div class="cat-bar"><div class="cat-bar-fill" style="width:91.7%"></div></div>
+          </div>
+          <div class="cat-tile" data-cat="data">
+            <div class="cat-tile-top"><span class="cat-name">数据异常管理</span>
+              <div class="cat-ico" style="background:var(--info-soft);color:var(--info)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></div>
+            </div>
+            <div class="cat-count">7</div><div class="cat-count-sub">进行中 3</div>
+            <div class="cat-rate"><span>闭环率</span><span class="cat-rate-val">84.2%</span></div>
+            <div class="cat-bar"><div class="cat-bar-fill" style="width:84.2%"></div></div>
+          </div>
+          <div class="cat-tile" data-cat="prod">
+            <div class="cat-tile-top"><span class="cat-name">生产问题分析</span>
+              <div class="cat-ico" style="background:var(--warning-soft);color:var(--warning)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+            </div>
+            <div class="cat-count">5</div><div class="cat-count-sub">进行中 2</div>
+            <div class="cat-rate"><span>闭环率</span><span class="cat-rate-val">88.0%</span></div>
+            <div class="cat-bar"><div class="cat-bar-fill" style="width:88%"></div></div>
+          </div>
+          <div class="cat-tile" data-cat="task">
+            <div class="cat-tile-top"><span class="cat-name">临时交办任务</span>
+              <div class="cat-ico" style="background:var(--purple-soft);color:var(--purple)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div>
+            </div>
+            <div class="cat-count">9</div><div class="cat-count-sub">进行中 4</div>
+            <div class="cat-rate"><span>闭环率</span><span class="cat-rate-val">76.5%</span></div>
+            <div class="cat-bar"><div class="cat-bar-fill" style="width:76.5%;background:var(--purple)"></div></div>
+          </div>
+          <div class="cat-tile" data-cat="complaint">
+            <div class="cat-tile-top"><span class="cat-name">热点投诉</span>
+              <div class="cat-ico" style="background:var(--success-soft);color:var(--success)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div>
+            </div>
+            <div class="cat-count">4</div><div class="cat-count-sub">进行中 0</div>
+            <div class="cat-rate"><span>闭环率</span><span class="cat-rate-val">93.3%</span></div>
+            <div class="cat-bar"><div class="cat-bar-fill" style="width:93.3%;background:var(--success)"></div></div>
+          </div>
+        </div>
+
+        <!-- ISSUE LIST -->
+        <div class="card ops-list-col">
+          <div class="card-head" style="padding:18px 20px 0">
+            <div>
+              <div class="card-title">工单列表</div>
+              <div class="card-sub" id="listSub">全部类别 · 37 条</div>
+            </div>
+            <button class="btn btn-sm" id="exportBtn">导出</button>
+          </div>
+          <div class="ops-tabs" id="opsTabs">
+            <div class="ops-tab active" data-cat="all">全部 <span class="cnt">37</span></div>
+            <div class="ops-tab" data-cat="bug">BUG 管理 <span class="cnt">12</span></div>
+            <div class="ops-tab" data-cat="data">数据异常 <span class="cnt">7</span></div>
+            <div class="ops-tab" data-cat="prod">生产问题 <span class="cnt">5</span></div>
+            <div class="ops-tab" data-cat="task">临时交办 <span class="cnt">9</span></div>
+            <div class="ops-tab" data-cat="complaint">热点投诉 <span class="cnt">4</span></div>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="issue-table">
+              <thead>
+                <tr>
+                  <th style="width:130px">工单号</th><th>标题</th><th style="width:120px">子类</th>
+                  <th style="width:140px">责任人</th><th style="width:96px">状态</th>
+                  <th style="width:90px">创建</th><th style="width:140px">操作</th>
+                </tr>
+              </thead>
+              <tbody id="issueBody"><!-- rendered by JS --></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SIDE -->
+        <div class="ops-side-col">
+          <div class="card">
+            <div class="card-head" style="padding:18px 18px 0">
+              <div><div class="card-title">知识沉淀</div><div class="card-sub">联动 Obsidian · 业务运营库</div></div>
+            </div>
+            <div class="know-list" id="sideKnowList"><!-- rendered by JS --></div>
+          </div>
+          <div class="card">
+            <div class="card-head" style="padding:18px 18px 0">
+              <div><div class="card-title">超期预警</div><div class="card-sub">需优先介入</div></div>
+            </div>
+            <div class="urgent-list" id="urgentList"><!-- rendered by JS --></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============ KB VIEW ============ -->
+    <div class="view" id="view-kb">
+      <div class="kb-layout">
+        <aside class="kb-side">
+          <div class="kb-side-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-7L9 4H5a2 2 0 00-2 2z"/></svg>
+            Obsidian 知识库
+          </div>
+          <div class="kb-tree" id="kbTree">
+            <div class="kb-tree-item active" data-folder="all">
+              <span class="kb-tree-dot" style="background:var(--accent)"></span>全部知识
+              <span class="kb-tree-count" id="cntAll">0</span>
+            </div>
+            <div class="kb-tree-item" data-folder="11-业务运营">
+              <span class="kb-tree-dot" style="background:var(--warning)"></span>11-业务运营
+              <span class="kb-tree-count" id="cntOp">0</span>
+            </div>
+            <div class="kb-tree-item" data-folder="01-业务知识/政企业务知识库">
+              <span class="kb-tree-dot" style="background:var(--success)"></span>政企业务知识库
+              <span class="kb-tree-count" id="cntKb">0</span>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-ghost add-note-btn" id="newKbBtn" style="margin-top:14px">+ 新建知识条目</button>
+        </aside>
+        <div>
+          <div class="card" style="margin-bottom:18px">
+            <div class="card-head" style="padding:16px 20px 0">
+              <div><div class="card-title" id="kbViewTitle">全部知识</div><div class="card-sub">点击知识卡可关联到当前工单，或查看详情</div></div>
+              <input class="tb-search" id="kbSearch" placeholder="搜索知识条目标题…" style="width:220px" />
+            </div>
+          </div>
+          <div class="kb-grid" id="kbGrid"><!-- rendered by JS --></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ ENTRY MODAL ============ -->
+<div class="mask" id="entryMask">
+  <div class="modal">
+    <div class="modal-head">
+      <div><div class="modal-title">录入工单</div><div class="modal-sub">选择工单类别后填写，提交即进入对应管理流</div></div>
+      <button class="modal-close" data-close="entryMask">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">工单类别 <span class="req">*</span></label>
+          <select class="form-select" id="f_cat">
+            <option value="bug">BUG 管理</option>
+            <option value="data">数据异常管理</option>
+            <option value="prod">生产问题分析</option>
+            <option value="task">临时交办任务</option>
+            <option value="complaint">热点投诉</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">子类 <span class="req">*</span></label>
+          <select class="form-select" id="f_type">
+            <option value="系统缺陷">系统缺陷</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">工单标题 <span class="req">*</span></label>
+          <input class="form-input" id="f_title" placeholder="简要描述问题或任务" />
+        </div>
+        <div class="form-group full">
+          <label class="form-label">责任人 <span class="req">*</span></label>
+          <div class="chip-input" id="f_handlers">
+            <input placeholder="输入姓名后回车添加" />
+          </div>
+          <span class="form-hint">可多人，逗号分隔存储；督办邮件将按姓名解析收件人</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">优先级</label>
+          <select class="form-select" id="f_priority">
+            <option>高</option><option selected>中</option><option>低</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">期望完成日期</label>
+          <input class="form-input" id="f_due" type="date" />
+        </div>
+        <div class="form-group full">
+          <label class="form-label">情况说明 <span class="req">*</span></label>
+          <textarea class="form-textarea" id="f_situation" placeholder="描述问题现象、影响范围、初步定位、排查过程…"></textarea>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">关联知识库（Obsidian）</label>
+          <select class="form-select" id="f_kb">
+            <option value="">— 不关联 —</option>
+            <option>跨省宽带数据口径说明</option>
+            <option>出账批处理超时排查手册</option>
+            <option>FTTR 装机流程与跨省流转</option>
+            <option>集团客户账单经分口径对照</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="entryMask">取消</button>
+      <button class="btn btn-primary" id="submitEntry">提交工单</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ DETAIL DRAWER ============ -->
+<div class="mask" id="drawerMask" style="background:transparent;padding:0;justify-content:flex-end;align-items:stretch"></div>
+<div class="drawer" id="detailDrawer">
+  <div class="drawer-head">
+    <div>
+      <div class="modal-title" id="d_title">工单详情</div>
+      <div class="modal-sub" id="d_sub">ISS-0000 · 系统缺陷</div>
+    </div>
+    <button class="modal-close" id="closeDrawer">×</button>
+  </div>
+  <div class="stepper" id="d_stepper"><!-- rendered by JS --></div>
+  <div class="drawer-body">
+    <div class="dt-sec">
+      <div class="dt-sec-title">基本信息</div>
+      <div class="dt-meta">
+        <div class="dt-meta-item"><span class="dt-meta-k">责任人</span><span class="dt-meta-v" id="d_handlers">—</span></div>
+        <div class="dt-meta-item"><span class="dt-meta-k">优先级</span><span class="dt-meta-v" id="d_priority">—</span></div>
+        <div class="dt-meta-item"><span class="dt-meta-k">期望完成</span><span class="dt-meta-v" id="d_due">—</span></div>
+        <div class="dt-meta-item"><span class="dt-meta-k">创建时间</span><span class="dt-meta-v" id="d_created">—</span></div>
+        <div class="dt-meta-item"><span class="dt-meta-k">逾期</span><span class="dt-meta-v" id="d_overdue">—</span></div>
+        <div class="dt-meta-item"><span class="dt-meta-k">关联需求</span><span class="dt-meta-v" id="d_req">—</span></div>
+      </div>
+    </div>
+    <div class="dt-sec">
+      <div class="dt-sec-title">情况说明</div>
+      <div class="dt-desc" id="d_situation">—</div>
+    </div>
+    <div class="dt-sec">
+      <div class="dt-sec-title">关联知识库</div>
+      <div id="d_kb"><!-- rendered by JS --></div>
+      <button class="btn btn-sm btn-ghost" id="d_linkKb" style="margin-top:6px">+ 关联知识条目</button>
+    </div>
+    <div class="dt-sec">
+      <div class="dt-sec-title">邮件督办记录</div>
+      <div class="email-log" id="d_emails"><!-- rendered by JS --></div>
+      <div class="dt-link-meta" style="margin-top:8px;font-size:11px;color:var(--text-muted)">收件人通过「统一邮件中心」按姓名解析，不拼接邮箱地址</div>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn" id="d_email">邮件督办</button>
+    <button class="btn" id="d_advance">推进状态</button>
+    <button class="btn btn-primary" id="d_edit">编辑</button>
+  </div>
+</div>
+
+<!-- ============ EMAIL MODAL ============ -->
+<div class="mask" id="emailMask">
+  <div class="modal wide">
+    <div class="modal-head">
+      <div><div class="modal-title">邮件督办</div><div class="modal-sub" id="emailSub">发送至工单责任人</div></div>
+      <button class="modal-close" data-close="emailMask">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group full">
+        <label class="form-label">收件人（统一邮件中心按姓名解析）</label>
+        <div class="recp-list" id="emailRecp"><!-- rendered by JS --></div>
+      </div>
+      <div class="form-group full" style="margin-top:16px">
+        <label class="form-label">督办模板</label>
+        <div class="tpl-pick" id="emailTpls">
+          <button class="tpl-btn" data-tpl="urgent">催办（逾期）</button>
+          <button class="tpl-btn" data-tpl="progress">进度确认</button>
+          <button class="tpl-btn" data-tpl="close">闭环确认</button>
+        </div>
+      </div>
+      <div class="form-group full" style="margin-top:16px">
+        <label class="form-label">正文（bodyFormat: text，口语化、禁敬语）</label>
+        <textarea class="form-textarea" id="emailBody" style="min-height:150px"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="emailMask">取消</button>
+      <button class="btn btn-primary" id="sendEmail">发送督办邮件</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"><span class="t-ico">✓</span><span id="toastMsg">已完成</span></div>
+
+<script>
+/* ============ DATA MODEL ============ */
+const CAT_LABEL = { bug:'BUG 管理', data:'数据异常管理', prod:'生产问题分析', task:'临时交办任务', complaint:'热点投诉' };
+const TYPE_BY_CAT = {
+  bug:['系统缺陷','性能问题','兼容异常'],
+  data:['数据异常','口径不一致','数据缺失'],
+  prod:['生产问题','流程阻塞','配置错误'],
+  task:['临时任务','专项工作','领导交办'],
+  complaint:['热点投诉','批量投诉','升级投诉']
+};
+const STATUS_FLOW = [
+  { key:'pending', label:'待处理' },
+  { key:'processing', label:'处理中' },
+  { key:'verify', label:'验证中' },
+  { key:'resolved', label:'已解决' },
+  { key:'closed', label:'已关闭' }
+];
+const STATUS_TEXT = { pending:'待处理', processing:'处理中', verify:'验证中', resolved:'已解决', closed:'已关闭' };
+const STATUS_CLASS = { pending:'st-pending', processing:'st-processing', verify:'st-verify', resolved:'st-resolved', closed:'st-closed' };
+const labels = { all:'全部类别', bug:'BUG 管理', data:'数据异常管理', prod:'生产问题分析', task:'临时交办任务', complaint:'热点投诉' };
+const counts = { all:37, bug:12, data:7, prod:5, task:9, complaint:4 };
+
+let issues = [
+  { id:'ISS-0718-042', cat:'bug', type:'系统缺陷', title:'生产运营平台出账批处理偶发超时', handlers:['戴晓飞','郑文东'], status:'processing', created:'07-18', due:'07-22', overdue:2, priority:'高', req:'REQ-2026-0630',
+    situation:'出账批处理任务每日 02:00 触发，近一周出现 3 次超时（>30min），影响 T+1 报表出具。初步定位为数据库连接池在高并发下耗尽，需评估连接池扩容与批处理分片。',
+    kb:['出账批处理超时排查手册'],
+    emails:[{to:'戴晓飞、郑文东', time:'07-18 09:20', result:'已送达'}],
+    timeline:[{s:'pending',t:'07-18 08:00'},{s:'processing',t:'07-18 10:30'}] },
+  { id:'ISS-0715-031', cat:'data', type:'数据异常', title:'集团客户账单金额与经分口径不一致', handlers:['李瑞'], status:'verify', created:'07-15', due:'07-20', overdue:0, priority:'高', req:'—',
+    situation:'集团客户月度账单优惠金额与经分系统存在约 1.2% 偏差，已定位为出账侧未纳入赠金冲抵项，待经分侧确认对照口径后闭环。',
+    kb:['集团客户账单经分口径对照'],
+    emails:[{to:'李瑞', time:'07-16 14:05', result:'已送达'}],
+    timeline:[{s:'pending',t:'07-15 09:00'},{s:'processing',t:'07-15 11:20'},{s:'verify',t:'07-16 10:00'}] },
+  { id:'ISS-0716-028', cat:'prod', type:'生产问题', title:'FTTR 装机工单跨省流转失败', handlers:['凌玉祥'], status:'pending', created:'07-16', due:'07-19', overdue:0, priority:'中', req:'REQ-2026-0612',
+    situation:'江苏受理的 FTTR 装机工单流转至浙江施工环节时卡单，初步判断为目标省份资源编码映射缺失，需两省联调。',
+    kb:['FTTR 装机流程与跨省流转'],
+    emails:[],
+    timeline:[{s:'pending',t:'07-16 15:40'}] },
+  { id:'ISS-0712-019', cat:'task', type:'领导交办', title:'领导交办：季度政企数据质量专项', handlers:['产品经理','戴晓飞','李瑞'], status:'processing', created:'07-12', due:'07-25', overdue:0, priority:'高', req:'—',
+    situation:'季度政企数据质量专项，覆盖宽带、专线、物联网三域，需输出质量报告与整改清单，7 月底前完成首轮稽核。',
+    kb:[],
+    emails:[{to:'产品经理、戴晓飞、李瑞', time:'07-13 09:00', result:'已送达'}],
+    timeline:[{s:'pending',t:'07-12 17:00'},{s:'processing',t:'07-13 09:30'}] },
+  { id:'ISS-0714-023', cat:'complaint', type:'热点投诉', title:'用户投诉：宽带续费短信重复发送', handlers:['顾宏明'], status:'resolved', created:'07-14', due:'07-16', overdue:0, priority:'中', req:'—',
+    situation:'部分宽带续费用户同日收到 2-3 条续费短信，定位为营销与账单两条触发链路未去重，已合并触发策略。',
+    kb:[],
+    emails:[{to:'顾宏明', time:'07-14 11:10', result:'已送达'}],
+    timeline:[{s:'pending',t:'07-14 10:00'},{s:'processing',t:'07-14 10:40'},{s:'verify',t:'07-15 09:00'},{s:'resolved',t:'07-15 16:20'}] },
+  { id:'ISS-0710-015', cat:'bug', type:'性能问题', title:'BOSS 计费规则灰度发布异常', handlers:['凌玉祥'], status:'verify', created:'07-10', due:'07-18', overdue:0, priority:'高', req:'REQ-2026-0588',
+    situation:'计费规则灰度发布后部分套餐计费偏差，已回滚灰度批次，待规则引擎版本修复后重新灰度。',
+    kb:[],
+    emails:[{to:'凌玉祥', time:'07-11 08:50', result:'已送达'}],
+    timeline:[{s:'pending',t:'07-10 09:00'},{s:'processing',t:'07-10 10:00'},{s:'verify',t:'07-12 14:00'}] },
+  { id:'ISS-0709-011', cat:'data', type:'数据缺失', title:'数据仓库跨省宽带标签缺失', handlers:['李瑞'], status:'processing', created:'07-09', due:'07-12', overdue:5, priority:'高', req:'—',
+    situation:'数据仓库跨省宽带用户标签连续两日未产出，影响流失预警看板，定位为 ETL 上游省份投递延迟，需增加重试与告警。',
+    kb:['跨省宽带数据口径说明'],
+    emails:[{to:'李瑞', time:'07-14 09:00', result:'已送达（逾期催办）'}],
+    timeline:[{s:'pending',t:'07-09 09:00'},{s:'processing',t:'07-09 11:00'}] },
+  { id:'ISS-0707-008', cat:'complaint', type:'升级投诉', title:'热点投诉：国际专线开通时效过长', handlers:['邵建'], status:'closed', created:'07-07', due:'07-11', overdue:0, priority:'中', req:'REQ-2026-0544',
+    situation:'国际专线开通平均时长超 SLA 2 倍，已优化开通编排并新增进度可视，客户已确认。',
+    kb:[],
+    emails:[{to:'邵建', time:'07-08 10:00', result:'已送达'}],
+    timeline:[{s:'pending',t:'07-07 09:00'},{s:'processing',t:'07-07 10:00'},{s:'verify',t:'07-09 11:00'},{s:'resolved',t:'07-10 15:00'},{s:'closed',t:'07-11 09:00'}] }
+];
+
+const kbNotes = [
+  { name:'跨省宽带数据口径说明', folder:'11-业务运营', updated:'07-16', by:'李瑞', desc:'跨省宽带用户标签的取数口径、省份映射与 ETL 依赖说明，供数据异常类工单排查参考。', linked:2 },
+  { name:'出账批处理超时排查手册', folder:'11-业务运营', updated:'07-18', by:'戴晓飞', desc:'出账批处理超时现象的排查路径、连接池参数与分片建议，附近一周超时记录。', linked:3 },
+  { name:'FTTR 装机流程与跨省流转', folder:'01-业务知识/政企业务知识库', updated:'07-15', by:'凌玉祥', desc:'FTTR 装机工单的受理、跨省流转与目标省资源编码映射流程。', linked:1 },
+  { name:'集团客户账单经分口径对照', folder:'01-业务知识/政企业务知识库', updated:'07-14', by:'李瑞', desc:'集团客户账单优惠项与经分系统口径逐项对照，用于数据异常核对。', linked:1 },
+  { name:'热点投诉处理 SOP', folder:'11-业务运营', updated:'07-12', by:'顾宏明', desc:'热点投诉分级、响应时效与升级路径标准作业流程。', linked:2 },
+  { name:'临时交办任务跟踪模板', folder:'11-业务运营', updated:'07-11', by:'产品经理', desc:'领导交办与专项任务的分解、进度汇报与闭环模板。', linked:1 }
+];
+
+/* ============ RENDER ============ */
+const issueBody = document.getElementById('issueBody');
+function renderList(filter='all'){
+  issueBody.innerHTML = '';
+  const rows = issues.filter(i => filter==='all' || i.cat===filter);
+  rows.forEach(i => {
+    const tr = document.createElement('tr');
+    tr.dataset.cat = i.cat;
+    const overdueHtml = i.overdue>0 ? `<span class="overdue-tag">逾期 ${i.overdue} 天</span>` : '';
+    const handlerHtml = i.handlers.length>2 ? `${i.handlers[0]} <span class="more">+${i.handlers.length-1}</span>` : i.handlers.join('、');
+    tr.innerHTML = `
+      <td><span class="iss-id">${i.id}</span></td>
+      <td><div class="iss-title" data-id="${i.id}">${i.title}</div></td>
+      <td class="iss-type">${i.type}</td>
+      <td class="iss-handler">${handlerHtml}</td>
+      <td><span class="st-badge ${STATUS_CLASS[i.status]}">${STATUS_TEXT[i.status]}</span>${overdueHtml}</td>
+      <td class="iss-date">${i.created}</td>
+      <td><div class="row-actions">
+        <button class="btn btn-sm btn-ghost" data-detail="${i.id}">详情</button>
+        <button class="btn btn-sm btn-warn" data-email="${i.id}">督办</button>
+      </div></td>`;
+    issueBody.appendChild(tr);
+  });
+  issueBody.querySelectorAll('[data-detail]').forEach(b => b.addEventListener('click', () => openDetail(b.dataset.detail)));
+  issueBody.querySelectorAll('[data-email]').forEach(b => b.addEventListener('click', () => openEmail(b.dataset.email)));
+  issueBody.querySelectorAll('.iss-title').forEach(t => t.addEventListener('click', () => openDetail(t.dataset.id)));
+}
+function renderSideKnow(){
+  const el = document.getElementById('sideKnowList');
+  el.innerHTML = kbNotes.slice(0,3).map(n => `
+    <div class="know-item" data-kb="${n.name}">
+      <div class="know-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 0.0 0 014 19.5v-15A2.5 0.0 0 016.5 2z"/></svg></div>
+      <div><div class="know-name">${n.name}</div><div class="know-meta">更新于 ${n.updated} · ${n.by}</div><span class="know-folder">${n.folder}</span><span class="know-linked">已关联 ${n.linked}</span></div>
+    </div>`).join('') + `<button class="btn btn-sm btn-ghost add-note-btn" id="sideKbMore">查看全部知识沉淀 →</button>`;
+  el.querySelectorAll('[data-kb]').forEach(k => k.addEventListener('click', () => switchView('kb')));
+  document.getElementById('sideKbMore').addEventListener('click', () => switchView('kb'));
+}
+function renderUrgent(){
+  const el = document.getElementById('urgentList');
+  const overdue = issues.filter(i => i.overdue>0);
+  el.innerHTML = overdue.map(i => `
+    <div class="urgent-item"><span class="urgent-dot"></span>
+      <div class="urgent-text"><b>${i.id}</b> ${i.title} · 逾期 ${i.overdue} 天</div></div>`).join('') ||
+    `<div class="urgent-text" style="color:var(--text-muted)">当前无逾期工单</div>`;
+}
+function renderKb(folder='all', q=''){
+  const grid = document.getElementById('kbGrid');
+  let list = kbNotes;
+  if(folder!=='all') list = list.filter(n => n.folder===folder);
+  if(q) list = list.filter(n => n.name.includes(q) || n.desc.includes(q));
+  document.getElementById('cntAll').textContent = kbNotes.length;
+  document.getElementById('cntOp').textContent = kbNotes.filter(n=>n.folder==='11-业务运营').length;
+  document.getElementById('cntKb').textContent = kbNotes.filter(n=>n.folder.startsWith('01-业务知识')).length;
+  document.getElementById('kbViewTitle').textContent = folder==='all' ? '全部知识' : folder;
+  if(!list.length){ grid.innerHTML = `<div class="kb-empty">没有匹配的知识条目</div>`; return; }
+  grid.innerHTML = list.map(n => `
+    <div class="kb-card">
+      <div class="kb-card-head">
+        <div class="kb-card-name">${n.name}</div>
+      </div>
+      <span class="kb-card-folder">${n.folder}</span>
+      <div class="kb-card-meta"><span>更新 ${n.updated}</span><span>${n.by}</span></div>
+      <div class="kb-card-desc">${n.desc}</div>
+      <div class="kb-card-foot">
+        <span class="kb-card-linked">已关联 <b>${n.linked}</b> 个工单</span>
+        <button class="btn btn-sm btn-ghost" data-linkkb="${n.name}">关联工单</button>
+      </div>
+    </div>`).join('');
+  grid.querySelectorAll('[data-linkkb]').forEach(b => b.addEventListener('click', () => {
+    toast(`已将「${b.dataset.linkkb}」关联到当前工单`);
+  }));
+}
+
+/* ============ VIEW ROUTER ============ */
+function switchView(v){
+  document.getElementById('view-list').classList.toggle('active', v==='list');
+  document.getElementById('view-kb').classList.toggle('active', v==='kb');
+  document.getElementById('pageTitle').textContent = v==='kb' ? '知识沉淀' : '运营监控';
+  document.getElementById('crumbNow').textContent = v==='kb' ? '运营监控 / 知识沉淀' : '运营监控';
+  document.getElementById('toggleKbBtn').innerHTML = v==='kb'
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg> 返回列表'
+    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 0.0 0 014 19.5v-15A2.5 0.0 0 016.5 2z"/></svg> 知识沉淀';
+  if(v==='kb') renderKb();
+}
+
+/* ============ CATEGORY FILTER ============ */
+const tiles = document.querySelectorAll('.cat-tile');
+const tabs = document.querySelectorAll('.ops-tab');
+const listSub = document.getElementById('listSub');
+function applyFilter(cat){
+  tiles.forEach(t => t.classList.toggle('active', t.dataset.cat===cat));
+  tabs.forEach(t => t.classList.toggle('active', t.dataset.cat===cat));
+  renderList(cat);
+  listSub.textContent = `${labels[cat]} · ${counts[cat]} 条`;
+}
+tiles.forEach(t => t.addEventListener('click', () => applyFilter(t.dataset.cat)));
+tabs.forEach(t => t.addEventListener('click', () => applyFilter(t.dataset.cat)));
+
+/* ============ ENTRY MODAL ============ */
+const entryMask = document.getElementById('entryMask');
+let handlerChips = [];
+function refreshChips(){
+  const box = document.getElementById('f_handlers');
+  box.querySelectorAll('.chip').forEach(c => c.remove());
+  handlerChips.forEach((h,idx) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip'; chip.innerHTML = `${h} <x data-i="${idx}">×</x>`;
+    box.insertBefore(chip, box.querySelector('input'));
+  });
+  box.querySelectorAll('x').forEach(x => x.addEventListener('click', () => { handlerChips.splice(+x.dataset.i,1); refreshChips(); }));
+}
+document.getElementById('f_handlers').querySelector('input').addEventListener('keydown', e => {
+  if(e.key==='Enter' && e.target.value.trim()){
+    handlerChips.push(e.target.value.trim()); e.target.value=''; refreshChips();
+  }
+});
+function updateTypeOptions(){
+  const cat = document.getElementById('f_cat').value;
+  const sel = document.getElementById('f_type');
+  sel.innerHTML = TYPE_BY_CAT[cat].map(t => `<option>${t}</option>`).join('');
+}
+document.getElementById('f_cat').addEventListener('change', updateTypeOptions);
+document.getElementById('openEntryBtn').addEventListener('click', () => {
+  handlerChips = []; refreshChips(); updateTypeOptions();
+  entryMask.classList.add('show');
+});
+document.getElementById('submitEntry').addEventListener('click', () => {
+  const title = document.getElementById('f_title').value.trim();
+  const situation = document.getElementById('f_situation').value.trim();
+  if(!title || !situation || !handlerChips.length){ toast('请填写标题、情况说明并至少添加一名责任人'); return; }
+  const cat = document.getElementById('f_cat').value;
+  const now = new Date();
+  const id = 'ISS-' + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') + '-' + String(Math.floor(Math.random()*900)+100);
+  const newIssue = {
+    id, cat, type:document.getElementById('f_type').value, title, handlers:[...handlerChips],
+    status:'pending', created:`${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,
+    due:document.getElementById('f_due').value||'—', overdue:0, priority:document.getElementById('f_priority').value,
+    req:'—', situation, kb: document.getElementById('f_kb').value? [document.getElementById('f_kb').value]:[],
+    emails:[], timeline:[{s:'pending',t:now.toTimeString().slice(0,5)}]
+  };
+  issues.unshift(newIssue);
+  counts.all++; counts[cat]++;
+  entryMask.classList.remove('show');
+  document.getElementById('f_title').value=''; document.getElementById('f_situation').value=''; document.getElementById('f_due').value='';
+  applyFilter(document.querySelector('.cat-tile.active').dataset.cat);
+  renderUrgent();
+  toast(`工单 ${id} 已录入`);
+});
+
+/* ============ DETAIL DRAWER ============ */
+const drawerMask = document.getElementById('drawerMask');
+const detailDrawer = document.getElementById('detailDrawer');
+let currentId = null;
+function openDetail(id){
+  currentId = id;
+  const i = issues.find(x => x.id===id);
+  if(!i) return;
+  document.getElementById('d_title').textContent = i.title;
+  document.getElementById('d_sub').textContent = `${i.id} · ${i.type}`;
+  document.getElementById('d_handlers').textContent = i.handlers.join('、');
+  document.getElementById('d_priority').textContent = i.priority;
+  document.getElementById('d_due').textContent = i.due;
+  document.getElementById('d_created').textContent = i.created;
+  document.getElementById('d_overdue').textContent = i.overdue>0 ? `逾期 ${i.overdue} 天` : '正常';
+  document.getElementById('d_overdue').style.color = i.overdue>0 ? 'var(--danger)' : '';
+  document.getElementById('d_req').textContent = i.req;
+  document.getElementById('d_situation').textContent = i.situation;
+  // stepper
+  const curIdx = STATUS_FLOW.findIndex(s => s.key===i.status);
+  document.getElementById('d_stepper').innerHTML = STATUS_FLOW.map((s,idx) => {
+    const cls = idx<curIdx ? 'done' : (idx===curIdx ? 'active' : '');
+    const line = idx<STATUS_FLOW.length-1 ? `<div class="step-line ${idx<curIdx?'done':''}"></div>` : '';
+    return `<div class="step ${cls}"><div class="step-dot">${idx<curIdx?'✓':idx+1}</div><div class="step-label">${s.label}</div></div>${line}`;
+  }).join('');
+  // kb
+  document.getElementById('d_kb').innerHTML = i.kb.length ? i.kb.map(k => `
+    <div class="dt-link-row"><div class="lk-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 0.0 0 014 19.5v-15A2.5 0.0 0 016.5 2z"/></svg></div>
+      <div><div class="dt-link-name">${k}</div><div class="dt-link-meta">Obsidian 业务运营库</div></div></div>`).join('')
+    : `<div class="dt-link-meta">尚未关联知识条目</div>`;
+  // emails
+  document.getElementById('d_emails').innerHTML = i.emails.length ? i.emails.map(e => `
+    <div class="email-log-item"><div class="el-ico">✉</div>
+      <div><div class="email-log-to">${e.to}</div><div class="email-log-time">${e.time}</div><div class="email-log-result">${e.result}</div></div></div>`).join('')
+    : `<div class="dt-link-meta">暂无督办邮件</div>`;
+  drawerMask.classList.add('show'); detailDrawer.classList.add('show');
+}
+function closeDrawer(){ drawerMask.classList.remove('show'); detailDrawer.classList.remove('show'); currentId=null; }
+document.getElementById('closeDrawer').addEventListener('click', closeDrawer);
+drawerMask.addEventListener('click', closeDrawer);
+document.getElementById('d_email').addEventListener('click', () => { if(currentId) openEmail(currentId); });
+document.getElementById('d_advance').addEventListener('click', () => {
+  const i = issues.find(x => x.id===currentId); if(!i) return;
+  const idx = STATUS_FLOW.findIndex(s => s.key===i.status);
+  if(idx < STATUS_FLOW.length-1){
+    i.status = STATUS_FLOW[idx+1].key;
+    i.timeline.push({s:i.status, t:new Date().toTimeString().slice(0,5)});
+    if(i.status==='closed') i.overdue=0;
+    openDetail(currentId); renderList(document.querySelector('.cat-tile.active').dataset.cat); renderUrgent();
+    toast(`状态已推进至「${STATUS_TEXT[i.status]}」`);
+  } else { toast('已是最终状态'); }
+});
+document.getElementById('d_edit').addEventListener('click', () => {
+  const i = issues.find(x => x.id===currentId); if(!i) return;
+  const nv = prompt('编辑情况说明：', i.situation);
+  if(nv!==null && nv.trim()){ i.situation = nv.trim(); openDetail(currentId); toast('情况说明已更新'); }
+});
+document.getElementById('d_linkKb').addEventListener('click', () => {
+  const i = issues.find(x => x.id===currentId); if(!i) return;
+  const name = prompt('关联知识条目名称（Obsidian）：', i.kb[0]||'');
+  if(name && name.trim() && !i.kb.includes(name.trim())){ i.kb.push(name.trim()); openDetail(currentId); toast(`已关联「${name.trim()}」`); }
+});
+
+/* ============ EMAIL MODAL ============ */
+const emailMask = document.getElementById('emailMask');
+const EMAIL_TPL = {
+  urgent:(i)=>`${i.handlers.join('、')}好：\n工单 ${i.id}（${i.title}）已逾期 ${i.overdue} 天，请尽快推进处理，有进展同步我。`,
+  progress:(i)=>`${i.handlers.join('、')}好：\n工单 ${i.id}（${i.title}）当前在「${STATUS_TEXT[i.status]}」，麻烦更新下最新进展。`,
+  close:(i)=>`${i.handlers.join('、')}好：\n工单 ${i.id}（${i.title}）如已处理完成，请确认闭环，我这边同步关闭。`
+};
+function openEmail(id){
+  const i = issues.find(x => x.id===id); if(!i) return;
+  currentId = id;
+  document.getElementById('emailSub').textContent = `发送至：${i.handlers.join('、')} · ${i.id}`;
+  document.getElementById('emailRecp').innerHTML = i.handlers.map(h => `<span class="recp-chip"><span class="dot"></span>${h}</span>`).join('');
+  document.getElementById('emailBody').value = EMAIL_TPL.progress(i);
+  emailMask.classList.add('show');
+}
+document.querySelectorAll('#emailTpls .tpl-btn').forEach(b => b.addEventListener('click', () => {
+  const i = issues.find(x => x.id===currentId); if(!i) return;
+  document.getElementById('emailBody').value = EMAIL_TPL[b.dataset.tpl](i);
+}));
+document.getElementById('sendEmail').addEventListener('click', () => {
+  const i = issues.find(x => x.id===currentId); if(!i) return;
+  const body = document.getElementById('emailBody').value.trim();
+  if(!body){ toast('邮件正文不能为空'); return; }
+  const t = new Date(); const ts = `${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')} ${t.toTimeString().slice(0,5)}`;
+  i.emails.push({ to:i.handlers.join('、'), time:ts, result:'已送达（统一邮件中心）' });
+  emailMask.classList.remove('show');
+  if(detailDrawer.classList.contains('show')) openDetail(currentId);
+  toast(`督办邮件已发送至 ${i.handlers.join('、')}`);
+});
+
+/* ============ KB interactions ============ */
+document.getElementById('toggleKbBtn').addEventListener('click', () => {
+  switchView(document.getElementById('view-kb').classList.contains('active') ? 'list' : 'kb');
+});
+document.getElementById('kbTree').querySelectorAll('.kb-tree-item').forEach(it => it.addEventListener('click', () => {
+  document.querySelectorAll('.kb-tree-item').forEach(x=>x.classList.remove('active'));
+  it.classList.add('active');
+  renderKb(it.dataset.folder, document.getElementById('kbSearch').value.trim());
+}));
+document.getElementById('kbSearch').addEventListener('input', e => {
+  const f = document.querySelector('.kb-tree-item.active').dataset.folder;
+  renderKb(f, e.target.value.trim());
+});
+document.getElementById('newKbBtn').addEventListener('click', () => toast('新建知识条目（Obsidian 业务运营库）'));
+
+/* ============ CLOSE HANDLERS ============ */
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => document.getElementById(b.dataset.close).classList.remove('show')));
+entryMask.addEventListener('click', e => { if(e.target===entryMask) entryMask.classList.remove('show'); });
+emailMask.addEventListener('click', e => { if(e.target===emailMask) emailMask.classList.remove('show'); });
+
+/* ============ TOAST ============ */
+let toastTimer;
+function toast(msg){
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+document.getElementById('exportBtn').addEventListener('click', () => toast('工单列表已导出 CSV'));
+
+/* ============ INIT ============ */
+renderList('all');
+renderSideKnow();
+renderUrgent();
+</script>
+</body>
+</html>

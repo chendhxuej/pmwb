@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PMWB 表单重设计 · 可交互原型</title>
+<style>
+  :root{
+    --accent:#2f6fed; --accent-soft:#eaf1fe; --sidebar:#1e293b;
+    --border:#e4e9f0; --surface:#fff; --text:#0f172a; --mut:#64748b;
+    --bg:#f3f5f9; --ok:#0f9d6b; --warn:#d98a1f; --bad:#d9544d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:var(--bg);color:var(--text)}
+  header{padding:18px 22px 10px;border-bottom:1px solid var(--border);background:#fff}
+  h1{font-size:18px;margin:0 0 12px;font-weight:700}
+  .switches{display:flex;gap:26px;flex-wrap:wrap}
+  .grp{display:flex;align-items:center;gap:8px}
+  .grp .lab{font-size:12px;color:var(--mut);margin-right:2px}
+  button.sw{border:1px solid var(--border);background:#fff;color:var(--text);padding:7px 13px;border-radius:9px;font-size:13px;cursor:pointer;transition:.15s}
+  button.sw:hover{border-color:var(--accent)}
+  button.sw.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  main{display:grid;grid-template-columns:1fr 300px;gap:16px;padding:16px 22px 28px}
+  #stage{background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;min-height:620px}
+  #stage svg{display:block;width:100%;height:auto}
+  aside{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px;line-height:1.6;color:var(--mut)}
+  aside h3{margin:0 0 8px;font-size:14px;color:var(--text)}
+  aside .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;background:var(--accent-soft);color:var(--accent);margin-bottom:8px}
+  aside ul{margin:8px 0 0;padding-left:18px}
+  aside li{margin:4px 0}
+  .hint{font-size:12px;color:var(--mut);margin-top:10px;border-top:1px dashed var(--border);padding-top:10px}
+  /* SVG element classes */
+  .drawer{fill:#fff;stroke:var(--border);stroke-width:1.5}
+  .hdr{fill:#f8fafc;stroke:var(--border)}
+  .hdr-t{fill:var(--text);font-size:15px;font-weight:700}
+  .x{fill:var(--mut);font-size:16px}
+  .tab{fill:#fff;stroke:var(--border)}
+  .tab.on{fill:var(--accent-soft);stroke:var(--accent)}
+  .tab-t{fill:var(--mut);font-size:12px}
+  .tab-t.on{fill:var(--accent);font-weight:600}
+  .sec-box{fill:#fff;stroke:var(--border)}
+  .sec-t{fill:var(--text);font-size:13px;font-weight:600}
+  .field{fill:#fbfcfe;stroke:var(--border)}
+  .field-l{fill:var(--mut);font-size:11px}
+  .nav-bg{fill:#f8fafc;stroke:var(--border)}
+  .nav-item{cursor:pointer}
+  .nav-bg2{fill:transparent}
+  .nav-item.on .nav-bg2{fill:var(--accent-soft)}
+  .nav-t{fill:var(--text);font-size:12.5px}
+  .nav-item.on .nav-t{fill:var(--accent);font-weight:700}
+  .nav-dot{font-size:12px}
+  .progress{fill:#eef2f7}
+  .progress-f{fill:var(--accent)}
+  .ftr{fill:#f8fafc;stroke:var(--border)}
+  .btn{fill:#fff;stroke:var(--border)}
+  .btn.primary{fill:var(--accent);stroke:var(--accent)}
+  .btn-t{fill:var(--text);font-size:12px}
+  .btn-t.p{fill:#fff;font-weight:600}
+  .step-item{cursor:pointer}
+  .step-c{fill:#fff;stroke:var(--border);stroke-width:2}
+  .step-item.on .step-c{fill:var(--accent);stroke:var(--accent)}
+  .step-c.on-t{fill:#fff}
+  .step-t{fill:var(--mut);font-size:12px}
+  .step-item.on .step-t{fill:var(--accent);font-weight:700}
+  .ov-card{fill:#fff;stroke:var(--border)}
+  .ov-card.ok .ov-dot{fill:var(--ok)} .ov-card.do .ov-dot{fill:var(--warn)} .ov-card.no .ov-dot{fill:var(--bad)}
+  .ov-dot{font-size:12px}
+  .collapse-head{cursor:pointer}
+  .ch-bg{fill:#f8fafc;stroke:var(--border)}
+  .collapse-head.on .ch-bg{fill:var(--accent-soft);stroke:var(--accent)}
+  .ch-t{fill:var(--text);font-size:12.5px}
+  .collapse-head.on .ch-t{fill:var(--accent);font-weight:700}
+  .ch-arrow{fill:var(--mut);font-size:12px}
+  .row{cursor:pointer}
+  .row-bg{fill:#fff;stroke:var(--border)}
+  .row:hover .row-bg{fill:#f5f8ff}
+  .row-t{fill:var(--text);font-size:12px}
+  .mini{fill:#fff;stroke:var(--accent)}
+  .mini-t{fill:var(--accent);font-size:12px;font-weight:700}
+  .note{fill:var(--bad);font-size:12px;font-weight:600}
+  .note-ok{fill:var(--ok);font-size:12px;font-weight:600}
+  .dim{fill:var(--mut);font-size:11px}
+  #aContent,#bContent{transition:transform .35s cubic-bezier(.4,0,.2,1)}
+  .badge{fill:var(--bad);font-size:10px}
+</style>
+</head>
+<body>
+<header>
+  <h1>PMWB 表单密集型模块 · UI 重设计可交互原型</h1>
+  <div class="switches">
+    <div class="grp"><span class="lab">场景</span>
+      <button class="sw scn on" data-scn="generic">统一骨架（10段示例）</button>
+      <button class="sw scn" data-scn="keywork">重点工作 KeyWork（10段）</button>
+      <button class="sw scn" data-scn="requirement">需求交付（4步工作流）</button>
+    </div>
+    <div class="grp"><span class="lab">方案</span>
+      <button class="sw sch on" data-sch="current">当前</button>
+      <button class="sw sch" data-sch="A">方案 A</button>
+      <button class="sw sch" data-sch="B">方案 B</button>
+      <button class="sw sch" data-sch="C">方案 C</button>
+    </div>
+  </div>
+</header>
+<main>
+  <div id="stage"></div>
+  <aside id="legend"></aside>
+</main>
+
+<script>
+const SECTIONS=["基本信息","目标","验收标准","里程碑","团队分工","月计划","周计划","工作进展","成员待办","交付物"];
+const STEPS=["采集","团队评估","用户故事","生成文档"];
+const SCEN={
+  generic:{kind:'detail',items:SECTIONS,name:'统一骨架（10段示例）'},
+  keywork:{kind:'detail',items:SECTIONS,name:'重点工作 KeyWork（10段）'},
+  requirement:{kind:'flow',items:STEPS,name:'需求交付（4步工作流）'}
+};
+const R=(x,y,w,h,c,a='')=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" class="${c}" ${a}/>`;
+const T=(x,y,s,c='',a='')=>`<text x="${x}" y="${y}" class="${c}" ${a}>${s}</text>`;
+const G=(a,i)=>`<g ${a}>${i}</g>`;
+
+let curScn='generic', curSch='current';
+
+function chrome(title){
+  return R(82,52,860,520,'drawer')
+    + R(82,52,860,36,'hdr')
+    + T(98,75,title,'hdr-t')
+    + T(922,76,'✕','x');
+}
+function footer(){
+  return R(82,556,860,16,'ftr')
+    + R(640,524,110,26,'btn primary')+T(666,541,'保存','btn-t p')
+    + R(760,524,80,26,'btn')+T(778,541,'上一段','btn-t')
+    + R(848,524,80,26,'btn')+T(866,541,'下一段','btn-t');
+}
+function sectionBlock(i,x,y,w,title,fields){
+  let s='';
+  s+=R(x,y,w,26,'sec-box'); s+=T(x+10,y+18,(i+1)+'. '+title,'sec-t');
+  for(let f=0;f<fields;f++){
+    const fy=y+34+f*48;
+    s+=R(x+10,fy,(w-30)/2,38,'field'); s+=T(x+18,fy+23,'字段'+(f+1),'field-l');
+    s+=R(x+20+(w-30)/2,fy,(w-30)/2,38,'field'); s+=T(x+28+(w-30)/2,fy+23,'字段'+(f+2),'field-l');
+  }
+  return s;
+}
+
+/* ---------- 当前：横向溢出 tab + 长滚动 ---------- */
+function renderCurrent(scn){
+  const items=scn.items, N=items.length;
+  let s=`<svg viewBox="0 0 1024 600" xmlns="http://www.w3.org/2000/svg">`;
+  s+=chrome('模块详情 · '+scn.name);
+  // 横向 tab 条（溢出）
+  s+=R(82,88,860,34,'hdr');
+  let tx=98;
+  const tw=88, gap=4;
+  for(let i=0;i<N;i++){ const on=i===0?' on':''; s+=R(tx,94,tw,26,'tab'+on); s+=T(tx+10,111,items[i].slice(0,4),'tab-t'+on); tx+=tw+gap; }
+  // 溢出指示器
+  s+=R(902,88,40,34,'hdr'); s+=T(914,110,'▶','tab-t');
+  s+=T(98,142,'← 10 个标签横向溢出，需滚动才能看到后段，且无概览','note');
+  // 长滚动内容
+  s+=R(82,150,860,406,'drawer');
+  let cy=162;
+  for(let i=0;i<5;i++){ s+=R(98,cy,828,52,'sec-box'); s+=T(110,cy+32,(i+1)+'. '+items[i],'sec-t'); cy+=60; }
+  // 渐隐续接
+  s+=R(98,cy,828,40,'sec-box'); s+=T(110,cy+26,'… 还有 '+(N-5)+' 段，继续长滚动','dim');
+  // 滚动条 + 说明
+  s+=R(918,150,8,406,'progress'); s+=R(918,150,8,90,'progress-f');
+  s+=T(98,576,'长滚动 · 无目录锚点 · 子表编辑还要再开 dialog（路径深）','note');
+  s+=`</svg>`;
+  return s;
+}
+
+/* ---------- 当前：流程（需求4步）---------- */
+function renderCurrentFlow(scn){
+  const items=scn.items, N=items.length;
+  let s=`<svg viewBox="0 0 1024 600" xmlns="http://www.w3.org/2000/svg">`;
+  s+=R(120,52,784,520,'drawer');
+  s+=R(120,52,784,36,'hdr'); s+=T(136,75,'需求交付 · '+scn.name,'hdr-t'); s+=T(884,76,'✕','x');
+  // 4 步 stepper
+  let cx=150;
+  for(let i=0;i<N;i++){ s+=R(cx,100,26,26,'step-c'+(i===0?' on':'')); s+=T(cx+9,118,(i+1),i===0?'step-c on-t':'step-t'); if(i<N-1) s+=R(cx+26,111,70,3,'progress-f'); cx+=96; s+=T(cx-90,146,items[i],'step-t'); }
+  // 堆叠整宽卡片 + 分散保存
+  let cy=160;
+  for(let i=0;i<3;i++){
+    s+=R(140,cy,744,96,'sec-box'); s+=T(154,cy+24,(i+1)+'. '+items[i],'sec-t');
+    s+=R(154,cy+36,330,22,'field'); s+=T(162,cy+52,'字段 A','field-l');
+    s+=R(500,cy+36,360,22,'field'); s+=T(508,cy+52,'字段 B','field-l');
+    if(i===2){ s+=R(154,cy+64,200,22,'field'); s+=T(162,cy+80,'嵌套故事卡片…','field-l'); }
+    s+=R(792,cy+8,72,24,'btn primary')+T(804,cy+24,'保存','btn-t p');
+    cy+=108;
+  }
+  s+=T(140,548,'痛点：整宽卡片竖直堆叠、保存分散在各卡片、故事卡片嵌套深','note');
+  s+=`</svg>`;
+  return s;
+}
+
+/* ---------- 方案 A：锚点目录 + 双栏 ---------- */
+function renderA(scn){
+  const items=scn.items, N=items.length, SECH=132;
+  let s=`<svg viewBox="0 0 1024 600" xmlns="http://www.w3.org/2000/svg">`;
+  s+=chrome('模块详情 · '+scn.name);
+  // 左侧 nav
+  s+=R(98,96,200,460,'nav-bg');
+  for(let i=0;i<N;i++){
+    const st=i<2?'✓':(i===2?'●':'○'); const cls=i===0?' on':'';
+    s+=G(`class="nav-item${cls}" data-i="${i}"`,
+      R(98,96+i*44,200,38,'nav-bg2')+T(110,96+i*44+24,(i+1)+'. '+items[i],'nav-t')+T(282,96+i*44+24,st,'nav-dot'));
+  }
+  s+=T(110,96+N*44+18,'进度','dim');
+  s+=R(110,96+N*44+26,176,8,'progress')+R(110,96+N*44+26,176*0.4,8,'progress-f');
+  // 右侧内容（裁剪 + 平移）
+  s+=`<defs><clipPath id="clipA"><rect x="314" y="96" width="612" height="452"/></clipPath></defs>`;
+  s+=G(`clip-path="url(#clipA)"`, G(`id="aContent"`,
+    (()=>{let c='';for(let i=0;i<N;i++) c+=sectionBlock(i,314,8+i*SECH,612,items[i],2); return c;})()));
+  s+=footer();
+  s+=`</svg>`;
+  return s;
+}
+
+/* ---------- 方案 B：分步向导 + 概览看板 ---------- */
+function renderB(scn){
+  const items=scn.items, N=items.length, SECH=132;
+  let s=`<svg viewBox="0 0 1024 600" xmlns="http://www.w3.org/2000/svg">`;
+  s+=chrome('模块详情 · '+scn.name);
+  // 概览按钮
+  s+=R(792,60,130,22,'btn')+T(812,75,'概览看板','btn-t');
+  // 左侧 stepper
+  s+=R(98,96,200,460,'nav-bg');
+  let sy=110;
+  for(let i=0;i<N;i++){
+    const on=i===0?' on':''; const done=i<1;
+    s+=G(`class="step-item${on}" data-i="${i}"`,
+      R(110,sy,26,26,'step-c'+on)+T(118,sy+18,(i+1),on?'step-c on-t':'step-t')+T(146,sy+18,items[i],'step-t'));
+    if(i<N-1) s+=R(122,sy+26,3,40,'progress-f');
+    sy+=66;
+  }
+  s+=T(110,sy+6,'进度 25%','dim');
+  // 右侧内容（平移切换步）
+  s+=`<defs><clipPath id="clipB"><rect x="314" y="96" width="612" height="452"/></clipPath></defs>`;
+  s+=G(`clip-path="url(#clipB)"`, G(`id="bContent"`,
+    (()=>{let c='';for(let i=0;i<N;i++) c+=sectionBlock(i,314,8+i*SECH,612,items[i],2); return c;})()));
+  // 概览看板 overlay
+  let ov='';
+  ov+=R(314,96,612,452,'ov-card'); ov+=T(330,124,'概览看板 · 各段完成状态（点「概览看板」切换）','sec-t');
+  let gx=330, gy=140;
+  for(let i=0;i<N;i++){ const st=i<1?'ok':(i===1?'do':'no');
+    ov+=G(`class="ov-card ${st}"`, R(gx,gy,180,70,'ov-card')+T(gx+12,gy+28,(i+1)+'. '+items[i],'sec-t')+T(gx+12,gy+54,st==='ok'?'已完成':st==='do'?'进行中':'待填写','field-l')+T(gx+150,gy+28,'●','ov-dot'));
+    gx+=196; if((i+1)%3===0){gx=330; gy+=84;} }
+  s+=G(`id="overview" style="display:none"`, ov);
+  s+=footer();
+  s+=`</svg>`;
+  return s;
+}
+
+/* ---------- 方案 C：可折叠 + 侧边速编 ---------- */
+function renderC(scn){
+  const items=scn.items, N=items.length;
+  let s=`<svg viewBox="0 0 1024 600" xmlns="http://www.w3.org/2000/svg">`;
+  s+=chrome('模块详情 · '+scn.name);
+  // 左侧 collapse
+  s+=R(98,96,470,460,'nav-bg');
+  let cy=104;
+  for(let i=0;i<N;i++){
+    const on=i===0?' on':'';
+    s+=G(`class="collapse-head${on}" data-i="${i}"`, R(98,cy,470,32,'ch-bg')+T(110,cy+21,(i+1)+'. '+items[i],'ch-t')+T(548,cy+21,i===0?'▾':'▸','ch-arrow'));
+    // body（首段展开）
+    if(i===0){
+      s+=G(`id="cbody-${i}"`,
+        R(110,cy+38,446,26,'row-bg')+T(120,cy+56,'字段1','row-t')+
+        R(110,cy+70,446,26,'row-bg')+T(120,cy+88,'字段2','row-t'));
+      cy+=106;
+    } else {
+      s+=G(`id="cbody-${i}" style="display:none"`,'');
+      cy+=40;
+    }
+  }
+  // 右侧 mini 编辑
+  s+=R(584,96,342,460,'mini');
+  s+=T(600,120,'速编面板（点左侧字段行打开）','mini-t');
+  s+=R(600,140,310,40,'field'); s+=T(610,165,'字段1','field-l');
+  s+=R(600,196,310,40,'field'); s+=T(610,221,'字段2','field-l');
+  s+=R(600,250,90,26,'btn primary')+T(618,267,'保存','btn-t p');
+  s+=`</svg>`;
+  return s;
+}
+
+function render(){
+  const scn=SCEN[curScn];
+  let svg;
+  if(curSch==='current') svg = scn.kind==='flow'?renderCurrentFlow(scn):renderCurrent(scn);
+  else if(curSch==='A') svg=renderA(scn);
+  else if(curSch==='B') svg=renderB(scn);
+  else svg=renderC(scn);
+  document.getElementById('stage').innerHTML=svg;
+  setupInteractions();
+  updateLegend();
+}
+
+function setupInteractions(){
+  const stage=document.getElementById('stage');
+  // A / B 导航与步骤：高亮 + 平移内容
+  if(curSch==='A'||curSch==='B'){
+    const grp=curSch==='A'?'aContent':'bContent';
+    const idAttr=curSch==='A'?'nav-item':'step-item';
+    const SECH=132;
+    stage.querySelectorAll('.'+idAttr).forEach(el=>{
+      el.addEventListener('click',()=>{
+        stage.querySelectorAll('.'+idAttr).forEach(e=>e.classList.remove('on'));
+        el.classList.add('on');
+        const i=+el.dataset.i;
+        document.getElementById(grp).setAttribute('transform',`translate(0,${-i*SECH})`);
+      });
+    });
+  }
+  // B 概览切换
+  if(curSch==='B'){
+    const btn=stage.querySelector('rect.btn');
+    const ov=document.getElementById('overview');
+    if(btn&&ov){ let shown=false; btn.addEventListener('click',()=>{ shown=!shown; ov.style.display=shown?'block':'none'; }); }
+  }
+  // C 折叠 + 行
+  if(curSch==='C'){
+    stage.querySelectorAll('.collapse-head').forEach(el=>{
+      el.addEventListener('click',()=>{
+        const i=el.dataset.i; const body=document.getElementById('cbody-'+i);
+        const visible=body.style.display!=='none';
+        body.style.display=visible?'none':'block';
+        el.classList.toggle('on',!visible);
+        const arr=el.querySelector('.ch-arrow'); if(arr) arr.textContent=visible?'▸':'▾';
+      });
+    });
+  }
+}
+
+const LEGEND={
+  current:{t:'当前设计（痛点）',tag:'反模式',body:'横向 tab 溢出 / 长滚动无锚点 / dialog 嵌套深 / 单列表单浪费横向。点击切换场景可观察不同模块的同类问题。'},
+  A:{t:'方案 A · 锚点目录 + 双栏表单',tag:'推荐基座',body:'左侧 sticky 分段导航（带完成度）替代溢出 tab；右侧双栏 Bento 表单；底部 sticky 保存/上下段。',ul:['点左侧导航项 → 右侧高亮并滚动到对应段','进度条随完成度联动','子表改为同壳内联编辑，路径更浅','彻底治理 10 段溢出']},
+  B:{t:'方案 B · 分步向导 + 概览看板',tag:'强流程型',body:'进入先看各段完成状态看板，再走带进度%的 stepper，「保存并下一步」。',ul:['点左侧 stepper → 切换当前步表单','点「概览看板」→ 切换完成状态看板','适合需求4步 / 工单5步']},
+  C:{t:'方案 C · 可折叠 + 侧边速编',tag:'最轻量',body:'el-collapse 分区 + 右侧 360 mini 编辑面板，保留上下文。',ul:['点段标题 → 展开/折叠','点字段行 → 右侧 mini 面板打开','迁移最轻，复用 el-collapse']}
+};
+function updateLegend(){
+  const L=LEGEND[curSch];
+  let h=`<span class="tag">${L.tag}</span><h3>${L.t}</h3><p>${L.body}</p>`;
+  if(L.ul) h+='<ul>'+L.ul.map(x=>`<li>${x}</li>`).join('')+'</ul>';
+  h+='<div class="hint">操作提示：用顶部「场景 / 方案」切换后，在图中直接点击导航项、步骤或折叠标题体验交互。</div>';
+  document.getElementById('legend').innerHTML=h;
+}
+
+document.querySelectorAll('button.scn').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('button.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  curScn=b.dataset.scn; render();
+}));
+document.querySelectorAll('button.sch').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('button.sch').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  curSch=b.dataset.sch; render();
+}));
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,626 @@
+from datetime import date
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, PmwbUserStory, PmwbDevTicket, SentEmail
+from schemas.common import PaginationParams, PaginationResponse
+from utils.dateflags import relative_status
+
+
+class RequirementService:
+    """需求管理 Service，聚合 sent_emails 和 pmwb_requirement_ext。"""
+
+    # 需求默认状态：未建 ext 记录 / ext.status 为空时，展示与统计一律按此状态归口。
+    # 前端 RequirementView 用 `row.ext?.status || 'proposed'` 渲染，后端过滤/统计
+    # 必须与之保持同一口径，否则出现「列表显示 N 条、按状态检索只有 M 条」的漂移。
+    DEFAULT_STATUS = "proposed"
+
+    def _effective_status_map(self, db: Session) -> Dict[str, str]:
+        """计算每个 sent_emails 需求的有效状态（与前端 `ext?.status || 'proposed'` 渲染口径完全一致）。
+
+        需求宇宙 = sent_emails 去重后的 req_id（列表/统计/过滤的唯一定义域）。
+        ext.status 非空 → 用之；为空/None/无 ext 记录 → 兜底为 DEFAULT_STATUS('proposed')。
+        不在 sent_emails 中的孤儿 ext 记录（测试/脏数据）一律排除，不污染任何统计。
+        """
+        sent_req_ids = {
+            row[0] for row in db.query(SentEmail.req_id).distinct().all() if row[0]
+        }
+        ext_rows = db.query(
+            PmwbRequirementExt.req_id, PmwbRequirementExt.status
+        ).all()
+        eff: Dict[str, str] = {}
+        for rid, st in ext_rows:
+            if rid in sent_req_ids:
+                eff[rid] = st if st else self.DEFAULT_STATUS
+        return {rid: eff.get(rid, self.DEFAULT_STATUS) for rid in sent_req_ids}
+
+    def _resolve_status_req_ids(self, db: Session, status: str) -> List[str]:
+        """按状态解析命中的 req_id 列表（仅限 sent_emails 需求宇宙，与前端展示口径一致）。"""
+        eff = self._effective_status_map(db)
+        return [rid for rid, st in eff.items() if st == status]
+
+    def _get_or_create_ext(self, db: Session, req_id: str) -> PmwbRequirementExt:
+        ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+        if not ext:
+            ext = PmwbRequirementExt(req_id=req_id)
+            db.add(ext)
+            db.commit()
+            db.refresh(ext)
+        return ext
+
+    def _merge_ext(self, item: SentEmail, ext: Optional[PmwbRequirementExt] = None, eval_count: int = 0) -> Dict[str, Any]:
+        data = {
+            "req_id": item.req_id,
+            "req_name": item.req_name,
+            "proposer": item.proposer,
+            "propose_time": item.propose_time,
+            "background": item.background,
+            "description": item.description,
+            "clarification": item.clarification,
+            "system_name": item.system_name,
+            "sa_name": item.sa_name,
+            "send_datetime": item.send_datetime,
+            "workload": float(item.workload) if item.workload is not None else None,
+            "is_involved": item.is_involved,
+            "dev_ticket_no": item.dev_ticket_no,
+            "involve_dev": item.involve_dev,
+            "created_at": item.created_at,
+            "eval_count": eval_count,  # 团队评估记录数
+            "ext": None,
+        }
+        if ext:
+            # ext 中可编辑字段覆盖 sent_emails 只读字段
+            for field in ("req_name", "background", "description", "clarification", "system_name", "sa_name"):
+                val = getattr(ext, field)
+                if val is not None:
+                    data[field] = val
+            data["ext"] = {
+                "id": ext.id,
+                "req_id": ext.req_id,
+                "status": ext.status,
+                "tags": ext.tags,
+                "personal_note": ext.personal_note,
+                "priority": ext.priority,
+                "owner_note": ext.owner_note,
+                "version_required_date": ext.version_required_date,
+                "domain_code": ext.domain_code,
+                "req_name": ext.req_name,
+                "background": ext.background,
+                "description": ext.description,
+                "clarification": ext.clarification,
+                "system_name": ext.system_name,
+                "sa_name": ext.sa_name,
+                "created_at": ext.created_at,
+                "updated_at": ext.updated_at,
+            }
+        return data
+
+    # ---- 版本要求 / 开发工单进度跟踪 ----
+    def _ticket_flag(self, ticket: "PmwbDevTicket", version_required_date, today) -> str:
+        """单张工单相对「版本要求」的预警标记。"""
+        done = ticket.status in ("live", "archived")
+        if done:
+            if version_required_date and ticket.go_live_date and ticket.go_live_date > version_required_date:
+                return "late"   # 已上线但晚于要求
+            return "on_time"
+        # 未完成：相对版本要求截止日，复用共享日期工具（overdue/warning/on_track）
+        return relative_status(version_required_date, today, warning_days=7)
+
+    def _aggregate_tracking(self, tickets, version_required_date, today) -> str:
+        """聚合需求级跟踪状态：none/none(无工单)/on_time/进行中/预警/超期。"""
+        if not tickets:
+            return "none"
+        flags = [self._ticket_flag(t, version_required_date, today) for t in tickets]
+        if "overdue" in flags or "late" in flags:
+            return "overdue"
+        if "warning" in flags:
+            return "warning"
+        if all(f == "on_time" for f in flags):
+            return "on_time"
+        return "on_track"
+
+    def list_with_filters(
+        self,
+        db: Session,
+        keyword: Optional[str] = None,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+        system_name: Optional[str] = None,
+        is_involved: Optional[int] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> PaginationResponse[Dict[str, Any]]:
+        # 基础查询：从 sent_emails 中按需求数号去重（同一需求只取最新一条）
+        base_query = db.query(
+            SentEmail.req_id,
+            func.max(SentEmail.id).label('max_id'),
+            func.max(SentEmail.created_at).label('max_created_at'),
+        ).group_by(SentEmail.req_id)
+
+        # 关键字过滤：匹配 req_id / req_name / proposer
+        if keyword:
+            matched_req_ids = (
+                db.query(SentEmail.req_id)
+                .filter(
+                    (SentEmail.req_id.ilike(f"%{keyword}%"))
+                    | (SentEmail.req_name.ilike(f"%{keyword}%"))
+                    | (SentEmail.proposer.ilike(f"%{keyword}%"))
+                )
+                .distinct()
+                .all()
+            )
+            matched_req_ids = [row[0] for row in matched_req_ids]
+            base_query = base_query.filter(SentEmail.req_id.in_(matched_req_ids))
+
+        # 状态/优先级过滤：口径与前端展示保持一致（无 ext 记录按默认状态归口）
+        if status or priority:
+            if status:
+                status_ids = set(self._resolve_status_req_ids(db, status))
+            else:
+                status_ids = None
+            if priority:
+                priority_ids = {
+                    row[0]
+                    for row in db.query(PmwbRequirementExt.req_id)
+                    .filter(PmwbRequirementExt.priority == priority)
+                    .all()
+                }
+            else:
+                priority_ids = None
+
+            if status_ids is not None and priority_ids is not None:
+                matched_req_ids = list(status_ids & priority_ids)
+            else:
+                matched_req_ids = list(status_ids if status_ids is not None else priority_ids)
+
+            if not matched_req_ids:
+                # 无匹配时直接返回空分页，避免无意义的子查询
+                return {
+                    "total": 0,
+                    "page": page,
+                    "page_size": page_size,
+                    "pages": 0,
+                    "items": [],
+                }
+            base_query = base_query.filter(SentEmail.req_id.in_(matched_req_ids))
+
+        # 子查询获取每个需求的最新记录 ID
+        subq = base_query.subquery()
+
+        # 获取去重后的总需求条数
+        total_query = db.query(func.count()).select_from(subq)
+        total = total_query.scalar() or 0
+
+        # 分页取最新记录 ID（按创建时间倒序）
+        paginated = (
+            db.query(subq.c.req_id, subq.c.max_id)
+            .order_by(subq.c.max_created_at.desc(), subq.c.max_id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        max_ids = [row.max_id for row in paginated]
+
+        # 用这些 ID 查出完整的 SentEmail 记录
+        items_query = db.query(SentEmail).filter(SentEmail.id.in_(max_ids))
+        if system_name:
+            items_query = items_query.filter(SentEmail.system_name == system_name)
+        if is_involved is not None:
+            items_query = items_query.filter(SentEmail.is_involved == is_involved)
+        # 按 max_id 降序保持顺序
+        id_order = {mid: idx for idx, mid in enumerate(max_ids)}
+        items = sorted(items_query.all(), key=lambda x: id_order.get(x.id, 0))
+
+        # 加载当前页需求的扩展信息
+        req_ids = {item.req_id for item in items}
+        ext_rows = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id.in_(req_ids)).all()
+        ext_map = {row.req_id: row for row in ext_rows}
+
+        # 统计每个需求的团队评估数量（以可编辑评估表为准，无记录时回退到邮件数）
+        req_ids = {item.req_id for item in items}
+        sent_counts = (
+            db.query(SentEmail.req_id, func.count(SentEmail.id))
+            .filter(SentEmail.req_id.in_(req_ids))
+            .group_by(SentEmail.req_id)
+            .all()
+        )
+        sent_count_map = {row[0]: row[1] for row in sent_counts}
+        eval_row_counts = (
+            db.query(PmwbRequirementEvaluation.req_id, func.count(PmwbRequirementEvaluation.id))
+            .filter(PmwbRequirementEvaluation.req_id.in_(req_ids))
+            .group_by(PmwbRequirementEvaluation.req_id)
+            .all()
+        )
+        eval_row_map = {row[0]: row[1] for row in eval_row_counts}
+        eval_count_map = {}
+        for rid in req_ids:
+            eval_count_map[rid] = eval_row_map.get(rid, 0) or sent_count_map.get(rid, 0)
+
+        # 按需求聚合团队评估：涉及系统集合、复核工作量汇总
+        eval_agg = (
+            db.query(
+                PmwbRequirementEvaluation.req_id,
+                func.group_concat(PmwbRequirementEvaluation.system_name.distinct()).label("systems"),
+                func.sum(PmwbRequirementEvaluation.review_workload).label("review_total"),
+            )
+            .filter(PmwbRequirementEvaluation.req_id.in_(req_ids))
+            .group_by(PmwbRequirementEvaluation.req_id)
+            .all()
+        )
+        eval_agg_map = {}
+        for row in eval_agg:
+            systems = [s for s in (row.systems or "").split(",") if s.strip()]
+            eval_agg_map[row.req_id] = {
+                "systems": systems,
+                "review_total": float(row.review_total) if row.review_total is not None else None,
+            }
+
+        # 批量查询关联开发工单，用于计算「跟踪状态」
+        dev_tickets_all = (
+            db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id.in_(req_ids)).all()
+            if req_ids else []
+        )
+        dev_by_req: Dict[str, List] = {}
+        for t in dev_tickets_all:
+            dev_by_req.setdefault(t.req_id, []).append(t)
+        today = date.today()
+
+        merged = []
+        for item in items:
+            ext = ext_map.get(item.req_id)
+            vr = ext.version_required_date if ext else None
+            tickets = dev_by_req.get(item.req_id, [])
+            d = self._merge_ext(item, ext, eval_count_map.get(item.req_id, 0))
+            agg = eval_agg_map.get(item.req_id, {})
+            systems = agg.get("systems") or ([d.get("system_name")] if d.get("system_name") else [])
+            d["eval_systems"] = ",".join(systems) if systems else "—"
+            d["eval_workload"] = agg.get("review_total") if agg.get("review_total") is not None else d.get("workload")
+            d["tracking_status"] = self._aggregate_tracking(tickets, vr, today)
+            merged.append(d)
+        return PaginationResponse.create(
+            total=total,
+            page=page,
+            page_size=page_size,
+            items=merged,
+        )
+
+    def get(self, db: Session, req_id: str) -> Optional[Dict[str, Any]]:
+        # 与 list_with_filters 保持一致：取该需求最新一条 sent_email 作为代表
+        item = (
+            db.query(SentEmail)
+            .filter(SentEmail.req_id == req_id)
+            .order_by(SentEmail.id.desc())
+            .first()
+        )
+        if not item:
+            return None
+        ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+        eval_count = db.query(SentEmail).filter(SentEmail.req_id == req_id).count()
+        data = self._merge_ext(item, ext, eval_count)
+        # 关联开发工单进度（按版本要求日期判定预警）
+        tickets = db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id == req_id).all()
+        vr = ext.version_required_date if ext else None
+        today = date.today()
+        linked = []
+        for t in tickets:
+            linked.append({
+                "id": t.id,
+                "ticket_no": t.ticket_no,
+                "system_name": t.system_name,
+                "status": t.status,
+                "progress": t.progress,
+                "dev_completed_date": t.dev_completed_date,
+                "test_completed_date": t.test_completed_date,
+                "go_live_date": t.go_live_date,
+                "flag": self._ticket_flag(t, vr, today),
+            })
+        data["linked_tickets"] = linked
+        data["tracking_status"] = self._aggregate_tracking(tickets, vr, today)
+        return data
+
+    def update_ext(self, db: Session, req_id: str, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        # 与列表展示保持一致：更新最新一条 sent_email 记录
+        item = (
+            db.query(SentEmail)
+            .filter(SentEmail.req_id == req_id)
+            .order_by(SentEmail.id.desc())
+            .first()
+        )
+        if not item:
+            return None
+        ext = self._get_or_create_ext(db, req_id)
+        for key, value in obj_in.items():
+            if key == "dev_ticket_no":
+                # 需求级开发单号保存在 sent_emails 源表
+                item.dev_ticket_no = value or None
+                continue
+            if not hasattr(ext, key):
+                continue
+            if key == "version_required_date":
+                # 允许清空（NULL）；空串归一为 NULL
+                setattr(ext, key, None if value in (None, "") else value)
+            elif value is not None:
+                setattr(ext, key, value)
+        db.commit()
+        db.refresh(ext)
+        return self._merge_ext(item, ext)
+
+    def delete_requirement(self, db: Session, req_id: str) -> bool:
+        """删除需求的个人工作台数据（扩展、团队评估、用户故事），保留只读 sent_emails 源。"""
+        ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+        if ext:
+            db.delete(ext)
+        db.query(PmwbRequirementEvaluation).filter(PmwbRequirementEvaluation.req_id == req_id).delete()
+        db.query(PmwbUserStory).filter(PmwbUserStory.req_id == req_id).delete()
+        db.commit()
+        return True
+
+    def get_stats(self, db: Session) -> Dict[str, int]:
+        # 需求宇宙 = sent_emails 去重后的 req_id（统一口径，排除孤儿 ext 脏数据）
+        sent_req_ids = {
+            row[0] for row in db.query(SentEmail.req_id).distinct().all() if row[0]
+        }
+        total = len(sent_req_ids)
+        involved = (
+            db.query(SentEmail.req_id)
+            .filter(SentEmail.is_involved == 1)
+            .distinct()
+            .count()
+        )
+        # 统计卡片必须与列表/过滤口径一致：无 ext / status 为空的需求兜底为默认状态
+        eff = self._effective_status_map(db)
+        status_map: Dict[str, int] = {}
+        for st in eff.values():
+            status_map[st] = status_map.get(st, 0) + 1
+        # 开发单号未录入：涉及开发但 dev_ticket_no 为空的需求数（待跟进）
+        dev_ticket_missing = (
+            db.query(SentEmail.req_id)
+            .filter(SentEmail.is_involved == 1)
+            .filter(func.coalesce(SentEmail.dev_ticket_no, "") == "")
+            .distinct()
+            .count()
+        )
+        return {
+            "total": total,
+            "proposed": status_map.get("proposed", 0),
+            "accepted": status_map.get("accepted", 0),
+            "dev": status_map.get("dev", 0),
+            "closed": status_map.get("closed", 0),
+            "paused": status_map.get("paused", 0),
+            "involved": involved,
+            "dev_ticket_missing": dev_ticket_missing,
+        }
+
+    def get_evaluations(self, db: Session, req_id: str) -> List[Dict[str, Any]]:
+        """获取需求下所有团队评估记录（可自由增删改的清单）。
+
+        首次访问且尚未播种时，从只读来源 sent_emails 自动播种出可编辑记录，
+        并打上 eval_seeded 标记；之后以 pmwb_requirement_evaluation 为唯一权威
+        来源（支持增/删/改）。删除后的记录不会因重新读取而复活。
+
+        读取时若评估记录本身的 sa_name/system_name 为空，则回退到其溯源来源
+        sent_emails（通过 sent_email_id 关联）补全展示，避免子表出现空白列。
+        """
+        existing = (
+            db.query(PmwbRequirementEvaluation)
+            .filter(PmwbRequirementEvaluation.req_id == req_id)
+            .order_by(PmwbRequirementEvaluation.id.asc())
+            .all()
+        )
+        if not existing:
+            ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+            if not (ext and ext.eval_seeded):
+                # 尚未播种：从邮件导入为可编辑记录（仅此一次）
+                source_items = (
+                    db.query(SentEmail)
+                    .filter(SentEmail.req_id == req_id)
+                    .order_by(SentEmail.id.asc())
+                    .all()
+                )
+                for item in source_items:
+                    ev = PmwbRequirementEvaluation(
+                        sent_email_id=item.id,
+                        req_id=item.req_id,
+                        req_name=item.req_name,
+                        proposer=item.proposer,
+                        send_datetime=item.send_datetime,
+                        sa_name=item.sa_name,
+                        system_name=item.system_name,
+                        workload=float(item.workload) if item.workload is not None else None,
+                        review_workload=None,
+                        opinion="",
+                        dev_ticket_no=item.dev_ticket_no,
+                    )
+                    db.add(ev)
+                if ext is None:
+                    ext = PmwbRequirementExt(req_id=req_id)
+                    db.add(ext)
+                ext.eval_seeded = 1
+                db.commit()
+                existing = (
+                    db.query(PmwbRequirementEvaluation)
+                    .filter(PmwbRequirementEvaluation.req_id == req_id)
+                    .order_by(PmwbRequirementEvaluation.id.asc())
+                    .all()
+                )
+        # 溯源补全：评估记录本身 sa_name/system_name 为空时，回退 sent_emails 源值
+        sent_ids = [ev.sent_email_id for ev in existing if ev.sent_email_id]
+        src_map = {}
+        if sent_ids:
+            src_rows = db.query(SentEmail).filter(SentEmail.id.in_(sent_ids)).all()
+            src_map = {s.id: s for s in src_rows}
+        result = []
+        for ev in existing:
+            d = self._eval_to_dict(ev)
+            src = src_map.get(ev.sent_email_id)
+            if src:
+                if not d.get("sa_name"):
+                    d["sa_name"] = src.sa_name
+                if not d.get("system_name"):
+                    d["system_name"] = src.system_name
+            result.append(d)
+        return result
+
+    def _eval_to_dict(self, ev: "PmwbRequirementEvaluation") -> Dict[str, Any]:
+        return {
+            "id": ev.id,
+            "req_id": ev.req_id,
+            "req_name": ev.req_name,
+            "proposer": ev.proposer,
+            "sa_name": ev.sa_name,
+            "system_name": ev.system_name,
+            "workload": float(ev.workload) if ev.workload is not None else None,
+            "review_workload": float(ev.review_workload) if ev.review_workload is not None else None,
+            "opinion": ev.opinion or "",
+            "send_datetime": ev.send_datetime,
+            "dev_ticket_no": ev.dev_ticket_no or "",
+        }
+
+    def create_evaluation(self, db: Session, req_id: str, obj_in: Dict[str, Any]) -> Dict[str, Any]:
+        """新增一条团队评估记录（手动录入，sent_email_id 为 NULL）。"""
+        item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
+        ev = PmwbRequirementEvaluation(
+            sent_email_id=None,
+            req_id=req_id,
+            sa_name=obj_in.get("sa_name"),
+            system_name=obj_in.get("system_name"),
+            workload=obj_in.get("workload"),
+            review_workload=obj_in.get("review_workload"),
+            opinion=obj_in.get("opinion") or "",
+            dev_ticket_no=obj_in.get("dev_ticket_no"),
+        )
+        # 借用该需求下某条只读邮件的上下文补全展示字段
+        if item:
+            ev.req_name = item.req_name
+            ev.proposer = item.proposer
+            ev.send_datetime = item.send_datetime
+        db.add(ev)
+        # 打上已播种标记，确保之后即使记录被删空也不会从邮件复活
+        ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+        if ext is None:
+            ext = PmwbRequirementExt(req_id=req_id)
+            db.add(ext)
+        ext.eval_seeded = 1
+        db.commit()
+        db.refresh(ev)
+        return self._eval_to_dict(ev)
+
+    def update_evaluation(self, db: Session, eval_id: int, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """更新单条团队评估记录（按评估记录自身 id）。"""
+        ev = (
+            db.query(PmwbRequirementEvaluation)
+            .filter(PmwbRequirementEvaluation.id == eval_id)
+            .first()
+        )
+        if not ev:
+            return None
+        allowed = {"sa_name", "system_name", "workload", "review_workload", "opinion", "dev_ticket_no"}
+        for key, value in obj_in.items():
+            if key in allowed and hasattr(ev, key):
+                setattr(ev, key, value)
+        db.commit()
+        db.refresh(ev)
+        return self._eval_to_dict(ev)
+
+    def delete_evaluation(self, db: Session, eval_id: int) -> bool:
+        """删除单条团队评估记录。"""
+        ev = (
+            db.query(PmwbRequirementEvaluation)
+            .filter(PmwbRequirementEvaluation.id == eval_id)
+            .first()
+        )
+        if not ev:
+            return False
+        db.delete(ev)
+        db.commit()
+        return True
+
+    def get_systems(self, db: Session) -> List[str]:
+        rows = db.query(SentEmail.system_name).distinct().filter(SentEmail.system_name.isnot(None)).all()
+        return [row[0] for row in rows if row[0]]
+
+    def pending_by_sa(self, db: Session) -> List[Dict[str, Any]]:
+        """按 SA 分组的待催办列表（团队评估维度）。
+
+        判据（2026-07 修正）：只看团队评估行中「工作量（人天）」为空的记录，
+        每条空工作量行归属其自身的 SA 负责人（按 (req_id, sa_name) 去重）；
+        不再要求「复核工作量未填 + 无开发单号」同时成立。
+        需求已关闭/暂停（pmwb_requirement_ext.status 为 closed/paused）不催办。
+        """
+        closed_ids = set(
+            r[0] for r in db.query(PmwbRequirementExt.req_id)
+            .filter(PmwbRequirementExt.status.in_(["closed", "paused"]))
+            .all()
+        )
+        rows = (
+            db.query(
+                PmwbRequirementEvaluation.req_id,
+                PmwbRequirementEvaluation.req_name,
+                PmwbRequirementEvaluation.proposer,
+                PmwbRequirementEvaluation.sa_name,
+                PmwbRequirementEvaluation.system_name,
+                PmwbRequirementEvaluation.dev_ticket_no,
+                PmwbRequirementEvaluation.workload,
+            )
+            .filter(func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0)
+            .order_by(
+                PmwbRequirementEvaluation.req_id,
+                PmwbRequirementEvaluation.sa_name,
+            )
+            .all()
+        )
+        # 批量取需求描述：优先 PmwbRequirementExt.description，回退 SentEmail.description
+        req_ids = [r.req_id for r in rows if r.req_id not in closed_ids]
+        desc_map: Dict[str, Optional[str]] = {}
+        if req_ids:
+            ext_rows = (
+                db.query(PmwbRequirementExt.req_id, PmwbRequirementExt.description)
+                .filter(PmwbRequirementExt.req_id.in_(req_ids))
+                .all()
+            )
+            for rid, d in ext_rows:
+                if d:
+                    desc_map[rid] = d
+            still_missing = [rid for rid in req_ids if rid not in desc_map]
+            if still_missing:
+                sent_rows = (
+                    db.query(SentEmail.req_id, SentEmail.description)
+                    .filter(SentEmail.req_id.in_(still_missing))
+                    .all()
+                )
+                for rid, d in sent_rows:
+                    if d and rid not in desc_map:
+                        desc_map[rid] = d
+
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        seen = set()
+        for r in rows:
+            if r.req_id in closed_ids:
+                continue
+            sa = (r.sa_name or "").strip() or "未分配"
+            key = (r.req_id, sa)
+            if key in seen:
+                continue
+            seen.add(key)
+            grouped.setdefault(sa, []).append({
+                "req_id": r.req_id,
+                "req_name": r.req_name,
+                "proposer": r.proposer,
+                "system_name": r.system_name,
+                "sa_name": sa,
+                "workload": float(r.workload) if r.workload is not None else None,
+                "dev_ticket_no": r.dev_ticket_no,
+                "propose_time": None,
+                "description": (desc_map.get(r.req_id) or "")[:500],
+            })
+        result = []
+        for sa, items in grouped.items():
+            result.append({"sa_name": sa, "count": len(items), "items": items})
+        # 未分配置后，其余按 SA 名排序
+        result.sort(key=lambda g: (g["sa_name"] == "未分配", g["sa_name"]))
+        return result
+
+
+requirement_service = RequirementService()

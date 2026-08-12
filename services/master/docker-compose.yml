@@ -1,0 +1,19 @@
+services:
+  pmwb-master:
+    build: .
+    container_name: pmwb-master
+    ports:
+      - "8001:8001"
+    environment:
+      - MASTER_DB_HOST=host.docker.internal
+      - MASTER_DB_PORT=3306
+      - MASTER_DB_USER=${MASTER_DB_USER:-root}
+      - MASTER_DB_PASSWORD=${MASTER_DB_PASSWORD}
+      - MASTER_DB_NAME=${MASTER_DB_NAME:-pmwb_master}
+      - MASTER_DB_CHARSET=${MASTER_DB_CHARSET:-utf8mb4}
+      - MASTER_PORT=8001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
