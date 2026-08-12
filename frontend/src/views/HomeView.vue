@@ -44,7 +44,7 @@
 
       <BentoCard title="实时动态" :span="4">
         <ul class="ls-list">
-          <li class="ls-item" v-for="(item, i) in liveStatus.slice(0, 4)" :key="i">
+          <li class="ls-item" v-for="(item, i) in liveStatus" :key="i">
             <span class="ls-dot" :class="item.color"></span>
             <span class="ls-text">{{ item.text }}</span>
             <span class="ls-time">{{ item.time }}</span>
@@ -696,8 +696,11 @@ onActivated(() => {
   width: 100%;
 }
 
-/* 网格行不拉伸——各卡片按内容自然高度，避免短卡片被拉出空白 */
-.bento-grid { align-items: start; }
+/* 行内卡片等高（stretch）+ 内容自适应填充，消除空白/错位，提升整体排版统一 */
+.bento-grid { align-items: stretch; }
+.bento-grid :deep(.card) { display: flex; flex-direction: column; }
+.bento-grid :deep(.card-body) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.bento-grid :deep(.kpi-card) { display: flex; flex-direction: column; justify-content: center; }
 
 /* ── 问候区 ── */
 .greeting-tile {
@@ -706,7 +709,7 @@ onActivated(() => {
   color: #f8fafc;
   position: relative;
   overflow: hidden;
-  align-self: start;
+  align-self: stretch;
 }
 .greeting-tile::after {
   content: '';
@@ -726,6 +729,8 @@ onActivated(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  height: 100%;
+  justify-content: center;
 }
 .g-top {
   display: flex;
@@ -794,7 +799,7 @@ onActivated(() => {
 }
 
 /* ── 实时动态 ── */
-.ls-list { list-style: none; padding: 0 16px 8px; }
+.ls-list { list-style: none; padding: 0 16px; flex: 1; display: flex; flex-direction: column; justify-content: center; }
 .ls-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
 .ls-item:last-child { border-bottom: none; }
 .ls-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -1073,6 +1078,15 @@ onActivated(() => {
   .mt-info { flex: 1; min-width: 0; }
   .mt-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
   .mt-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
+
+  /* ── 等高行内卡片：内层包裹填充并垂直居中，消除留白 ── */
+  .op-wrap, .rq-wrap, .mt-wrap,
+  .todo-list, .kp-list, .mod-grid {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
 
   /* ── 实时滚动字幕（已并入问候卡底部，仅保留卡片内轨道样式）── */
   .ticker-track {
