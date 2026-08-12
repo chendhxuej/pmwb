@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PMWB 工作台 — 知识库（设计原型）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-app: #f3f5f9;
+    --sidebar-bg: #1e293b;
+    --sidebar-active: rgba(47,111,237,.14);
+    --surface: #ffffff;
+    --border: #e4e9f0;
+    --border-subtle: #eff2f8;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --accent: #2f6fed;
+    --accent-hover: #2659c9;
+    --accent-soft: #eaf1fe;
+    --success: #0f9d6b;
+    --success-soft: #ecfdf3;
+    --warning: #d98a1f;
+    --warning-soft: #fef7ed;
+    --danger: #d9544d;
+    --danger-soft: #fef2f2;
+    --info: #3b82f6;
+    --info-soft: #eff6ff;
+    --purple: #7c3aed;
+    --purple-soft: #f3e8ff;
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 22px;
+    --shadow-card: 0 2px 12px -3px rgba(15,23,42,.08),0 1px 3px -1px rgba(15,23,42,.06);
+    --shadow-elevated: 0 16px 48px -12px rgba(15,23,42,.14);
+    --shadow-modal: 0 24px 70px -16px rgba(15,23,42,.32);
+    --transition-fast: .18s cubic-bezier(.4,0,.2,1);
+    --font-display: 'Outfit', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+    --sidebar-w: 236px;
+  }
+  *,*::before,*::after { box-sizing:border-box;margin:0;padding:0 }
+  html { font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale }
+  body { font-family: var(--font-display); background:var(--bg-app); color:var(--text-primary); display:flex; min-height:100vh; overflow-x:hidden }
+
+  .sidebar { width:var(--sidebar-w); flex-shrink:0; height:100vh; position:fixed;left:0;top:0;z-index:100; background:var(--sidebar-bg); color:#cbd5e1;display:flex;flex-direction:column; }
+  .sb-brand { padding:26px 24px 20px; display:flex;align-items:center;gap:11px;border-bottom:1px solid rgba(255,255,255,.07) }
+  .sb-logo { width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2f6fed 30%,#60a5fa);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:14px;letter-spacing:-.5px }
+  .sb-title { font-size:17px;font-weight:700;color:#f1f5f9;letter-spacing:.3px }
+  .sb-nav { flex:1;padding:16px 12px;display:flex;flex-direction:column;gap:3px;overflow-y:auto }
+  .sb-item { display:flex;align-items:center;gap:13px;padding:11px 14px;border-radius:10px; color:#94a3b8;font-size:14px;font-weight:400;cursor:pointer;transition:all var(--transition-fast); position:relative;text-decoration:none;line-height:1.35 }
+  .sb-item:hover { background:rgba(255,255,255,.05);color:#e2e8f0 }
+  .sb-item.active { background:var(--sidebar-active); color:#60a5fa;font-weight:500 }
+  .sb-item.active::before { content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:20px;background:#60a5fa;border-radius:0 3px 3px 0 }
+  .sb-icon { width:20px;height:20px;flex-shrink:0;opacity:.75 }
+  .sb-item.active .sb-icon { opacity:1 }
+  .sb-bottom { padding:18px 16px;border-top:1px solid rgba(255,255,255,.07) }
+  .sb-user { display:flex;align-items:center;gap:12px;padding:8px;border-radius:10px;cursor:pointer;transition:background var(--transition-fast) }
+  .sb-user:hover { background:rgba(255,255,255,.04) }
+  .sb-avatar { width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#38bdf8,#2dd4bf);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff }
+  .sb-user-info { display:flex;flex-direction:column }
+  .sb-user-name { font-size:13px;font-weight:500;color:#e2e8f0;line-height:1.25 }
+  .sb-user-role { font-size:11.5px;color:#64748b }
+
+  .main { margin-left:var(--sidebar-w); flex:1;min-height:100vh;display:flex;flex-direction:column }
+  .topbar { height:62px;flex-shrink:0;background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(12px); border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between; padding:0 32px;position:sticky;top:0;z-index:90 }
+  .tb-left { display:flex;align-items:center;gap:14px }
+  .tb-title { font-size:18px;font-weight:700;color:var(--text-primary) }
+  .tb-crumb { font-size:12.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px }
+  .tb-right { display:flex;align-items:center;gap:10px }
+  .tb-search { width:240px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--surface); padding:0 14px;font-size:13px;outline:none;transition:all var(--transition-fast) }
+  .tb-search:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .tb-btn { height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);display:inline-flex;align-items:center;gap:6px }
+  .tb-btn:hover { border-color:var(--accent);color:var(--accent) }
+  .tb-btn-primary { background:var(--accent);border-color:var(--accent);color:#fff }
+  .tb-btn-primary:hover { background:var(--accent-hover);border-color:var(--accent-hover);color:#fff }
+
+  .content { padding:28px 32px 40px;max-width:1600px;width:100%;display:grid;grid-template-columns:248px 1fr 360px;gap:18px;align-items:start }
+  .card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md); box-shadow:var(--shadow-card);overflow:hidden;animation:bentoIn .45s cubic-bezier(.16,1,.3,1) both }
+  @keyframes bentoIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+  .card-head { padding:18px 20px 0; display:flex;align-items:center;justify-content:space-between }
+  .card-title { font-size:16px;font-weight:700 }
+
+  .btn { height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition-fast);display:inline-flex;align-items:center;gap:7px }
+  .btn:hover { border-color:var(--accent);color:var(--accent) }
+  .btn-primary { background:var(--accent);border-color:var(--accent);color:#fff }
+  .btn-primary:hover { background:var(--accent-hover);border-color:var(--accent-hover);color:#fff }
+  .btn-ghost { border-color:transparent;background:transparent;color:var(--text-secondary) }
+  .btn-ghost:hover { background:var(--border-subtle);color:var(--text-primary) }
+  .btn-sm { height:30px;padding:0 12px;font-size:12px }
+
+  /* folder tree */
+  .tree { padding:14px 14px 18px }
+  .tree-root { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:4px 6px 10px }
+  .tree-node { display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;font-size:13px;color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast) }
+  .tree-node:hover { background:var(--border-subtle);color:var(--text-primary) }
+  .tree-node.active { background:var(--accent-soft);color:var(--accent);font-weight:600 }
+  .tree-ico { width:16px;height:16px;flex-shrink:0;opacity:.7 }
+  .tree-count { margin-left:auto;font-size:11px;font-family:var(--font-mono);color:var(--text-muted);background:var(--border-subtle);padding:1px 7px;border-radius:20px }
+  .tree-sub { margin-left:18px;border-left:1px solid var(--border);padding-left:6px }
+
+  /* notes grid */
+  .notes-wrap { display:flex;flex-direction:column;gap:16px;min-width:0 }
+  .notes-bar { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap }
+  .tag-filter { display:flex;gap:8px;flex-wrap:wrap }
+  .tag-btn { font-size:12px;font-weight:600;padding:6px 13px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast) }
+  .tag-btn:hover { border-color:var(--accent);color:var(--accent) }
+  .tag-btn.active { background:var(--accent);border-color:var(--accent);color:#fff }
+  .notes-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(264px,1fr));gap:16px }
+  .note-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:18px;cursor:pointer;transition:all var(--transition-fast);box-shadow:var(--shadow-card) }
+  .note-card:hover { border-color:var(--accent);box-shadow:var(--shadow-elevated);transform:translateY(-2px) }
+  .note-emoji { width:38px;height:38px;border-radius:11px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:12px }
+  .note-title { font-size:14.5px;font-weight:700;color:var(--text-primary);line-height:1.35;margin-bottom:7px }
+  .note-path { font-size:11.5px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:11px;word-break:break-all }
+  .note-tags { display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px }
+  .ntag { font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;background:var(--border-subtle);color:var(--text-secondary) }
+  .ntag.blue { background:var(--accent-soft);color:var(--accent) }
+  .ntag.green { background:var(--success-soft);color:var(--success) }
+  .ntag.amber { background:var(--warning-soft);color:var(--warning) }
+  .note-foot { display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:var(--text-muted);border-top:1px solid var(--border-subtle);padding-top:11px }
+  .note-links { display:flex;gap:5px }
+  .link-dot { width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;color:#fff }
+
+  /* preview panel */
+  .preview { position:sticky;top:88px;height:calc(100vh - 116px);display:flex;flex-direction:column }
+  .pv-head { padding:18px 20px 14px;border-bottom:1px solid var(--border-subtle) }
+  .pv-title { font-size:16px;font-weight:800;color:var(--text-primary);line-height:1.35 }
+  .pv-meta { font-size:11.5px;color:var(--text-muted);font-family:var(--font-mono);margin-top:6px;word-break:break-all }
+  .pv-body { flex:1;overflow-y:auto;padding:18px 20px }
+  .pv-h2 { font-size:14px;font-weight:700;color:var(--text-primary);margin:16px 0 8px }
+  .pv-h2:first-child { margin-top:0 }
+  .pv-p { font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:10px }
+  .pv-ul { margin:0 0 10px 18px;font-size:13px;color:var(--text-secondary);line-height:1.7 }
+  .pv-ul li { margin-bottom:4px }
+  .pv-code { background:var(--border-subtle);border-radius:9px;padding:10px 13px;font-family:var(--font-mono);font-size:12px;color:var(--text-primary);margin-bottom:10px;white-space:pre-wrap }
+  .pv-linkrow { display:flex;flex-wrap:wrap;gap:7px;margin-top:6px }
+  .pv-chip { font-size:12px;font-weight:600;padding:5px 11px;border-radius:9px;background:var(--border-subtle);color:var(--text-secondary);cursor:pointer;transition:all var(--transition-fast) }
+  .pv-chip:hover { background:var(--accent-soft);color:var(--accent) }
+  .pv-foot { padding:14px 20px;border-top:1px solid var(--border-subtle);display:flex;gap:10px }
+
+  .modal-mask { position:fixed;inset:0;background:rgba(15,23,42,.38);backdrop-filter:blur(2px);z-index:210;opacity:0;pointer-events:none;transition:opacity .25s;display:flex;align-items:center;justify-content:center }
+  .modal-mask.open { opacity:1;pointer-events:auto }
+  .modal { width:560px;max-width:94vw;background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-modal);transform:scale(.96) translateY(8px);transition:transform .26s cubic-bezier(.16,1,.3,1);max-height:90vh;display:flex;flex-direction:column;overflow:hidden }
+  .modal-mask.open .modal { transform:none }
+  .modal-head { padding:22px 26px 16px;border-bottom:1px solid var(--border-subtle) }
+  .modal-title { font-size:18px;font-weight:800 }
+  .modal-body { padding:20px 26px;overflow-y:auto }
+  .modal-foot { padding:16px 26px;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;gap:10px }
+  .form-group { flex:1;display:flex;flex-direction:column;gap:6px;margin-bottom:16px }
+  .form-row { display:flex;gap:14px }
+  .form-label { font-size:12.5px;font-weight:600;color:var(--text-secondary) }
+  .form-input,.form-select,.form-textarea { border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:13px;font-family:var(--font-display);color:var(--text-primary);outline:none;background:var(--surface);transition:all var(--transition-fast) }
+  .form-input:focus,.form-select:focus,.form-textarea:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft) }
+  .form-textarea { resize:vertical;min-height:100px }
+
+  .toast { position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text-primary);color:#fff;padding:12px 22px;border-radius:12px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow-modal);z-index:300;opacity:0;transition:all .3s;pointer-events:none }
+  .toast.show { opacity:1;transform:translateX(-50%) translateY(0) }
+  .hidden { display:none !important }
+</style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-logo">P</div>
+      <div class="sb-title">PMWB</div>
+    </div>
+    <nav class="sb-nav">
+      <a class="sb-item" href="pmwb-dashboard.html"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>首页看板</span></a>
+      <a class="sb-item" href="pmwb-requirement-delivery.html"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>需求与交付</span></a>
+      <a class="sb-item" href="pmwb-operations.html"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82-.33h-.06A2 2 0 0011 21h-1a2 2 0 00-2 2 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00.33-1.82v-.06A2 2 0 003 11v-1a2 2 0 00-2-1.82 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001.82.33H11a2 2 0 002-2h1a2 2 0 002 1.82 1.65 1.65 0 001.82.33l.06.06a2 2 0 012.83-2.83l-.06-.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-.33 1.82V11a2 2 0 002 1.82z"/></svg><span>运营监控</span></a>
+      <a class="sb-item" href="pmwb-meetings.html"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span>会议日程</span></a>
+      <a class="sb-item active" href="#"><svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg><span>知识库</span></a>
+    </nav>
+    <div class="sb-bottom">
+      <div class="sb-user">
+        <div class="sb-avatar">陈</div>
+        <div class="sb-user-info">
+          <div class="sb-user-name">陈大虾</div>
+          <div class="sb-user-role">政企产品经理</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main" style="margin-left:0">
+    <header class="topbar">
+      <div class="tb-left">
+        <span class="tb-title">知识库</span>
+        <span class="tb-crumb">工作台 / 知识库 · Obsidian 联动</span>
+      </div>
+      <div class="tb-right">
+        <input class="tb-search" placeholder="搜索笔记 / 标签" />
+        <button class="tb-btn tb-btn-primary" onclick="openModal('noteModal')">＋ 新建条目</button>
+      </div>
+    </header>
+
+    <div class="content" style="margin-left:var(--sidebar-w)">
+      <!-- 左：Obsidian 库目录树 -->
+      <div class="card tree">
+        <div class="card-head" style="padding:0 0 12px"><div class="card-title" style="font-size:14px">Obsidian 知识库</div></div>
+        <div class="tree-root"> vault · 知识图谱</div>
+        <div class="tree-node active" onclick="selectFolder(this,'all')">
+          <svg class="tree-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-7l-2-2H5a2 2 0 00-2 2z"/></svg>
+          全部笔记 <span class="tree-count">28</span>
+        </div>
+        <div class="tree-node" onclick="selectFolder(this,'11-业务运营')">
+          <svg class="tree-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-7l-2-2H5a2 2 0 00-2 2z"/></svg>
+          11-业务运营 <span class="tree-count">12</span>
+        </div>
+        <div class="tree-sub">
+          <div class="tree-node" onclick="selectFolder(this,'周例会纪要')">📅 周例会纪要 <span class="tree-count">6</span></div>
+          <div class="tree-node" onclick="selectFolder(this,'投诉处理')">📣 投诉处理 <span class="tree-count">4</span></div>
+          <div class="tree-node" onclick="selectFolder(this,'数据异常')">📊 数据异常 <span class="tree-count">2</span></div>
+        </div>
+        <div class="tree-node" onclick="selectFolder(this,'01-业务知识')">
+          <svg class="tree-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-7l-2-2H5a2 2 0 00-2 2z"/></svg>
+          01-业务知识 <span class="tree-count">16</span>
+        </div>
+        <div class="tree-sub">
+          <div class="tree-node" onclick="selectFolder(this,'政企业务知识库')">🏢 政企业务知识库 <span class="tree-count">11</span></div>
+          <div class="tree-node" onclick="selectFolder(this,'产品圣经')">📖 产品圣经 <span class="tree-count">5</span></div>
+        </div>
+      </div>
+
+      <!-- 中：笔记卡片网格 -->
+      <div class="notes-wrap">
+        <div class="notes-bar">
+          <div class="tag-filter" id="tagFilter">
+            <span class="tag-btn active" data-tag="all" onclick="filterTag(this)">全部</span>
+            <span class="tag-btn" data-tag="政企" onclick="filterTag(this)">政企</span>
+            <span class="tag-btn" data-tag="需求" onclick="filterTag(this)">需求</span>
+            <span class="tag-btn" data-tag="数据" onclick="filterTag(this)">数据</span>
+            <span class="tag-btn" data-tag="接口" onclick="filterTag(this)">接口</span>
+            <span class="tag-btn" data-tag="流程" onclick="filterTag(this)">流程</span>
+          </div>
+          <div style="font-size:12.5px;color:var(--text-muted)">共 <b id="noteCount" style="color:var(--accent)">8</b> 条</div>
+        </div>
+        <div class="notes-grid" id="notesGrid"></div>
+      </div>
+
+      <!-- 右：笔记预览 -->
+      <div class="card preview">
+        <div class="pv-head">
+          <div class="pv-title" id="pvTitle">精品互联网专线-国际版 需求分析说明书</div>
+          <div class="pv-meta" id="pvPath">11-业务运营 / 需求文档 / REQ-2026-0718.md</div>
+        </div>
+        <div class="pv-body" id="pvBody"></div>
+        <div class="pv-foot">
+          <button class="btn btn-sm" onclick="toast('已在 Obsidian 中打开')">📝 在 Obsidian 打开</button>
+          <button class="btn btn-sm btn-primary" onclick="toast('已关联到当前需求')">🔗 关联需求</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 新建条目弹层 -->
+  <div class="modal-mask" id="noteModal" onclick="if(event.target===this)closeModal('noteModal')">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">新建知识条目</div>
+        <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">写入 Obsidian vault 对应文件夹，自动同步到知识库</div>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">标题</label>
+          <input class="form-input" placeholder="如：集团短信实名制处理口径" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">所属库</label>
+            <select class="form-select"><option>01-业务知识 / 政企业务知识库</option><option>11-业务运营 / 投诉处理</option><option>11-业务运营 / 周例会纪要</option><option>01-业务知识 / 产品圣经</option></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">标签</label>
+            <input class="form-input" placeholder="逗号分隔，如：政企,流程" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">关联需求 / 工单（可选）</label>
+          <input class="form-input" placeholder="如 REQ-2026-0718、OP-2026-0441" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">正文（Markdown）</label>
+          <textarea class="form-textarea" placeholder="支持 Markdown：# 标题、- 列表、\`代码\` 等"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="closeModal('noteModal')">取消</button>
+        <button class="btn btn-primary" onclick="closeModal('noteModal');toast('条目已写入 Obsidian')">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const notes = [
+    { id:'n1', emoji:'📄', title:'精品互联网专线-国际版 需求分析说明书', path:'11-业务运营/需求文档/REQ-2026-0718.md', tags:[['政企','blue'],['需求','green']], updated:'2026-07-18', links:[['REQ','#2f6fed'],['OP','#0f9d6b']], folder:'11-业务运营', preview:{ h:['需求背景','用户故事','验收标准'], p:['为集团跨国客户提供低时延、可保障的国际专线接入能力。当前国际版专线缺少主动监控与 SLA 可视。','作为政企客户经理，我希望客户能在控制台查看国际专线的实时时延与丢包率，以便及时预警。'], ul:['时延阈值可配置（默认 80ms）','支持按国家/地区维度聚合','异常自动触发工单'] } },
+    { id:'n2', emoji:'🔧', title:'跨省宽带流失预警模型设计', path:'01-业务知识/政企业务知识库/流失预警.md', tags:[['数据','amber'],['政企','blue']], updated:'2026-07-16', links:[['OP','#0f9d6b']], folder:'01-业务知识', preview:{ h:['模型目标','特征口径'], p:['基于近 90 天行为预测未来 30 天流失概率。','流失标签由经分侧统一口径提供，按省分隔离权限。'], ul:['特征：套餐、投诉次数、使用下降斜率','输出：流失概率 + TOP 原因'] } },
+    { id:'n3', emoji:'📡', title:'集团短信实名制处理口径', path:'11-业务运营/投诉处理/短信实名制.md', tags:[['流程','blue'],['政企','blue']], updated:'2026-07-15', links:[['OP','#0f9d6b']], folder:'11-业务运营', preview:{ h:['受理流程','注意事项'], p:['一线收到实名制投诉后，2 小时内转政企支撑组。','需核验集团客户主体资质与短信签名一致性。'], ul:['核验营业执照','比对签名模板','回执留痕'] } },
+    { id:'n4', emoji:'🔌', title:'CIP00066 接口对接规范', path:'01-业务知识/政企业务知识库/CIP00066.md', tags:[['接口','green'],['数据','amber']], updated:'2026-07-12', links:[['REQ','#2f6fed']], folder:'01-业务知识', preview:{ h:['接口说明','字段映射'], p:['CIP00066 用于生产运营平台与 BOSS 的用户状态同步。','采用 T+1 批量 + 实时事件双通道。'], ul:['user_status: 0-正常 1-销户','event_time 为 UTC'] } },
+    { id:'n5', emoji:'📅', title:'政企业务周例会纪要 2026-07-18', path:'11-业务运营/周例会纪要/2026-07-18.md', tags:[['流程','blue']], updated:'2026-07-18', links:[['OP','#0f9d6b'],['REQ','#2f6fed']], folder:'11-业务运营', preview:{ h:['本周结论','待办'], p:['国际版专线进入用户故事定稿阶段。','流失预警模型排期 7/25 联调。'], ul:['王辅松：完成工作量复核','李瑞：确认标签口径'] } },
+    { id:'n6', emoji:'📘', title:'政企产品圣经 · 专线类', path:'01-业务知识/产品圣经/专线.md', tags:[['政企','blue'],['需求','green']], updated:'2026-07-10', links:[], folder:'01-业务知识', preview:{ h:['产品定位','关键指标'], p:['面向集团客户的精品连接产品族。','核心指标：开通时长、SLA 达标率。'], ul:['精品互联网专线','国际版专线','SD-WAN'] } },
+    { id:'n7', emoji:'📊', title:'数据异常闭环流程', path:'11-业务运营/数据异常/闭环流程.md', tags:[['流程','blue'],['数据','amber']], updated:'2026-07-09', links:[['OP','#0f9d6b']], folder:'11-业务运营', preview:{ h:['流程'], p:['发现→定级→修复→验证→闭环。','所有异常必须在运营监控录入工单跟踪。'], ul:['P0：2h 响应','P1：1d 闭环'] } },
+    { id:'n8', emoji:'🏢', title:'政企客户分级与权益', path:'01-业务知识/政企业务知识库/客户分级.md', tags:[['政企','blue']], updated:'2026-07-08', links:[], folder:'01-业务知识', preview:{ h:['分级'], p:['按年消费与战略等级分为 S/A/B/C。','不同等级享受差异化支撑与 SLA。'], ul:['S 级：专属架构师','A 级：优先排期'] } }
+  ];
+
+  function renderNotes(filterTag='all', folder='all'){
+    const grid = document.getElementById('notesGrid');
+    const list = notes.filter(n=> (filterTag==='all' || n.tags.some(t=>t[0]===filterTag)) && (folder==='all' || n.folder===folder));
+    document.getElementById('noteCount').textContent = list.length;
+    grid.innerHTML = list.map(n=>`
+      <div class="note-card" onclick="openNote('${n.id}')">
+        <div class="note-emoji">${n.emoji}</div>
+        <div class="note-title">${n.title}</div>
+        <div class="note-path">${n.path}</div>
+        <div class="note-tags">${n.tags.map(t=>`<span class="ntag ${t[1]}">${t[0]}</span>`).join('')}</div>
+        <div class="note-foot">
+          <span>🕒 ${n.updated}</span>
+          <div class="note-links">${n.links.map(l=>`<span class="link-dot" style="background:${l[1]}">${l[0][0]}</span>`).join('')}</div>
+        </div>
+      </div>`).join('');
+  }
+  function openNote(id){
+    const n = notes.find(x=>x.id===id); if(!n) return;
+    document.getElementById('pvTitle').textContent = n.title;
+    document.getElementById('pvPath').textContent = n.path;
+    const pv = n.preview;
+    document.getElementById('pvBody').innerHTML = `
+      <div class="pv-h2">${pv.h[0]}</div>
+      <p class="pv-p">${pv.p[0]}</p>
+      <div class="pv-h2">${pv.h[1]||'要点'}</div>
+      ${pv.ul? `<ul class="pv-ul">${pv.ul.map(u=>`<li>${u}</li>`).join('')}</ul>`:`<p class="pv-p">${pv.p[1]||''}</p>`}
+      <div class="pv-h2">关联需求 / 工单</div>
+      <div class="pv-linkrow">${n.links.length? n.links.map(l=>`<span class="pv-chip" onclick="toast('跳转到 ${l[0]} 详情')">🔗 ${l[0]}</span>`).join('') : '<span style="font-size:12.5px;color:var(--text-muted)">无关联</span>'}</div>`;
+    document.querySelectorAll('.note-card').forEach(c=>c.style.borderColor='var(--border)');
+  }
+  function filterTag(el){ document.querySelectorAll('#tagFilter .tag-btn').forEach(b=>b.classList.remove('active')); el.classList.add('active'); renderNotes(el.dataset.tag, currentFolder); }
+  function selectFolder(el, f){ document.querySelectorAll('.tree-node').forEach(n=>n.classList.remove('active')); el.classList.add('active'); currentFolder=f; const activeTag=document.querySelector('#tagFilter .tag-btn.active').dataset.tag; renderNotes(activeTag, f); }
+  let currentFolder='all';
+
+  function openModal(id){ document.getElementById(id).classList.add('open'); }
+  function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+  let toastTimer;
+  function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200); }
+  renderNotes();
+  openNote('n1');
+</script>
+</body>
+</html>

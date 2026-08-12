@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+backend/.env
+backend/.venv
+backend/env/
+backend/ENV/
+backend/*.egg-info/
+backend/dist/
+backend/build/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/dist-smoke/
+frontend/dist_verify/
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# Uploads
+uploads/
+
+# Alembic
+backend/alembic/versions/*.pyc
+
+# WorkBuddy local memory
+# 整目录忽略，但放行协同开发所需的三个子目录（任务Spec/审查记录/项目记忆），供多AI可见
+.workbuddy/*
+# .workbuddy/memory/ 含个人工作日志与真实业务台账，对外分享严禁入库（保持忽略）
+!.workbuddy/reviews/
+!.workbuddy/tasks/
+
+# Screenshots & verification artifacts
+screenshot_*.png
+verify_shots/
+verify_*.log
+*.timestamp-*.mjs
+scripts/screenshot_*.py
+
+# Temp / smoke-test artifacts (one-off, not part of project)
+emf_check.bmp
+frontend/obsidian_link_smoke.mjs
+frontend/smoke_check_0717.mjs
+shot_econtract.mjs
+
+# MSYS 设备名怪象（Git Bash 下误建的 nul 文件，Windows 视为保留设备无法删除）
+/nul
+
+# Session temp files（会话开发时随手建的临时脚本/测试产物，非源码，永不被提交）
+tmp_*
+
+# 临时构建验证产物
+frontend/dist_verify*/
+frontend/dist-tmp/
+frontend/.build_check/
+!.workbuddy/integrator/
+
+# 微服务配置（含本地密码，禁止入库）
+services/master/.env
+services/master/venv/
+services/master/.venv/
+
+# 本地临时构建副本（非源码，分享时排除）
+frontend/dist.bak/
+frontend/dist_bak/
+frontend/dist_new/
+frontend/dist_old_*/

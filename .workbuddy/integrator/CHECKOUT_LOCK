@@ -1,0 +1,9 @@
+# Checkout 锁（防沙箱自动切分支丢失文件）
+
+current_branch: feature/sup-3-supervise-ui
+holder: 沙箱自动 / 多 AI 共享（非任何单一 AI 锁定）
+updated_at: 2026-08-08T14:04
+note: >
+  本锁仅记录当前 checkout 状态，不能阻止沙箱把分支切走。
+  真正防线是：各分支仓库外备份（D:/项目/_<branch>_backup/）+ 集成者按备份 reconcile。
+  若发现工作树文件与当前分支不符（如 AI总结 文件在 sup-3 上未跟踪），以「工作树实际文件 + 备份」为准，不依赖 git 分支。
