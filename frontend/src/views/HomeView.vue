@@ -696,6 +696,9 @@ onActivated(() => {
   width: 100%;
 }
 
+/* 网格行不拉伸——各卡片按内容自然高度，避免短卡片被拉出空白 */
+.bento-grid { align-items: start; }
+
 /* ── 问候区 ── */
 .greeting-tile {
   background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
