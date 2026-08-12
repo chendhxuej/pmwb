@@ -21,7 +21,7 @@
       <el-tab-pane label="组织管理" name="org">
         <div class="pc-tab-body">
           <div class="pc-tab-toolbar">
-            <el-input
+            <EnlargeInput
               v-model="orgKeyword"
               class="pc-search"
               placeholder="搜索组织名称"
@@ -70,7 +70,7 @@
       <el-tab-pane label="身份管理" name="role">
         <div class="pc-tab-body">
           <div class="pc-tab-toolbar">
-            <el-input
+            <EnlargeInput
               v-model="roleKeyword"
               class="pc-search"
               placeholder="搜索身份名称"
@@ -127,7 +127,7 @@
                 :value="o.id"
               />
             </el-select>
-            <el-input
+            <EnlargeInput
               v-model="staffKeyword"
               class="pc-search"
               placeholder="搜索姓名 / 身份 / 邮箱"
@@ -187,7 +187,7 @@
     <el-dialog v-model="orgDialogVisible" :title="orgForm.id ? '编辑组织' : '新增组织'" width="420px" append-to-body>
       <el-form :model="orgForm" label-width="72px">
         <el-form-item label="名称" required>
-          <el-input v-model="orgForm.name" placeholder="如：政企业务部" />
+          <EnlargeInput v-model="orgForm.name" placeholder="如：政企业务部" />
         </el-form-item>
         <el-form-item label="排序号">
           <el-input-number v-model="orgForm.sort" :min="0" :step="1" style="width: 100%" />
@@ -206,7 +206,7 @@
     <el-dialog v-model="roleDialogVisible" :title="roleForm.id ? '编辑身份' : '新增身份'" width="420px" append-to-body>
       <el-form :model="roleForm" label-width="72px">
         <el-form-item label="名称" required>
-          <el-input v-model="roleForm.name" placeholder="如：产品经理" />
+          <EnlargeInput v-model="roleForm.name" placeholder="如：产品经理" />
         </el-form-item>
         <el-form-item label="排序号">
           <el-input-number v-model="roleForm.sort" :min="0" :step="1" style="width: 100%" />
@@ -225,7 +225,7 @@
     <el-dialog v-model="staffDialogVisible" :title="staffForm.id ? '编辑人员' : '新增人员'" width="480px" append-to-body>
       <el-form :model="staffForm" label-width="72px">
         <el-form-item label="姓名" required>
-          <el-input v-model="staffForm.name" placeholder="姓名" />
+          <EnlargeInput v-model="staffForm.name" placeholder="姓名" />
         </el-form-item>
         <el-form-item label="所属组织" required>
           <el-select v-model="staffForm.org_id" placeholder="选择组织" style="width: 100%" :disabled="!orgs.length">
@@ -233,10 +233,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="邮箱">
-          <el-input v-model="staffForm.email" placeholder="可选，用于邮件提醒" />
+          <EnlargeInput v-model="staffForm.email" placeholder="可选，用于邮件提醒" />
         </el-form-item>
         <el-form-item label="电话">
-          <el-input v-model="staffForm.phone" placeholder="可选" />
+          <EnlargeInput v-model="staffForm.phone" placeholder="可选" />
         </el-form-item>
         <el-form-item label="身份" required>
           <el-select

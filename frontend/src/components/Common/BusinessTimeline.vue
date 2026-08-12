@@ -27,11 +27,16 @@
     <div class="bt-scroll">
       <template v-if="grouped.length">
         <div v-for="g in grouped" :key="g.month" class="bt-group">
-          <div class="bt-month">
-            <span class="bt-month-label">{{ g.month }}</span>
+          <div
+            class="bt-month"
+            :class="{ 'is-current': g.month === nowMonth, 'is-collapsed': !expandedMonths.has(g.month) }"
+            @click="toggleMonth(g.month)"
+          >
+            <span class="bt-caret">{{ expandedMonths.has(g.month) ? '▾' : '▸' }}</span>
+            <span class="bt-month-label">{{ g.month === nowMonth ? g.month + '（当前月）' : g.month }}</span>
             <span class="bt-month-count">{{ g.events.length }}</span>
           </div>
-          <div class="bt-items">
+          <div v-show="expandedMonths.has(g.month)" class="bt-items">
             <div
               v-for="e in g.events"
               :key="e.link_id"
@@ -95,6 +100,14 @@ const loading = ref(false)
 const activeType = ref('')
 const data = ref({ domain_name: '', total: 0, returned: 0, event_types: [], events: [] })
 
+// 当前月（用于时间线默认展开）
+const nowMonth = computed(() => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+})
+// 已展开的年月集合（默认仅当前月，其余折叠，手工展开）
+const expandedMonths = ref(new Set())
+
 const load = async () => {
   if (!props.domainCode) {
     data.value = { domain_name: '', total: 0, returned: 0, event_types: [], events: [] }
@@ -136,6 +149,21 @@ const grouped = computed(() => {
   return out
 })
 
+// 数据加载后默认仅展开当前月（若当月无事件则展开最新月）；其余年月折叠，手工展开
+watch(grouped, (g) => {
+  if (expandedMonths.value.size === 0 && g.length) {
+    const hasCurrent = g.some((x) => x.month === nowMonth.value)
+    expandedMonths.value = new Set([hasCurrent ? nowMonth.value : g[0].month])
+  }
+}, { immediate: true })
+
+const toggleMonth = (m) => {
+  const s = new Set(expandedMonths.value)
+  if (s.has(m)) s.delete(m)
+  else s.add(m)
+  expandedMonths.value = s
+}
+
 const rangeText = computed(() => {
   const dates = (data.value.events || []).map((e) => e.event_date).filter(Boolean)
   if (!dates.length) return ''
@@ -154,6 +182,7 @@ const openNote = (e) => {
 
 watch(() => props.domainCode, () => {
   activeType.value = ''
+  expandedMonths.value = new Set()
   load()
 })
 
@@ -240,6 +269,26 @@ defineExpose({ reload: load })
   z-index: 2;
   background: var(--surface);
   padding: 6px 0 6px 2px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.bt-month:hover {
+  background: var(--surface-soft);
+}
+.bt-month.is-current .bt-month-label {
+  color: var(--accent);
+}
+.bt-month.is-collapsed {
+  opacity: 0.78;
+}
+.bt-caret {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 14px;
+  display: inline-block;
+  transition: transform 0.15s;
 }
 .bt-month-label {
   font-size: var(--fs-sm);

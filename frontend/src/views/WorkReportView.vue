@@ -115,7 +115,7 @@
           </div>
         </el-alert>
         <MarkdownRender v-if="!editing" :content="current.content || ''" />
-        <el-input v-else type="textarea" v-model="editContent" :rows="26" placeholder="可手工编辑报告内容" />
+        <EnlargeInput v-else type="textarea" v-model="editContent" :rows="26" placeholder="可手工编辑报告内容" />
       </div>
 
       <template #footer>
@@ -142,7 +142,7 @@
           <StaffSelect v-model="emailForm.cc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
-          <el-input v-model="emailForm.subject" placeholder="邮件主题" />
+          <EnlargeInput v-model="emailForm.subject" placeholder="邮件主题" />
         </el-form-item>
         <el-form-item label="正文">
           <div class="email-body-bar">
@@ -150,7 +150,7 @@
               {{ emailEditing ? '预览' : '编辑' }}
             </el-button>
           </div>
-          <el-input v-if="emailEditing" type="textarea" v-model="emailForm.body" :rows="16" placeholder="邮件正文（支持 Markdown）" />
+          <EnlargeInput v-if="emailEditing" type="textarea" v-model="emailForm.body" :rows="16" placeholder="邮件正文（支持 Markdown）" />
           <MarkdownRender v-else :content="emailForm.body || ''" />
         </el-form-item>
       </el-form>

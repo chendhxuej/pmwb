@@ -22,9 +22,9 @@
 
     <el-dialog v-model="formVisible" :title="isEdit ? '编辑模板' : '新建模板'" width="640px">
       <el-form :model="form" label-width="80px">
-        <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="主题"><el-input v-model="form.subject" /></el-form-item>
-        <el-form-item label="内容"><el-input v-model="form.body" type="textarea" :rows="8" /></el-form-item>
+        <el-form-item label="名称"><EnlargeInput v-model="form.name" /></el-form-item>
+        <el-form-item label="主题"><EnlargeInput v-model="form.subject" /></el-form-item>
+        <el-form-item label="内容"><EnlargeInput v-model="form.body" type="textarea" :rows="8" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>

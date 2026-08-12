@@ -27,7 +27,7 @@
       <el-empty v-if="!loading && !domains.length" description="暂无业务领域" />
     </div>
 
-    <!-- 选中领域详情：主笔记预览 + 时间线 -->
+    <!-- 选中领域详情：左产品圣经 / 右时间线 -->
     <div v-if="selectedDomain" class="hub-detail">
       <div class="hub-detail-head">
         <span class="hub-detail-title">{{ selectedDomain.domain_name }} — 全景</span>
@@ -36,42 +36,47 @@
         </el-button>
       </div>
 
-      <!-- 业务时间线 -->
-      <div class="hub-section">
-        <div class="hub-section-title">业务时间线</div>
-        <BusinessTimeline
-          :domain-code="selectedDomain.domain_code"
-          @open-note="$emit('open-note', $event)"
-        />
+      <!-- 主笔记说明条 -->
+      <div v-if="mainNoteTitle" class="hub-note-bar">
+        <span>📓 主笔记：<strong>{{ mainNoteTitle }}</strong></span>
+        <span class="hub-note-hint">产品圣经为主笔记 §2 产商品章节的结构化展示；编辑主笔记后点「同步」自动回流。</span>
+        <el-button link type="primary" size="small" @click="$emit('open-note', mainNotePath)">打开主笔记</el-button>
       </div>
 
-      <!-- 主笔记快速预览（有主笔记时显示） -->
-      <div v-if="mainNoteTitle" class="hub-section">
-        <div class="hub-section-title">
-          主笔记：{{ mainNoteTitle }}
-          <el-button link type="primary" size="small" @click="$emit('open-note', mainNotePath)">打开</el-button>
+      <!-- 左右分栏 -->
+      <div class="hub-split">
+        <!-- 左：产品圣经 -->
+        <div class="hub-split-left">
+          <div class="hub-split-label">📖 产品圣经（产商品与资费体系）</div>
+          <div v-loading="bibleLoading" class="hub-bible">
+            <MarkdownRender v-if="bibleMarkdown" :content="bibleMarkdown" />
+            <el-empty v-else-if="!bibleLoading" description="暂无产商品体系内容（同步主笔记后自动生成）" :image-size="80" />
+          </div>
         </div>
-        <div class="hub-note-hint">在 Obsidian 中编辑主笔记后点「同步」可自动回流关联事件到时间线。</div>
-      </div>
 
-      <!-- 产品圣经：读主笔记 §2 产商品章节 -->
-      <div class="hub-section">
-        <div class="hub-section-title">产品圣经（产商品与资费）</div>
-        <el-button size="small" type="primary" plain @click="openBible">
-          <el-icon><Notebook /></el-icon> 查看「{{ selectedDomain.domain_name }}」产商品体系
-        </el-button>
+        <!-- 右：时间线 -->
+        <div class="hub-split-right">
+          <div class="hub-split-label">📅 业务时间线</div>
+          <BusinessTimeline
+            :domain-code="selectedDomain.domain_code"
+            @open-note="$emit('open-note', $event)"
+          />
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { Refresh, Notebook } from '@element-plus/icons-vue'
 import { basicDataApi } from '@/api/basicData.js'
 import { knowledgeApi } from '@/api/knowledge.js'
 import BusinessTimeline from '@/components/Common/BusinessTimeline.vue'
+import MarkdownRender from '@/components/Common/MarkdownRender.vue'
+import { productBibleApi } from '@/api/productBible.js'
+import { bus, EVT_DOMAINS_CHANGED } from '@/utils/bus'
 
 const emit = defineEmits(['open-note'])
 const router = useRouter()
@@ -83,6 +88,8 @@ const syncLoading = ref(false)
 const syncOneLoading = ref(false)
 const mainNoteTitle = ref('')
 const mainNotePath = ref('')
+const bibleMarkdown = ref('')
+const bibleLoading = ref(false)
 
 const loadDomains = async () => {
   loading.value = true
@@ -103,6 +110,8 @@ const selectDomain = async (d) => {
   selectedDomain.value = d
   mainNoteTitle.value = ''
   mainNotePath.value = ''
+  // 预取产品圣经 §2 产商品章节（切到产品圣经 Tab 时直接渲染）
+  loadBible(d.domain_code)
 
   try {
     const res = await basicDataApi.getDomainRelated(d.domain_code)
@@ -112,6 +121,18 @@ const selectDomain = async (d) => {
     }
   } catch {
     // 静默
+  }
+}
+
+const loadBible = async (code) => {
+  bibleLoading.value = true
+  try {
+    const res = await productBibleApi.getBible(code)
+    bibleMarkdown.value = res?.markdown || ''
+  } catch {
+    bibleMarkdown.value = ''
+  } finally {
+    bibleLoading.value = false
   }
 }
 
@@ -133,6 +154,8 @@ const syncOne = async () => {
   try {
     await knowledgeApi.syncMainNote(selectedDomain.value.domain_code)
     ElMessage.success(`${selectedDomain.value.domain_name} 主笔记已同步`)
+    // 同步后产品圣经内容可能更新，刷新
+    loadBible(selectedDomain.value.domain_code)
   } catch {
     ElMessage.error('同步失败')
   } finally {
@@ -140,15 +163,10 @@ const syncOne = async () => {
   }
 }
 
-const openBible = () => {
-  if (!selectedDomain.value) return
-  router.push({
-    name: 'KcProductBible',
-    query: { domain: selectedDomain.value.domain_code },
-  })
-}
-
 onMounted(loadDomains)
+// 领域增删改后全局通知刷新（kc-5：跨模块联动）
+bus.on(EVT_DOMAINS_CHANGED, loadDomains)
+onBeforeUnmount(() => bus.off(EVT_DOMAINS_CHANGED, loadDomains))
 defineExpose({ reload: loadDomains })
 </script>
 
@@ -234,21 +252,52 @@ defineExpose({ reload: loadDomains })
   font-size: var(--fs-md);
   font-weight: 700;
 }
-.hub-section {
-  /* 容器 */
+/* 主笔记说明条 */
+.hub-note-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  flex-wrap: wrap;
 }
-.hub-section-title {
+.hub-note-bar strong {
+  color: var(--text-primary);
+}
+/* 左右分栏 */
+.hub-split {
+  display: flex;
+  gap: 16px;
+  min-height: 400px;
+}
+.hub-split-left,
+.hub-split-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hub-split-left {
+  border-right: 1px solid var(--border-subtle);
+  padding-right: 16px;
+}
+.hub-split-label {
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-shrink: 0;
 }
-.hub-note-hint {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  line-height: 1.5;
+.hub-bible {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-height: 200px;
 }
 </style>

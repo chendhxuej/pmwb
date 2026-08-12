@@ -198,6 +198,25 @@
 
 ---
 
+## 批次十四：知识中心体系化重构（以业务为中心，knowledge hub）
+
+> 设计依据：`docs/kc3_knowledge_hub_plan.md`（S1 方案，2026-08-11 老大确认落地）
+> 核心目标：以 Obsidian 业务知识笔记为底座，建立「过程模块 → 沉淀引擎 + 关联登记表 → 主笔记自动回流 → 业务时间线」闭环；知识中心 UI 收敛为 3 个以业务为中心的视图（全景 HUB / 检索 / 沉淀向导）。
+> 关键决策（已确认）：①开发工单子模块取消，退出知识沉淀链路（数据保留）；②SQL脚本库补齐 `domain_code` 后保留；③主笔记回写按「业务事实保守分级」策略（§2/§3 仅已关闭+变更标记需求回写，其余放开）。
+> 依赖：kc-2 / kc-3 骨架已合入 ✅；本批次在主干之上开发。
+> ⚠️ **并行模式（2026-08-11 确认开放）**：允许多 AI 并行认领。各任务走独立子分支 `feature/kc4-N-<desc>`，开发完 PR 合入父分支 `feature/kc4-knowledge-hub`；**仅 Vicky2号（集成者）可 commit/push/merge 主干**，其他 AI 在子分支开发后走 `.workbuddy/reviews/` 异步评审。认领：改「开发者」列 + 状态🔵开发中，读 `.workbuddy/tasks/kc4-N.md` 拿 Spec。会话结束须在 `D:/项目/_<branch>_backup/` 备份未提交内容（防沙箱切分支丢文件）。
+
+| task-id | 标题 | 分支 | 级别 | 状态 | 开发者 | 备注 |
+|---------|------|------|------|------|--------|------|
+| kc4-1 | 关联表扩展 link：event_type/event_date/summary + 存量回填 | feature/kc4-1-2-main-note-autoflow | S2 | ✅已合版 | Vicky2号 | 迁移 20260812000001；12 条存量已回填；已合入 main f9e8101 |
+| kc4-2 | 主笔记自动回流引擎 sync_main_note_from_links（分级回写 + 自动触发） | feature/kc4-1-2-main-note-autoflow | S2 | ✅已合版 | Vicky2号 | AUTO 标记块保人工区零覆盖；迁移 20260812000002；单测 8 例全过；已合入 main f9e8101 |
+| kc4-3 | 业务时间线接口 business_timeline + 前端时间线组件 | feature/kc4-3-timeline | S2 | ✅已合版 | Vicky2号 | GET /business-timeline 端点 + BusinessTimeline.vue 时间轴组件; 单测 6 例; 冒烟 PASS(9事件+筛选); 已合入 main b2ce43e |
+| kc4-4 | 需求交付物去开发工单（直挂文件 + archive 改造 + 新端点） | feature/kc4-4-delivery | S2 | ✅已合版 | Vicky2号 | deliverables JSON 字段 + 归档改造(新旧链路兼容) + CRUD 端点; 单测 6 例; 已合入 main 57753fa |
+| kc4-5 | SQL脚本库补 domain_code（迁移 + CRUD + 检索纳入） | feature/kc4-5-sql-domain | S2 | ✅已合版 | 其他AI(并行) | 后端模型/迁移/路由/Schema + 前端视图/领域选择器/过滤; 已全部就位 |
+| kc4-6 | 知识中心 UI 三视图重构（HUB/检索/沉淀向导）+ 产品圣经去硬编码 | feature/kc4-6-ui-views | S2 | ✅已完成 | Vicky2号 | 3 视图+产品圣经去硬编码;构建+冒烟 PASS |
+
+---
+
 ## ⚠️ 已删除的危险分支（2026-08-09 清理，永久勿合）
 
 以下两个分支曾存在于 origin，实为**孤儿污染分支**（在沙箱残缺副本仓库创建，`git diff origin/main` 显示删除数万行），合入会把 main 成果当"删除"合并掉：

@@ -780,12 +780,11 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
         raise NotFoundException("该需求暂无含业务规则的用户故事，无法沉淀")
 
     sub_note = _ensure_scenario_rules_sub_note(db, domain_code)
-    req_name = (ext.req_name if ext and ext.req_name else req_id)
 
-    # 按需求聚合的规则块（以 ### 需求编号 为界，便于重复触发时整体替换）
-    block_lines = [f"> 来源需求：{req_id}（{req_name}）", ""]
-    for i, s in enumerate(stories, 1):
-        block_lines.append(f"#### 故事{i}：{s.title or '—'}")
+    # 提炼后的纯净规则块（以 ### 需求编号 为界，便于重复触发时整体替换）
+    # 只保留规则本身，不冗余来源追溯——追溯由 pmwb_knowledge_link 承载
+    all_rules = []
+    for s in stories:
         rules = s.rules
         if isinstance(rules, str):
             try:
@@ -795,9 +794,15 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
         if not isinstance(rules, list):
             rules = []
         for r in rules:
-            block_lines.append(f"- {r}")
-        block_lines.append("")
-    block = "\n".join(block_lines).rstrip()
+            rule_text = (r or "").strip()
+            if rule_text and rule_text not in all_rules:
+                all_rules.append(rule_text)
+
+    if not all_rules:
+        raise NotFoundException("该需求的用户故事中无可提炼的业务规则")
+
+    block_lines = [f"- {r}" for r in sorted(all_rules)]
+    block = "\n".join(block_lines)
 
     content = read_markdown(sub_note["obsidian_path"]) or ""
     new_content = append_or_replace_section(content, f"场景规则 · {req_id}", block)

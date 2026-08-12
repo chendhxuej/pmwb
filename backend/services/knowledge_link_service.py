@@ -713,7 +713,12 @@ def _build_process_block(reqs: List[PmwbRequirementExt]) -> str:
 
 
 def _build_scenario_rules_block(db: Session, reqs: List[PmwbRequirementExt]) -> str:
-    """§4.2 场景规则：用户故事 rules 非空即回写（结构化字段、带需求编号可追溯，风险低）。"""
+    """§4 业务规则：从用户故事 rules 提炼为纯净规则列表（去重、无来源尾巴、扁平展示）。
+
+    设计原则：主笔记是「领域知识总纲」，规则本身才是核心价值，
+    不应把「哪个需求/哪条故事产生的」这类追溯信息混入正文。
+    追溯关系由 pmwb_knowledge_link 关联表承载，无需在正文中冗余。
+    """
     req_ids = [r.req_id for r in reqs]
     if not req_ids:
         return "_暂无场景规则_"
@@ -723,27 +728,22 @@ def _build_scenario_rules_block(db: Session, reqs: List[PmwbRequirementExt]) -> 
         .order_by(PmwbUserStory.req_id, PmwbUserStory.seq)
         .all()
     )
-    name_map = {r.req_id: (r.req_name or "") for r in reqs}
-    grouped: Dict[str, List[str]] = {}
+    # 收集全部规则 → 去重 → 排序
+    seen = set()
+    unique_rules = []
     for s in stories:
         rules = _parse_json_list(s.rules)
-        if not rules:
-            continue
-        grouped.setdefault(s.req_id, [])
         for rule in rules:
-            entry = f"{rule}（来源：故事{s.seq} {(s.title or '').strip()}）".rstrip("（来源： ）")
-            if entry not in grouped[s.req_id]:
-                grouped[s.req_id].append(entry)
-    if not grouped:
+            rule_text = (rule or "").strip()
+            if rule_text and rule_text not in seen:
+                seen.add(rule_text)
+                unique_rules.append(rule_text)
+
+    if not unique_rules:
         return "_暂无场景规则（需求用户故事中尚未沉淀业务规则）_"
-    lines: List[str] = []
-    for req_id in sorted(grouped.keys(), reverse=True):
-        title = name_map.get(req_id) or ""
-        lines.append(f"#### {req_id} {title}".rstrip())
-        for rule in grouped[req_id]:
-            lines.append(f"- {rule}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
+
+    lines = [f"- {r}" for r in sorted(unique_rules)]
+    return "\n".join(lines)
 
 
 def _build_change_log_block(reqs: List[PmwbRequirementExt], links: List[PmwbKnowledgeLink]) -> str:

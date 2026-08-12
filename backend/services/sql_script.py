@@ -30,6 +30,7 @@ class SqlScriptService(BaseService[PmwbSqlScript]):
         db: Session,
         keyword: str = None,
         category: str = None,
+        domain_code: str = None,
         page: int = 1,
         page_size: int = 20,
     ):
@@ -37,6 +38,8 @@ class SqlScriptService(BaseService[PmwbSqlScript]):
 
         if category:
             query = query.filter(self.model.category == category)
+        if domain_code:
+            query = query.filter(self.model.domain_code == domain_code)
         if keyword:
             like_pattern = f"%{keyword}%"
             query = query.filter(
@@ -139,8 +142,14 @@ class SqlScriptService(BaseService[PmwbSqlScript]):
             .group_by(self.model.category)
             .all()
         }
+        by_domain = {
+            row[0] or "未关联": row[1]
+            for row in db.query(self.model.domain_code, func.count())
+            .group_by(self.model.domain_code)
+            .all()
+        }
         total = db.query(func.count()).select_from(self.model).scalar() or 0
-        return {"total": int(total), "by_category": by_category}
+        return {"total": int(total), "by_category": by_category, "by_domain": by_domain}
 
 
 sql_script_service = SqlScriptService()

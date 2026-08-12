@@ -9,7 +9,7 @@
       <!-- 左：笔记列表 -->
       <el-col :span="8">
         <el-card shadow="never" class="list-card">
-          <el-input
+          <EnlargeInput
             v-model="noteSearch"
             placeholder="搜索笔记标题"
             clearable
@@ -60,7 +60,7 @@
                 <MarkdownRender v-if="noteContent" :content="noteContent" />
                 <el-empty v-else description="笔记内容为空" />
               </template>
-              <el-input
+              <EnlargeInput
                 v-else
                 v-model="noteEditContent"
                 type="textarea"
