@@ -257,7 +257,7 @@
       <BentoCard title="智能优先级 · 我的待办" :span="6">
         <template #action><a class="card-action" @click="goTo('/todo')">更多</a></template>
         <ul class="todo-list">
-          <li class="todo-item" v-for="(t, i) in todos" :key="i">
+          <li class="todo-item" v-for="(t, i) in todos.slice(0, 3)" :key="i">
             <span class="todo-priority" :class="t.priorityClass">{{ t.priority }}</span>
             <div class="todo-body">
               <div class="todo-title">{{ t.title }}</div>
@@ -700,7 +700,6 @@ onActivated(() => {
 .bento-grid { align-items: stretch; }
 .bento-grid :deep(.card) { display: flex; flex-direction: column; }
 .bento-grid :deep(.card-body) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-.bento-grid :deep(.kpi-card) { display: flex; flex-direction: column; justify-content: center; }
 
 /* ── 问候区 ── */
 .greeting-tile {
@@ -810,10 +809,17 @@ onActivated(() => {
 .ls-time { font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
 /* ── KPI 增量 ── */
+.bento-grid :deep(.kpi-card) { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+.kpi-num { font-size: 36px; font-weight: 900; font-family: var(--font-mono); line-height: 1.1; }
+.kpi-num.blue { color: var(--accent); }
+.kpi-num.amber { color: var(--warning); }
+.kpi-num.red { color: var(--danger); }
+.kpi-num.green { color: var(--success); }
+.kpi-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; font-weight: 500; }
 .kpi-delta {
   font-size: 11.5px;
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: 6px;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -890,22 +896,22 @@ onActivated(() => {
 .dl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .dl-val { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); margin-left: auto; }
 
-/* ── 待办 ── */
-.todo-list { list-style: none; padding: 0 22px 16px; }
+/* ── 待办（紧凑版，高度压缩 30%）── */
+.todo-list { list-style: none; padding: 0 18px 10px; }
 .todo-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 11px 0;
+  gap: 10px;
+  padding: 7px 0;
   border-bottom: 1px solid var(--border-subtle);
   transition: background var(--transition-fast);
 }
 .todo-item:last-child { border-bottom: none; }
-.todo-item:hover { background: rgba(47, 111, 237, .02); margin: 0 -22px; padding: 11px 22px; border-radius: 8px; border-color: transparent; }
+.todo-item:hover { background: rgba(47, 111, 237, .02); margin: 0 -18px; padding: 7px 18px; border-radius: 8px; border-color: transparent; }
 .todo-priority {
   font-size: 10px;
   font-weight: 700;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 5px;
   flex-shrink: 0;
   line-height: 1.5;
@@ -917,8 +923,8 @@ onActivated(() => {
 .tp-med { background: var(--accent-soft); color: var(--accent); }
 .tp-low { background: var(--border-subtle); color: var(--text-muted); }
 .todo-body { flex: 1; min-width: 0; }
-.todo-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.4; word-break: break-word; }
-.todo-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.todo-title { font-size: 12.5px; color: var(--text-primary); line-height: 1.35; word-break: break-word; }
+.todo-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .todo-deadline { color: var(--danger); font-weight: 500; }
 .todo-overdue { color: var(--danger); background: var(--danger-soft); padding: 0 6px; border-radius: 4px; }
 
@@ -1022,13 +1028,13 @@ onActivated(() => {
   .mod-key { font-size: 12.5px; color: var(--text-muted); }
   .mod-sub { font-size: 12.5px; color: var(--text-secondary); }
 
-  /* ── 重点工作进度 ── */
-  .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 14px; }
-  .kp-item { display: flex; flex-direction: column; gap: 6px; }
+  /* ── 重点工作进度（紧凑版，高度压缩 30%）── */
+  .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 10px; }
+  .kp-item { display: flex; flex-direction: column; gap: 4px; }
   .kp-head { display: flex; align-items: center; justify-content: space-between; }
-  .kp-name { font-size: 13px; color: var(--text-primary); font-weight: 500; }
-  .kp-pct { font-size: 12.5px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
-  .kp-bar { height: 6px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
+  .kp-name { font-size: 12.5px; color: var(--text-primary); font-weight: 500; }
+  .kp-pct { font-size: 12px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+  .kp-bar { height: 5px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
   .kp-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #6aa0ff); border-radius: 4px; }
 
   /* ── 分区标题 ── */
