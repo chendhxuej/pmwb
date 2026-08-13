@@ -30,6 +30,7 @@ from db.models import (
 from utils.obsidian import (
     append_or_replace_section,
     extract_region,
+    extract_section,
     read_auto_block,
     read_frontmatter,
     read_markdown,
@@ -1157,6 +1158,72 @@ def _resolve_source_titles(db: Session, links: List[PmwbKnowledgeLink]) -> Dict[
     return titles
 
 
+def _collect_domain_tickets(
+    db: Session, domain_code: str, covered: set
+) -> List[dict]:
+    """归集「归属该业务领域但未显式建知识关联」的工单，作为时间线事件。
+
+    业务领域是工单的一级归属（domain_code），应直接体现在领域知识中心时间线中；
+    即便该工单未通过「关联知识库」建立 knowledge_link，也应出现在时间线。
+    已通过 knowledge_link 覆盖的工单（covered 集合）不再重复计入。
+    """
+    specs = [
+        # (source_type, 模型, id 属性名, 取日期, 取标题, 取摘要)
+        (
+            "requirement",
+            PmwbRequirementExt,
+            "req_id",
+            lambda r: r.version_required_date or (r.created_at.date() if r.created_at else None),
+            lambda r: r.req_name or r.req_id,
+            lambda r: (r.description or r.background or ""),
+        ),
+        (
+            "meeting",
+            PmwbMeeting,
+            "id",
+            lambda m: m.start_time.date() if m.start_time else None,
+            lambda m: m.title or m.meeting_id,
+            lambda m: (m.summary or ""),
+        ),
+        (
+            "operation",
+            PmwbOperationIssue,
+            "id",
+            lambda o: o.discovery_date.date() if o.discovery_date else (o.created_at.date() if o.created_at else None),
+            lambda o: o.title or o.issue_no,
+            lambda o: (o.situation_desc or o.result_feedback or ""),
+        ),
+    ]
+    out: List[dict] = []
+    for st, mdl, id_attr, date_fn, title_fn, summ_fn in specs:
+        rows = db.query(mdl).filter(mdl.domain_code == domain_code).all()
+        for row in rows:
+            sid = str(getattr(row, id_attr))
+            if (st, sid) in covered:
+                continue
+            d = date_fn(row)
+            out.append(
+                {
+                    "link_id": f"ticket-{st}-{sid}",
+                    "event_type": st,
+                    "event_label": EVENT_LABELS.get(st, st),
+                    "event_date": d.strftime("%Y-%m-%d") if d else None,
+                    "month": d.strftime("%Y-%m") if d else None,
+                    "summary": (summ_fn(row) or "").strip()[:300] or None,
+                    "source_type": st,
+                    "source_id": sid,
+                    "source_title": title_fn(row),
+                    "source_route": SOURCE_ROUTES.get(st),
+                    "knowledge_item_id": None,
+                    "knowledge_title": None,
+                    "obsidian_path": None,
+                    "note_type": None,
+                    "created_at": row.created_at.strftime("%Y-%m-%d %H:%M:%S") if row.created_at else None,
+                }
+            )
+    return out
+
+
 def business_timeline(
     db: Session,
     domain_code: str,
@@ -1165,7 +1232,9 @@ def business_timeline(
 ) -> dict:
     """业务全过程时间线：按业务聚合全部关联事件，时间倒序。
 
-    - 数据源：`pmwb_knowledge_link`（event_date desc, created_at desc）；
+    - 数据源1：`pmwb_knowledge_link`（显式知识关联，event_date desc, created_at desc）；
+    - 数据源2：归属该业务领域（domain_code）的工单（需求/会议/运营），即使未建知识关联也纳入；
+    - 两条数据源按 (source_type, source_id) 去重合并，工单归属关系即时可见；
     - 每条事件带源记录标题 + 前端跳转路由 + 关联笔记路径，前端可双向跳转；
     - 空业务返回空列表（不报错）。
     """
@@ -1175,47 +1244,26 @@ def business_timeline(
         .first()
     )
 
-    q = db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.domain_code == domain_code)
-    if event_type:
-        q = q.filter(PmwbKnowledgeLink.event_type == event_type)
-    links = q.all()
+    links = db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.domain_code == domain_code).all()
 
-    # 统计各事件类型数量（过滤前的全量口径，供前端筛选器展示）
-    all_links = (
-        links
-        if not event_type
-        else db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.domain_code == domain_code).all()
-    )
-    type_counter: Dict[str, int] = {}
-    for lk in all_links:
-        key = lk.event_type or lk.source_type or "other"
-        type_counter[key] = type_counter.get(key, 0) + 1
+    # 已通过 knowledge_link 覆盖的工单，避免与下面的工单归集重复
+    covered = {(lk.source_type, str(lk.source_id)) for lk in links}
+    ticket_events = _collect_domain_tickets(db, domain_code, covered)
 
-    # 排序：event_date 倒序（空日期垫底），同日按 created_at 倒序
-    def _sort_key(lk: PmwbKnowledgeLink):
-        d = lk.event_date or date.min
-        c = lk.created_at or datetime.min
-        return (d, c)
+    titles = _resolve_source_titles(db, links)
 
-    ordered = sorted(links, key=_sort_key, reverse=True)
-    total = len(ordered)
-    if limit and limit > 0:
-        ordered = ordered[:limit]
-
-    titles = _resolve_source_titles(db, ordered)
-
-    item_ids = {lk.knowledge_item_id for lk in ordered if lk.knowledge_item_id}
+    item_ids = {lk.knowledge_item_id for lk in links if lk.knowledge_item_id}
     items: Dict[int, PmwbKnowledgeItem] = {}
     if item_ids:
         for it in db.query(PmwbKnowledgeItem).filter(PmwbKnowledgeItem.id.in_(item_ids)).all():
             items[it.id] = it
 
-    events = []
-    for lk in ordered:
+    link_events = []
+    for lk in links:
         item = items.get(lk.knowledge_item_id) if lk.knowledge_item_id else None
         kind = lk.event_type or lk.source_type or "other"
         skey = f"{lk.source_type}:{lk.source_id}"
-        events.append(
+        link_events.append(
             {
                 "link_id": lk.id,
                 "event_type": kind,
@@ -1235,14 +1283,38 @@ def business_timeline(
             }
         )
 
+    # 合并两条数据源
+    all_events = link_events + ticket_events
+
+    # 统计各事件类型数量（全量口径，供前端筛选器展示）
+    type_counter: Dict[str, int] = {}
+    for ev in all_events:
+        key = ev["event_type"] or "other"
+        type_counter[key] = type_counter.get(key, 0) + 1
+
+    # 按事件类型过滤（在合并后的全集上过滤，因为工单归集无法用 SQL 按 link.event_type 过滤）
+    if event_type:
+        all_events = [ev for ev in all_events if ev["event_type"] == event_type]
+
+    # 排序：event_date 倒序（空日期垫底），同日按 created_at 倒序
+    def _sort_key(ev: dict):
+        d = datetime.strptime(ev["event_date"], "%Y-%m-%d").date() if ev["event_date"] else date.min
+        c = datetime.strptime(ev["created_at"], "%Y-%m-%d %H:%M:%S") if ev["created_at"] else datetime.min
+        return (d, c)
+
+    ordered = sorted(all_events, key=_sort_key, reverse=True)
+    total = len(ordered)
+    if limit and limit > 0:
+        ordered = ordered[:limit]
+
     return {
         "domain_code": domain_code,
         "domain_name": domain.domain_name if domain else domain_code,
         "total": total,
-        "returned": len(events),
+        "returned": len(ordered),
         "event_types": [
             {"value": k, "label": EVENT_LABELS.get(k, k), "count": v}
             for k, v in sorted(type_counter.items(), key=lambda x: -x[1])
         ],
-        "events": events,
+        "events": ordered,
     }

@@ -43,9 +43,22 @@ def _engine():
 
 
 def _parse_migrated_block(content: str) -> str:
-    """截取 `PMWB:MIGRATED` 标记之后的迁移内容（含业务基本信息/系统架构/流程/服务场景等）。"""
-    idx = content.find(MIGRATED_MARKER)
-    return content[idx:] if idx >= 0 else ""
+    """截取旧结构迁移内容：定位首个 `## 参考资料` 旧结构块之后截取。
+
+    存量旧笔记的「业务基本信息/系统架构/流程/服务场景」等真实内容均在首个
+    `## 参考资料：XXX` 块内，统一从该块开始截取（不再依赖标记位置，避免多块笔记误取）。
+    """
+    m = re.search(r"^##\s*参考资料", content, re.M)
+    return content[m.start():] if m else ""
+
+
+def _has_old_structure(content: str) -> bool:
+    """判定主笔记是否含旧结构（底部「参考资料」内容块），作为迁移门槛。
+
+    仅认「参考资料」块：迁移后生成的标准结构不含此块，重跑时自动跳过，
+    避免清空已迁移笔记的人工基线编辑（幂等安全）。
+    """
+    return "## 参考资料" in content
 
 
 def _build_standard(domain_name, baseline, auto, index_md, moc_md):
@@ -135,12 +148,12 @@ def _build_standard(domain_name, baseline, auto, index_md, moc_md):
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _migrate_one(db, item):
+def _migrate_one(db, item, dry_run=False):
     path = item.obsidian_path
     full = str(get_vault_path() / path)
     content = read_markdown(path)
-    if not content or MIGRATED_MARKER not in content:
-        return False, "无迁移标记，跳过"
+    if not content or not _has_old_structure(content):
+        return False, "无旧结构（参考资料块），跳过"
 
     # 1) 保留 AUTO 块
     auto = {k: read_auto_block(content, k) for k in ("product", "process", "scenario_rules", "change_log", "deliverables", "timeline")}
@@ -150,14 +163,45 @@ def _migrate_one(db, item):
     # 3) 解析迁移块
     migrated = _parse_migrated_block(content)
 
-    def grab(heading, level):
-        return extract_region(migrated, heading, level) or ""
+    # 子串匹配提取：兼容两套旧结构标题约定（精确全匹配会漏掉「2.1 产品分类」等写法）
+    #   A) 一网通风格：### 业务介绍 / ### 产品体系 / ## 系统支撑架构 ...
+    #   B) 商客总览风格：## 一、业务定义 / ## 二、业务全景 / ## 三、整体架构 ...
+    def sub_extract(keyword, level):
+        hp = re.compile(r"^" + ("#" * level) + r"\s+.*" + re.escape(keyword))
+        lines = migrated.splitlines()
+        start = None
+        for i, ln in enumerate(lines):
+            if hp.match(ln):
+                start = i
+                break
+        if start is None:
+            return ""
+        end = len(lines)
+        for j in range(start + 1, len(lines)):
+            if re.match(r"^#{1,%d}\s+\S" % level, lines[j]):
+                end = j
+                break
+        return "\n".join(lines[start + 1 : end]).strip()
 
-    overview = "- **业务定义**：" + (grab("业务介绍", 3) or "").lstrip("- ").strip()
-    product_matrix = grab("产品体系", 3) + "\n\n" + grab("业务规模", 3)
-    product_tariff = grab("套餐体系", 3)
-    service = grab("业务服务场景", 2) + "\n\n" + grab("业务流程", 2) + "\n\n" + grab("操作手册索引", 2)
-    systems = grab("系统支撑架构", 2)
+    def grab_any(names, prefer_level):
+        for n in names:
+            for lvl in (prefer_level, 3 if prefer_level != 3 else 2):
+                r = sub_extract(n, lvl)
+                if r:
+                    return r
+        return ""
+
+    overview = "- **业务定义**：" + (grab_any(["业务介绍", "业务定义", "一、业务定义"], 3) or "").lstrip("- ").strip()
+    product_matrix = grab_any(["产品体系", "产品分类", "二、业务全景"], 3) + "\n\n" + grab_any(["业务规模"], 3)
+    product_tariff = grab_any(["套餐体系", "资费", "计费"], 3)
+    service = (
+        grab_any(["业务服务场景", "业务服务场景概览", "五、业务服务场景概览"], 2)
+        + "\n\n"
+        + grab_any(["业务流程", "核心业务流程", "四、核心业务流程"], 2)
+        + "\n\n"
+        + grab_any(["操作手册索引"], 2)
+    )
+    systems = grab_any(["系统支撑架构", "整体架构", "三、整体架构"], 2)
 
     baseline = {
         "overview": overview,
@@ -169,6 +213,12 @@ def _migrate_one(db, item):
 
     new_md = _build_standard(item.title.replace(" 业务知识主笔记", "") if item.title else item.domain_code, baseline, auto, index_md, moc_md)
 
+    if dry_run:
+        prev = os.path.join(os.path.dirname(__file__), f"_preview_{item.domain_code}.md")
+        with open(prev, "w", encoding="utf-8") as f:
+            f.write(new_md)
+        return True, f"[dry-run] 预览已写出 {os.path.basename(prev)}（未写入 vault）"
+
     # 备份
     bak = full + ".migrated.bak"
     if not os.path.exists(bak):
@@ -179,7 +229,9 @@ def _migrate_one(db, item):
 
 
 def main():
-    targets = sys.argv[1:]
+    args = sys.argv[1:]
+    dry_run = "--dry-run" in args
+    targets = [a for a in args if not a.startswith("--")]
     engine = _engine()
     Session = sessionmaker(bind=engine)
     db = Session()
@@ -191,15 +243,15 @@ def main():
         if not it.obsidian_path:
             continue
         try:
-            ok, msg = _migrate_one(db, it)
+            ok, msg = _migrate_one(db, it, dry_run=dry_run)
         except Exception as e:
             print(f"[FAIL] {it.domain_code}: {e}")
             continue
         print(f"[{'OK ' if ok else 'SKIP'}] {it.domain_code}: {msg}")
-        if ok:
+        if ok and not dry_run:
             migrated += 1
     db.close()
-    print(f"\n完成：{migrated} 个主笔记已迁移重建。")
+    print(f"\n完成：{migrated} 个主笔记已迁移重建。" + ("（dry-run，未写入）" if dry_run else ""))
 
 
 if __name__ == "__main__":
