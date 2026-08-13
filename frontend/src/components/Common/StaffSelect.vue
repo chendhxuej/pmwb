@@ -31,14 +31,14 @@
     <div class="staff-picker">
       <!-- 搜索 + 筛选 -->
       <div class="staff-picker-header">
-        <el-input
+        <EnlargeInput
           v-model="dialogQuery"
           class="staff-picker-search"
           placeholder="搜索姓名 / 邮箱"
           clearable
         >
           <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
+        </EnlargeInput>
         <div class="staff-picker-filters">
           <el-select
             v-model="filterOrg"
@@ -131,7 +131,7 @@
       <!-- 自定义添加 -->
       <div v-if="allowCreate" class="staff-picker-custom">
         <span class="staff-picker-custom-label">未找到？手动添加：</span>
-        <el-input
+        <EnlargeInput
           v-model="customName"
           class="staff-picker-custom-input"
           placeholder="输入姓名后按回车添加"

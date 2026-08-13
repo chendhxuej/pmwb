@@ -25,6 +25,7 @@ router = APIRouter(prefix="/sql-scripts", tags=["SQL脚本库"])
 def list_sql_scripts(
     keyword: Optional[str] = Query(None, description="关键字搜索"),
     category: Optional[str] = Query(None, description="业务线/分类"),
+    domain_code: Optional[str] = Query(None, description="关联业务领域编码"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=1000, description="每页条数"),
     db: Session = Depends(get_db),
@@ -34,6 +35,7 @@ def list_sql_scripts(
         db=db,
         keyword=keyword,
         category=category,
+        domain_code=domain_code,
         page=page,
         page_size=page_size,
     )

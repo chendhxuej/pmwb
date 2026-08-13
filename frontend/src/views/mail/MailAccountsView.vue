@@ -33,13 +33,13 @@
     <el-dialog v-model="formVisible" :title="isEdit ? '编辑账号' : '新建账号'" width="540px">
       <el-form :model="form" label-width="110px">
         <el-form-item label="发件人名称">
-          <el-input v-model="form.senderName" />
+          <EnlargeInput v-model="form.senderName" />
         </el-form-item>
         <el-form-item label="邮箱地址">
-          <el-input v-model="form.email" />
+          <EnlargeInput v-model="form.email" />
         </el-form-item>
         <el-form-item label="SMTP 服务器">
-          <el-input v-model="form.smtpHost" />
+          <EnlargeInput v-model="form.smtpHost" />
         </el-form-item>
         <el-form-item label="端口">
           <el-input-number v-model="form.smtpPort" :min="1" :max="65535" />

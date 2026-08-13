@@ -22,15 +22,15 @@
 
     <el-dialog v-model="formVisible" :title="isEdit ? '编辑联系人' : '新建联系人'" width="520px">
       <el-form :model="form" label-width="80px">
-        <el-form-item label="姓名"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="邮箱"><el-input v-model="form.email" /></el-form-item>
-        <el-form-item label="手机"><el-input v-model="form.phone" /></el-form-item>
+        <el-form-item label="姓名"><EnlargeInput v-model="form.name" /></el-form-item>
+        <el-form-item label="邮箱"><EnlargeInput v-model="form.email" /></el-form-item>
+        <el-form-item label="手机"><EnlargeInput v-model="form.phone" /></el-form-item>
         <el-form-item label="分组">
           <el-select v-model="form.groupId" placeholder="请选择" clearable style="width:100%">
             <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="备注"><EnlargeInput v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>

@@ -6,6 +6,7 @@
       stripe
       border
       style="width: 100%"
+      :row-class-name="rowClassName"
       @sort-change="handleSortChange"
     >
       <!-- 根据 columns prop 动态渲染列 -->
@@ -64,6 +65,7 @@ const props = defineProps({
   pageSize: { type: Number, default: 20 },
   showPagination: { type: Boolean, default: true },
   showAction: { type: Boolean, default: true },
+  rowClassName: { type: [Function, String], default: '' },
 })
 
 // 检查 columns 中是否已定义了 actions 插槽列（避免重复渲染操作列）

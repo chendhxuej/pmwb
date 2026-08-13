@@ -36,8 +36,8 @@
       <el-table-column label="状态" width="140">
         <template #default="{ row }">
           <el-tag v-if="testResults[row.id]?.reachable" type="success">可达</el-tag>
-          <el-tooltip v-else-if="testResults[row.id] && !testResults[row.id].reachable" :content="testResults[row.id].error || '不可达'">
-            <el-tag type="danger">不可达</el-tag>
+          <el-tooltip v-else-if="testResults[row.id]" :content="testResults[row.id].error || '不可用'">
+            <el-tag type="danger">{{ ['timeout', 'connect'].includes(testResults[row.id].kind) ? '不可达' : '不可用' }}</el-tag>
           </el-tooltip>
           <el-tooltip v-else-if="row.last_error" :content="row.last_error">
             <el-tag type="danger">不可用</el-tag>
@@ -59,7 +59,7 @@
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑模型' : '新增模型'" width="560px">
       <el-form label-width="110px" :model="form">
         <el-form-item label="名称">
-          <el-input v-model="form.name" placeholder="如：默认Kimi / 腾讯混元" />
+          <EnlargeInput v-model="form.name" placeholder="如：默认Kimi / 腾讯混元" />
         </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="form.provider_type" style="width: 100%" @change="onTypeChange">
@@ -67,13 +67,13 @@
           </el-select>
         </el-form-item>
         <el-form-item label="Base URL">
-          <el-input v-model="form.base_url" placeholder="OpenAI 兼容端点，如 https://api.hunyuan.cloud.tencent.com/v1" />
+          <EnlargeInput v-model="form.base_url" placeholder="OpenAI 兼容端点，如 https://api.hunyuan.cloud.tencent.com/v1" />
         </el-form-item>
         <el-form-item label="模型">
-          <el-input v-model="form.model" placeholder="如 hunyuan-turbos-latest / kimi-k2.6 / hy3" />
+          <EnlargeInput v-model="form.model" placeholder="如 hunyuan-turbos-latest / kimi-k2.6 / hy3" />
         </el-form-item>
         <el-form-item label="API Key">
-          <el-input
+          <EnlargeInput
             v-model="form.api_key"
             type="password"
             show-password
@@ -235,9 +235,9 @@ async function doTest(row) {
   testingId.value = row.id
   try {
     const r = await testLlmProvider(row.id)
-    testResults[row.id] = { reachable: !!r.reachable, error: r.error || '' }
+    testResults[row.id] = { reachable: !!r.reachable, error: r.error || '', kind: r.kind || 'other' }
     if (r.reachable) ElMessage.success(`「${row.name}」连通正常`)
-    else ElMessage.warning(`「${row.name}」不可达：${r.error || ''}`)
+    else ElMessage.warning(`「${row.name}」测试未通过：${r.error || ''}`)
     await load()
   } catch (e) {
     ElMessage.error('测试失败：' + (e?.message || '未知错误'))

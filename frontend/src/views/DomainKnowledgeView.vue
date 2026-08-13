@@ -111,19 +111,12 @@
           </el-table>
           <el-empty v-if="!relLoading && !related.issues.length" description="暂无关联运营工单" />
         </el-tab-pane>
-        <el-tab-pane label="关联时间线" name="timeline">
-          <el-table :data="related.timeline" size="small" max-height="420" v-loading="relLoading">
-            <el-table-column label="来源" width="110">
-              <template #default="{ row }">
-                <el-tag size="small">{{ sourceLabel(row.source_type) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="source_id" label="来源ID" width="170" show-overflow-tooltip />
-            <el-table-column prop="note_title" label="关联知识笔记" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="link_note" label="关联说明" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="created_at" label="关联时间" width="140" />
-          </el-table>
-          <el-empty v-if="!relLoading && !related.timeline.length" description="暂无通过关联建立的跨对象关联" />
+        <el-tab-pane label="业务时间线" name="timeline">
+          <BusinessTimeline
+            v-if="detailVisible && selectedDomain"
+            :domain-code="selectedDomain.domain_code"
+            @open-note="openNote"
+          />
         </el-tab-pane>
       </el-tabs>
     </el-dialog>
@@ -137,6 +130,7 @@ import { ElMessage } from 'element-plus'
 import { basicDataApi } from '@/api/basicData.js'
 import { knowledgeApi } from '@/api/knowledge.js'
 import { Star } from '@element-plus/icons-vue'
+import BusinessTimeline from '@/components/Common/BusinessTimeline.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -155,16 +149,6 @@ const related = ref({
   issues: [],
   timeline: [],
 })
-
-const SOURCE_LABELS = {
-  requirement: '需求',
-  ticket: '开发工单',
-  operation: '运营工单',
-  meeting: '会议',
-  deliverable: '交付物',
-  key_work: '重点工作',
-}
-const sourceLabel = (t) => SOURCE_LABELS[t] || t
 
 const CATEGORY_LABELS = {
   product: '产品知识',

@@ -20,6 +20,7 @@ class SqlScriptField(BaseModel):
 class SqlScriptCreate(BaseModel):
     title: str = Field(..., max_length=500, description="脚本说明/名称")
     category: Optional[str] = Field(None, max_length=64, description="业务线/分类")
+    domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     description: Optional[str] = Field(None, description="补充说明")
     sql_text: str = Field(..., description="SQL 文本")
     output_fields: Optional[List[SqlScriptField]] = Field(
@@ -30,6 +31,7 @@ class SqlScriptCreate(BaseModel):
 class SqlScriptUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=500, description="脚本说明/名称")
     category: Optional[str] = Field(None, max_length=64, description="业务线/分类")
+    domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     description: Optional[str] = Field(None, description="补充说明")
     sql_text: Optional[str] = Field(None, description="SQL 文本")
     output_fields: Optional[List[SqlScriptField]] = Field(
@@ -45,6 +47,7 @@ class SqlScriptOut(BaseModel):
     script_no: str
     title: str
     category: Optional[str] = None
+    domain_code: Optional[str] = None
     description: Optional[str] = None
     sql_text: str
     output_fields: List[SqlScriptField] = []

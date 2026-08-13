@@ -173,6 +173,7 @@ class DashboardService:
         )
 
         knowledge_total = self.db.query(func.count(PmwbKnowledgeItem.id)).scalar()
+        req_total = self.db.query(func.count(PmwbRequirementExt.id)).scalar() or 0
 
         return DashboardStats(
             todo_total=todo_total,
@@ -186,6 +187,7 @@ class DashboardService:
             issue_resolved=issue_resolved,
             issue_overdue=issue_overdue,
             knowledge_total=knowledge_total,
+            req_total=req_total,
         )
 
     def get_recent_todos(self, limit: int = 5) -> List[dict]:
@@ -279,6 +281,14 @@ class DashboardService:
             .filter(PmwbDevTicket.go_live_date >= week_start, PmwbDevTicket.go_live_date < week_end)
             .scalar()
         )
+        # 本周新增运营工单：按 created_at 落在自然周（UTC 口径，与"本周新增需求"一致）
+        issue_this_week = (
+            self.db.query(func.count(PmwbOperationIssue.id))
+            .filter(PmwbOperationIssue.created_at >= ws_utc, PmwbOperationIssue.created_at < we_utc)
+            .scalar()
+        ) or 0
+        # 运营预警：未闭环（待处理 + 处理中）的运营问题数，反映需重点关注的工作量
+        warn_count = stats.issue_pending + stats.issue_processing
 
         return [
             KpiItem(
@@ -296,18 +306,18 @@ class DashboardService:
                 delta_type="neutral",
             ),
             KpiItem(
-                value=dev_in_progress,
+                value=issue_this_week,
                 color="blue",
-                label="进行中工单",
-                delta=f"本周完成 {dev_done_this_week}",
+                label="本周新增运营工单",
+                delta=f"处理中 {stats.issue_processing}",
                 delta_type="up",
             ),
             KpiItem(
-                value=stats.issue_overdue,
-                color="red",
+                value=warn_count,
+                color="red" if warn_count else "green",
                 label="运营预警",
-                delta=f"待处理 {stats.issue_pending} 条",
-                delta_type="down" if stats.issue_overdue else "neutral",
+                delta=f"处理中 {stats.issue_processing} · 待处理 {stats.issue_pending}",
+                delta_type="down" if warn_count else "neutral",
             ),
         ]
 
@@ -380,9 +390,9 @@ class DashboardService:
                 proposer_map.setdefault(r.req_id, r.proposer or "")
         result = []
         for it in items:
-            date = ""
-            if it.updated_at:
-                date = (it.updated_at + timedelta(hours=8)).strftime("%Y-%m-%d")
+            # updated_at 按本地时间（Asia/Shanghai）naive 存储，直接取本地日期展示，
+            # 勿再 +8h（会推到次日，出现"今天更新却显示明天"的错位）。
+            date = it.updated_at.strftime("%Y-%m-%d") if it.updated_at else ""
             result.append(
                 RequirementSummaryItem(
                     name=it.req_name or it.req_id or "未命名需求",
@@ -465,6 +475,7 @@ class DashboardService:
         )
         greet_stats = [
             GreetStat(value=str(stats.meeting_this_week), key="本周会议", cls="accent"),
+            GreetStat(value=str(stats.req_total), key="需求工单", cls="amber"),
             GreetStat(value=str(stats.issue_total), key="运营问题", cls="down"),
             GreetStat(value=str(stats.todo_total), key="我的待办", cls="up"),
             GreetStat(value=str(stats.knowledge_total), key="知识条目", cls="neutral"),
@@ -630,8 +641,14 @@ class DashboardService:
             .all()
         )
         _ISSUE_TYPE_LABEL = {
-            "data_abnormal": "数据异常", "system_error": "系统错误",
-            "process_block": "流程阻塞", "requirement_change": "需求变更",
+            "bug": "BUG管理",
+            "data_abnormal": "数据异常",
+            "system_error": "系统错误",
+            "process_block": "流程阻塞",
+            "requirement_change": "需求变更",
+            "spot_event": "热点投诉",
+            "temp_task": "临时交办",
+            "topic_analysis": "专题分析",
             "other": "其他",
         }
         issue_dist = [DistributionItem(name=_ISSUE_TYPE_LABEL.get(t, t), value=c) for t, c in issue_type_counts]

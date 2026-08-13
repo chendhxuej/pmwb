@@ -170,6 +170,58 @@ def generate_with_llm(
 
 
 # ---------------------------------------------------------------------------
+# 统一大模型接入（大模型管理：多模型 fallback）
+# ---------------------------------------------------------------------------
+
+def generate_via_provider(db, source: str, ddd: Dict[str, str], *, max_retries: int = 1) -> List[Dict[str, Any]]:
+    """经「大模型管理」统一能力生成用户故事（自动按优先级 fallback 到任意可用模型）。
+
+    与旧版差异：
+    - 不再写死 Kimi Coding Plan，而是调用 services.llm_provider.call_best_available；
+    - 若已配置并启用 DeepSeek 等其它模型，将直接使用，实现统一管理；
+    - 所有模型不可用 / 解析失败 → 抛异常，由上层 _generate_with_llm_fallback 降级到规则引擎。
+
+    Returns:
+        用户故事字典列表。
+    """
+    from services.llm_provider import call_best_available
+
+    system_prompt = SYSTEM_PROMPT
+    user_message = build_user_message(source, ddd)
+    # 输入长度预警（沿用原逻辑，但 provider/model 改为统一探测结果，这里取不到具体值则跳过）
+    _warn_input_length(source, "统一大模型", "auto")
+
+    last_err: Optional[Exception] = None
+    for attempt in range(max_retries + 1):
+        try:
+            res = call_best_available(db, system_prompt, user_message)
+            if not res["used_llm"]:
+                raise RuntimeError(res.get("notice") or "所有已启用的大模型均不可用")
+            raw = res["text"]
+            stories = _parse_llm_response(raw)
+            stories = _validate_stories(stories, source)
+            logger.info(
+                "AI 智能拆分成功（%s / %s）：%d 条用户故事",
+                res.get("provider_name"), res.get("provider_id"), len(stories),
+            )
+            return stories
+        except (json.JSONDecodeError, ValueError) as e:
+            last_err = e
+            logger.warning(
+                "AI 拆分输出解析失败（第 %d/%d 次）：%s",
+                attempt + 1, max_retries + 1, str(e)[:150],
+            )
+            if attempt >= max_retries:
+                raise RuntimeError(f"AI 拆分输出解析失败（将降级到规则引擎）：{e}")
+            # 追加纠偏提示后重试（让模型只输出纯 JSON 数组）
+            user_message += (
+                "\n\n【重要】请严格只输出一个 JSON 数组，不要任何额外说明文字，"
+                "也不要使用 Markdown 代码块标记（```），直接以 [ 开头、] 结尾。"
+            )
+    raise RuntimeError(f"AI 智能拆分失败：{last_err}")
+
+
+# ---------------------------------------------------------------------------
 # 内部实现
 # ---------------------------------------------------------------------------
 

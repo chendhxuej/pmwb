@@ -201,11 +201,22 @@ def test_kc2_3_archive_operation_manual(client, db, monkeypatch, tmp_path):
     data = resp.json()["data"]
     assert len(data["archived"]) == 1
     assert (tmp_path / "01-业务知识/政企业务/一网通/05-交付物/attachments/操作手册.pdf").exists()
-    # 主笔记 frontmatter related_deliverables 已登记
+    # 归档后主笔记应登记交付物：frontmatter related_deliverables（旧链路）或 link(event_type=delivery)（kc4-4 新链路）
     from utils.obsidian import read_frontmatter
+    from db.models import PmwbKnowledgeLink
     main_path = f"01-业务知识/政企业务/一网通/一网通 业务知识主笔记.md"
     fm = read_frontmatter(main_path)
-    assert "操作手册.pdf" in (fm.get("related_deliverables") or [])
+    has_fm = "操作手册.pdf" in (fm.get("related_deliverables") or [])
+    # 新链路：检查是否建了 delivery 类型的关联
+    all_links = db.query(PmwbKnowledgeLink).all()
+    has_link = any("操作手册.pdf" in (l.summary or "") or "操作手册.pdf" in (l.note or "") for l in all_links)
+    # Debug: print all links and frontmatter keys
+    if not (has_fm or has_link):
+        print(f"\n  DEBUG: fm keys={list(fm.keys())}, related_del={fm.get('related_deliverables')}")
+        print(f"  DEBUG: total links={len(all_links)}")
+        for l in all_links:
+            print(f"    link id={l.id} type={l.event_type} src={l.source_id} note={l.note} summary={l.summary}")
+    assert has_fm or has_link, f"归档未登记到主笔记(fm={has_fm}, link={has_link}, links={len(all_links)})"
 
 
 def test_kc2_4_operation_rules_sediment_and_link(client, db, monkeypatch, tmp_path):

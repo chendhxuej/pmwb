@@ -10,7 +10,7 @@
 
     <div class="stats-row">
       <el-card v-for="item in statsItems" :key="item.label" shadow="hover" class="stat-card">
-        <div class="stat-value">{{ item.value }}</div>
+        <div class="stat-value" v-countup="item.value"></div>
         <div class="stat-label">{{ item.label }}</div>
       </el-card>
     </div>
@@ -51,25 +51,25 @@
     <el-dialog v-model="formDialogVisible" :title="isEdit ? '编辑工单' : '新建工单'" width="600px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="工单编号" required>
-          <el-input v-model="form.ticket_no" placeholder="如 DTS-2026-xxxx" />
+          <EnlargeInput v-model="form.ticket_no" placeholder="如 DTS-2026-xxxx" />
         </el-form-item>
         <el-form-item label="关联需求" required>
-          <el-input v-model="form.req_id" placeholder="对应 sent_emails.req_id" />
+          <EnlargeInput v-model="form.req_id" placeholder="对应 sent_emails.req_id" />
         </el-form-item>
         <el-form-item label="涉及系统" required>
-          <el-input v-model="form.system_name" />
+          <EnlargeInput v-model="form.system_name" />
         </el-form-item>
         <el-form-item label="业务领域">
           <BusinessDomainSelect v-model="form.domain_code" />
         </el-form-item>
         <el-form-item label="开发团队">
-          <el-input v-model="form.dev_team" />
+          <EnlargeInput v-model="form.dev_team" />
         </el-form-item>
         <el-form-item label="开发负责人">
           <StaffSelect v-model="form.developer" />
         </el-form-item>
         <el-form-item label="联系方式">
-          <el-input v-model="form.dev_contact" />
+          <EnlargeInput v-model="form.dev_contact" />
         </el-form-item>
         <el-form-item label="优先级">
           <el-select v-model="form.priority">
@@ -77,10 +77,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="开发内容">
-          <el-input v-model="form.description" type="textarea" :rows="3" />
+          <EnlargeInput v-model="form.description" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="风险/延期">
-          <el-input v-model="form.risk_note" type="textarea" :rows="2" />
+          <EnlargeInput v-model="form.risk_note" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -156,7 +156,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="备注">
-          <el-input v-model="statusForm.note" type="textarea" :rows="2" />
+          <EnlargeInput v-model="statusForm.note" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -428,20 +428,5 @@ onMounted(() => {
   gap: 16px;
   margin-bottom: 16px;
   flex-wrap: wrap;
-}
-.stat-card {
-  flex: 1;
-  min-width: 140px;
-  text-align: center;
-}
-.stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #409eff;
-}
-.stat-label {
-  font-size: 14px;
-  color: #606266;
-  margin-top: 8px;
 }
 </style>

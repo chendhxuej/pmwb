@@ -3,7 +3,7 @@
     <div class="page-header">
       <div class="page-title">邮件记录</div>
       <div class="page-actions">
-        <el-select v-model="limit" size="default" style="width: 120px" @change="loadData">
+        <el-select v-model="limit" size="default" class="w-xs" @change="loadData">
           <el-option label="最近 50 条" :value="50" />
           <el-option label="最近 100 条" :value="100" />
           <el-option label="最近 200 条" :value="200" />

@@ -1,70 +1,148 @@
 import os
 import zipfile
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from core.config import settings
+from db.models import PmwbBusinessDomain, PmwbKnowledgeItem
+from utils.obsidian import AUTO_BEGIN_TPL, AUTO_END_TPL, render_auto_block
 
 
-def test_list_product_bible_catalog(client: TestClient):
+@pytest.fixture
+def vault_tmp(tmp_path, monkeypatch):
+    """把 Obsidian vault 指向临时目录，避免污染真实知识库。"""
+    monkeypatch.setattr(settings, "OBSIDIAN_VAULT_PATH", str(tmp_path))
+    return tmp_path
+
+
+def _create_domain(db, code="ywt", name="一网通", group="政企业务"):
+    d = PmwbBusinessDomain(
+        domain_code=code, domain_name=name, domain_group=group, enabled=1
+    )
+    db.add(d)
+    db.commit()
+    return d
+
+
+from services.knowledge_link_service import ensure_domain_main_note
+
+
+def _write_main_note(db, vault_tmp, domain, product_md: str) -> PmwbKnowledgeItem:
+    """在 vault 内构造一个带 §2 产商品章节与 AUTO 块的主笔记，并返回 ORM 记录。"""
+    ensure_domain_main_note(db, domain.domain_code)
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(
+            PmwbKnowledgeItem.domain_code == domain.domain_code,
+            PmwbKnowledgeItem.note_type == "main",
+        )
+        .first()
+    )
+    note_path = item.obsidian_path
+    full = os.path.join(str(vault_tmp), note_path)
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    content = (
+        "---\n"
+        "auto_sections_generated_at: 2026-07-15\n"
+        "---\n\n"
+        f"# {domain.domain_name} 业务知识主笔记\n\n"
+        "## 1. 概述\n\n人工维护概述。\n\n"
+        "## 2. 产商品与资费体系\n\n"
+        f"{render_auto_block('product', product_md)}\n\n"
+        "## 3. SOP\n\n人工维护。\n"
+    )
+    with open(full, "w", encoding="utf-8") as f:
+        f.write(content)
+    return item
+
+
+def test_list_product_bible_catalog(client: TestClient, db):
+    _create_domain(db, "ywt", "一网通")
+    _create_domain(db, "ftto", "FTTO")
     res = client.get("/api/v1/product-bible")
     assert res.status_code == 200
     body = res.json()
     assert body["code"] == 0
     keys = [c["key"] for c in body["data"]]
-    assert "group-sms" in keys
+    assert "ywt" in keys
+    assert "ftto" in keys
+    # 不再依赖硬编码配置，format 统一为 markdown
+    assert all(c["format"] == "markdown" for c in body["data"])
 
 
-def test_get_group_sms_bible(client: TestClient):
-    res = client.get("/api/v1/product-bible/group-sms")
-    assert res.status_code == 200
-    body = res.json()
-    assert body["code"] == 0
-    data = body["data"]
-    assert "markdown" in data
-    assert "集团短信" in data["markdown"]
-    assert data["title"]
-    assert data["updated_at"] == "2026-07-15"
-
-
-def test_get_unknown_bible_returns_404(client: TestClient):
+def test_get_unknown_bible_returns_404(client: TestClient, db):
     res = client.get("/api/v1/product-bible/does-not-exist")
     assert res.status_code == 404
     assert res.json()["code"] == 404
 
 
-def test_put_update_writes_back_to_file(client: TestClient):
-    """PUT 应把内容写回 Obsidian 源文件，且不污染真实业务配置。"""
-    import os
-    from pathlib import Path
+def test_get_bible_reads_product_section(client: TestClient, db, vault_tmp):
+    """GET 应返回主笔记 §2 产商品 AUTO 块内容，且不含其它章节。"""
+    domain = _create_domain(db)
+    item = _write_main_note(db, vault_tmp, domain, "### 一网通宽带\n- 资费档位A\n- 资费档位B")
 
-    vault = Path(settings.OBSIDIAN_VAULT_PATH)
-    tmp_rel = "_pb_test_tmp.md"
-    tmp_full = vault / tmp_rel
-    original_config = settings.PRODUCT_BIBLE
-    try:
-        tmp_full.write_text("# 测试文档\n\n原始内容\n", encoding="utf-8")
-        settings.PRODUCT_BIBLE = [{"key": "test-tmp", "name": "测试", "path": tmp_rel}]
+    res = client.get("/api/v1/product-bible/ywt")
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["key"] == "ywt"
+    assert "一网通宽带" in data["markdown"]
+    assert "资费档位A" in data["markdown"]
+    assert "人工维护概述" not in data["markdown"]  # 仅 §2 章节
+    assert data["title"]
+    assert data["updated_at"] == "2026-07-15"
 
-        # GET 读回
-        res = client.get("/api/v1/product-bible/test-tmp")
-        assert res.status_code == 200
-        assert "原始内容" in res.json()["data"]["markdown"]
 
-        # PUT 写回
-        new_md = "# 测试文档\n\n已修改内容\n"
-        res = client.put("/api/v1/product-bible/test-tmp", json={"markdown": new_md})
-        assert res.status_code == 200
-        assert res.json()["code"] == 0
+def test_get_bible_without_auto_block_falls_back_to_section(client: TestClient, db, vault_tmp):
+    """无 AUTO 块时退回整章 §2 内容。"""
+    domain = _create_domain(db)
+    ensure_domain_main_note(db, domain.domain_code)
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(
+            PmwbKnowledgeItem.domain_code == domain.domain_code,
+            PmwbKnowledgeItem.note_type == "main",
+        )
+        .first()
+    )
+    note_path = item.obsidian_path
+    full = os.path.join(str(vault_tmp), note_path)
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    with open(full, "w", encoding="utf-8") as f:
+        f.write(
+            f"# {domain.domain_name} 业务知识主笔记\n\n"
+            "## 1. 概述\n\n人工维护概述。\n\n"
+            "## 2. 产商品与资费体系\n\n### 旧版产商品\n- 档位X\n\n"
+            "## 3. SOP\n\n人工维护。\n"
+        )
 
-        # 文件确实被改写
-        assert "已修改内容" in tmp_full.read_text(encoding="utf-8")
-    finally:
-        settings.PRODUCT_BIBLE = original_config
-        if tmp_full.exists():
-            os.remove(tmp_full)
+    res = client.get("/api/v1/product-bible/ywt")
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert "档位X" in data["markdown"]
+    assert "人工维护概述" not in data["markdown"]
+
+
+def test_put_bible_writes_back_to_auto_block(client: TestClient, db, vault_tmp):
+    """PUT 应把内容写回主笔记 §2 产商品 AUTO 块，且保留人工区。"""
+    domain = _create_domain(db)
+    item = _write_main_note(db, vault_tmp, domain, "### 原产商品\n- 旧档位")
+
+    new_md = "### 新产商品\n- 新档位1\n- 新档位2"
+    res = client.put("/api/v1/product-bible/ywt", json={"markdown": new_md})
+    assert res.status_code == 200
+    assert res.json()["code"] == 0
+
+    # 重新读取文件，确认 AUTO 块被替换，人工区未动
+    note_path = item.obsidian_path
+    full = os.path.join(str(vault_tmp), note_path)
+    content = open(full, encoding="utf-8").read()
+    assert new_md in content
+    assert "旧档位" not in content
+    assert "人工维护概述" in content  # 人工区保留
+    # AUTO 标记仍存在
+    assert AUTO_BEGIN_TPL.format(key="product") in content
+    assert AUTO_END_TPL.format(key="product") in content
 
 
 def _make_minimal_docx(path: str):
@@ -122,47 +200,3 @@ def test_docx_to_html_minimal():
         assert "单元格A" in res["html"]
     finally:
         os.remove(p)
-
-
-def _econtract_cfg():
-    for i in settings.PRODUCT_BIBLE:
-        if i["key"] == "e-contract":
-            return i
-    return None
-
-
-def test_get_e_contract_is_docx(client: TestClient):
-    cfg = _econtract_cfg()
-    if not cfg:
-        pytest.skip("无 e-contract 配置")
-    full = Path(settings.OBSIDIAN_VAULT_PATH) / cfg["path"]
-    if not full.exists():
-        pytest.skip("e-contract docx 不存在")
-    res = client.get("/api/v1/product-bible/e-contract")
-    assert res.status_code == 200
-    d = res.json()["data"]
-    assert d["format"] == "docx"
-    assert ("<h2" in d["markdown"]) or ("<h1" in d["markdown"])
-    assert "<table" in d["markdown"]
-    assert "img" in d["markdown"]
-
-
-def test_get_e_contract_media_png(client: TestClient):
-    cfg = _econtract_cfg()
-    if not cfg:
-        pytest.skip("无 e-contract 配置")
-    full = Path(settings.OBSIDIAN_VAULT_PATH) / cfg["path"]
-    if not full.exists():
-        pytest.skip("e-contract docx 不存在")
-    res = client.get("/api/v1/product-bible/e-contract/media/image2.png")
-    assert res.status_code == 200
-    assert res.headers["content-type"] == "image/png"
-    assert len(res.content) > 0
-
-
-def test_put_e_contract_readonly(client: TestClient):
-    cfg = _econtract_cfg()
-    if not cfg:
-        pytest.skip("无 e-contract 配置")
-    res = client.put("/api/v1/product-bible/e-contract", json={"markdown": "x"})
-    assert res.status_code == 404

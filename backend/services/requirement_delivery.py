@@ -502,14 +502,13 @@ def _generate_v1(source: str, ddd: Dict[str, str], db, req_id: str) -> List[Dict
 def _generate_with_llm_fallback(
     source: str, ddd: Dict[str, str], db, req_id: str
 ) -> tuple:
-    """LLM 生成，失败回退 rules_v2。"""
+    """经「大模型管理」统一能力做 AI 智能拆分，失败回退 rules_v2。"""
     try:
-        if not settings.US_STORY_LLM_ENABLED:
-            raise RuntimeError("LLM 未启用（US_STORY_LLM_ENABLED=false）")
-        from services.storygen_llm import generate_with_llm
-        stories = generate_with_llm(source, ddd)
+        from services.storygen_llm import generate_via_provider
+        stories = generate_via_provider(db, source, ddd)
         return stories, "llm"
-    except Exception:
+    except Exception as e:
+        logger.warning("AI 智能拆分失败，回退规则引擎 v2：%s", e)
         # 降级到 v2
         stories = _generate_v2(source, ddd)
         return stories, "rules_v2_fallback"

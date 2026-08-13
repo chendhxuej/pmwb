@@ -7,7 +7,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="stat-card stat-warning clickable" @click="goTo('/requirement')">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.dev_ticket_missing }}</div>
+            <div class="stat-value" v-countup="stats.dev_ticket_missing"></div>
             <div class="stat-label">开发单号未录入</div>
           </div>
         </el-card>
@@ -15,7 +15,7 @@
       <div class="stat-col">
         <el-card shadow="hover">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.total }}</div>
+            <div class="stat-value" v-countup="stats.total"></div>
             <div class="stat-label">待办总数</div>
           </div>
         </el-card>
@@ -23,7 +23,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-todo">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.todo }}</div>
+            <div class="stat-value" v-countup="stats.todo"></div>
             <div class="stat-label">未开始</div>
           </div>
         </el-card>
@@ -31,7 +31,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-progress">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.in_progress }}</div>
+            <div class="stat-value" v-countup="stats.in_progress"></div>
             <div class="stat-label">进行中</div>
           </div>
         </el-card>
@@ -39,7 +39,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-done">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.done }}</div>
+            <div class="stat-value" v-countup="stats.done"></div>
             <div class="stat-label">已完成</div>
           </div>
         </el-card>
@@ -47,7 +47,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-today">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.today }}</div>
+            <div class="stat-value" v-countup="stats.today"></div>
             <div class="stat-label">今日截止</div>
           </div>
         </el-card>
@@ -55,7 +55,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-overdue">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.overdue }}</div>
+            <div class="stat-value" v-countup="stats.overdue"></div>
             <div class="stat-label">已超期</div>
           </div>
         </el-card>
@@ -66,10 +66,10 @@
     <el-card class="search-card" shadow="never">
       <el-form :model="queryForm" inline>
         <el-form-item label="关键字">
-          <el-input v-model="queryForm.keyword" placeholder="标题/内容" clearable />
+          <EnlargeInput v-model="queryForm.keyword" placeholder="标题/内容" clearable class="w-l" />
         </el-form-item>
         <el-form-item label="分类">
-          <el-select v-model="queryForm.category" placeholder="全部" clearable>
+          <el-select v-model="queryForm.category" placeholder="全部" clearable class="w-m">
             <el-option
               v-for="item in categoryOptions"
               :key="item.value"
@@ -79,7 +79,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="queryForm.status" placeholder="全部" clearable>
+          <el-select v-model="queryForm.status" placeholder="全部" clearable class="w-m">
             <el-option
               v-for="item in statusOptions"
               :key="item.value"
@@ -89,7 +89,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="优先级">
-          <el-select v-model="queryForm.priority" placeholder="全部" clearable>
+          <el-select v-model="queryForm.priority" placeholder="全部" clearable class="w-m">
             <el-option
               v-for="item in priorityOptions"
               :key="item.value"
@@ -113,6 +113,7 @@
       :data="tableData"
       :total="pagination.total"
       :loading="loading"
+      :row-class-name="todoRowClass"
       v-model:page="pagination.page"
       v-model:pageSize="pagination.page_size"
       @change="loadData"
@@ -122,7 +123,12 @@
       <template #columns>
         <el-table-column prop="title" label="待办标题" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            <span :class="{ 'done-text': row.status === 'done' }">{{ row.title }}</span>
+            <span
+              class="todo-title"
+              :class="{ linked: row.related_id, 'done-text': row.status === 'done' }"
+              title="点击查看/编辑待办详情"
+              @click="handleEdit(row)"
+            >{{ row.title }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="category" label="分类" width="100">
@@ -135,12 +141,12 @@
             <el-tag :type="priorityType(row.priority)" size="small">{{ row.priority }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="120">
+        <el-table-column prop="status" label="状态" width="160">
           <template #default="{ row }">
             <el-select
               v-model="row.status"
               size="small"
-              style="width: 100px"
+              class="w-s status-select"
               @change="(val) => handleStatusChange(row, val)"
             >
               <el-option
@@ -170,16 +176,17 @@
       </template>
     </DataTable>
 
-    <!-- 新增/编辑弹窗 -->
-    <el-dialog
-      v-model="dialogVisible"
+    <!-- 新增/编辑抽屉（项目基本要求：弹窗用抽屉模式，70% 屏宽） -->
+    <el-drawer
+      v-model="drawerVisible"
       :title="isEdit ? '编辑待办' : '新增待办'"
-      width="650px"
+      size="70%"
+      direction="rtl"
       destroy-on-close
     >
       <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
         <el-form-item label="待办标题" prop="title">
-          <el-input v-model="form.title" placeholder="待办标题" />
+          <EnlargeInput v-model="form.title" placeholder="待办标题" />
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
@@ -267,7 +274,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="关联ID" prop="related_id">
-              <el-input v-model="form.related_id" placeholder="关联对象编号" />
+              <EnlargeInput v-model="form.related_id" placeholder="关联对象编号" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -280,14 +287,15 @@
           />
         </el-form-item>
         <el-form-item label="待办内容" prop="content">
-          <el-input v-model="form.content" type="textarea" :rows="3" />
+          <EnlargeInput v-model="form.content" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+      <div class="drawer-footer">
+        <el-button @click="drawerVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
-      </template>
-    </el-dialog>
+      </div>
+    </el-drawer>
+
   </div>
 </template>
 
@@ -300,7 +308,7 @@ import { todoApi } from '@/api/todo'
 import { getRequirementStats } from '@/api/requirement.js'
 
 const loading = ref(false)
-const dialogVisible = ref(false)
+const drawerVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
 const tableData = ref([])
@@ -354,6 +362,11 @@ const priorityType = (priority) => {
 const relatedTypeText = (type) => {
   const map = { requirement: '需求', ticket: '工单', operation: '运营问题', meeting: '会议' }
   return map[type] || type
+}
+
+// 已完成行：行级差异化（标题已置灰删除线，这里给整行加弱化底色与文字）
+const todoRowClass = ({ row }) => {
+  return row.status === 'done' ? 'row-done' : ''
 }
 
 const defaultForm = {
@@ -460,13 +473,13 @@ const handleReset = () => {
 const handleAdd = () => {
   isEdit.value = false
   Object.assign(form, { ...defaultForm })
-  dialogVisible.value = true
+  drawerVisible.value = true
 }
 
 const handleEdit = (row) => {
   isEdit.value = true
   Object.assign(form, JSON.parse(JSON.stringify(row)))
-  dialogVisible.value = true
+  drawerVisible.value = true
 }
 
 const handleDelete = (row) => {
@@ -513,7 +526,7 @@ const handleSubmit = async () => {
         await todoApi.createTodo(payload)
         ElMessage.success('创建成功')
       }
-      dialogVisible.value = false
+      drawerVisible.value = false
       loadData()
       loadStats()
     } catch (error) {
@@ -553,17 +566,13 @@ onMounted(async () => {
   min-width: 140px;
 }
 
-.stat-card {
-  transition: all 0.3s;
-}
-
 .clickable {
   cursor: pointer;
 }
 
 .clickable:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-elevated);
 }
 
 .stat-item {
@@ -571,36 +580,24 @@ onMounted(async () => {
   padding: 10px 0;
 }
 
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: #303133;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: #606266;
-  margin-top: 6px;
-}
-
 .status-todo .stat-value {
-  color: #f56c6c;
+  color: var(--danger);
 }
 
 .status-progress .stat-value {
-  color: #e6a23c;
+  color: var(--warning);
 }
 
 .status-done .stat-value {
-  color: #67c23a;
+  color: var(--success);
 }
 
 .status-today .stat-value {
-  color: #409eff;
+  color: var(--accent);
 }
 
 .status-overdue .stat-value {
-  color: #909399;
+  color: var(--text-muted);
 }
 
 .search-card {
@@ -616,8 +613,44 @@ onMounted(async () => {
   color: #909399;
 }
 
+/* 已完成行：与「未开始/进行中」做明显差异化
+   - 整行弱化（灰字 + 浅底）
+   - 保留标题删除线
+   - 左侧绿色强调条标识已完成 */
+.todo-view :deep(.el-table__row.row-done) {
+  background-color: var(--surface-soft);
+}
+.todo-view :deep(.el-table__row.row-done .cell) {
+  color: var(--text-muted);
+}
+.todo-view :deep(.el-table__row.row-done:hover > td.el-table__cell) {
+  background-color: var(--surface-soft);
+}
+.todo-view :deep(.el-table__row.row-done td.el-table__cell:first-child) {
+  box-shadow: inset 3px 0 0 var(--success);
+}
+
 .overdue {
   color: #f56c6c;
   font-weight: 600;
 }
+
+.todo-title.linked {
+  color: var(--accent);
+  cursor: pointer;
+}
+.todo-title.linked:hover {
+  text-decoration: underline;
+}
+
+/* 抽屉底部操作区 */
+.drawer-footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 </style>

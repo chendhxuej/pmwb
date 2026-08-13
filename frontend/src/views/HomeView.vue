@@ -21,9 +21,23 @@
               <span class="g-stat-key">{{ s.key }}</span>
             </div>
           </div>
-          <div class="cmd-bar">
-            <div class="cmd-bar-kbd"><span class="kbd">⌘</span><span class="kbd">K</span></div>
-            <div class="cmd-bar-text">{{ cmdText }}</div><span class="cmd-cursor"></span>
+          <div class="g-ticker">
+            <span class="g-ticker-label">实时动态</span>
+            <div class="g-ticker-viewport">
+              <div
+                class="ticker-track"
+                :class="{ 'is-paused': tickerPaused }"
+                @mouseenter="tickerPaused = true"
+                @mouseleave="tickerPaused = false"
+              >
+                <span class="ticker-item" v-for="(t, i) in tickerItems" :key="'a' + i">
+                  <span class="ticker-dot" :class="t.color"></span>{{ t.text }}
+                </span>
+                <span class="ticker-item" v-for="(t, i) in tickerItems" :key="'b' + i" aria-hidden="true">
+                  <span class="ticker-dot" :class="t.color"></span>{{ t.text }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </BentoCard>
@@ -46,7 +60,7 @@
         :span="3"
         flat
       >
-        <div class="kpi-num" :class="k.color">{{ k.num }}</div>
+        <div class="kpi-num" :class="k.color" v-countup="k.num"></div>
         <div class="kpi-label">{{ k.label }}</div>
         <div class="kpi-delta" :class="k.deltaType">{{ k.delta }}</div>
       </BentoCard>
@@ -91,7 +105,7 @@
               <span class="op-bar-track"><i class="op-bar-fill" :style="{ width: pct(s.value, taskCenter.total) + '%' }"></i></span>
               <span class="op-bar-val">{{ s.value }}</span>
             </div>
-            <div v-if="!taskCenter.by_source.length" class="tc-empty">暂无来源分布</div>
+            <div v-if="!taskCenter.by_source.length" class="empty-hint">暂无来源分布</div>
           </div>
         </div>
       </BentoCard>
@@ -116,7 +130,7 @@
               <span class="rq-bar-track"><i class="rq-bar-fill" :class="rqStatusClass(s.name)" :style="{ width: pct(s.value, reqs.total) + '%' }"></i></span>
               <span class="rq-bar-val">{{ s.value }}</span>
             </div>
-            <div v-if="!reqStatusDist.length" class="tc-empty">暂无需求状态分布</div>
+            <div v-if="!reqStatusDist.length" class="empty-hint">暂无需求状态分布</div>
           </div>
         </div>
       </BentoCard>
@@ -141,7 +155,7 @@
               <span class="op-bar-track"><i class="op-bar-fill" :style="{ width: pct(s.value, issues.total) + '%' }"></i></span>
               <span class="op-bar-val">{{ s.value }}</span>
             </div>
-            <div v-if="!issueTypeDist.length" class="tc-empty">暂无类型分布</div>
+            <div v-if="!issueTypeDist.length" class="empty-hint">暂无类型分布</div>
           </div>
         </div>
       </BentoCard>
@@ -170,7 +184,7 @@
                 </div>
               </div>
             </li>
-            <li v-if="!schedule.length" class="mt-empty">今日暂无会议安排</li>
+            <li v-if="!schedule.length" class="empty-hint">今日暂无会议安排</li>
           </ul>
         </div>
       </BentoCard>
@@ -243,7 +257,7 @@
       <BentoCard title="智能优先级 · 我的待办" :span="6">
         <template #action><a class="card-action" @click="goTo('/todo')">更多</a></template>
         <ul class="todo-list">
-          <li class="todo-item" v-for="(t, i) in todos" :key="i">
+          <li class="todo-item" v-for="(t, i) in todos.slice(0, 3)" :key="i">
             <span class="todo-priority" :class="t.priorityClass">{{ t.priority }}</span>
             <div class="todo-body">
               <div class="todo-title">{{ t.title }}</div>
@@ -266,7 +280,7 @@
             </div>
             <div class="kp-bar"><i class="kp-fill" :style="{ width: p.percent + '%' }"></i></div>
           </li>
-          <li v-if="!keyProjects.length" class="kp-empty">暂无进行中的重点工作</li>
+          <li v-if="!keyProjects.length" class="empty-hint">暂无进行中的重点工作</li>
         </ul>
       </BentoCard>
 
@@ -311,7 +325,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import BentoCard from '@/components/Common/BentoCard.vue'
 import { dashboardApi } from '@/api/dashboard'
@@ -328,15 +342,20 @@ const yMin = 0
 /* ───────────────── Demo 有机数据（默认渲染） ───────────────── */
 const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
-/* 运营问题类型中文映射（后端 distribution_charts.issueTypeDist 含英文 key） */
+/* 运营问题类型中文映射（兜底：后端已返回中文名，这里兼容未覆盖的原始英文 key） */
 const ISSUE_TYPE_CN = {
   bug: 'BUG管理',
+  data_abnormal: '数据异常',
+  system_error: '系统错误',
+  process_block: '流程阻塞',
+  requirement_change: '需求变更',
+  spot_event: '热点投诉',
+  temp_task: '临时交办',
+  topic_analysis: '专题分析',
   系统错误: '系统错误',
   数据异常: '数据异常',
   流程阻塞: '流程阻塞',
   需求变更: '需求变更',
-  spot_event: '热点投诉',
-  temp_task: '临时交办',
   其他: '其他',
 }
 function pct(v, t) {
@@ -369,11 +388,24 @@ const liveStatus = ref([
   { color: 'green', text: '会议纪要已归档：周例会', time: '3h 前' },
 ])
 
+// 实时滚动字幕：数据驱动（运营动态 + 最近需求更新），无硬编码文案
+const tickerPaused = ref(false)
+const tickerItems = computed(() => {
+  const items = []
+  for (const x of liveStatus.value) {
+    items.push({ color: x.color || 'green', text: `[运营] ${x.text}（${x.time || ''}）` })
+  }
+  for (const r of recentReqs.value) {
+    items.push({ color: 'blue', text: `[需求] ${r.name} · ${r.status} · 更新 ${r.date}` })
+  }
+  return items.length ? items : [{ color: 'green', text: '暂无实时动态，系统运行正常' }]
+})
+
 const kpis = ref([
   { num: 14, color: 'blue', label: '我的待办', delta: '↑ 3 较昨日', deltaType: 'up' },
   { num: 38, color: 'amber', label: '本周新增需求', delta: '评审中 11', deltaType: 'neutral' },
-  { num: 9, color: 'blue', label: '进行中工单', delta: '本周完成 23', deltaType: 'up' },
-  { num: 5, color: 'red', label: '运营预警', delta: '超期 2 条', deltaType: 'down' },
+  { num: 0, color: 'blue', label: '本周新增运营工单', delta: '处理中 0', deltaType: 'up' },
+  { num: 0, color: 'red', label: '运营预警', delta: '处理中 0 · 待处理 0', deltaType: 'neutral' },
 ])
 
 const trendValues = ref([18, 24, 21, 33, 29, 38, 42])
@@ -440,27 +472,7 @@ const meetingStats = ref({ totalThisWeek: 0, today: 0, upcoming: 0, pendingMinut
 const reqStatusDist = ref([])
 const issueTypeDist = ref([])
 
-/* ───────────────── 命令栏打字机 ───────────────── */
-const cmdPhrases = [
-  '搜索需求 / 工单 / 知识库…',
-  '快速创建运营问题记录',
-  '查询「政企宽带」相关需求',
-  '查看今日待办与截止时间',
-  '打开产品圣经 · 极客业务',
-]
-const cmdText = ref('')
-let _ti = 0, _ci = 0, _erasing = false, _timer = null
-function _tick() {
-  const ph = cmdPhrases[_ti]
-  if (!_erasing) {
-    cmdText.value = ph.substring(0, ++_ci)
-    if (_ci >= ph.length) { _erasing = true; _timer = setTimeout(_tick, 2200); return }
-  } else {
-    cmdText.value = ph.substring(0, --_ci)
-    if (_ci <= 0) { _erasing = false; _ti = (_ti + 1) % cmdPhrases.length; _timer = setTimeout(_tick, 400); return }
-  }
-  _timer = setTimeout(_tick, _erasing ? 35 : 80)
-}
+/* ───────────────── 实时动态滚动（数据驱动，见 tickerItems / g-ticker）───────────────── */
 
 /* ───────────────── 派生：问候语 / 日期 ───────────────── */
 const helloText = computed(() => {
@@ -669,11 +681,11 @@ async function loadData() {
 
 onMounted(() => {
   loadData()
-  _timer = setTimeout(_tick, 600)
 })
 
-onUnmounted(() => {
-  if (_timer) clearTimeout(_timer)
+// 从其它页面返回看板时重新拉取，保证"我的待办/工单信息"为最新（实时性）
+onActivated(() => {
+  loadData()
 })
 </script>
 
@@ -684,6 +696,11 @@ onUnmounted(() => {
   width: 100%;
 }
 
+/* 行内卡片等高（stretch）+ 内容自适应填充，消除空白/错位，提升整体排版统一 */
+.bento-grid { align-items: stretch; }
+.bento-grid :deep(.card) { display: flex; flex-direction: column; }
+.bento-grid :deep(.card-body) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+
 /* ── 问候区 ── */
 .greeting-tile {
   background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
@@ -691,6 +708,7 @@ onUnmounted(() => {
   color: #f8fafc;
   position: relative;
   overflow: hidden;
+  align-self: stretch;
 }
 .greeting-tile::after {
   content: '';
@@ -706,10 +724,12 @@ onUnmounted(() => {
 .greeting-inner {
   position: relative;
   z-index: 1;
-  padding: 28px 30px;
+  padding: 16px 22px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 8px;
+  height: 100%;
+  justify-content: center;
 }
 .g-top {
   display: flex;
@@ -718,86 +738,88 @@ onUnmounted(() => {
   gap: 16px;
 }
 .g-hello {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -.3px;
-  line-height: 1.25;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: -1.2px;
+  line-height: 1.15;
 }
 .g-hello span { color: #93c5fd; }
 .g-sub {
-  font-size: 14px;
-  color: #94a3b8;
-  line-height: 1.5;
-  max-width: 440px;
-  margin-top: 8px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: #7a8ba8;
+  line-height: 1.4;
+  max-width: 480px;
+  margin-top: 4px;
 }
 .g-eff { text-align: right; flex-shrink: 0; }
-.g-eff-key { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+.g-eff-key { font-size: 11px; color: #7a8ba8; margin-bottom: 2px; letter-spacing: .03em; }
 .g-eff-val {
-  font-size: 32px;
-  font-weight: 800;
+  font-size: 42px;
+  font-weight: 900;
   font-family: var(--font-mono);
   color: #4ade80;
-  letter-spacing: -1px;
+  letter-spacing: -2px;
+  line-height: 1;
 }
 .g-eff-unit { font-size: 16px; color: #64748b; }
-.g-stats { display: flex; gap: 28px; flex-wrap: wrap; }
+.g-stats { display: flex; gap: 20px; flex-wrap: wrap; }
 .g-stat { display: flex; flex-direction: column; }
-.g-stat-val { font-size: 22px; font-weight: 700; font-family: var(--font-mono); line-height: 1.2; }
+.g-stat-val { font-size: 30px; font-weight: 900; font-family: var(--font-mono); line-height: 1.05; }
 .g-stat-val.up { color: #4ade80; }
 .g-stat-val.down { color: #f87171; }
 .g-stat-val.accent { color: #93c5fd; }
-.g-stat-key { font-size: 11.5px; color: #64748b; margin-top: 2px; letter-spacing: .03em; }
+.g-stat-key { font-size: 11px; color: #7a8ba8; margin-top: 2px; letter-spacing: .02em; }
 
-.cmd-bar {
-  margin-top: 6px;
+.g-ticker {
+  margin-top: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(255, 255, 255, .07);
-  border: 1px solid rgba(255, 255, 255, .09);
-  border-radius: 12px;
-  padding: 10px 16px;
-  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  padding: 6px 10px;
+  overflow: hidden;
 }
-.cmd-bar-kbd { display: flex; gap: 4px; }
-.kbd {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  background: rgba(255, 255, 255, .1);
-  border: 1px solid rgba(255, 255, 255, .14);
-  color: #94a3b8;
-  padding: 2px 7px;
-  border-radius: 5px;
+.g-ticker-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #93c5fd;
+  white-space: nowrap;
+  letter-spacing: .04em;
 }
-.cmd-bar-text { flex: 1; font-size: 13px; color: #64748b; min-width: 0; white-space: nowrap; overflow: hidden; }
-.cmd-cursor {
-  display: inline-block;
-  width: 2px;
-  height: 15px;
-  background: #60a5fa;
-  vertical-align: text-bottom;
-  animation: blink 1s step-end infinite;
+.g-ticker-viewport {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
 }
-@keyframes blink { 50% { opacity: 0; } }
 
 /* ── 实时动态 ── */
-.ls-list { list-style: none; padding: 0 22px 18px; }
-.ls-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }
+.ls-list { list-style: none; padding: 0 16px; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.ls-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
 .ls-item:last-child { border-bottom: none; }
-.ls-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.ls-dot.red { background: var(--danger); box-shadow: 0 0 6px rgba(217, 84, 77, .4); }
-.ls-dot.amber { background: var(--warning); box-shadow: 0 0 6px rgba(217, 138, 31, .35); }
+.ls-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.ls-dot.red { background: var(--danger); box-shadow: 0 0 5px rgba(217, 84, 77, .4); }
+.ls-dot.amber { background: var(--warning); box-shadow: 0 0 5px rgba(217, 138, 31, .35); }
 .ls-dot.green { background: var(--success); }
-.ls-text { font-size: 13px; color: var(--text-primary); flex: 1; min-width: 0; }
-.ls-time { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+.ls-text { font-size: 12px; color: var(--text-primary); flex: 1; min-width: 0; }
+.ls-time { font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
 /* ── KPI 增量 ── */
+.bento-grid :deep(.kpi-card) { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+.kpi-num { font-size: 36px; font-weight: 900; font-family: var(--font-mono); line-height: 1.1; }
+.kpi-num.blue { color: var(--accent); }
+.kpi-num.amber { color: var(--warning); }
+.kpi-num.red { color: var(--danger); }
+.kpi-num.green { color: var(--success); }
+.kpi-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; font-weight: 500; }
 .kpi-delta {
   font-size: 11.5px;
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: 6px;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -874,22 +896,22 @@ onUnmounted(() => {
 .dl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .dl-val { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); margin-left: auto; }
 
-/* ── 待办 ── */
-.todo-list { list-style: none; padding: 0 22px 16px; }
+/* ── 待办（紧凑版，高度压缩 30%）── */
+.todo-list { list-style: none; padding: 0 18px 10px; }
 .todo-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 11px 0;
+  gap: 10px;
+  padding: 7px 0;
   border-bottom: 1px solid var(--border-subtle);
   transition: background var(--transition-fast);
 }
 .todo-item:last-child { border-bottom: none; }
-.todo-item:hover { background: rgba(47, 111, 237, .02); margin: 0 -22px; padding: 11px 22px; border-radius: 8px; border-color: transparent; }
+.todo-item:hover { background: rgba(47, 111, 237, .02); margin: 0 -18px; padding: 7px 18px; border-radius: 8px; border-color: transparent; }
 .todo-priority {
   font-size: 10px;
   font-weight: 700;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 5px;
   flex-shrink: 0;
   line-height: 1.5;
@@ -901,8 +923,8 @@ onUnmounted(() => {
 .tp-med { background: var(--accent-soft); color: var(--accent); }
 .tp-low { background: var(--border-subtle); color: var(--text-muted); }
 .todo-body { flex: 1; min-width: 0; }
-.todo-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.4; word-break: break-word; }
-.todo-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.todo-title { font-size: 12.5px; color: var(--text-primary); line-height: 1.35; word-break: break-word; }
+.todo-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .todo-deadline { color: var(--danger); font-weight: 500; }
 .todo-overdue { color: var(--danger); background: var(--danger-soft); padding: 0 6px; border-radius: 4px; }
 
@@ -1006,18 +1028,14 @@ onUnmounted(() => {
   .mod-key { font-size: 12.5px; color: var(--text-muted); }
   .mod-sub { font-size: 12.5px; color: var(--text-secondary); }
 
-  /* ── 任务中心 / 运营工单 共用空态 ── */
-  .tc-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
-
-  /* ── 重点工作进度 ── */
-  .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 14px; }
-  .kp-item { display: flex; flex-direction: column; gap: 6px; }
+  /* ── 重点工作进度（紧凑版，高度压缩 30%）── */
+  .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 10px; }
+  .kp-item { display: flex; flex-direction: column; gap: 4px; }
   .kp-head { display: flex; align-items: center; justify-content: space-between; }
-  .kp-name { font-size: 13px; color: var(--text-primary); font-weight: 500; }
-  .kp-pct { font-size: 12.5px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
-  .kp-bar { height: 6px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
+  .kp-name { font-size: 12.5px; color: var(--text-primary); font-weight: 500; }
+  .kp-pct { font-size: 12px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+  .kp-bar { height: 5px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
   .kp-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #6aa0ff); border-radius: 4px; }
-  .kp-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
 
   /* ── 分区标题 ── */
   .section-title {
@@ -1066,5 +1084,42 @@ onUnmounted(() => {
   .mt-info { flex: 1; min-width: 0; }
   .mt-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
   .mt-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
-  .mt-empty { font-size: 12.5px; color: var(--text-muted); padding: 12px 0; }
+
+  /* ── 等高行内卡片：内层包裹填充并垂直居中，消除留白 ── */
+  .op-wrap, .rq-wrap, .mt-wrap,
+  .todo-list, .kp-list, .mod-grid {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  /* ── 实时滚动字幕（已并入问候卡底部，仅保留卡片内轨道样式）── */
+  .ticker-track {
+    display: inline-flex;
+    align-items: center;
+    gap: 44px;
+    white-space: nowrap;
+    padding-left: 24px;
+    animation: tickerScroll 54s linear infinite;
+    will-change: transform;
+  }
+  .ticker-track.is-paused { animation-play-state: paused; }
+  .ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #cbd5e1;
+    white-space: nowrap;
+  }
+  .ticker-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .ticker-dot.red { background: var(--danger); }
+  .ticker-dot.amber { background: var(--warning); }
+  .ticker-dot.green { background: var(--success); }
+  .ticker-dot.blue { background: #60a5fa; }
+  @keyframes tickerScroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
 </style>

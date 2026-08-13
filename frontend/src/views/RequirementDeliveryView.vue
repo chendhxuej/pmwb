@@ -483,7 +483,7 @@
                     <div class="sc-icon sc-icon-ai">🤖</div>
                     <div class="sc-body">
                       <div class="sc-title">
-                        Kimi 智能拆分
+                        AI 智能拆分
                         <span v-if="llmChecking" class="sc-badge sc-badge-info">检测中</span>
                         <span v-else-if="!llmStatus.enabled" class="sc-badge sc-badge-off">未配置</span>
                         <span v-else-if="llmStatus.reachable" class="sc-badge sc-badge-on">已连接</span>
@@ -520,7 +520,7 @@
                   class="strategy-warn"
                 >
                   <span class="sw-icon">⚠️</span>
-                  <span>Kimi 暂时不可用{{ llmStatus.error ? '：' + llmErrorHint : '' }}。可改用「合并生成」秒级出结果，或前往「大模型管理」配置可用的 API Key。</span>
+                  <span>AI 大模型暂时不可用{{ llmStatus.error ? '：' + llmErrorHint : '' }}。可改用「合并生成」秒级出结果，或前往「大模型管理」配置可用的 API Key。</span>
                 </div>
 
                 <el-button
@@ -532,11 +532,11 @@
                 >
                   <template v-if="storyGenLoading">
                     <el-icon class="is-loading"><Loading /></el-icon>
-                    {{ selectedStrategy === 'llm' ? `Kimi 正在分析需求… ${storyGenElapsed}s` : `正在生成… ${storyGenElapsed}s` }}
+                    {{ selectedStrategy === 'llm' ? `AI 正在分析需求… ${storyGenElapsed}s` : `正在生成… ${storyGenElapsed}s` }}
                   </template>
                   <template v-else>
                     <el-icon><MagicStick /></el-icon>
-                    {{ selectedStrategy === 'llm' ? 'Kimi 智能生成用户故事' : selectedStrategy === 'rules_v1' ? '按工作量生成用户故事' : '生成用户故事' }}
+                    {{ selectedStrategy === 'llm' ? 'AI 智能生成用户故事' : selectedStrategy === 'rules_v1' ? '按工作量生成用户故事' : '生成用户故事' }}
                   </template>
                 </el-button>
               </div>
@@ -575,8 +575,8 @@
                 <!-- 生成中遮罩 -->
                 <div v-if="storyGenLoading" class="story-loading-overlay">
                   <el-icon class="is-loading" :size="28"><Loading /></el-icon>
-                  <p>{{ selectedStrategy === 'llm' ? 'Kimi 正在分析需求内容，识别角色/场景/闭环…' : '正在生成用户故事…' }}</p>
-                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? 'Kimi 带推理能力，通常需要 20-40 秒，请耐心等待' : '预计 1-3 秒完成' }}</p>
+                  <p>{{ selectedStrategy === 'llm' ? 'AI 正在分析需求内容，识别角色/场景/闭环…' : '正在生成用户故事…' }}</p>
+                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? 'AI 带推理能力，通常需要 20-40 秒，请耐心等待' : '预计 1-3 秒完成' }}</p>
                 </div>
 
                 <!-- 未生成提示 -->
@@ -1464,7 +1464,7 @@ async function generateStories(strategy = 'rules_v2') {
       finalized: false,
     }))
     storiesConfirmed.value = false
-    const labelMap = { rules_v2: '合并优先', rules_v1: '按工作量拆分', rules_v2_fallback: '合并优先', llm: 'Kimi 智能拆分' }
+    const labelMap = { rules_v2: '合并优先', rules_v1: '按工作量拆分', rules_v2_fallback: '合并优先', llm: 'AI 智能拆分' }
     strategyLabel.value = labelMap[res.strategy_used] || res.strategy_used || ''
     ElMessage.success(`已生成 ${stories.value.length} 条用户故事（${strategyLabel.value}），请预览后点击「确认落库」保存`)
   } catch (err) {
@@ -1577,7 +1577,7 @@ onMounted(async () => {
   await loadRequirements()
   await loadTickets()
   applyDeepLink()
-  checkLlmStatus()  // 后台检测 Kimi/LLM 状态，不阻塞主流程
+  checkLlmStatus()  // 后台检测大模型状态，不阻塞主流程
 })
 
 onBeforeUnmount(() => {

@@ -1,52 +1,60 @@
 import re
-import zipfile
-from pathlib import Path
 
-from fastapi import APIRouter
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
-from core.config import settings
 from core.exceptions import NotFoundException
 from core.response import success
-from core.docx_convert import docx_to_html, emf_to_bmp
+from db.base import get_db
+from db.models import PmwbBusinessDomain, PmwbKnowledgeItem
+from services.knowledge_link_service import ensure_domain_main_note
+from utils.obsidian import (
+    extract_section,
+    read_auto_block,
+    read_frontmatter,
+    read_markdown,
+    upsert_auto_block,
+    write_markdown,
+)
 
 router = APIRouter(prefix="/product-bible", tags=["产品圣经"])
 
-# EMF 转换结果缓存（key: docx路径:文件名:mtime -> bmp bytes），避免每次请求重算 GDI
-_EMF_CACHE: dict = {}
+PRODUCT_SECTION_HEADING = "产商品与资费体系"
+PRODUCT_BLOCK_KEY = "product"
 
 
 class BibleUpdate(BaseModel):
     markdown: str
 
 
-def _resolve_source(key: str) -> dict:
-    """按业务 key 在配置中查找源文件信息，未找到抛 404。"""
-    for item in settings.PRODUCT_BIBLE:
-        if item["key"] == key:
-            return item
-    raise NotFoundException(f"未找到业务「{key}」的产品圣经")
+def _get_domain(db: Session, domain_code: str) -> PmwbBusinessDomain:
+    domain = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.domain_code == domain_code)
+        .first()
+    )
+    if not domain:
+        raise NotFoundException(f"未找到业务领域：{domain_code}")
+    return domain
 
 
-def _source_format(source: dict) -> str:
-    """判断源文件格式：配置显式 format 优先，否则按扩展名。"""
-    fmt = source.get("format")
-    if fmt:
-        return fmt.lower()
-    return "docx" if Path(source["path"]).suffix.lower() == ".docx" else "md"
-
-
-def _read_markdown(rel_path: str) -> str:
-    """基于 Obsidian vault 根目录解析并读取 markdown 文件。"""
-    full = Path(settings.OBSIDIAN_VAULT_PATH) / rel_path
-    if not full.exists() or not full.is_file():
-        raise NotFoundException(f"知识文件不存在：{rel_path}")
-    return full.read_text(encoding="utf-8")
+def _get_main_note(db: Session, domain_code: str):
+    """返回领域主笔记记录；不存在则 ensure 新建。"""
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(
+            PmwbKnowledgeItem.domain_code == domain_code,
+            PmwbKnowledgeItem.note_type == "main",
+        )
+        .first()
+    )
+    if not item:
+        item = ensure_domain_main_note(db, domain_code)
+    return item
 
 
 def _parse_title(markdown: str) -> str:
-    """取第一个一级标题作为标题。"""
     for line in markdown.splitlines():
         m = re.match(r"^#\s+(.+)$", line.strip())
         if m:
@@ -55,117 +63,91 @@ def _parse_title(markdown: str) -> str:
 
 
 def _parse_updated_at(markdown: str) -> str:
-    """从文档头部的「更新日期」行解析日期，失败回退文件修改时间。"""
     m = re.search(r"更新日期\**\s*[:：]\s*([\d]{4}-[\d]{2}-[\d]{2})", markdown)
     if m:
         return m.group(1)
     return ""
 
 
-def _read_bible(source: dict):
-    """读取源文件，返回 (content, title, updated_at, fmt)。docx 转 HTML 后复用渲染链路。"""
-    fmt = _source_format(source)
-    full = Path(settings.OBSIDIAN_VAULT_PATH) / source["path"]
-    if not full.exists() or not full.is_file():
-        raise NotFoundException(f"知识文件不存在：{source['path']}")
-    if fmt == "docx":
-        res = docx_to_html(str(full))
-        content = res["html"].replace("__KEY__", source["key"])
-        return content, res["title"], res["updated_at"], fmt
-    markdown = full.read_text(encoding="utf-8")
-    return markdown, _parse_title(markdown), _parse_updated_at(markdown), fmt
-
-
-_MEDIA_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".bmp": "image/bmp",
-    ".svg": "image/svg+xml",
-    ".webp": "image/webp",
-}
-
-
 @router.get("")
-def list_bible():
-    """返回产品圣经业务目录（key + 名称 + 格式）。"""
+def list_bible(db: Session = Depends(get_db)):
+    """返回产品圣经业务目录：按业务领域(domain_code)聚合，不再依赖硬编码配置。"""
+    domains = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.enabled == 1)
+        .order_by(PmwbBusinessDomain.sort_order, PmwbBusinessDomain.domain_code)
+        .all()
+    )
     catalog = [
-        {"key": i["key"], "name": i["name"], "format": _source_format(i)}
-        for i in settings.PRODUCT_BIBLE
+        {"key": d.domain_code, "name": d.domain_name, "format": "markdown"}
+        for d in domains
     ]
     return success(data=catalog)
 
 
-@router.get("/{key}")
-def get_bible(key: str):
-    """读取指定业务的产品圣经内容及其元信息（md 原文或 docx 转出的 HTML）。"""
-    source = _resolve_source(key)
-    content, title, updated_at, fmt = _read_bible(source)
-    data = {
-        "key": source["key"],
-        "name": source["name"],
-        "title": title,
-        "updated_at": updated_at,
-        "format": fmt,
-        "markdown": content,
-    }
-    return success(data=data)
+@router.get("/{domain_code}")
+def get_bible(domain_code: str, db: Session = Depends(get_db)):
+    """读取业务领域主笔记的 §2 产商品与资费体系章节作为产品圣经内容。"""
+    _get_domain(db, domain_code)
+    item = _get_main_note(db, domain_code)
+    if not item or not item.obsidian_path:
+        raise NotFoundException(f"业务「{domain_code}」尚无主笔记，请先同步")
 
+    content = read_markdown(item.obsidian_path)
+    # 优先取 §2 产商品章节；章节内优先取系统自动汇总 AUTO 块，空则退回整章
+    section = extract_section(content, PRODUCT_SECTION_HEADING)
+    block = read_auto_block(content, PRODUCT_BLOCK_KEY)
+    if not section and not block:
+        # 旧模板主笔记可能缺 §2 章节：惰性回填一次（upsert_auto_block 安全幂等，仅补 AUTO 块）
+        try:
+            from services.knowledge_link_service import sync_main_note_from_links
 
-@router.get("/{key}/media/{filename}")
-def get_media(key: str, filename: str):
-    """抽取 docx 内的媒体文件返回；EMF 矢量图经 GDI 光栅化为 BMP。"""
-    source = _resolve_source(key)
-    if _source_format(source) != "docx":
-        raise NotFoundException("该业务非 docx 源，无媒体资源")
-    # 防目录穿越
-    if "/" in filename or "\\" in filename or ".." in filename:
-        raise NotFoundException("非法文件名")
-    full = Path(settings.OBSIDIAN_VAULT_PATH) / source["path"]
-    if not full.exists() or not full.is_file():
-        raise NotFoundException(f"知识文件不存在：{source['path']}")
-    media_path = f"word/media/{filename}"
+            sync_main_note_from_links(db, domain_code)
+            content = read_markdown(item.obsidian_path)
+            section = extract_section(content, PRODUCT_SECTION_HEADING)
+            block = read_auto_block(content, PRODUCT_BLOCK_KEY)
+        except Exception:
+            pass
+    if block:
+        markdown = f"## {PRODUCT_SECTION_HEADING}\n\n{block}"
+    elif section:
+        markdown = section
+    else:
+        markdown = content
+
+    fm = {}
     try:
-        z = zipfile.ZipFile(full)
-    except zipfile.BadZipFile:
-        raise NotFoundException("文档无法读取")
-    if media_path not in z.namelist():
-        raise NotFoundException(f"媒体不存在：{filename}")
-    ext = Path(filename).suffix.lower()
-    if ext == ".emf":
-        raw = z.read(media_path)
-        mtime = full.stat().st_mtime
-        cache_key = f"{full}:{filename}:{mtime}"
-        bmp = _EMF_CACHE.get(cache_key)
-        if bmp is None:
-            bmp = emf_to_bmp(raw)
-            if bmp is None:
-                # 转换失败：返回占位说明（1x1 透明？这里用简单文本提示）
-                return Response(
-                    content=b"EMF render failed",
-                    media_type="text/plain",
-                    status_code=200,
-                )
-            _EMF_CACHE[cache_key] = bmp
-        return Response(content=bmp, media_type="image/bmp")
-    raw = z.read(media_path)
-    return Response(content=raw, media_type=_MEDIA_TYPES.get(ext, "application/octet-stream"))
+        fm = read_frontmatter(item.obsidian_path) or {}
+    except Exception:
+        pass
+
+    updated_at = fm.get("auto_sections_generated_at") or _parse_updated_at(markdown)
+    return success(
+        data={
+            "key": domain_code,
+            "name": item.title or domain_code,
+            "title": _parse_title(markdown) or item.title,
+            "updated_at": updated_at,
+            "format": "markdown",
+            "markdown": markdown,
+        }
+    )
 
 
-@router.put("/{key}")
-def update_bible(key: str, payload: BibleUpdate):
-    """把编辑后的内容写回 Obsidian 源文件。docx 为只读源，拒绝写入。"""
-    source = _resolve_source(key)
-    if _source_format(source) == "docx":
-        raise NotFoundException("docx 为只读源，请在 Obsidian / Word 中修改原文件")
-    full = Path(settings.OBSIDIAN_VAULT_PATH) / source["path"]
-    if not full.exists() or not full.is_file():
-        raise NotFoundException(f"知识文件不存在：{source['path']}")
-    # 安全校验：解析后的绝对路径必须仍位于 vault 之内，杜绝路径越界写文件
-    full_resolved = full.resolve()
-    vault_resolved = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
-    if full_resolved != vault_resolved and vault_resolved not in full_resolved.parents:
-        raise NotFoundException("非法路径，拒绝写入")
-    full.write_text(payload.markdown, encoding="utf-8")
-    return success(message="已保存", data={"key": key})
+@router.put("/{domain_code}")
+def update_bible(domain_code: str, payload: BibleUpdate, db: Session = Depends(get_db)):
+    """把编辑后的产商品内容写回主笔记 §2 产商品 AUTO 区块（系统同步会重新生成）。"""
+    _get_domain(db, domain_code)
+    item = _get_main_note(db, domain_code)
+    if not item or not item.obsidian_path:
+        raise NotFoundException(f"业务「{domain_code}」尚无主笔记，请先同步")
+
+    content = read_markdown(item.obsidian_path)
+    new_content = upsert_auto_block(
+        content,
+        PRODUCT_BLOCK_KEY,
+        payload.markdown,
+        anchor_heading=PRODUCT_SECTION_HEADING,
+    )
+    write_markdown(item.obsidian_path, new_content)
+    return success(message="已保存", data={"key": domain_code})

@@ -3,29 +3,29 @@
     <!-- 筛选区 -->
     <el-form :model="filters" inline class="filter-bar" @keyup.enter="onSearch">
       <el-form-item label="关键词">
-        <el-input
+        <EnlargeInput
           v-model="filters.search"
           placeholder="搜索主题/收件人/需求编号..."
           clearable
-          style="width: 240px"
+          class="w-m"
           @clear="onSearch"
         />
       </el-form-item>
       <el-form-item label="状态">
-        <el-select v-model="filters.status" placeholder="全部状态" clearable style="width: 120px" @change="onSearch">
+        <el-select v-model="filters.status" placeholder="全部状态" clearable class="w-xs" @change="onSearch">
           <el-option label="发送成功" value="sent" />
           <el-option label="发送失败" value="failed" />
         </el-select>
       </el-form-item>
       <el-form-item label="类型">
-        <el-select v-model="filters.logType" placeholder="全部类型" clearable style="width: 120px" @change="onSearch">
+        <el-select v-model="filters.logType" placeholder="全部类型" clearable class="w-xs" @change="onSearch">
           <el-option label="催办通知" value="reminder" />
           <el-option label="需求通知" value="requirement" />
           <el-option label="系统通知" value="system" />
         </el-select>
       </el-form-item>
       <el-form-item label="来源">
-        <el-select v-model="filters.sourceFilter" placeholder="全部来源" clearable style="width: 120px" @change="onSearch">
+        <el-select v-model="filters.sourceFilter" placeholder="全部来源" clearable class="w-xs" @change="onSearch">
           <el-option label="邮件中心" value="mail-center" />
           <el-option label="PMWB" value="pmwb" />
         </el-select>

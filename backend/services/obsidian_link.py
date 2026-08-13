@@ -577,7 +577,8 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
         if main_note:
             try:
                 link_note(db, main_note.id, source_type="requirement", source_id=req_id,
-                           link_type="main", domain_code=domain_code)
+                           link_type="main", domain_code=domain_code,
+                           event_type="requirement", summary=f"需求{req_id}关联业务知识主笔记")
             except Exception:
                 pass
         return {
@@ -613,7 +614,8 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
         if main_note:
             try:
                 link_note(db, main_note.id, source_type="requirement", source_id=req_id,
-                           link_type="main", domain_code=domain_code)
+                           link_type="main", domain_code=domain_code,
+                           event_type="requirement", summary=f"需求{req_id}关联业务知识主笔记")
             except Exception:
                 pass
         return {
@@ -644,7 +646,8 @@ def sediment_requirement(db, req_id: str, force: bool = False) -> Dict:
     if main_note:
         try:
             link_note(db, main_note.id, source_type="requirement", source_id=req_id,
-                       link_type="main", domain_code=domain_code)
+                       link_type="main", domain_code=domain_code,
+                       event_type="requirement", summary=f"需求{req_id}关联业务知识主笔记")
         except Exception:
             pass
     return {
@@ -777,12 +780,11 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
         raise NotFoundException("该需求暂无含业务规则的用户故事，无法沉淀")
 
     sub_note = _ensure_scenario_rules_sub_note(db, domain_code)
-    req_name = (ext.req_name if ext and ext.req_name else req_id)
 
-    # 按需求聚合的规则块（以 ### 需求编号 为界，便于重复触发时整体替换）
-    block_lines = [f"> 来源需求：{req_id}（{req_name}）", ""]
-    for i, s in enumerate(stories, 1):
-        block_lines.append(f"#### 故事{i}：{s.title or '—'}")
+    # 提炼后的纯净规则块（以 ### 需求编号 为界，便于重复触发时整体替换）
+    # 只保留规则本身，不冗余来源追溯——追溯由 pmwb_knowledge_link 承载
+    all_rules = []
+    for s in stories:
         rules = s.rules
         if isinstance(rules, str):
             try:
@@ -792,9 +794,15 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
         if not isinstance(rules, list):
             rules = []
         for r in rules:
-            block_lines.append(f"- {r}")
-        block_lines.append("")
-    block = "\n".join(block_lines).rstrip()
+            rule_text = (r or "").strip()
+            if rule_text and rule_text not in all_rules:
+                all_rules.append(rule_text)
+
+    if not all_rules:
+        raise NotFoundException("该需求的用户故事中无可提炼的业务规则")
+
+    block_lines = [f"- {r}" for r in sorted(all_rules)]
+    block = "\n".join(block_lines)
 
     content = read_markdown(sub_note["obsidian_path"]) or ""
     new_content = append_or_replace_section(content, f"场景规则 · {req_id}", block)
@@ -803,7 +811,8 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
     # 记录需求 → 场景规则子笔记 的关联（canonical）
     try:
         link_note(db, sub_note["id"], source_type="requirement", source_id=req_id,
-                   link_type="sub", domain_code=domain_code, note="业务规则")
+                   link_type="sub", domain_code=domain_code, note="业务规则",
+                   event_type="rule", summary=f"需求{req_id}沉淀业务规则到场景规则子笔记")
     except Exception:
         pass
 
@@ -882,7 +891,8 @@ def sediment_operation_rules(db, issue_id: int) -> Dict:
     # 记录工单 → 场景规则子笔记 的关联（canonical）
     try:
         link_note(db, sub_note["id"], source_type="operation", source_id=str(issue_id),
-                   link_type="sub", domain_code=domain_code, note="业务规则")
+                   link_type="sub", domain_code=domain_code, note="业务规则",
+                   event_type="operation", summary=f"工单{issue.issue_no}沉淀业务规则到场景规则子笔记")
     except Exception:
         pass
 
@@ -895,78 +905,225 @@ def sediment_operation_rules(db, issue_id: int) -> Dict:
 
 
 def archive_requirement_manual(db, req_id: str) -> Dict:
-    """把需求关联开发工单中的操作手册交付物归档到业务知识交付物目录并登记主笔记。
+    """把需求直挂的交付物归档到 Obsidian 06-交付物/ 目录并登记关联（kc4-4 改造）。
 
-    复制交付物文件到 01-业务知识/{group}/{name}/05-交付物/attachments/，
-    并在主笔记 frontmatter `related_deliverables` 登记（主笔记已存在时）。
-    返回 {archived: [...], skipped: [...], main_note: title|None}。
+    改造前：从 PmwbDevTicket → PmwbDevDeliverable 查找操作手册。
+    改造后：读 PmwbRequirementExt.deliverables(JSON)，复制到 06-交付物/，
+           建 link(event_type=delivery) 触发主笔记 §6 自动回流。
+
+    旧 dev_ticket 链路保留兼容（数据不删），但不再作为主要数据源。
     """
     ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
-    domain_code = getattr(ext, "domain_code", None) if ext else None
+    if not ext:
+        raise NotFoundException(f"需求不存在：{req_id}")
+    domain_code = getattr(ext, "domain_code", None)
     if not domain_code:
-        raise NotFoundException("需求未设置业务领域(domain_code)，无法归档操作手册")
+        raise NotFoundException("需求未设置业务领域(domain_code)，无法归档")
 
     main_note = _find_main_note(db, domain_code)
     domain = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.domain_code == domain_code).first()
     if not domain:
         raise NotFoundException(f"业务领域不存在：{domain_code}")
 
-    attachments_dir = f"01-业务知识/{domain.domain_group}/{domain.domain_name}/05-交付物/attachments"
+    vault = settings.OBSIDIAN_VAULT_PATH
+    delivery_dir = f"01-业务知识/{domain.domain_group}/{domain.domain_name}/06-交付物"
+    os.makedirs(os.path.join(vault, delivery_dir), exist_ok=True)
 
-    tickets = db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id == req_id).all()
-    ticket_ids = [t.id for t in tickets]
+    # ---- 新链路：需求直挂 deliverables ----
+    raw_deliverables = _parse_json(ext.deliverables) if hasattr(ext, 'deliverables') else []
     archived = []
     skipped = []
+    updated_items = []
+
+    for item in raw_deliverables:
+        file_name = item.get("file_name") or ""
+        local_path = item.get("local_path") or ""
+        note = item.get("note") or ""
+        if item.get("archived_at"):
+            skipped.append({"file_name": file_name, "reason": "已归档"})
+            continue
+        if not local_path or not file_name:
+            skipped.append({"file_name": file_name or "(空)", "reason": "缺少文件名或路径"})
+            continue
+
+        src_path = os.path.join(vault, local_path) if not os.path.isabs(local_path) else local_path
+        if not os.path.exists(src_path):
+            skipped.append({"file_name": file_name, "reason": "源文件不存在"})
+            continue
+
+        safe_name = sanitize_filename(file_name)
+        dst_rel = f"{delivery_dir}/{safe_name}"
+        dst_path = os.path.join(vault, dst_rel)
+        shutil.copy2(src_path, dst_path)
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        archived.append({
+            "file_name": safe_name,
+            "obsidian_path": dst_rel,
+            "note": note,
+            "archived_at": now_str,
+        })
+        updated_items.append(item)
+
+    # ---- 回写 deliverables JSON（标记已归档）----
+    if updated_items:
+        new_list = []
+        for item in raw_deliverables:
+            matched = next((a for a in archived if a["file_name"] == sanitize_filename(item.get("file_name", ""))), None)
+            if matched:
+                new_item = dict(item)
+                new_item["archived_at"] = matched["archived_at"]
+                new_item["obsidian_path"] = matched["obsidian_path"]
+                new_list.append(new_item)
+            else:
+                new_list.append(item)
+        ext.deliverables = json.dumps(new_list, ensure_ascii=False)
+
+    # ---- 兼容旧链路：dev_ticket 操作手册（数据保留，逐步淘汰）----
+    tickets = db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id == req_id).all()
+    ticket_ids = [t.id for t in tickets]
     if ticket_ids:
-        deliverables = (
+        old_delivery_dir = f"01-业务知识/{domain.domain_group}/{domain.domain_name}/05-交付物/attachments"
+        old_deliverables = (
             db.query(PmwbDevDeliverable)
             .filter(PmwbDevDeliverable.ticket_id.in_(ticket_ids))
             .filter(PmwbDevDeliverable.deliverable_type == "operation_manual")
             .all()
         )
-        for d in deliverables:
+        for d in old_deliverables:
             src = d.obsidian_path or d.local_path
             if not src:
-                skipped.append({"file_name": d.file_name, "reason": "无源文件路径"})
+                skipped.append({"file_name": d.file_name, "reason": "[旧链路] 无源文件路径"})
                 continue
-            vault = settings.OBSIDIAN_VAULT_PATH
             src_path = os.path.join(vault, src) if not os.path.isabs(src) else src
             if not os.path.exists(src_path):
-                skipped.append({"file_name": d.file_name, "reason": "源文件不存在"})
+                skipped.append({"file_name": d.file_name, "reason": "[旧链路] 源文件不存在"})
                 continue
-            dst_rel = f"{attachments_dir}/{sanitize_filename(d.file_name)}"
+            dst_rel = f"{old_delivery_dir}/{sanitize_filename(d.file_name)}"
             dst_path = os.path.join(vault, dst_rel)
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
             shutil.copy2(src_path, dst_path)
-            archived.append({"file_name": d.file_name, "obsidian_path": dst_rel})
+            archived.append({"file_name": d.file_name, "obsidian_path": dst_rel, "_legacy": True})
 
-    # 登记主笔记 frontmatter related_deliverables（主笔记已存在时）
-    if main_note and main_note.obsidian_path:
-        fm = read_frontmatter(main_note.obsidian_path)
-        existing = fm.get("related_deliverables")
-        existing_list = existing if isinstance(existing, list) else ([existing] if existing else [])
-        changed = False
+    # ---- 建关联 link（event_type=delivery）触发主笔记回流（新旧链路统一处理）----
+    if main_note and archived:
+        from services.knowledge_link_service import link_note as _link_note
         for a in archived:
-            if a["file_name"] not in existing_list:
-                existing_list.append(a["file_name"])
-                changed = True
-        if changed:
-            fm["related_deliverables"] = existing_list
-            write_frontmatter(main_note.obsidian_path, fm)
+            try:
+                _link_note(
+                    db,
+                    knowledge_item_id=main_note.id,
+                    source_type="delivery",
+                    source_id=f"{req_id}:{a['file_name']}",
+                    domain_code=domain_code,
+                    link_type="auto",
+                    event_type="delivery",
+                    event_date=datetime.now().date(),
+                    summary=a.get("note") or f"交付物: {a['file_name']}",
+                )
+            except Exception:
+                pass  # 归档不因 link 失败而中断
+
+    # ---- 登记主笔记 frontmatter related_deliverables（向后兼容，新旧链路统一处理）----
+    if main_note and main_note.obsidian_path and archived:
+        try:
+            fm = read_frontmatter(main_note.obsidian_path)
+            existing = fm.get("related_deliverables")
+            existing_list = existing if isinstance(existing, list) else ([existing] if existing else [])
+            changed = False
+            for a in archived:
+                fname = a.get("file_name", "")
+                if fname and fname not in existing_list:
+                    existing_list.append(fname)
+                    changed = True
+            if changed:
+                fm["related_deliverables"] = existing_list
+                write_frontmatter(main_note.obsidian_path, fm)
+        except Exception:
+            pass
 
     # 标记需求已归档
-    if ext:
-        ext.manual_archived = 1
-        if archived:
-            ext.manual_obsidian_path = archived[0]["obsidian_path"]
-        db.commit()
+    ext.manual_archived = 1
+    if archived:
+        non_legacy = [a for a in archived if not a.get("_legacy")]
+        if non_legacy:
+            ext.manual_obsidian_path = non_legacy[0]["obsidian_path"]
+    db.commit()
+
+    # 触发主笔记自动回流（kc4-2）
+    try:
+        from services.knowledge_link_service import sync_main_note_safe
+        sync_main_note_safe(db, domain_code)
+    except Exception:
+        pass
 
     return {
         "req_id": req_id,
-        "archived": archived,
+        "archived": [{k: v for k, v in a.items() if k != "_legacy"} for a in archived],
         "skipped": skipped,
         "main_note": main_note.title if main_note else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# kc4-4 需求交付物 CRUD（去开发工单中间层）
+# ---------------------------------------------------------------------------
+
+
+def _parse_json(raw) -> list:
+    """安全解析 JSON 字符串为列表，解析失败返回空列表。"""
+    if not raw:
+        return []
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+def get_requirement_deliverables(db, req_id: str) -> List[dict]:
+    """获取需求直挂交付物列表。"""
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if not ext:
+        raise NotFoundException(f"需求不存在：{req_id}")
+    raw = _parse_json(getattr(ext, "deliverables", "[]"))
+    return raw
+
+
+def add_requirement_deliverable(
+    db, req_id: str, file_name: str, local_path: str, note: str = ""
+) -> dict:
+    """为需求添加一个交付物记录（文件需已上传到 uploads/ 或 vault）。"""
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if not ext:
+        raise NotFoundException(f"需求不存在：{req_id}")
+
+    items = _parse_json(getattr(ext, "deliverables", "[]"))
+    entry = {
+        "file_name": file_name,
+        "local_path": local_path,
+        "note": note,
+        "archived_at": None,
+        "added_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    items.append(entry)
+    ext.deliverables = json.dumps(items, ensure_ascii=False)
+    db.commit()
+    return entry
+
+
+def remove_requirement_deliverable(db, req_id: str, index: int) -> bool:
+    """按索引删除需求的某个交付物。"""
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if not ext:
+        raise NotFoundException(f"需求不存在：{req_id}")
+
+    items = _parse_json(getattr(ext, "deliverables", "[]"))
+    if 0 <= index < len(items):
+        removed = items.pop(index)
+        ext.deliverables = json.dumps(items, ensure_ascii=False)
+        db.commit()
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------

@@ -122,14 +122,14 @@ def generate_user_stories(
 
 
 @router.get("/delivery/llm-status")
-def get_llm_status():
-    """查询 LLM 用户故事生成服务的状态。
+def get_llm_status(db: Session = Depends(get_db)):
+    """查询 AI 智能拆分可用的大模型状态（统一取自「大模型管理」注册表）。
 
     Returns:
-        { enabled, provider, model, reachable, error }
+        { enabled, provider_type, provider_name, model, reachable, error }
     """
-    from services.storygen_llm import check_llm_available
-    return success(data=check_llm_available())
+    from services.llm_provider import get_status
+    return success(data=get_status(db))
 
 
 @router.post("/{req_id}/delivery/generate-doc")

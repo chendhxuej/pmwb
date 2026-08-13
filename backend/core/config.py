@@ -33,21 +33,6 @@ class Settings(BaseSettings):
         Path(__file__).resolve().parent.parent / "templates" / "需求分析说明书.docx"
     )
 
-    # 产品圣经：业务大类 -> Obsidian vault 内相对路径（新增业务只需加一项）
-    PRODUCT_BIBLE: list = [
-        {
-            "key": "group-sms",
-            "name": "集团短信业务",
-            "path": "01-业务知识/政企业务知识库/集团短信/集团短信产品业务知识.md",
-        },
-        {
-            "key": "e-contract",
-            "name": "电子协议",
-            "format": "docx",
-            "path": "06-附件/电子协议支撑服务能力白皮书V0.1.docx",
-        },
-    ]
-
     # 运营工单关联的知识笔记路径（Obsidian vault 内相对目录，已被重构整理）
     OPERATION_NOTE_FOLDERS: list = [
         "11-业务运营",

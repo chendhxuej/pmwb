@@ -236,7 +236,7 @@ const router = useRouter()
 // 规则模板版横幅：仅当本次确实未用大模型且有说明（gen_notice）时提示，避免历史报告误弹
 const showRuleBanner = computed(() => current.value && current.value.gen_used_llm === 0 && !!current.value.gen_notice)
 function goManage() {
-  router.push('/llm-provider')
+  router.push('/ai-center/providers')
 }
 const editing = ref(false)
 const editContent = ref('')

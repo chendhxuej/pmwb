@@ -4,7 +4,13 @@ import request from './request.js'
 // 字段：脚本说明(title) / SQL(sql_text) / 创建时间(created_at) / 输出字段样例(output_fields: [{name,type,desc}])
 
 export const sqlScriptApi = {
-  listSqlScripts(params) {
+  listSqlScripts({ keyword, category, domain_code, page, page_size } = {}) {
+    const params = {}
+    if (keyword) params.keyword = keyword
+    if (category) params.category = category
+    if (domain_code) params.domain_code = domain_code
+    if (page) params.page = page
+    if (page_size) params.page_size = page_size
     return request.get('/sql-scripts', { params })
   },
 

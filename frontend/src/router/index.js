@@ -214,20 +214,38 @@ const routes = [
         component: () => import('@/views/RequirementGroupView.vue'),
         meta: { hidden: true },
       },
-      // ── AI 总结 ──
+      // ── AI 中心：聚合 AI问答 / AI总结 / 大模型管理 ──
       {
-        path: 'work-report',
-        name: 'WorkReport',
-        component: () => import('@/views/WorkReportView.vue'),
-        meta: { title: 'AI总结', icon: 'EditPen' },
+        path: 'ai-center',
+        name: 'AiCenter',
+        component: () => import('@/views/AiCenterLayout.vue'),
+        redirect: '/ai-center/qa',
+        meta: { title: 'AI中心', icon: 'MagicStick' },
+        children: [
+          {
+            path: 'qa',
+            name: 'AiQa',
+            component: () => import('@/views/AiQaView.vue'),
+            meta: { title: 'AI问答', icon: 'ChatDotRound' },
+          },
+          {
+            path: 'summary',
+            name: 'WorkReport',
+            component: () => import('@/views/WorkReportView.vue'),
+            meta: { title: 'AI总结', icon: 'EditPen' },
+          },
+          {
+            path: 'providers',
+            name: 'LlmProvider',
+            component: () => import('@/views/LlmProviderManage.vue'),
+            meta: { title: '大模型管理', icon: 'Cpu' },
+          },
+        ],
       },
-      // ── 大模型管理（紧邻 AI总结） ──
-      {
-        path: 'llm-provider',
-        name: 'LlmProvider',
-        component: () => import('@/views/LlmProviderManage.vue'),
-        meta: { title: '大模型管理', icon: 'Cpu' },
-      },
+      // 旧 AI 模块深链兼容（隐藏于菜单，重定向到 AI中心 子页）
+      { path: 'work-report', redirect: '/ai-center/summary', meta: { hidden: true } },
+      { path: 'llm-provider', redirect: '/ai-center/providers', meta: { hidden: true } },
+      { path: 'ai-qa', redirect: '/ai-center/qa', meta: { hidden: true } },
     ],
   },
   {
