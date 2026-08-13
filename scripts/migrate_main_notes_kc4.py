@@ -17,6 +17,7 @@ import os
 import re
 import sys
 import shutil
+from datetime import date
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
@@ -59,7 +60,12 @@ def _build_standard(domain_name, baseline, auto, index_md, moc_md):
     def block(key, body):
         return render_auto_block(key, body) if body else render_auto_block(key, "_暂无数据_")
 
-    lines = [f"# {domain_name} 业务知识主笔记", ""]
+    lines = [
+        f"<!-- PMWB:MIGRATED:{date.today().isoformat()} -->",
+        "",
+        f"# {domain_name} 业务知识主笔记",
+        "",
+    ]
     lines.append("> 本笔记为该业务领域的唯一主入口，**不堆过程细节**；详细过程性内容请通过下方链接跳转到对应需求/工单/会议/运营笔记。")
     lines.append("")
     lines.append("## 1. 业务概述")

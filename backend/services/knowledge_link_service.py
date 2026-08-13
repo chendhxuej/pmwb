@@ -88,7 +88,7 @@ _KIND_LABEL = {"baseline": "人工维护", "auto": "系统自动", "system": "�
 
 
 def _get_main_note_item(db: Session, domain_code: str):
-    """返回领域主笔记记录；不存在则 ensure 新建。"""
+    """返回领域主笔记 ORM 记录；不存在则 ensure 新建后重新查询（始终返回 ORM 对象）。"""
     item = (
         db.query(PmwbKnowledgeItem)
         .filter(
@@ -98,7 +98,16 @@ def _get_main_note_item(db: Session, domain_code: str):
         .first()
     )
     if not item:
-        item = ensure_domain_main_note(db, domain_code)
+        ensure_domain_main_note(db, domain_code)
+        db.flush()
+        item = (
+            db.query(PmwbKnowledgeItem)
+            .filter(
+                PmwbKnowledgeItem.domain_code == domain_code,
+                PmwbKnowledgeItem.note_type == "main",
+            )
+            .first()
+        )
     return item
 
 
