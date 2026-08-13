@@ -296,6 +296,7 @@ class KeyWorkCreate(BaseModel):
     owner: Optional[str] = Field(None, max_length=128, description="牵头人/负责人")
     priority: KeyWorkPriority = Field(KeyWorkPriority.P2, description="优先级")
     status: KeyWorkStatus = Field(KeyWorkStatus.planning, description="生命周期状态")
+    progress: Optional[int] = Field(None, ge=0, le=100, description="进度百分比 0-100")
     planned_finish_date: Optional[date] = Field(None, description="计划完成时间")
     background: Optional[str] = Field(None, description="工作背景")
     current_status: Optional[str] = Field(None, description="现状说明")
@@ -322,6 +323,7 @@ class KeyWorkUpdate(BaseModel):
     owner: Optional[str] = Field(None, max_length=128)
     priority: Optional[KeyWorkPriority] = None
     status: Optional[KeyWorkStatus] = None
+    progress: Optional[int] = Field(None, ge=0, le=100, description="进度百分比 0-100")
     planned_finish_date: Optional[date] = None
     background: Optional[str] = None
     current_status: Optional[str] = None

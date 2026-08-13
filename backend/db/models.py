@@ -47,6 +47,21 @@ class PmwbRequirementExt(Base):
     manual_archived = Column(Integer, default=0, comment="操作手册是否已归档到业务知识")
     manual_obsidian_path = Column(String(512), comment="已归档操作手册的 Obsidian 路径")
     eval_seeded = Column(Integer, default=0, comment="团队评估是否已从 sent_emails 播种(避免删除后复活)")
+    # kc4-2：业务知识回流的「变更标记」——仅已关闭且勾选的需求才回写主笔记业务事实区，
+    # 防止草稿/未上线需求污染业务权威源（产商品体系/业务流程）。
+    product_changed = Column(
+        Integer, default=0, comment="本需求是否涉及产商品体系变更(1是)，用于主笔记产商品区保守回写"
+    )
+    process_changed = Column(
+        Integer, default=0, comment="本需求是否涉及业务流程变更(1是)，用于主笔记业务流程区保守回写"
+    )
+    # kc4-4：需求直挂交付物（去开发工单中间层）
+    # JSON 数组: [{"file_name":"xxx.pdf","local_path":"/uploads/...","note":"操作手册","archived_at":null}, ...]
+    deliverables = Column(
+        Text,
+        default="[]",
+        comment="需求直挂交付物(JSON数组),每项含file_name/local_path/note/archived_at",
+    )
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
     updated_at = Column(
         DateTime,
@@ -535,11 +550,20 @@ class PmwbKnowledgeLink(Base):
         onupdate=datetime.utcnow,
         comment="更新时间",
     )
+    # kc4-1：业务事件语义扩展，支撑业务时间线(kc4-3)与主笔记 §8 变更轨迹自动生成
+    event_type = Column(
+        String(64),
+        nullable=True,
+        comment="业务事件类型：requirement/meeting/operation/deliverable/rule/key_work/manual 等",
+    )
+    event_date = Column(Date, nullable=True, comment="业务发生日期(naive date)，存量用 created_at 日期回填")
+    summary = Column(Text, nullable=True, comment="事件一句话摘要，如「需求#123 上线：一网通宽带新增 FTTR 融合包」")
 
     __table_args__ = (
         Index("idx_kl_item_source", "knowledge_item_id", "source_type", "source_id", unique=True),
         Index("idx_kl_source", "source_type", "source_id"),
         Index("idx_kl_domain", "domain_code"),
+        Index("idx_kl_event_date", "event_date"),
         {"comment": "知识笔记与过程性对象多对多关联表"},
     )
 
@@ -686,6 +710,7 @@ class PmwbKeyWork(Base):
         comment="生命周期状态",
     )
     planned_finish_date = Column(Date, comment="计划完成时间")
+    progress = Column(Integer, default=0, comment="进度百分比 0-100")
     acceptance_criteria = Column(Text, comment="验收标准(JSON数组)")
 
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
@@ -1000,6 +1025,7 @@ class PmwbSqlScript(Base):
     script_no = Column(String(64), nullable=False, unique=True, comment="脚本编号 SQL-YYYYMMDD-XXX")
     title = Column(String(500), nullable=False, comment="脚本说明/名称")
     category = Column(String(64), comment="业务线/分类（可空，允许自定义）")
+    domain_code = Column(String(64), comment="关联业务领域编码，纳入领域体系与知识检索")
     description = Column(Text, comment="补充说明")
     sql_text = Column(Text, nullable=False, comment="SQL 文本")
     output_fields = Column(Text, comment="输出字段样例(JSON数组: name/type/desc)")
@@ -1014,6 +1040,7 @@ class PmwbSqlScript(Base):
 
     __table_args__ = (
         Index("idx_sql_category", "category"),
+        Index("idx_sql_domain", "domain_code"),
         {"comment": "SQL脚本库表"},
     )
 
@@ -1112,6 +1139,12 @@ class PmwbWorkReport(Base):
         onupdate=datetime.utcnow,
         comment="更新时间",
     )
+    # 报告生成来源（与迁移 20260809000003 对齐；to_out/send_report 会读写）
+    gen_used_llm = Column(
+        Integer, nullable=True, server_default="0", comment="是否由大模型生成(0/1)"
+    )
+    gen_model = Column(String(255), nullable=True, comment="生成所用模型/提供方名")
+    gen_notice = Column(Text, nullable=True, comment="生成说明（如不可用原因）")
 
     __table_args__ = (
         Index("ix_work_report_status", "status"),
