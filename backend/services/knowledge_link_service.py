@@ -29,11 +29,16 @@ from db.models import (
 )
 from utils.obsidian import (
     append_or_replace_section,
+    extract_region,
+    extract_section,
+    read_auto_block,
     read_frontmatter,
     read_markdown,
     render_auto_block,
+    replace_region,
     replace_section,
     sanitize_filename,
+    strip_auto_blocks,
     upsert_auto_block,
     write_frontmatter,
     write_markdown,
@@ -54,6 +59,121 @@ AUTO_BLOCKS = {
     "deliverables": "6. 关联交付物",         # 需求交付物 / 已归档操作手册
     "timeline": "9. 业务全过程时间线",       # 全部关联事件按 event_date 倒序
 }
+
+# ---------------------------------------------------------------------------
+# 知识标准化管理：主笔记「标准结构视图」章节 schema
+# ---------------------------------------------------------------------------
+# kind:
+#   baseline —— 人工基线区（产品经理维护，可编辑）
+#   auto     —— 系统自动区（AUTO 块，只读）
+#   system   —— 系统维护区（关联索引/MOC，只读）
+# level: 2(##) / 3(###)；editable 仅 baseline 为 True。
+MAIN_NOTE_SECTIONS = [
+    {"key": "overview",        "title": "1. 业务概述",                     "level": 2, "kind": "baseline", "editable": True,  "auto_key": None},
+    {"key": "product-matrix",  "title": "2.1 产品矩阵（人工维护）",         "level": 3, "kind": "baseline", "editable": True,  "auto_key": None},
+    {"key": "product-tariff",  "title": "2.2 资费与计费规则（人工维护）",     "level": 3, "kind": "baseline", "editable": True,  "auto_key": None},
+    {"key": "product-change",  "title": "2.3 产商品变更记录（系统自动）",     "level": 3, "kind": "auto",     "editable": False, "auto_key": "product"},
+    {"key": "service-scenes",  "title": "3.1 常见服务场景（人工维护）",       "level": 3, "kind": "baseline", "editable": True,  "auto_key": None},
+    {"key": "process-change",  "title": "3.2 流程变更记录（系统自动）",       "level": 3, "kind": "auto",     "editable": False, "auto_key": "process"},
+    {"key": "general-rules",   "title": "4.1 通用规则（人工维护）",          "level": 3, "kind": "baseline", "editable": True,  "auto_key": None},
+    {"key": "scenario-rules",  "title": "4.2 场景规则（系统自动）",          "level": 3, "kind": "auto",     "editable": False, "auto_key": "scenario_rules"},
+    {"key": "change-log",      "title": "5. 优化与变更轨迹（系统自动）",      "level": 2, "kind": "auto",     "editable": False, "auto_key": "change_log"},
+    {"key": "deliverables",    "title": "6. 关联交付物（系统自动）",          "level": 2, "kind": "auto",     "editable": False, "auto_key": "deliverables"},
+    {"key": "index",           "title": "7. 关联过程性内容索引（系统自动）",  "level": 2, "kind": "system",   "editable": False, "auto_key": None},
+    {"key": "moc",             "title": "8. 相关子笔记 MOC（系统自动）",      "level": 2, "kind": "system",   "editable": False, "auto_key": None},
+    {"key": "timeline",        "title": "9. 业务全过程时间线（系统自动）",    "level": 2, "kind": "auto",     "editable": False, "auto_key": "timeline"},
+    {"key": "systems",         "title": "10. 关联系统与接口（人工维护）",     "level": 2, "kind": "baseline", "editable": True,  "auto_key": None},
+]
+
+_KIND_LABEL = {"baseline": "人工维护", "auto": "系统自动", "system": "系统维护"}
+
+
+def _get_main_note_item(db: Session, domain_code: str):
+    """返回领域主笔记 ORM 记录；不存在则 ensure 新建后重新查询（始终返回 ORM 对象）。"""
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(
+            PmwbKnowledgeItem.domain_code == domain_code,
+            PmwbKnowledgeItem.note_type == "main",
+        )
+        .first()
+    )
+    if not item:
+        ensure_domain_main_note(db, domain_code)
+        db.flush()
+        item = (
+            db.query(PmwbKnowledgeItem)
+            .filter(
+                PmwbKnowledgeItem.domain_code == domain_code,
+                PmwbKnowledgeItem.note_type == "main",
+            )
+            .first()
+        )
+    return item
+
+
+def get_main_note_structured(db: Session, domain_code: str) -> dict:
+    """读取领域主笔记的「标准结构视图」：按 MAIN_NOTE_SECTIONS 顺序返回各章节内容。
+
+    - baseline：抽取基线内容（剔除 AUTO 块），可编辑；
+    - auto：读取对应 AUTO 块内容（无块则降级取整章），只读；
+    - system：抽取整章（关联索引/MOC），只读。
+    """
+    item = _get_main_note_item(db, domain_code)
+    if not item or not item.obsidian_path:
+        raise NotFoundException(f"业务「{domain_code}」尚无主笔记，请先同步")
+
+    content = read_markdown(item.obsidian_path) or ""
+    sections = []
+    for sec in MAIN_NOTE_SECTIONS:
+        if sec["kind"] == "auto":
+            md = read_auto_block(content, sec["auto_key"])
+            if not md:
+                md = extract_section(content, sec["title"]) or "_暂无数据_"
+            sections.append({**sec, "kind_label": _KIND_LABEL[sec["kind"]], "markdown": md})
+        else:
+            raw = extract_region(content, sec["title"], sec["level"]) or ""
+            if sec["kind"] == "baseline":
+                raw = strip_auto_blocks(raw)
+            sections.append({**sec, "kind_label": _KIND_LABEL[sec["kind"]], "markdown": raw.strip()})
+
+    fm = {}
+    try:
+        fm = read_frontmatter(item.obsidian_path) or {}
+    except Exception:
+        pass
+    updated_at = fm.get("auto_sections_generated_at") or fm.get("updated_date") or ""
+    return {
+        "key": domain_code,
+        "name": item.title or domain_code,
+        "title": item.title,
+        "updated_at": updated_at,
+        "sections": sections,
+    }
+
+
+def update_main_note_section(db: Session, domain_code: str, key: str, markdown: str) -> dict:
+    """编辑主笔记某一人工基线区的正文（按 key 定位标题，仅 baseline 可编辑）。"""
+    sec = next((s for s in MAIN_NOTE_SECTIONS if s["key"] == key), None)
+    if not sec:
+        raise NotFoundException(f"未知章节：{key}")
+    if not sec["editable"]:
+        raise NotFoundException(f"章节「{sec['title']}」为系统维护区，不可直接编辑")
+
+    item = _get_main_note_item(db, domain_code)
+    if not item or not item.obsidian_path:
+        raise NotFoundException(f"业务「{domain_code}」尚无主笔记，请先同步")
+
+    content = read_markdown(item.obsidian_path) or ""
+    new_content = replace_region(content, sec["title"], sec["level"], markdown or "")
+    write_markdown(item.obsidian_path, new_content)
+    try:
+        fm = read_frontmatter(item.obsidian_path) or {}
+        fm["updated_date"] = date.today().isoformat()
+        write_frontmatter(item.obsidian_path, fm)
+    except Exception:
+        pass
+    return {"key": domain_code, "section": key, "title": sec["title"]}
 
 # source_type -> frontmatter related_* 字段名
 SOURCE_FM_KEY = {
@@ -404,15 +524,21 @@ def build_main_note_markdown(
     lines.append("")
     lines.append("## 2. 产商品与资费体系")
     lines.append("")
-    lines.append("### 2.1 产品矩阵")
+    lines.append("### 2.1 产品矩阵（人工维护）")
     lines.append("")
-    lines.append("> 🤖 系统自动汇总：来源为「已关闭且标记产商品变更」的需求，人工无需手改。")
-    lines.append("")
-    lines.append(render_auto_block("product", ""))
+    lines.append("| 产品 | 定位 | 目标客户 | 备注 |")
+    lines.append("|------|------|----------|------|")
+    lines.append("|      |      |          |      |")
     lines.append("")
     lines.append("### 2.2 资费与计费规则（人工维护）")
     lines.append("")
     lines.append("- ")
+    lines.append("")
+    lines.append("### 2.3 产商品变更记录（系统自动）")
+    lines.append("")
+    lines.append("> 🤖 系统自动汇总：来源为「已关闭且标记产商品变更」的需求，人工无需手改。")
+    lines.append("")
+    lines.append(render_auto_block("product", ""))
     lines.append("")
     lines.append("## 3. 客户服务场景 SOP")
     lines.append("")
@@ -812,14 +938,13 @@ def _build_deliverables_block(reqs: List[PmwbRequirementExt], links: List[PmwbKn
     return "\n".join(lines)
 
 
-def _build_timeline_block(links: List[PmwbKnowledgeLink]) -> str:
-    """§9 业务时间线：全部关联事件按 event_date 倒序（客观记录，全部放开）。
+def _build_timeline_block(db: Session, domain_code: str, links: List[PmwbKnowledgeLink]) -> str:
+    """§9 业务时间线：关联事件 + 归属该领域的工单，全部按 event_date 倒序。
 
-    这是"以业务为中心看历史各时间点干了什么"的核心呈现。
+    与 business_timeline API 同源（双源合并、去重），保证"知识标准化管理"页主笔记
+    时间线与时间线 API 一致：既含显式 knowledge_link，也含按 domain_code 归属但
+    未显式建关联的工单（需求/会议/运营）。
     """
-    if not links:
-        return "_暂无关联事件_"
-    ordered = sorted(links, key=lambda x: (x.event_date or date.min), reverse=True)
     label_map = {
         "requirement": "需求",
         "meeting": "会议",
@@ -831,18 +956,45 @@ def _build_timeline_block(links: List[PmwbKnowledgeLink]) -> str:
         "rule": "业务规则",
         "manual": "操作手册",
     }
+    events: List[dict] = []
+    # 数据源1：knowledge_link（含 req/meeting/op/ticket/deliverable 等）
+    for lk in links:
+        d = lk.event_date
+        events.append({
+            "date": d or date.min,
+            "kind": label_map.get(lk.event_type or lk.source_type,
+                                  lk.event_type or lk.source_type or "事件"),
+            "source_id": lk.source_id,
+            "desc": (lk.summary or lk.note or "").replace("\n", " ").strip(),
+        })
+    # 数据源2：按 domain_code 归属的工单（未显式建关联的也纳入，与 API 对齐）
+    covered = {(lk.source_type, str(lk.source_id)) for lk in links}
+    for t in _collect_domain_tickets(db, domain_code, covered):
+        d = None
+        if t.get("event_date"):
+            try:
+                d = datetime.strptime(t["event_date"], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                d = None
+        events.append({
+            "date": d or date.min,
+            "kind": EVENT_LABELS.get(t["event_type"], t["event_type"] or "事件"),
+            "source_id": t["source_id"],
+            "desc": (t.get("summary") or "").replace("\n", " ").strip(),
+        })
+    if not events:
+        return "_暂无关联事件_"
+    events.sort(key=lambda e: e["date"], reverse=True)
     lines: List[str] = []
     current_month = None
-    for lk in ordered:
-        d = lk.event_date
-        month = d.strftime("%Y-%m") if d else "未知日期"
+    for ev in events:
+        month = ev["date"].strftime("%Y-%m") if ev["date"] != date.min else "未知日期"
         if month != current_month:
             lines.append(f"### {month}")
             current_month = month
-        kind = label_map.get(lk.event_type or lk.source_type, lk.event_type or lk.source_type or "事件")
-        desc = (lk.summary or lk.note or "").replace("\n", " ").strip()
-        suffix = f" — {desc}" if desc else ""
-        lines.append(f"- `{_fmt_date(d)}` **[{kind}]** [[{lk.source_id}]]{suffix}")
+        d_str = ev["date"].strftime("%Y-%m-%d") if ev["date"] != date.min else "未知"
+        suffix = f" — {ev['desc']}" if ev["desc"] else ""
+        lines.append(f"- `{d_str}` **[{ev['kind']}]** [[{ev['source_id']}]]{suffix}")
     return "\n".join(lines)
 
 
@@ -900,7 +1052,7 @@ def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
         "scenario_rules": _build_scenario_rules_block(db, reqs),
         "change_log": _build_change_log_block(reqs, links),
         "deliverables": _build_deliverables_block(reqs, links),
-        "timeline": _build_timeline_block(links),
+        "timeline": _build_timeline_block(db, domain_code, links),
     }
 
     original = content
@@ -1032,6 +1184,72 @@ def _resolve_source_titles(db: Session, links: List[PmwbKnowledgeLink]) -> Dict[
     return titles
 
 
+def _collect_domain_tickets(
+    db: Session, domain_code: str, covered: set
+) -> List[dict]:
+    """归集「归属该业务领域但未显式建知识关联」的工单，作为时间线事件。
+
+    业务领域是工单的一级归属（domain_code），应直接体现在领域知识中心时间线中；
+    即便该工单未通过「关联知识库」建立 knowledge_link，也应出现在时间线。
+    已通过 knowledge_link 覆盖的工单（covered 集合）不再重复计入。
+    """
+    specs = [
+        # (source_type, 模型, id 属性名, 取日期, 取标题, 取摘要)
+        (
+            "requirement",
+            PmwbRequirementExt,
+            "req_id",
+            lambda r: r.version_required_date or (r.created_at.date() if r.created_at else None),
+            lambda r: r.req_name or r.req_id,
+            lambda r: (r.description or r.background or ""),
+        ),
+        (
+            "meeting",
+            PmwbMeeting,
+            "meeting_id",
+            lambda m: m.start_time.date() if m.start_time else None,
+            lambda m: m.title or m.meeting_id,
+            lambda m: (m.summary or ""),
+        ),
+        (
+            "operation",
+            PmwbOperationIssue,
+            "issue_no",
+            lambda o: o.discovery_date.date() if o.discovery_date else (o.created_at.date() if o.created_at else None),
+            lambda o: o.title or o.issue_no,
+            lambda o: (o.situation_desc or o.result_feedback or ""),
+        ),
+    ]
+    out: List[dict] = []
+    for st, mdl, id_attr, date_fn, title_fn, summ_fn in specs:
+        rows = db.query(mdl).filter(mdl.domain_code == domain_code).all()
+        for row in rows:
+            sid = str(getattr(row, id_attr))
+            if (st, sid) in covered:
+                continue
+            d = date_fn(row)
+            out.append(
+                {
+                    "link_id": f"ticket-{st}-{sid}",
+                    "event_type": st,
+                    "event_label": EVENT_LABELS.get(st, st),
+                    "event_date": d.strftime("%Y-%m-%d") if d else None,
+                    "month": d.strftime("%Y-%m") if d else None,
+                    "summary": (summ_fn(row) or "").strip()[:300] or None,
+                    "source_type": st,
+                    "source_id": sid,
+                    "source_title": title_fn(row),
+                    "source_route": SOURCE_ROUTES.get(st),
+                    "knowledge_item_id": None,
+                    "knowledge_title": None,
+                    "obsidian_path": None,
+                    "note_type": None,
+                    "created_at": row.created_at.strftime("%Y-%m-%d %H:%M:%S") if row.created_at else None,
+                }
+            )
+    return out
+
+
 def business_timeline(
     db: Session,
     domain_code: str,
@@ -1040,7 +1258,9 @@ def business_timeline(
 ) -> dict:
     """业务全过程时间线：按业务聚合全部关联事件，时间倒序。
 
-    - 数据源：`pmwb_knowledge_link`（event_date desc, created_at desc）；
+    - 数据源1：`pmwb_knowledge_link`（显式知识关联，event_date desc, created_at desc）；
+    - 数据源2：归属该业务领域（domain_code）的工单（需求/会议/运营），即使未建知识关联也纳入；
+    - 两条数据源按 (source_type, source_id) 去重合并，工单归属关系即时可见；
     - 每条事件带源记录标题 + 前端跳转路由 + 关联笔记路径，前端可双向跳转；
     - 空业务返回空列表（不报错）。
     """
@@ -1050,47 +1270,26 @@ def business_timeline(
         .first()
     )
 
-    q = db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.domain_code == domain_code)
-    if event_type:
-        q = q.filter(PmwbKnowledgeLink.event_type == event_type)
-    links = q.all()
+    links = db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.domain_code == domain_code).all()
 
-    # 统计各事件类型数量（过滤前的全量口径，供前端筛选器展示）
-    all_links = (
-        links
-        if not event_type
-        else db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.domain_code == domain_code).all()
-    )
-    type_counter: Dict[str, int] = {}
-    for lk in all_links:
-        key = lk.event_type or lk.source_type or "other"
-        type_counter[key] = type_counter.get(key, 0) + 1
+    # 已通过 knowledge_link 覆盖的工单，避免与下面的工单归集重复
+    covered = {(lk.source_type, str(lk.source_id)) for lk in links}
+    ticket_events = _collect_domain_tickets(db, domain_code, covered)
 
-    # 排序：event_date 倒序（空日期垫底），同日按 created_at 倒序
-    def _sort_key(lk: PmwbKnowledgeLink):
-        d = lk.event_date or date.min
-        c = lk.created_at or datetime.min
-        return (d, c)
+    titles = _resolve_source_titles(db, links)
 
-    ordered = sorted(links, key=_sort_key, reverse=True)
-    total = len(ordered)
-    if limit and limit > 0:
-        ordered = ordered[:limit]
-
-    titles = _resolve_source_titles(db, ordered)
-
-    item_ids = {lk.knowledge_item_id for lk in ordered if lk.knowledge_item_id}
+    item_ids = {lk.knowledge_item_id for lk in links if lk.knowledge_item_id}
     items: Dict[int, PmwbKnowledgeItem] = {}
     if item_ids:
         for it in db.query(PmwbKnowledgeItem).filter(PmwbKnowledgeItem.id.in_(item_ids)).all():
             items[it.id] = it
 
-    events = []
-    for lk in ordered:
+    link_events = []
+    for lk in links:
         item = items.get(lk.knowledge_item_id) if lk.knowledge_item_id else None
         kind = lk.event_type or lk.source_type or "other"
         skey = f"{lk.source_type}:{lk.source_id}"
-        events.append(
+        link_events.append(
             {
                 "link_id": lk.id,
                 "event_type": kind,
@@ -1110,14 +1309,38 @@ def business_timeline(
             }
         )
 
+    # 合并两条数据源
+    all_events = link_events + ticket_events
+
+    # 统计各事件类型数量（全量口径，供前端筛选器展示）
+    type_counter: Dict[str, int] = {}
+    for ev in all_events:
+        key = ev["event_type"] or "other"
+        type_counter[key] = type_counter.get(key, 0) + 1
+
+    # 按事件类型过滤（在合并后的全集上过滤，因为工单归集无法用 SQL 按 link.event_type 过滤）
+    if event_type:
+        all_events = [ev for ev in all_events if ev["event_type"] == event_type]
+
+    # 排序：event_date 倒序（空日期垫底），同日按 created_at 倒序
+    def _sort_key(ev: dict):
+        d = datetime.strptime(ev["event_date"], "%Y-%m-%d").date() if ev["event_date"] else date.min
+        c = datetime.strptime(ev["created_at"], "%Y-%m-%d %H:%M:%S") if ev["created_at"] else datetime.min
+        return (d, c)
+
+    ordered = sorted(all_events, key=_sort_key, reverse=True)
+    total = len(ordered)
+    if limit and limit > 0:
+        ordered = ordered[:limit]
+
     return {
         "domain_code": domain_code,
         "domain_name": domain.domain_name if domain else domain_code,
         "total": total,
-        "returned": len(events),
+        "returned": len(ordered),
         "event_types": [
             {"value": k, "label": EVENT_LABELS.get(k, k), "count": v}
             for k, v in sorted(type_counter.items(), key=lambda x: -x[1])
         ],
-        "events": events,
+        "events": ordered,
     }

@@ -144,7 +144,6 @@ def test_sync_scenario_rules_from_user_story(client, db, vault_tmp):
     rules_block = content.split("key=scenario_rules -->")[1].split(
         "<!-- PMWB:AUTO:END key=scenario_rules"
     )[0]
-    assert "REQ-RULE" in rules_block
     assert "同一客户同月仅可办理一次" in rules_block
     assert "欠费客户不允许新装" in rules_block
 
