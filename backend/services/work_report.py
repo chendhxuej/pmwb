@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
+import markdown
 
 from core.exceptions import ValidationException
 from db.models import PmwbWorkReport
@@ -22,6 +23,43 @@ logger = logging.getLogger(__name__)
 REPORT_TYPE_LABELS = {"daily": "日报", "weekly": "周报", "monthly": "月报", "custom": "自定义"}
 STATUS_LABELS = {"draft": "草稿", "finalized": "已定稿", "sent": "已发送"}
 OBSIDIAN_ROOT = "15-工作总结"
+
+
+def _markdown_to_email_html(md: str) -> str:
+    """把 Markdown 报告转成带基础样式的邮件 HTML。"""
+    if not md:
+        md = ""
+    # 支持表格、代码块、自动换行等常见排版
+    html = markdown.markdown(
+        md,
+        extensions=["tables", "fenced_code", "nl2br"],
+    )
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.7; color: #333; max-width: 960px; margin: 0 auto; padding: 20px; }}
+h1, h2, h3, h4 {{ color: #1a1a1a; margin-top: 24px; margin-bottom: 12px; }}
+h1 {{ font-size: 22px; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
+h2 {{ font-size: 18px; }}
+h3 {{ font-size: 16px; }}
+p {{ margin: 10px 0; }}
+ul, ol {{ padding-left: 24px; }}
+li {{ margin: 4px 0; }}
+table {{ border-collapse: collapse; width: 100%; margin: 14px 0; }}
+th, td {{ border: 1px solid #ddd; padding: 8px 10px; text-align: left; }}
+th {{ background: #f5f7fa; font-weight: 600; }}
+code {{ background: #f4f4f5; padding: 2px 6px; border-radius: 3px; font-family: monospace; }}
+pre {{ background: #f8f8f8; padding: 12px; border-radius: 4px; overflow-x: auto; }}
+blockquote {{ border-left: 4px solid #409eff; margin: 12px 0; padding-left: 12px; color: #666; }}
+strong {{ color: #1a1a1a; }}
+</style>
+</head>
+<body>
+{html}
+</body>
+</html>"""
 
 
 def _type_label(rt: str) -> str:
@@ -304,11 +342,12 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
         raise ValidationException("没有可用的收件人邮箱（姓名需能在人员中台解析）")
     subject = req.get("subject") or r.title or "工作总结"
     body = req.get("body") or r.content or ""
+    html_body = _markdown_to_email_html(body)
     client = EmailCenterClient()
     try:
         result = client.send_email(
-            to=to_emails, subject=subject, body=body,
-            body_format="text", cc=cc_emails or None, raise_on_error=False,
+            to=to_emails, subject=subject, body=html_body,
+            body_format="html", cc=cc_emails or None, raise_on_error=False,
         )
     except Exception as e:  # noqa: BLE001
         r.error_msg = f"send: {e}"

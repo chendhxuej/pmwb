@@ -115,7 +115,7 @@
           </div>
         </el-alert>
         <MarkdownRender v-if="!editing" :content="current.content || ''" />
-        <el-input v-else type="textarea" v-model="editContent" :rows="26" placeholder="可手工编辑报告内容" />
+        <EnlargeInput v-else type="textarea" v-model="editContent" :rows="26" placeholder="可手工编辑报告内容" />
       </div>
 
       <template #footer>
@@ -133,7 +133,7 @@
     </el-drawer>
 
     <!-- 邮件发送弹窗 -->
-    <el-dialog v-model="emailVisible" title="邮件发送" width="620px">
+    <el-dialog v-model="emailVisible" title="邮件发送" width="85%" class="email-send-dialog">
       <el-form label-width="70px">
         <el-form-item label="收件人">
           <StaffSelect v-model="emailForm.to" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
@@ -142,16 +142,18 @@
           <StaffSelect v-model="emailForm.cc" multiple value-key="email" placeholder="抄送人员" />
         </el-form-item>
         <el-form-item label="主题">
-          <el-input v-model="emailForm.subject" placeholder="邮件主题" />
+          <EnlargeInput v-model="emailForm.subject" placeholder="邮件主题" />
         </el-form-item>
-        <el-form-item label="正文">
+        <el-form-item label="正文" class="email-body-item">
           <div class="email-body-bar">
             <el-button size="small" @click="emailEditing = !emailEditing">
               {{ emailEditing ? '预览' : '编辑' }}
             </el-button>
           </div>
-          <el-input v-if="emailEditing" type="textarea" v-model="emailForm.body" :rows="16" placeholder="邮件正文（支持 Markdown）" />
-          <MarkdownRender v-else :content="emailForm.body || ''" />
+          <div class="email-body-box">
+            <EnlargeInput v-if="emailEditing" type="textarea" v-model="emailForm.body" :rows="16" placeholder="邮件正文（支持 Markdown）" style="width: 100%" />
+            <MarkdownRender v-else :content="emailForm.body || ''" style="width: 100%" />
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -426,6 +428,12 @@ onMounted(load)
 .rule-banner-actions { margin-top: 10px; display: flex; gap: 8px; }
 .detail-footer { display: flex; gap: 8px; flex-wrap: wrap; }
 .email-body-bar { margin-bottom: 6px; text-align: right; }
+.email-body-item :deep(.el-form-item__content) { width: calc(100% - 70px); }
+.email-body-box { width: 100%; box-sizing: border-box; max-height: 420px; overflow-y: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 4px; padding: 8px; }
+.email-send-dialog :deep(.el-dialog) { max-width: 1200px; min-width: 720px; }
+.email-send-dialog :deep(.el-dialog__body) { padding-bottom: 8px; }
+.email-send-dialog :deep(.el-textarea) { width: 100%; }
+.email-send-dialog :deep(.el-textarea__inner) { min-height: 320px; }
 .title-link { color: var(--el-color-primary); cursor: pointer; }
 .title-link:hover { text-decoration: underline; }
 .gen-loading-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 20px; gap: 10px; color: var(--el-text-color-secondary); }
