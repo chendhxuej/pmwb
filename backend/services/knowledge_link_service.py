@@ -938,14 +938,13 @@ def _build_deliverables_block(reqs: List[PmwbRequirementExt], links: List[PmwbKn
     return "\n".join(lines)
 
 
-def _build_timeline_block(links: List[PmwbKnowledgeLink]) -> str:
-    """§9 业务时间线：全部关联事件按 event_date 倒序（客观记录，全部放开）。
+def _build_timeline_block(db: Session, domain_code: str, links: List[PmwbKnowledgeLink]) -> str:
+    """§9 业务时间线：关联事件 + 归属该领域的工单，全部按 event_date 倒序。
 
-    这是"以业务为中心看历史各时间点干了什么"的核心呈现。
+    与 business_timeline API 同源（双源合并、去重），保证"知识标准化管理"页主笔记
+    时间线与时间线 API 一致：既含显式 knowledge_link，也含按 domain_code 归属但
+    未显式建关联的工单（需求/会议/运营）。
     """
-    if not links:
-        return "_暂无关联事件_"
-    ordered = sorted(links, key=lambda x: (x.event_date or date.min), reverse=True)
     label_map = {
         "requirement": "需求",
         "meeting": "会议",
@@ -957,18 +956,45 @@ def _build_timeline_block(links: List[PmwbKnowledgeLink]) -> str:
         "rule": "业务规则",
         "manual": "操作手册",
     }
+    events: List[dict] = []
+    # 数据源1：knowledge_link（含 req/meeting/op/ticket/deliverable 等）
+    for lk in links:
+        d = lk.event_date
+        events.append({
+            "date": d or date.min,
+            "kind": label_map.get(lk.event_type or lk.source_type,
+                                  lk.event_type or lk.source_type or "事件"),
+            "source_id": lk.source_id,
+            "desc": (lk.summary or lk.note or "").replace("\n", " ").strip(),
+        })
+    # 数据源2：按 domain_code 归属的工单（未显式建关联的也纳入，与 API 对齐）
+    covered = {(lk.source_type, str(lk.source_id)) for lk in links}
+    for t in _collect_domain_tickets(db, domain_code, covered):
+        d = None
+        if t.get("event_date"):
+            try:
+                d = datetime.strptime(t["event_date"], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                d = None
+        events.append({
+            "date": d or date.min,
+            "kind": EVENT_LABELS.get(t["event_type"], t["event_type"] or "事件"),
+            "source_id": t["source_id"],
+            "desc": (t.get("summary") or "").replace("\n", " ").strip(),
+        })
+    if not events:
+        return "_暂无关联事件_"
+    events.sort(key=lambda e: e["date"], reverse=True)
     lines: List[str] = []
     current_month = None
-    for lk in ordered:
-        d = lk.event_date
-        month = d.strftime("%Y-%m") if d else "未知日期"
+    for ev in events:
+        month = ev["date"].strftime("%Y-%m") if ev["date"] != date.min else "未知日期"
         if month != current_month:
             lines.append(f"### {month}")
             current_month = month
-        kind = label_map.get(lk.event_type or lk.source_type, lk.event_type or lk.source_type or "事件")
-        desc = (lk.summary or lk.note or "").replace("\n", " ").strip()
-        suffix = f" — {desc}" if desc else ""
-        lines.append(f"- `{_fmt_date(d)}` **[{kind}]** [[{lk.source_id}]]{suffix}")
+        d_str = ev["date"].strftime("%Y-%m-%d") if ev["date"] != date.min else "未知"
+        suffix = f" — {ev['desc']}" if ev["desc"] else ""
+        lines.append(f"- `{d_str}` **[{ev['kind']}]** [[{ev['source_id']}]]{suffix}")
     return "\n".join(lines)
 
 
@@ -1026,7 +1052,7 @@ def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
         "scenario_rules": _build_scenario_rules_block(db, reqs),
         "change_log": _build_change_log_block(reqs, links),
         "deliverables": _build_deliverables_block(reqs, links),
-        "timeline": _build_timeline_block(links),
+        "timeline": _build_timeline_block(db, domain_code, links),
     }
 
     original = content

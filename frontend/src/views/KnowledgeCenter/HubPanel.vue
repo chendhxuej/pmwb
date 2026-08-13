@@ -396,7 +396,6 @@ defineExpose({ reload: loadDomains })
 }
 .hub-bible {
   flex: 1;
-  overflow-y: auto;
   padding: 14px 16px;
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: var(--surface);
@@ -405,7 +404,6 @@ defineExpose({ reload: loadDomains })
 }
 .hub-timeline-wrap {
   flex: 1;
-  overflow: hidden;
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: var(--surface);
   border: 1px solid var(--border);

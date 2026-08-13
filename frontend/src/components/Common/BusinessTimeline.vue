@@ -253,8 +253,6 @@ defineExpose({ reload: load })
 }
 .bt-scroll {
   flex: 1;
-  overflow: auto;
-  max-height: 460px;
   padding-right: 4px;
 }
 .bt-group {
@@ -264,9 +262,6 @@ defineExpose({ reload: load })
   display: flex;
   align-items: center;
   gap: 8px;
-  position: sticky;
-  top: 0;
-  z-index: 2;
   background: var(--surface);
   padding: 6px 0 6px 2px;
   cursor: pointer;
