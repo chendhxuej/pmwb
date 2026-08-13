@@ -24,25 +24,58 @@
     </div>
 
     <!-- 关联选择弹窗 -->
-    <el-dialog v-model="pickerVisible" title="关联业务知识笔记" width="680px" append-to-body>
-      <el-input
-        v-model="kw"
-        placeholder="按标题/关键字搜索（留空显示当前领域笔记）"
-        clearable
-        @input="searchNotes"
-      />
+    <el-dialog v-model="pickerVisible" title="关联业务知识笔记" width="820px" append-to-body @open="onPickerOpen">
+      <div class="kl-filters">
+        <div class="kl-filter-item" style="flex: 1 1 220px">
+          <label class="kl-fl">业务领域</label>
+          <BusinessDomainSelect v-model="filterDomain" @change="onFilterChange" />
+        </div>
+        <div class="kl-filter-item" style="flex: 0 0 150px">
+          <label class="kl-fl">标签</label>
+          <el-select v-model="filterTag" placeholder="全部标签" clearable filterable style="width: 100%" @change="onFilterChange">
+            <el-option v-for="t in tagOptions" :key="t" :label="t" :value="t" />
+          </el-select>
+        </div>
+        <div class="kl-filter-item" style="flex: 1 1 200px">
+          <label class="kl-fl">关键词</label>
+          <EnlargeInput v-model="kw" placeholder="搜索标题 / 关键词" clearable />
+        </div>
+      </div>
       <el-table
         ref="tableRef"
         :data="candidates"
-        height="320"
+        height="340"
         class="kl-table"
+        v-loading="loadingCandidates"
         @selection-change="onSelect"
+        :row-class-name="rowCls"
       >
-        <el-table-column type="selection" width="46" />
+        <el-table-column type="selection" width="46" :selectable="rowSelectable" />
         <el-table-column prop="title" label="笔记标题" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="domain_code" label="领域" width="120" show-overflow-tooltip />
-        <el-table-column prop="sub_category" label="类型" width="120" show-overflow-tooltip />
+        <el-table-column label="领域" width="130" show-overflow-tooltip>
+          <template #default="{ row }">{{ domainName(row.domain_code) }}</template>
+        </el-table-column>
+        <el-table-column label="类型" width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ typeLabel(row.category) }}</template>
+        </el-table-column>
+        <el-table-column prop="summary" label="摘要" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.summary">{{ row.summary }}</span>
+            <span v-else class="kl-muted">—</span>
+          </template>
+        </el-table-column>
       </el-table>
+      <div class="kl-pager">
+        <span class="kl-total">共 {{ total }} 条</span>
+        <el-pagination
+          layout="prev, pager, next"
+          :total="total"
+          :page-size="pageSize"
+          :current-page="page"
+          small
+          @current-change="onPageChange"
+        />
+      </div>
       <template #footer>
         <el-button @click="pickerVisible = false">取消</el-button>
         <el-button type="primary" :disabled="!selected.length" @click="confirmLink">
@@ -62,6 +95,9 @@
 import { ref, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { knowledgeApi } from '@/api/knowledge.js'
+import { basicDataApi } from '@/api/basicData.js'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
+import EnlargeInput from '@/components/Common/EnlargeInput.vue'
 
 const props = defineProps({
   sourceType: { type: String, required: true }, // requirement / ticket / operation / meeting
@@ -69,16 +105,31 @@ const props = defineProps({
   domainCode: { type: String, default: '' },
 })
 
+// 知识大类（category）友好中文；其余中文值原样显示
+const TYPE_LABEL = { meeting: '会议', product: '产品', requirement: '需求' }
+
 const links = ref([])
 const loading = ref(false)
 const pickerVisible = ref(false)
 const kw = ref('')
 const candidates = ref([])
 const selected = ref([])
+const selectedMap = ref(new Map())
 const tableRef = ref(null)
 const contentVisible = ref(false)
 const activeNote = ref(null)
 const activeContent = ref('')
+
+// 筛选与分页
+const filterDomain = ref('')
+const filterTag = ref('')
+const tagOptions = ref([])
+const domainMap = ref({})
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+const linkedSet = ref(new Set())
+const loadingCandidates = ref(false)
 
 const fetchLinks = async () => {
   if (!props.sourceId) {
@@ -89,6 +140,7 @@ const fetchLinks = async () => {
   try {
     const data = await knowledgeApi.getLinks(props.sourceType, String(props.sourceId))
     links.value = data || []
+    linkedSet.value = new Set(links.value.map((l) => l.knowledge_item_id))
   } catch {
     links.value = []
   } finally {
@@ -96,36 +148,96 @@ const fetchLinks = async () => {
   }
 }
 
-const searchNotes = async () => {
+const domainName = (code) => domainMap.value[code] || code || '—'
+const typeLabel = (c) => TYPE_LABEL[c] || c || '—'
+
+const loadDomains = async () => {
   try {
-    const params = { page_size: 100 }
-    if (kw.value) params.keyword = kw.value
-    else if (props.domainCode) params.domain_code = props.domainCode
-    const data = await knowledgeApi.listItems(params)
-    const items = data?.items || []
-    // 过滤掉已关联的
-    const linkedIds = new Set(links.value.map((l) => l.knowledge_item_id))
-    candidates.value = items.filter((i) => !linkedIds.has(i.id))
+    const tree = await basicDataApi.getBusinessDomains({ tree: true })
+    const m = {}
+    for (const g of tree || []) {
+      m[g.domain_code] = g.domain_name
+      for (const ch of g.children || []) m[ch.domain_code] = ch.domain_name
+    }
+    domainMap.value = m
   } catch {
-    candidates.value = []
+    // 静默失败
   }
 }
 
-const openPicker = async () => {
+const loadTags = async () => {
+  try {
+    tagOptions.value = (await knowledgeApi.getTags()) || []
+  } catch {
+    tagOptions.value = []
+  }
+}
+
+let kwTimer = null
+watch(kw, () => {
+  clearTimeout(kwTimer)
+  kwTimer = setTimeout(() => {
+    page.value = 1
+    searchNotes()
+  }, 300)
+})
+
+const onFilterChange = () => {
+  page.value = 1
+  searchNotes()
+}
+const onPageChange = (p) => {
+  page.value = p
+  searchNotes()
+}
+
+const searchNotes = async () => {
+  loadingCandidates.value = true
+  try {
+    const params = { page: page.value, page_size: pageSize.value }
+    if (kw.value) params.keyword = kw.value
+    if (filterDomain.value) params.domain_code = filterDomain.value
+    if (filterTag.value) params.tag = filterTag.value
+    const data = await knowledgeApi.listItems(params)
+    candidates.value = data?.items || []
+    total.value = data?.total || 0
+  } catch {
+    candidates.value = []
+  } finally {
+    loadingCandidates.value = false
+  }
+}
+
+const onPickerOpen = async () => {
+  selectedMap.value.clear()
   selected.value = []
   kw.value = ''
+  filterDomain.value = props.domainCode || ''
+  filterTag.value = ''
+  page.value = 1
+  await Promise.all([loadDomains(), loadTags()])
   await searchNotes()
+}
+
+const openPicker = () => {
   pickerVisible.value = true
 }
 
+const rowSelectable = (row) => !linkedSet.value.has(row.id)
+const rowCls = ({ row }) => (linkedSet.value.has(row.id) ? 'kl-row-linked' : '')
+
 const onSelect = (rows) => {
-  selected.value = rows
+  // 合并当前页选中，支持跨页累积
+  for (const c of candidates.value) selectedMap.value.delete(c.id)
+  for (const r of rows) selectedMap.value.set(r.id, r)
+  selected.value = [...selectedMap.value.values()]
 }
 
 const confirmLink = async () => {
-  if (!selected.value.length) return
+  const toLink = selected.value.filter((i) => !linkedSet.value.has(i.id))
+  if (!toLink.length) return
   try {
-    for (const item of selected.value) {
+    for (const item of toLink) {
       await knowledgeApi.createLink({
         source_type: props.sourceType,
         source_id: String(props.sourceId),
@@ -133,7 +245,7 @@ const confirmLink = async () => {
         domain_code: props.domainCode || item.domain_code || null,
       })
     }
-    ElMessage.success(`已关联 ${selected.value.length} 条知识笔记`)
+    ElMessage.success(`已关联 ${toLink.length} 条知识笔记`)
     pickerVisible.value = false
     await fetchLinks()
   } catch (e) {
@@ -227,8 +339,39 @@ onMounted(fetchLinks)
   display: flex;
   gap: 4px;
 }
+.kl-filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.kl-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kl-fl {
+  font-size: 12px;
+  color: var(--text-secondary, #909399);
+}
 .kl-table {
+  margin-top: 4px;
+}
+.kl-row-linked {
+  opacity: 0.55;
+}
+.kl-muted {
+  color: var(--text-secondary, #909399);
+}
+.kl-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-top: 10px;
+}
+.kl-total {
+  font-size: 12.5px;
+  color: var(--text-secondary, #909399);
 }
 .kl-content {
   max-height: 60vh;
