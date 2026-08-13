@@ -228,7 +228,12 @@
           <el-table :data="detail?.members || []" border stripe size="small">
             <el-table-column prop="name" label="姓名" width="120" />
             <el-table-column prop="role" label="角色" width="140" />
-            <el-table-column prop="division_desc" label="分工说明" min-width="180" show-overflow-tooltip />
+            <el-table-column label="分工说明" min-width="180" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span v-if="row.division_desc">{{ row.division_desc }}</span>
+                <span v-else style="color: var(--el-text-color-secondary)">未填写</span>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="80" fixed="right">
               <template #default="{ row }">
                 <el-button link type="danger" @click="removeMember(row)">删除</el-button>
