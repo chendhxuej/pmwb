@@ -127,45 +127,20 @@ const routes = [
         path: 'knowledge-center',
         name: 'KnowledgeCenter',
         component: () => import('@/views/KnowledgeCenterView.vue'),
-        redirect: '/knowledge-center/knowledge',
         meta: { title: '知识中心', icon: 'Reading' },
         children: [
-          {
-            path: 'knowledge',
-            name: 'KcKnowledge',
-            component: () => import('@/views/KnowledgeView.vue'),
-            meta: { title: '知识库', icon: 'Collection' },
-          },
           {
             path: 'product-bible',
             name: 'KcProductBible',
             component: () => import('@/views/ProductBibleView.vue'),
-            meta: { title: '产品圣经', icon: 'Notebook' },
+            meta: { title: '知识标准化管理', icon: 'Notebook', hidden: true },
           },
-          {
-            path: 'notes',
-            name: 'KcNotes',
-            component: () => import('@/views/OperationNotesView.vue'),
-            meta: { title: '知识沉淀', icon: 'Files' },
-          },
-          {
-            path: 'domain',
-            name: 'KcDomain',
-            component: () => import('@/views/DomainKnowledgeView.vue'),
-            meta: { title: '按领域浏览', icon: 'Grid' },
-          },
-          {
-            path: 'sql-scripts',
-            name: 'KcSqlScripts',
-            component: () => import('@/views/SqlScriptView.vue'),
-            meta: { title: 'SQL脚本库', icon: 'Document' },
-          },
-          {
-            path: 'business-domains',
-            name: 'KcBusinessDomains',
-            component: () => import('@/views/BusinessDomainManage.vue'),
-            meta: { title: '业务知识维度', icon: 'SetUp' },
-          },
+          // 旧版子页面深链兼容：统一重定向到新三视图，避免用户停留在旧布局
+          { path: 'knowledge', redirect: '/knowledge-center', meta: { hidden: true } },
+          { path: 'notes', redirect: '/knowledge-center', meta: { hidden: true } },
+          { path: 'domain', redirect: '/knowledge-center', meta: { hidden: true } },
+          { path: 'sql-scripts', redirect: '/knowledge-center', meta: { hidden: true } },
+          { path: 'business-domains', redirect: '/knowledge-center', meta: { hidden: true } },
         ],
       },
       // 旧催办中心深链兼容（隐藏于菜单，重定向到任务中心）

@@ -320,3 +320,192 @@ def replace_section(content: str, heading: str, new_body: str) -> str:
             new_lines.append(bl)
         new_lines.append("")
     return "\n".join(new_lines).rstrip("\n") + "\n"
+
+
+# ---------------------------------------------------------------------------
+# kc4-2：主笔记「自动区」标记块（人工区零覆盖的核心保障）
+# ---------------------------------------------------------------------------
+# 设计要点（相比按标题名替换更科学、更安全）：
+# 1. 自动内容一律夹在 <!-- PMWB:AUTO:BEGIN key=xxx --> / <!-- PMWB:AUTO:END key=xxx --> 之间；
+# 2. 系统只重写标记之间的内容，标记之外（人工撰写的概述/SOP/通用规则）永不触碰；
+# 3. 幂等：每次同步为「整块替换」，不会重复追加；
+# 4. 标记在 Obsidian 中渲染为注释（不可见），但源码可见，用户明确知道哪块由系统维护；
+# 5. 章节改名/挪位不影响（以 key 为契约，不依赖标题文字）。
+
+AUTO_BEGIN_TPL = "<!-- PMWB:AUTO:BEGIN key={key} -->"
+AUTO_END_TPL = "<!-- PMWB:AUTO:END key={key} -->"
+
+
+def _auto_block_pattern(key: str) -> "re.Pattern":
+    # 捕获组 (.*?) 用于 read_auto_block 抽取标记之间的内容
+    return re.compile(
+        re.escape(AUTO_BEGIN_TPL.format(key=key)) + r"(.*?)" + re.escape(AUTO_END_TPL.format(key=key)),
+        re.DOTALL,
+    )
+
+
+def render_auto_block(key: str, body: str) -> str:
+    """渲染一个带标记的自动区块。"""
+    inner = (body or "").strip("\n")
+    return "\n".join(
+        [
+            AUTO_BEGIN_TPL.format(key=key),
+            inner if inner else "_暂无数据_",
+            AUTO_END_TPL.format(key=key),
+        ]
+    )
+
+
+def has_auto_block(content: str, key: str) -> bool:
+    return bool(_auto_block_pattern(key).search(content or ""))
+
+
+def upsert_auto_block(
+    content: str,
+    key: str,
+    body: str,
+    anchor_heading: Optional[str] = None,
+) -> str:
+    """写入/更新自动区块，返回新内容。**只改标记之间的内容，人工区零覆盖。**
+
+    - 已存在同 key 标记块 → 原地整块替换（幂等）；
+    - 不存在且给了 anchor_heading（`## heading` 文本）→ 追加到该章节末尾（章节内人工内容保留）；
+    - 不存在且无 anchor_heading（或章节不存在）→ 追加到文末新建 `## anchor_heading` 章节。
+    """
+    content = content or ""
+    block = render_auto_block(key, body)
+    pat = _auto_block_pattern(key)
+    if pat.search(content):
+        return pat.sub(lambda _m: block, content, count=1)
+
+    if not anchor_heading:
+        return content.rstrip("\n") + "\n\n" + block + "\n"
+
+    lines = content.split("\n")
+    heading_pat = re.compile(r"^##\s+" + re.escape(anchor_heading) + r"\s*$")
+    n = len(lines)
+    for i, line in enumerate(lines):
+        if heading_pat.match(line):
+            # 找到该章节结束位置（下一个同级/更高级标题前）
+            j = i + 1
+            while j < n and not re.match(r"^##\s+", lines[j]) and not re.match(r"^#\s+", lines[j]):
+                j += 1
+            # 去掉章节尾部空行后插入区块
+            k = j
+            while k > i + 1 and not lines[k - 1].strip():
+                k -= 1
+            new_lines = lines[:k] + ["", block, ""] + lines[j:]
+            return "\n".join(new_lines).rstrip("\n") + "\n"
+
+    # 章节不存在：新建章节承载自动区块
+    return (
+        content.rstrip("\n") + "\n\n" + f"## {anchor_heading}" + "\n\n" + block + "\n"
+    )
+
+
+def read_auto_block(content: str, key: str) -> Optional[str]:
+    """读取指定 key 的 AUTO 区块内部内容；区块不存在返回 None。
+
+    用于产品圣经等场景：从主笔记抽取 §2 产商品等系统自动汇总内容。
+    """
+    content = content or ""
+    pat = _auto_block_pattern(key)
+    m = pat.search(content)
+    if not m:
+        return None
+    inner = m.group(1)
+    return inner.strip()
+
+
+def extract_section(content: str, heading: str) -> Optional[str]:
+    """读取主笔记中以 `## {heading}` 开头的章节正文（到下一个 `## ` 为止）。
+
+    heading 为模糊匹配（含子串即可），用于抽取「产商品与资费体系」等章节。
+    """
+    content = content or ""
+    lines = content.splitlines()
+    start_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith("## ") and heading in line:
+            start_idx = i
+            break
+    if start_idx is None:
+        return None
+    end_idx = len(lines)
+    for j in range(start_idx + 1, len(lines)):
+        if lines[j].startswith("## ") or lines[j].startswith("# "):
+            end_idx = j
+            break
+    return "\n".join(lines[start_idx:end_idx]).strip()
+
+
+def extract_region(content: str, heading: str, level: int = 2) -> Optional[str]:
+    """按精确标题（含 `## ` 或 `### `）提取某区块正文，直到下一个同级或更高级标题为止。
+
+    用于「知识标准化管理」按标准章节（如 `### 2.1 产品矩阵`）精确抽取基线内容，
+    不会把同章节内其它子区块（含 AUTO 块）一并带出。
+    """
+    content = content or ""
+    lines = content.splitlines()
+    hp = re.compile(r"^" + ("#" * level) + r"\s+" + re.escape(heading) + r"\s*$")
+    start = None
+    for i, line in enumerate(lines):
+        if hp.match(line):
+            start = i
+            break
+    if start is None:
+        return None
+    end = len(lines)
+    # 停止于下一个层级 <= 当前层级的标题（如 level=3 时遇到 # / ## / ### 即止）
+    for j in range(start + 1, len(lines)):
+        if re.match(r"^#{1,%d}\s+\S" % level, lines[j]):
+            end = j
+            break
+    return "\n".join(lines[start + 1 : end]).strip()
+
+
+def replace_region(content: str, heading: str, level: int, new_body: str) -> str:
+    """替换指定层级标题下的区块正文，保留标题前后的其它内容（含同章节内其它子区块/AUTO 块）。
+
+    与 replace_section 区别：支持 `### ` 三级标题，且不会误伤同章节内其它子区块。
+    """
+    content = content or ""
+    lines = content.splitlines()
+    hp = re.compile(r"^" + ("#" * level) + r"\s+" + re.escape(heading) + r"\s*$")
+    out = []
+    i = 0
+    n = len(lines)
+    replaced = False
+    while i < n:
+        line = lines[i]
+        if (not replaced) and hp.match(line):
+            replaced = True
+            out.append(line)
+            out.append("")
+            for bl in (new_body or "").strip("\n").split("\n"):
+                out.append(bl)
+            out.append("")
+            j = i + 1
+            while j < n and not re.match(r"^#{1,%d}\s+\S" % level, lines[j]):
+                j += 1
+            i = j
+            continue
+        out.append(line)
+        i += 1
+    if not replaced:
+        out.append("")
+        out.append(("#" * level) + " " + heading)
+        out.append("")
+        for bl in (new_body or "").strip("\n").split("\n"):
+            out.append(bl)
+        out.append("")
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def strip_auto_blocks(content: str) -> str:
+    """剔除内容中所有 PMWB:AUTO 标记块（保留标记外的基线内容）。"""
+    if not content:
+        return content
+    for key in ("product", "process", "scenario_rules", "change_log", "deliverables", "timeline"):
+        content = _auto_block_pattern(key).sub("", content)
+    return content

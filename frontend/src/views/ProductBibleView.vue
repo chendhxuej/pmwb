@@ -2,33 +2,20 @@
   <div class="product-bible">
     <div class="pb-header">
       <div class="pb-title-row">
-        <h2 class="page-title">产品圣经</h2>
+        <h2 class="page-title">知识标准化管理</h2>
         <el-radio-group v-model="activeKey" @change="loadBible" size="default">
           <el-radio-button v-for="b in catalog" :key="b.key" :value="b.key">
             {{ b.name }}
           </el-radio-button>
         </el-radio-group>
-        <div class="pb-actions">
-          <template v-if="!editing && format !== 'docx'">
-            <el-button size="small" @click="startEdit">
-              <el-icon><Edit /></el-icon><span>编辑内容</span>
-            </el-button>
-          </template>
-          <template v-else>
-            <el-button size="small" type="primary" :loading="saving" @click="saveEdit">
-              <el-icon><Check /></el-icon><span>保存</span>
-            </el-button>
-            <el-button size="small" :disabled="saving" @click="cancelEdit">取消</el-button>
-          </template>
-        </div>
       </div>
 
-      <el-card v-if="meta.title && !editing" class="meta-card" shadow="never">
+      <el-card v-if="meta.title" class="meta-card" shadow="never">
         <div class="meta-item">
           <span class="meta-label">业务线</span><span class="meta-value">{{ meta.name }}</span>
         </div>
         <div class="meta-item">
-          <span class="meta-label">文档</span><span class="meta-value">{{ meta.title }}</span>
+          <span class="meta-label">主笔记</span><span class="meta-value">{{ meta.title }}</span>
         </div>
         <div class="meta-item" v-if="meta.updated_at">
           <span class="meta-label">更新日期</span><span class="meta-value">{{ meta.updated_at }}</span>
@@ -37,133 +24,114 @@
     </div>
 
     <div class="pb-body" v-loading="loading">
-      <aside class="pb-toc" v-if="!editing">
-        <div class="toc-search">
-          <el-icon class="toc-search-icon"><Search /></el-icon>
-          <input
-            v-model="searchKw"
-            class="toc-search-input"
-            type="text"
-            placeholder="关键字查询…"
-            @input="onSearchInput"
-            @keyup.enter="onSearchNext"
-          />
-          <template v-if="searchKw">
-            <span class="toc-search-count">
-              {{ matchCount ? matchIndex + '/' + matchCount : '0' }}
-            </span>
-            <el-icon class="toc-search-nav" title="上一个" @click="onSearchPrev"><ArrowUp /></el-icon>
-            <el-icon class="toc-search-nav" title="下一个" @click="onSearchNext"><ArrowDown /></el-icon>
-            <el-icon class="toc-search-nav" title="清除" @click="onSearchClear"><Close /></el-icon>
-          </template>
-        </div>
-        <div class="toc-title">目录</div>
+      <!-- 左侧目录：标准章节 -->
+      <aside class="pb-toc" v-if="sections.length">
+        <div class="toc-title">标准知识结构</div>
         <ul class="toc-list">
-          <li v-for="node in tocTree" :key="node.id" class="toc-group">
-            <div
-              class="toc-item toc-level-2"
-              :class="{ active: activeToc === node.id }"
-              @click="scrollTo(node.id)"
-            >
-              <span class="toc-caret" @click.stop="toggle(node.id)">
-                {{ expandedMap[node.id] ? '▾' : '▸' }}
-              </span>
-              <span class="toc-text">{{ node.text }}</span>
-            </div>
-            <ul v-show="expandedMap[node.id]" class="toc-children">
-              <li
-                v-for="child in node.children"
-                :key="child.id"
-                class="toc-item toc-level-3"
-                :class="{ active: activeToc === child.id }"
-                @click="scrollTo(child.id)"
-              >
-                {{ child.text }}
-              </li>
-            </ul>
+          <li
+            v-for="sec in sections"
+            :key="sec.key"
+            class="toc-item"
+            :class="['kind-' + sec.kind, { active: activeToc === sec.key }]"
+            @click="scrollTo('sec-' + sec.key)"
+          >
+            <span class="toc-dot" :class="'dot-' + sec.kind"></span>
+            <span class="toc-text">{{ sec.title }}</span>
           </li>
         </ul>
       </aside>
 
+      <!-- 右侧：标准结构卡片 -->
       <main class="pb-content">
-        <template v-if="!editing">
-          <MarkdownRender ref="mdRef" :content="markdown" @toc="onToc" />
-        </template>
-        <template v-else>
-          <div class="edit-hint">
-            直接编辑下方 Markdown 源码，保存后写回 Obsidian 文件，页面立即生效。
-            <b>mermaid</b> 代码块、表格请保持原始格式，避免损坏。
+        <el-empty v-if="!loading && !sections.length" description="该业务暂无主笔记，请先同步" />
+        <section
+          v-for="sec in sections"
+          :key="sec.key"
+          :id="'sec-' + sec.key"
+          class="std-section"
+        >
+          <div class="std-head">
+            <div class="std-title">
+              <span class="std-badge" :class="'badge-' + sec.kind">{{ sec.kind_label }}</span>
+              <span class="std-name">{{ sec.title }}</span>
+            </div>
+            <div class="std-actions">
+              <template v-if="sec.editable && editingKey !== sec.key">
+                <el-button size="small" @click="startEdit(sec)">
+                  <el-icon><Edit /></el-icon><span>编辑</span>
+                </el-button>
+              </template>
+              <template v-else-if="sec.editable && editingKey === sec.key">
+                <el-button size="small" type="primary" :loading="saving" @click="saveEdit(sec)">
+                  <el-icon><Check /></el-icon><span>保存</span>
+                </el-button>
+                <el-button size="small" :disabled="saving" @click="cancelEdit">取消</el-button>
+              </template>
+              <el-tag v-else size="small" type="info" effect="plain">系统维护</el-tag>
+            </div>
           </div>
-          <el-input
-            v-model="editContent"
-            type="textarea"
-            class="edit-area"
-            :autosize="false"
-            resize="none"
-          />
-        </template>
+
+          <div class="std-body" v-if="editingKey !== sec.key">
+            <MarkdownRender v-if="sec.markdown && sec.markdown !== '_暂无数据_'" :content="sec.markdown" />
+            <div v-else class="std-empty">（暂无内容，可在 Obsidian 主笔记或上方「编辑」补充）</div>
+          </div>
+
+          <div class="std-edit" v-else>
+            <div class="edit-hint">
+              直接编辑本章节 Markdown 源码，保存后写回 Obsidian 主笔记对应章节（系统自动区不受影响）。
+            </div>
+            <EnlargeInput
+              v-model="editContent"
+              type="textarea"
+              class="edit-area"
+              :autosize="false"
+              resize="none"
+            />
+          </div>
+        </section>
       </main>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { productBibleApi } from '@/api/productBible'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
+import EnlargeInput from '@/components/Common/EnlargeInput.vue'
+
+const route = useRoute()
 
 const catalog = ref([])
 const activeKey = ref('')
 const loading = ref(false)
-const markdown = ref('')
-const toc = ref([])
+const sections = ref([])
 const activeToc = ref('')
 
-// 搜索
-const mdRef = ref(null)
-const searchKw = ref('')
-const matchCount = ref(0)
-const matchIndex = ref(0)
-
 // 编辑
-const editing = ref(false)
+const editingKey = ref('')
 const editContent = ref('')
 const saving = ref(false)
-
-// 目录树折叠状态（key=H2 id）
-const expandedMap = reactive({})
 
 const meta = reactive({
   name: '',
   title: '',
   updated_at: '',
 })
-const format = ref('markdown')
-
-const tocTree = computed(() => {
-  const tree = []
-  let current = null
-  toc.value.forEach((t) => {
-    if (t.level === 2) {
-      current = { id: t.id, text: t.text, children: [] }
-      tree.push(current)
-    } else if (t.level === 3 && current) {
-      current.children.push({ id: t.id, text: t.text })
-    }
-  })
-  return tree
-})
-
-let observer = null
 
 const loadCatalog = async () => {
   try {
     const res = await productBibleApi.getCatalog()
     catalog.value = res || []
-    if (!activeKey.value && catalog.value.length) {
-      activeKey.value = catalog.value[0].key
-      await loadBible(activeKey.value)
+    if (!catalog.value.length) return
+    const pref = route.query.domain
+    const matched =
+      pref && catalog.value.find((c) => c.key === pref) ? pref : catalog.value[0].key
+    if (activeKey.value !== matched) {
+      activeKey.value = matched
+      await loadBible(matched)
     }
   } catch (e) {
     ElMessage.error('加载业务目录失败')
@@ -173,89 +141,41 @@ const loadCatalog = async () => {
 const loadBible = async (key) => {
   if (!key) return
   loading.value = true
-  // 切换业务时重置搜索与编辑态
-  onSearchClear()
-  editing.value = false
+  editingKey.value = ''
+  editContent.value = ''
+  activeToc.value = ''
   try {
-    const res = await productBibleApi.getBible(key)
+    const res = await productBibleApi.getMainNote(key)
     meta.name = res.name
     meta.title = res.title
     meta.updated_at = res.updated_at
-    format.value = res.format || 'markdown'
-    markdown.value = res.markdown
+    sections.value = res.sections || []
+    if (sections.value.length) activeToc.value = sections.value[0].key
+    await nextTick()
+    activeToc.value = sections.value.length ? sections.value[0].key : ''
   } catch (e) {
-    ElMessage.error('加载产品圣经内容失败')
-    markdown.value = ''
+    ElMessage.error('加载知识标准化管理内容失败')
+    sections.value = []
   } finally {
     loading.value = false
   }
 }
 
-const onToc = async (list) => {
-  toc.value = list || []
-  const map = {}
-  list.forEach((t) => {
-    if (t.level === 2) map[t.id] = true
-  })
-  Object.assign(expandedMap, map)
-  activeToc.value = toc.value.length ? toc.value[0].id : ''
-  await nextTick()
-  setupSpy()
-}
-
-const scrollTo = (id) => {
-  const el = document.getElementById(id)
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
-const toggle = (id) => {
-  expandedMap[id] = !expandedMap[id]
-}
-
-// ---- 搜索 ----
-const onSearchInput = () => {
-  if (!mdRef.value) return
-  const c = mdRef.value.search(searchKw.value.trim())
-  matchCount.value = c
-  matchIndex.value = c > 0 ? 1 : 0
-}
-
-const onSearchNext = () => {
-  if (!mdRef.value || matchCount.value === 0) return
-  const i = mdRef.value.next()
-  matchIndex.value = (i >= 0 ? i : 0) + 1
-}
-
-const onSearchPrev = () => {
-  if (!mdRef.value || matchCount.value === 0) return
-  const i = mdRef.value.prev()
-  matchIndex.value = (i >= 0 ? i : 0) + 1
-}
-
-const onSearchClear = () => {
-  searchKw.value = ''
-  matchCount.value = 0
-  matchIndex.value = 0
-  if (mdRef.value) mdRef.value.clear()
-}
-
-// ---- 编辑 ----
-const startEdit = () => {
-  if (format.value === 'docx') return
-  editContent.value = markdown.value
-  editing.value = true
-  onSearchClear()
+// ---- 编辑基线章节 ----
+const startEdit = (sec) => {
+  editContent.value = sec.markdown || ''
+  editingKey.value = sec.key
 }
 
 const cancelEdit = () => {
-  editing.value = false
+  editingKey.value = ''
   editContent.value = ''
 }
 
-const saveEdit = async () => {
+const saveEdit = async (sec) => {
   try {
     await ElMessageBox.confirm(
-      '保存后将直接覆盖 Obsidian 中的源文件，且不可撤销。确认保存？',
+      '保存后将直接覆盖 Obsidian 主笔记中该章节，且不可撤销。确认保存？',
       '保存确认',
       { type: 'warning', confirmButtonText: '确认保存', cancelButtonText: '再想想' }
     )
@@ -264,10 +184,11 @@ const saveEdit = async () => {
   }
   saving.value = true
   try {
-    await productBibleApi.updateBible(activeKey.value, editContent.value)
-    markdown.value = editContent.value
-    editing.value = false
-    ElMessage.success('已保存，Obsidian 文件已更新')
+    await productBibleApi.updateMainNoteSection(activeKey.value, sec.key, editContent.value)
+    sec.markdown = editContent.value
+    editingKey.value = ''
+    editContent.value = ''
+    ElMessage.success('已保存，Obsidian 主笔记已更新')
   } catch (e) {
     ElMessage.error('保存失败：' + (e?.message || '未知错误'))
   } finally {
@@ -275,26 +196,14 @@ const saveEdit = async () => {
   }
 }
 
-const setupSpy = () => {
-  if (observer) observer.disconnect()
-  observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting) activeToc.value = e.target.id
-      })
-    },
-    { rootMargin: '-80px 0px -65% 0px', threshold: 0 }
-  )
-  toc.value.forEach((t) => {
-    const el = document.getElementById(t.id)
-    if (el) observer.observe(el)
-  })
+const scrollTo = (id) => {
+  const el = document.getElementById(id)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const key = id.replace('sec-', '')
+  if (key) activeToc.value = key
 }
 
 onMounted(loadCatalog)
-onBeforeUnmount(() => {
-  if (observer) observer.disconnect()
-})
 </script>
 
 <style scoped>
@@ -355,8 +264,8 @@ onBeforeUnmount(() => {
 }
 
 .pb-toc {
-  width: 240px;
-  flex: 0 0 240px;
+  width: 260px;
+  flex: 0 0 260px;
   position: sticky;
   top: 16px;
   max-height: calc(100vh - 140px);
@@ -383,8 +292,11 @@ onBeforeUnmount(() => {
 }
 
 .toc-item {
-  padding: 6px 8px;
-  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  font-size: 13px;
   color: #606266;
   cursor: pointer;
   border-radius: 6px;
@@ -397,97 +309,85 @@ onBeforeUnmount(() => {
   color: #409eff;
 }
 
-.toc-level-3 {
-  padding-left: 22px;
-  font-size: 13px;
-}
-
 .toc-item.active {
   background: #ecf5ff;
   color: #409eff;
   font-weight: 600;
 }
 
+.toc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 8px;
+}
+.dot-baseline { background: #409eff; }
+.dot-auto { background: #67c23a; }
+.dot-system { background: #c0c4cc; }
+
 .pb-content {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.std-section {
   background: #fff;
   border: 1px solid #ebeef5;
   border-radius: 8px;
-  padding: 28px 32px;
-  min-height: 60vh;
+  padding: 16px 20px;
+  scroll-margin-top: 16px;
 }
 
-.pb-actions {
+.std-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-left: auto;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
-.pb-actions .el-button span {
+.std-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.std-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.std-badge {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.badge-baseline { background: #ecf5ff; color: #409eff; }
+.badge-auto { background: #f0f9eb; color: #67c23a; }
+.badge-system { background: #f4f4f5; color: #909399; }
+
+.std-body {
+  font-size: 14px;
+  color: #303133;
+  line-height: 1.7;
+}
+
+.std-empty {
+  color: #c0c4cc;
+  font-size: 13px;
+  padding: 6px 0;
+}
+
+.std-actions .el-button span {
   margin-left: 4px;
 }
 
-/* TOC 搜索 */
-.toc-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px 10px;
-  border-bottom: 1px solid #f0f2f5;
-  margin-bottom: 8px;
-}
-
-.toc-search-icon {
-  color: #c0c4cc;
-  font-size: 15px;
-}
-
-.toc-search-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  font-size: 13px;
-  color: #303133;
-  background: transparent;
-}
-
-.toc-search-count {
-  font-size: 12px;
-  color: #909399;
-  white-space: nowrap;
-}
-
-.toc-search-nav {
-  cursor: pointer;
-  color: #909399;
-  font-size: 14px;
-  transition: color 0.15s;
-}
-
-.toc-search-nav:hover {
-  color: #409eff;
-}
-
-/* 目录树折叠 */
-.toc-caret {
-  display: inline-block;
-  width: 16px;
-  color: #909399;
-  font-size: 12px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.toc-children {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-/* 编辑区 */
 .edit-hint {
   font-size: 13px;
   color: #909399;
@@ -495,7 +395,7 @@ onBeforeUnmount(() => {
   border: 1px solid #d9ecff;
   border-radius: 6px;
   padding: 10px 14px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   line-height: 1.6;
 }
 
@@ -504,7 +404,7 @@ onBeforeUnmount(() => {
 }
 
 .edit-area :deep(textarea) {
-  height: 68vh;
+  height: 50vh;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;
   line-height: 1.6;
