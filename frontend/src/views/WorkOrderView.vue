@@ -11,25 +11,25 @@
     <!-- 统计卡片 -->
     <el-row :gutter="12" class="stats-row">
       <el-col :span="3">
-        <el-card shadow="hover"><div class="stat-item"><div class="stat-value">{{ stats.total }}</div><div class="stat-label">工单总数</div></div></el-card>
+        <el-card shadow="hover"><div class="stat-item"><div class="stat-value" v-countup="stats.total"></div><div class="stat-label">工单总数</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-pending"><div class="stat-item"><div class="stat-value">{{ stats.pending }}</div><div class="stat-label">待处理</div></div></el-card>
+        <el-card shadow="hover" class="status-pending"><div class="stat-item"><div class="stat-value" v-countup="stats.pending"></div><div class="stat-label">待处理</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-processing"><div class="stat-item"><div class="stat-value">{{ stats.processing }}</div><div class="stat-label">处理中</div></div></el-card>
+        <el-card shadow="hover" class="status-processing"><div class="stat-item"><div class="stat-value" v-countup="stats.processing"></div><div class="stat-label">处理中</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-verify"><div class="stat-item"><div class="stat-value">{{ stats.verify }}</div><div class="stat-label">待验证</div></div></el-card>
+        <el-card shadow="hover" class="status-verify"><div class="stat-item"><div class="stat-value" v-countup="stats.verify"></div><div class="stat-label">待验证</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-resolved"><div class="stat-item"><div class="stat-value">{{ stats.resolved }}</div><div class="stat-label">已解决</div></div></el-card>
+        <el-card shadow="hover" class="status-resolved"><div class="stat-item"><div class="stat-value" v-countup="stats.resolved"></div><div class="stat-label">已解决</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-closed"><div class="stat-item"><div class="stat-value">{{ stats.closed }}</div><div class="stat-label">已关闭</div></div></el-card>
+        <el-card shadow="hover" class="status-closed"><div class="stat-item"><div class="stat-value" v-countup="stats.closed"></div><div class="stat-label">已关闭</div></div></el-card>
       </el-col>
       <el-col :span="3">
-        <el-card shadow="hover" class="status-overdue"><div class="stat-item"><div class="stat-value">{{ stats.overdue }}</div><div class="stat-label">超期</div></div></el-card>
+        <el-card shadow="hover" class="status-overdue"><div class="stat-item"><div class="stat-value" v-countup="stats.overdue"></div><div class="stat-label">超期</div></div></el-card>
       </el-col>
       <el-col :span="3">
         <el-card shadow="hover" class="status-loop"><div class="stat-item"><div class="stat-value">{{ stats.closed_loop_rate }}%</div><div class="stat-label">闭环率</div></div></el-card>
@@ -58,12 +58,12 @@
           @click="statusFilter = s.key"
         >{{ s.label }}</span>
       </div>
-      <el-input
+      <EnlargeInput
         v-model="keyword"
         placeholder="搜索工单号 / 标题 / 责任人"
         clearable
         size="small"
-        style="width:240px"
+        class="w-m"
         @keyup.enter="handleSearch"
         @clear="handleSearch"
       />
@@ -80,7 +80,7 @@
       class="wo-table"
     >
       <el-table-column prop="issue_no" label="工单编号" width="160" />
-      <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip>
+      <el-table-column prop="title" label="标题" min-width="380" show-overflow-tooltip>
         <template #default="{ row }">
           <span class="iss-title" @click="openDetail(row)">{{ row.title }}</span>
         </template>
@@ -275,7 +275,7 @@
       </div>
       <template #footer>
         <div class="drawer-foot">
-          <el-select v-model="nextStatus" size="small" style="width:130px" placeholder="选择状态">
+          <el-select v-model="nextStatus" size="small" class="w-s" placeholder="选择状态">
             <el-option v-for="s in STATUS_OPTIONS" :key="s.key" :label="s.label" :value="s.key" />
           </el-select>
           <el-button :loading="advanceLoading" :disabled="!nextStatus || nextStatus === detailRow?.status" @click="changeStatusFromDetail">
@@ -316,7 +316,7 @@
           </el-col>
         </el-row>
         <el-form-item label="工单标题" prop="title">
-          <el-input v-model="form.title" placeholder="简短描述问题或任务" />
+          <EnlargeInput v-model="form.title" placeholder="简短描述问题或任务" />
         </el-form-item>
         <el-form-item label="业务领域" prop="domain_code">
           <BusinessDomainSelect v-model="form.domain_code" />
@@ -339,16 +339,32 @@
           </el-col>
         </el-row>
         <el-form-item label="情况说明" prop="situation_desc">
-          <el-input v-model="form.situation_desc" type="textarea" :rows="3" placeholder="影响范围/具体情况说明" />
+          <EnlargeInput v-model="form.situation_desc" type="textarea" :rows="3" placeholder="影响范围/具体情况说明" />
         </el-form-item>
         <el-form-item label="处理结果反馈">
-          <el-input v-model="form.result_feedback" type="textarea" :rows="3" placeholder="填写工单处理结果 / 闭环说明（可后续编辑更新）" />
+          <EnlargeInput v-model="form.result_feedback" type="textarea" :rows="3" placeholder="填写工单处理结果 / 闭环说明（可后续编辑更新）" />
         </el-form-item>
         <el-form-item label="关联知识库">
-          <div class="note-picker">
-            <el-input v-model="form.obsidian_path" placeholder="选择关联的 Obsidian 知识笔记" readonly style="flex:1" />
-            <el-button @click="openLinkPicker('entry')">选择笔记</el-button>
-            <el-button v-if="form.obsidian_path" link type="danger" @click="form.obsidian_path = ''">清除</el-button>
+          <div class="kl-block">
+            <div class="kl-bar">
+              <el-button size="small" type="primary" plain @click="openKnowledgePicker">
+                ＋ 选择知识条目{{ form.domain_code ? '' : '（建议先选业务领域）' }}
+              </el-button>
+              <span class="kl-count" v-if="form.knowledgeLinks.length">已关联 {{ form.knowledgeLinks.length }} 条</span>
+            </div>
+            <div v-if="form.knowledgeLinks.length" class="kl-list">
+              <div v-for="(lk, i) in form.knowledgeLinks" :key="lk.knowledge_item_id" class="kl-item">
+                <el-tag size="small" :type="lk.link_type === 'main' ? 'warning' : 'info'">{{ linkTypeLabel(lk.link_type) }}</el-tag>
+                <span class="kl-title" :title="lk.title">{{ lk.title }}</span>
+                <el-select v-model="lk.link_type" size="small" class="kl-type">
+                  <el-option label="主笔记" value="main" />
+                  <el-option label="子笔记" value="sub" />
+                  <el-option label="交付物" value="deliverable" />
+                </el-select>
+                <el-button link type="danger" size="small" @click="form.knowledgeLinks.splice(i, 1)">移除</el-button>
+              </div>
+            </div>
+            <div v-else class="kl-empty">未关联知识条目（可在详情页继续关联）</div>
           </div>
         </el-form-item>
         <el-row :gutter="14">
@@ -388,7 +404,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="经验总结">
-          <el-input v-model="form.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
+          <EnlargeInput v-model="form.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
         </el-form-item>
         <el-form-item label="附件">
           <div class="att-block">
@@ -422,23 +438,38 @@
       @success="recordSupervise"
     />
 
-    <!-- 关联笔记选择弹窗 -->
-    <el-dialog v-model="notePickerVisible" title="选择关联知识笔记" width="640px" append-to-body>
-      <el-input v-model="noteSearch" placeholder="搜索笔记标题" clearable style="margin-bottom:12px" />
+    <!-- 关联知识条目选择弹窗（路线B：对齐知识中心 KnowledgeItemLinker 模型） -->
+    <el-dialog v-model="knowledgePickerVisible" title="关联知识条目" width="760px" append-to-body>
+      <div class="klp-bar">
+        <BusinessDomainSelect v-model="klpDomain" placeholder="按业务领域筛选" style="width:240px" />
+        <EnlargeInput v-model="klpSearch" placeholder="搜索标题 / 摘要" clearable style="flex:1" />
+        <el-button @click="loadKnowledgeItems">查询</el-button>
+      </div>
       <el-table
-        :data="filteredNotes"
-        height="340"
-        v-loading="notesLoading"
-        highlight-current-row
-        @row-click="(row) => (pickedNote = row)"
+        :data="sortedKnowledgeItems"
+        height="360"
+        v-loading="klpLoading"
+        row-key="id"
+        @selection-change="(rows) => (klpSelection = rows)"
         style="width:100%"
       >
-        <el-table-column prop="folder" label="目录" width="240" show-overflow-tooltip />
+        <el-table-column type="selection" width="46" />
+        <el-table-column label="类型" width="84">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.note_type === 'main' ? 'warning' : 'info'">
+              {{ row.note_type === 'main' ? '主笔记' : '子笔记' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="summary" label="摘要" min-width="240" show-overflow-tooltip />
       </el-table>
+      <div class="klp-foot">
+        <span class="klp-tip">已选 {{ klpSelection.length }} 项 · 主笔记优先置顶 · 默认按「主笔记」关联，可在下方调整</span>
+      </div>
       <template #footer>
-        <el-button @click="notePickerVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!pickedNote" @click="confirmPickNote">确定</el-button>
+        <el-button @click="knowledgePickerVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!klpSelection.length" @click="confirmKnowledgePick">确定</el-button>
       </template>
     </el-dialog>
   </div>
@@ -455,8 +486,8 @@ import SuperviseDialog from '@/components/SuperviseDialog.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import { operationApi } from '@/api/operation'
-import { obsidianApi } from '@/api/obsidian'
 import { knowledgeApi } from '@/api/knowledge'
+import { basicDataApi } from '@/api/basicData'
 import { formatDateTime } from '@/utils/format'
 import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
@@ -704,7 +735,7 @@ const form = reactive({
   impact_level: 'P2', go_live_date: '', result_feedback: '', situation_desc: '', obsidian_path: '',
   domain_code: '',
   root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
-  attachments: [],
+  attachments: [], knowledgeLinks: [],
 })
 // 录入/编辑表单草稿持久化（按工单 id 区分，避免不同工单草稿串台）
 const {
@@ -747,14 +778,14 @@ const openEntry = () => {
     id: null, issue_no: '', category: activeTab.value === 'all' ? 'prod' : activeTab.value,
     issue_type: 'other', title: '', handler: [], impact_level: 'P2', go_live_date: '', result_feedback: '',
     situation_desc: '', obsidian_path: '', domain_code: '', root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
-    attachments: [],
+    attachments: [], knowledgeLinks: [],
   })
   onCatChange()
   if (restoreEntryDraft()) ElMessage.info('已恢复上次未保存的草稿')
   entryVisible.value = true
 }
 
-const openEditFromDetail = () => {
+const openEditFromDetail = async () => {
   if (!detailRow.value) return
   isEdit.value = true
   Object.assign(form, {
@@ -775,10 +806,15 @@ const openEditFromDetail = () => {
     solution_type: detailRow.value.solution_type || '',
     lesson_learned: detailRow.value.lesson_learned || '',
     attachments: parseAttachments(detailRow.value.attachments),
+    knowledgeLinks: [],
   })
   onCatChange()
   if (restoreEntryDraft()) ElMessage.info('已恢复上次未保存的草稿')
   entryVisible.value = true
+  // 载入已关联的知识条目
+  try {
+    await loadFormLinks(form.id)
+  } catch (e) { /* 关联加载失败不阻断编辑 */ }
 }
 
 const submitEntry = () => {
@@ -804,14 +840,27 @@ const submitEntry = () => {
     if (isEdit.value && form.id) payload.status = detailRow.value?.status || 'pending'
     entryLoading.value = true
     try {
+      let newId
       if (isEdit.value && form.id) {
         await operationApi.updateIssue(form.id, payload)
+        newId = form.id
         ElMessage.success('更新成功')
       } else {
         payload.status = 'pending'
         payload.discovery_date = new Date().toISOString()
-        await operationApi.createIssue(payload)
+        const res = await operationApi.createIssue(payload)
+        newId = res?.id
         ElMessage.success('创建成功')
+      }
+      // 同步知识条目关联（路线B：对齐知识中心 KnowledgeItemLinker 模型）
+      if (!newId) {
+        ElMessage.warning('工单已保存，但未获取到工单ID，知识关联未同步')
+      } else {
+        try {
+          await syncKnowledgeLinks(newId)
+        } catch (le) {
+          ElMessage.warning('工单已保存，但知识关联同步失败：' + (le?.response?.data?.message || le.message || '未知错误'))
+        }
       }
       clearEntryDraft()
       entryVisible.value = false
@@ -879,58 +928,106 @@ const removeAttachment = async (name) => {
   }
 }
 
-// ---- 关联知识笔记 ----
-const notePickerVisible = ref(false)
-const notesList = ref([])
-const notesLoading = ref(false)
-const noteSearch = ref('')
-const pickedNote = ref(null)
-const linkTarget = ref('entry')
+// ---- 关联知识条目（路线B：对齐知识中心 KnowledgeItemLinker 数据模型） ----
+const LINK_TYPE_LABELS = { main: '主笔记', sub: '子笔记', deliverable: '交付物' }
+const linkTypeLabel = (lt) => LINK_TYPE_LABELS[lt] || lt || '主笔记'
 
-const filteredNotes = computed(() => {
-  const kw = noteSearch.value.trim().toLowerCase()
-  if (!kw) return notesList.value
-  return notesList.value.filter((n) => (n.title || '').toLowerCase().includes(kw))
+const knowledgePickerVisible = ref(false)
+const klpDomain = ref('')
+const klpSearch = ref('')
+const klpLoading = ref(false)
+const klpItems = ref([])
+const klpSelection = ref([])
+
+const sortedKnowledgeItems = computed(() => {
+  const kw = klpSearch.value.trim().toLowerCase()
+  let list = klpItems.value
+  if (kw) list = list.filter((i) => (i.title || '').toLowerCase().includes(kw) || (i.summary || '').toLowerCase().includes(kw))
+  // 主笔记优先置顶
+  return [...list].sort((a, b) => (a.note_type === 'main' ? -1 : 0) - (b.note_type === 'main' ? -1 : 0))
 })
 
-const noteTitle = (path) => notesList.value.find((n) => n.path === path)?.title || path
+const openKnowledgePicker = () => {
+  klpDomain.value = form.domain_code || ''
+  klpSearch.value = ''
+  klpSelection.value = []
+  knowledgePickerVisible.value = true
+  loadKnowledgeItems()
+}
 
-const openLinkPicker = async (target) => {
-  linkTarget.value = target
-  pickedNote.value = null
-  notePickerVisible.value = true
-  notesLoading.value = true
+const loadKnowledgeItems = async () => {
+  klpLoading.value = true
   try {
-    const res = await obsidianApi.listNotes()
-    notesList.value = res || []
+    const params = { page_size: 100 }
+    if (klpDomain.value) params.domain_code = klpDomain.value
+    const res = await knowledgeApi.listItems(params)
+    klpItems.value = res.items || []
+    if (!res.items || res.items.length === 0) {
+      ElMessage.info('该领域暂无知识条目，可先在知识中心沉淀')
+    }
   } catch (e) {
-    ElMessage.error('加载笔记列表失败')
-    notesList.value = []
+    ElMessage.error('加载知识条目失败')
+    klpItems.value = []
   } finally {
-    notesLoading.value = false
+    klpLoading.value = false
   }
 }
 
-const confirmPickNote = async () => {
-  if (!pickedNote.value) return
-  const path = pickedNote.value.path
-  if (linkTarget.value === 'entry') {
-    form.obsidian_path = path
-    notePickerVisible.value = false
-    return
+const confirmKnowledgePick = () => {
+  for (const row of klpSelection.value) {
+    if (form.knowledgeLinks.some((l) => l.knowledge_item_id === row.id)) continue
+    form.knowledgeLinks.push({
+      knowledge_item_id: row.id,
+      item_id: row.item_id,
+      title: row.title,
+      link_type: 'main',
+    })
   }
-  // detail：真实关联该工单
-  if (!detailRow.value?.id) return
+  knowledgePickerVisible.value = false
+}
+
+// 编辑时载入已有链接（source_type=operation）
+const loadFormLinks = async (issueId) => {
   try {
-    await operationApi.updateIssue(detailRow.value.id, { obsidian_path: path })
-    detailRow.value.obsidian_path = path
-    ElMessage.success('已关联知识条目')
+    const links = await knowledgeApi.getLinks('operation', issueId)
+    form.knowledgeLinks = (links || []).map((l) => ({
+      knowledge_item_id: l.knowledge_item_id,
+      item_id: l.item_id,
+      title: l.title,
+      link_type: l.link_type || 'main',
+      link_id: l.link_id,
+    }))
   } catch (e) {
-    ElMessage.error('关联失败')
-  } finally {
-    notePickerVisible.value = false
+    form.knowledgeLinks = []
   }
 }
+
+// 提交后同步（增/删/改 link_type）到 pmwb_knowledge_link
+const syncKnowledgeLinks = async (sourceId) => {
+  const existing = (await knowledgeApi.getLinks('operation', sourceId)) || []
+  const formByItem = Object.fromEntries(form.knowledgeLinks.map((l) => [l.knowledge_item_id, l]))
+  const base = { source_type: 'operation', source_id: String(sourceId), domain_code: form.domain_code || null }
+  // 删除已被移除的链接
+  for (const l of existing) {
+    if (!formByItem[l.knowledge_item_id]) {
+      await knowledgeApi.deleteLink(l.link_id)
+    } else if (formByItem[l.knowledge_item_id].link_type !== l.link_type) {
+      // link_type 变化：重建
+      await knowledgeApi.deleteLink(l.link_id)
+      await knowledgeApi.createLink({ ...base, knowledge_item_id: l.knowledge_item_id, link_type: formByItem[l.knowledge_item_id].link_type, note: null })
+    }
+  }
+  // 新增尚未关联的条目
+  const existingIds = new Set(existing.map((l) => l.knowledge_item_id))
+  for (const l of form.knowledgeLinks) {
+    if (!existingIds.has(l.knowledge_item_id)) {
+      await knowledgeApi.createLink({ ...base, knowledge_item_id: l.knowledge_item_id, link_type: l.link_type || 'main', note: null })
+    }
+  }
+}
+
+// 详情页「已沉淀知识笔记」展示用：从 obsidian_path 解析文件名
+const noteTitle = (path) => (path || '').split('/').pop().replace(/\.md$/, '') || path
 
 // ---- 邮件督办（sup-3：统一走 /api/v1/supervise/ticket，由后端代理模板渲染与发送） ----
 const superviseVisible = ref(false)
@@ -969,8 +1066,15 @@ watch(
   async (q) => {
     if (q.issue) {
       try {
-        const res = await operationApi.getIssue(Number(q.issue))
-        openDetail(res)
+        const num = Number(q.issue)
+        let res = null
+        if (isFinite(num) && num > 0) {
+          res = await operationApi.getIssue(num)
+        } else {
+          const list = await operationApi.listIssues({ issue_no: String(q.issue), page: 1, page_size: 1 })
+          res = (list.items || [])[0] || null
+        }
+        if (res) openDetail(res)
       } catch (e) { /* ignore */ }
     } else if (q.email) {
       try {
@@ -1091,7 +1195,19 @@ onMounted(async () => {
 .email-log-result { font-size: 11px; color: var(--success); font-weight: 600; }
 .drawer-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-.note-picker { display: flex; align-items: center; gap: 8px; }
+/* 关联知识条目（路线B） */
+.kl-block { display: flex; flex-direction: column; gap: 10px; }
+.kl-bar { display: flex; align-items: center; gap: 10px; }
+.kl-count { font-size: 12px; color: var(--text-muted); }
+.kl-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; padding: 4px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface); }
+.kl-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; background: var(--border-subtle); }
+.kl-title { flex: 1; min-width: 0; font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kl-type { width: 110px; }
+.kl-empty { font-size: 12px; color: var(--text-muted); }
+
+.klp-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.klp-foot { margin-top: 8px; }
+.klp-tip { font-size: 12px; color: var(--text-muted); }
 
 .status-dot {
   display: inline-block;
