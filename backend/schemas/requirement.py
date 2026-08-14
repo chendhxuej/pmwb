@@ -46,6 +46,7 @@ class RequirementExtUpdate(BaseModel):
     priority: Optional[str] = None
     owner_note: Optional[str] = None
     version_required_date: Optional[date] = None
+    delivered_date: Optional[date] = None
     req_name: Optional[str] = None
     background: Optional[str] = None
     description: Optional[str] = None
@@ -59,6 +60,13 @@ class RequirementExtUpdate(BaseModel):
     @field_validator("version_required_date", mode="before")
     @classmethod
     def _empty_to_none(cls, v):
+        if v is None or v == "":
+            return None
+        return v
+
+    @field_validator("delivered_date", mode="before")
+    @classmethod
+    def _delivered_empty_to_none(cls, v):
         if v is None or v == "":
             return None
         return v

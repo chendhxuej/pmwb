@@ -38,6 +38,7 @@ class PmwbRequirementExt(Base):
     priority = Column(String(64), default="P2", comment="个人优先级：P0/P1/P2/P3/集团需求/紧急需求等")
     owner_note = Column(Text, comment="负责人备忘")
     version_required_date = Column(Date, comment="版本要求(需求管理要求的上线时间)")
+    delivered_date = Column(Date, comment="实际交付/上线日期，由用户在需求编辑界面手工选择填入，非系统状态变更自动采集")
     req_name = Column(String(500), comment="需求名称（可编辑覆盖）")
     background = Column(Text, comment="需求背景（可编辑覆盖）")
     description = Column(Text, comment="需求描述（可编辑覆盖）")

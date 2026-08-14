@@ -121,8 +121,14 @@ class ReportDataCollector:
             d = _date_of(_g(t, "go_live_date"))
             if d and (go_live is None or d > go_live):
                 go_live = d
-        # 兜底：需求自身已 closed（业务上=已上线/已交付），但本部署没有开发工单明细时，
-        # 用 updated_at 作为交付时间代理，否则本期上线需求会全部漏掉（见用户反馈 2026-08-14）。
+        # 优先使用用户手工录入的实际交付/上线日期（delivered_date）
+        if go_live is None:
+            d = _date_of(_g(r, "delivered_date"))
+            if d:
+                go_live = d
+        # 兜底：需求自身已 closed（业务上=已上线/已交付），但本部署没有开发工单明细、
+        # 且未手工录入 delivered_date 时，用 updated_at 作为交付时间代理
+        # （见用户反馈 2026-08-14）。
         if go_live is None and status == "closed":
             go_live = _date_of(_g(r, "updated_at")) or _date_of(_g(r, "created_at"))
         workload = sum(float(_g(e, "workload") or 0) for e in evals)

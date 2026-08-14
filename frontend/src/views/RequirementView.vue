@@ -162,6 +162,31 @@
             </el-popover>
           </template>
         </el-table-column>
+        <el-table-column label="实际上线" width="150" align="center">
+          <template #default="{ row }">
+            <el-popover placement="bottom" trigger="click" width="260" popper-class="version-popover">
+              <template #reference>
+                <span class="version-text" :class="row.ext?.delivered_date ? 'is-delivered' : 'is-unset'" @click.stop>
+                  {{ row.ext?.delivered_date || '填上线日期' }}
+                </span>
+              </template>
+              <div class="version-pop">
+                <el-date-picker
+                  v-model="row.ext.delivered_date"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  format="YYYY-MM-DD"
+                  size="small"
+                  style="width: 100%"
+                  @change="(val) => handleDeliveredDateChange(row, val)"
+                />
+                <div class="version-pop-actions">
+                  <el-button size="small" text type="info" @click="handleDeliveredClear(row)">清除</el-button>
+                </div>
+              </div>
+            </el-popover>
+          </template>
+        </el-table-column>
         <el-table-column label="跟踪状态" width="110" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="trackingTagType(row.tracking_status)">
@@ -260,6 +285,7 @@
           <el-descriptions-item label="团队数">{{ detail.eval_count || 0 }} 个</el-descriptions-item>
           <el-descriptions-item label="开发单号">{{ detail.dev_ticket_no }}</el-descriptions-item>
           <el-descriptions-item label="版本要求">{{ detail.ext?.version_required_date || '未设置' }}</el-descriptions-item>
+          <el-descriptions-item label="实际上线">{{ detail.ext?.delivered_date || '未填写' }}</el-descriptions-item>
         </template>
       </el-descriptions>
       <div v-if="detail.background" class="detail-section">
@@ -630,6 +656,26 @@ async function handleVersionDateChange(row, val) {
     fetchData()  // 刷新以更新跟踪状态
   } catch (err) {
     ElMessage.error(err.message || '保存失败')
+  }
+}
+
+// 实际上线日期：手工录入，供 AI 总结精确判定「本期上线需求」
+async function handleDeliveredDateChange(row, val) {
+  try {
+    await updateRequirement(row.req_id, { delivered_date: val || null })
+    ElMessage.success('已保存实际上线日期')
+  } catch (err) {
+    ElMessage.error(err.message || '保存失败')
+  }
+}
+
+async function handleDeliveredClear(row) {
+  try {
+    await updateRequirement(row.req_id, { delivered_date: null })
+    row.ext.delivered_date = null
+    ElMessage.success('已清除实际上线日期')
+  } catch (err) {
+    ElMessage.error(err.message || '操作失败')
   }
 }
 
@@ -1087,6 +1133,10 @@ onMounted(() => {
 }
 .version-text.is-unset {
   color: #c0c4cc;
+}
+.version-text.is-delivered {
+  color: #67c23a;
+  font-weight: 600;
 }
 .version-pop {
   text-align: center;

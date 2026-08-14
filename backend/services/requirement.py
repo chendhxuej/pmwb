@@ -85,6 +85,7 @@ class RequirementService:
                 "priority": ext.priority,
                 "owner_note": ext.owner_note,
                 "version_required_date": ext.version_required_date,
+                "delivered_date": ext.delivered_date,
                 "domain_code": ext.domain_code,
                 "req_name": ext.req_name,
                 "background": ext.background,
@@ -340,6 +341,10 @@ class RequirementService:
                 continue
             if key == "version_required_date":
                 # 允许清空（NULL）；空串归一为 NULL
+                setattr(ext, key, None if value in (None, "") else value)
+            elif key == "delivered_date":
+                # 实际交付/上线日期：纯手工录入，允许清空（NULL）；空串归一为 NULL。
+                # 不在 status 变更时自动写入。
                 setattr(ext, key, None if value in (None, "") else value)
             elif value is not None:
                 setattr(ext, key, value)
