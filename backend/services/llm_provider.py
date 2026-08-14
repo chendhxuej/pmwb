@@ -249,7 +249,7 @@ def _load_enabled_providers(db: Session) -> List[PmwbLlmProvider]:
     ).all()
 
 
-def call_provider(p: PmwbLlmProvider, system: str, user: str) -> str:
+def call_provider(p: PmwbLlmProvider, system: str, user: str, max_tokens: int = None) -> str:
     """调用单个提供方（OpenAI 兼容）。失败抛异常由上层 fallback。"""
     base_url = (p.base_url or "").rstrip("/")
     if not base_url:
@@ -265,7 +265,7 @@ def call_provider(p: PmwbLlmProvider, system: str, user: str) -> str:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "max_tokens": int(p.max_tokens or 4096),
+        "max_tokens": int(max_tokens if max_tokens else p.max_tokens or 4096),
         "temperature": _effective_temperature(p),
     }
     timeout = httpx.Timeout(int(p.timeout or 120))
@@ -307,10 +307,22 @@ def pick_provider(providers, call_fn, system: str, user: str) -> Dict[str, Any]:
     return {"text": "", "used_llm": False, "provider_name": None, "provider_id": None, "notice": notice}
 
 
-def call_best_available(db: Session, system: str, user: str) -> Dict[str, Any]:
+def call_best_available(db: Session, system: str, user: str, max_tokens: int = None) -> Dict[str, Any]:
     """按优先级尝试已启用提供方，全失败返回 used_llm=False + notice，并记录失败原因。"""
     providers = _load_enabled_providers(db)
-    res = pick_provider(providers, lambda p, s, u: call_provider(p, s, u), system, user)
+
+    def _call_fn(p, s, u):
+        # 透传 max_tokens 预算（不改动 call_provider 三参契约，兼容测试与既有调用）
+        if max_tokens:
+            orig = p.max_tokens
+            p.max_tokens = max_tokens
+            try:
+                return call_provider(p, s, u)
+            finally:
+                p.max_tokens = orig
+        return call_provider(p, s, u)
+
+    res = pick_provider(providers, _call_fn, system, user)
     if not res["used_llm"]:
         prefix = "所有已启用的大模型均不可用，已生成规则模板版（非 AI 润色）。"
         rest = res["notice"]
@@ -328,6 +340,37 @@ def call_best_available(db: Session, system: str, user: str) -> Dict[str, Any]:
         except Exception:  # noqa: BLE001
             pass
     return res
+
+
+def get_status(db: Session) -> Dict[str, Any]:
+    """返回统一的大模型可用状态（供各 AI 子功能探测，不再依赖单点 Kimi 配置）。
+
+    Returns:
+        {
+            enabled, provider_type, provider_name, model, reachable, error
+        }
+    """
+    providers = _load_enabled_providers(db)
+    if not providers:
+        return {
+            "enabled": False,
+            "provider_type": None,
+            "provider_name": None,
+            "model": None,
+            "reachable": False,
+            "error": "未配置任何大模型（请到「大模型管理」添加并启用一个）",
+        }
+    # 探测优先级最高的（默认/首个）已启用提供方
+    p = providers[0]
+    res = test_provider(p)
+    return {
+        "enabled": True,
+        "provider_type": p.provider_type,
+        "provider_name": p.name,
+        "model": p.model,
+        "reachable": res["reachable"],
+        "error": res["error"],
+    }
 
 
 def _classify_provider_error(status_code: int, body: str):

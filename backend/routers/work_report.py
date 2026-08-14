@@ -49,12 +49,23 @@ def _parse_date(s):
 
 @router.post("/generate")
 def generate(req: GenerateRequest, db: Session = Depends(get_db)):
+    """立即返回占位报告（status=generating），后台线程异步生成，前端轮询进度。"""
     params = {
         "report_type": req.report_type,
         "date_start": _parse_date(req.date_start),
         "date_end": _parse_date(req.date_end),
     }
-    return success(data=svc.generate_report(db, params))
+    out = svc.create_generating_report(db, params)
+    import threading
+    t = threading.Thread(target=svc.run_generation_task, args=(out["id"],), daemon=True)
+    t.start()
+    return success(data=out)
+
+
+@router.get("/{report_id}/gen-status")
+def gen_status(report_id: int, db: Session = Depends(get_db)):
+    """查询后台生成进度（阶段/已用时/状态/失败原因）。"""
+    return success(data=svc.get_gen_status(db, report_id))
 
 
 @router.get("")

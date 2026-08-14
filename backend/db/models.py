@@ -710,6 +710,7 @@ class PmwbKeyWork(Base):
         comment="生命周期状态",
     )
     planned_finish_date = Column(Date, comment="计划完成时间")
+    progress = Column(Integer, default=0, comment="进度百分比 0-100")
     acceptance_criteria = Column(Text, comment="验收标准(JSON数组)")
 
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
@@ -1144,6 +1145,10 @@ class PmwbWorkReport(Base):
     )
     gen_model = Column(String(255), nullable=True, comment="生成所用模型/提供方名")
     gen_notice = Column(Text, nullable=True, comment="生成说明（如不可用原因）")
+    gen_stage = Column(
+        String(40), nullable=True, comment="异步生成阶段: collecting/llm/assembling/done"
+    )
+    gen_error_msg = Column(Text, nullable=True, comment="异步生成失败原因")
 
     __table_args__ = (
         Index("ix_work_report_status", "status"),

@@ -27,6 +27,14 @@ _NEXT_TITLE = {
     "custom": "下阶段重点",
 }
 
+# 不同报告类型的输出长度预算（分档降本提速，避免一律 4096 拖慢周报）
+REPORT_MAX_TOKENS = {
+    "daily": 2048,
+    "weekly": 3500,
+    "monthly": 4096,
+    "custom": 3000,
+}
+
 
 def _build_delivered_item_summary(it: Dict[str, Any]) -> str:
     """把一条上线/交付需求明细写成「完成了XX开发部署，核心实现...，体现...」的标准句式。"""
@@ -50,14 +58,15 @@ def _build_delivered_item_summary(it: Dict[str, Any]) -> str:
     return f"  - 完成【{req_name}】开发部署{meta}：核心实现「{core}」，体现「{value}」"
 
 
-def generate_report_markdown(db, system_prompt: str, user_message: str):
+def generate_report_markdown(db, system_prompt: str, user_message: str, report_type: str = "daily"):
     """调用 LLM 生成报告正文，返回 (markdown, used_llm, provider_name, notice)。
 
     底层走多模型注册表（services.llm_provider），按优先级 fallback；
     全部不可用时返回 ("", False, None, notice)，由上层降级到规则模板。
     """
+    max_tokens = REPORT_MAX_TOKENS.get(report_type, 3000)
     try:
-        res = call_best_available(db, system_prompt, user_message)
+        res = call_best_available(db, system_prompt, user_message, max_tokens=max_tokens)
         return res["text"], res["used_llm"], res["provider_name"], res["notice"]
     except Exception as e:  # noqa: BLE001
         logger.warning("AI总结 LLM 生成失败，将降级规则模板: %s", e)

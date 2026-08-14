@@ -74,12 +74,17 @@
       </el-form>
       <div v-else class="gen-loading-overlay">
         <el-icon class="is-loading" :size="30"><Loading /></el-icon>
-        <p>AI 正在生成报告，请稍候…</p>
+        <p>AI 正在生成报告（{{ genStageText }}），可转后台运行…</p>
         <p class="gen-elapsed">已用时 {{ genElapsed }} 秒</p>
       </div>
       <template #footer>
-        <el-button :disabled="genLoading" @click="generateVisible = false">取消</el-button>
-        <el-button type="primary" :loading="genLoading" @click="doGenerate">生成</el-button>
+        <template v-if="!genLoading">
+          <el-button @click="generateVisible = false">取消</el-button>
+          <el-button type="primary" :loading="genLoading" @click="doGenerate">生成</el-button>
+        </template>
+        <template v-else>
+          <el-button type="primary" @click="runInBackground">后台运行</el-button>
+        </template>
       </template>
     </el-dialog>
 
@@ -133,7 +138,7 @@
     </el-drawer>
 
     <!-- 邮件发送弹窗 -->
-    <el-dialog v-model="emailVisible" title="邮件发送" width="620px">
+    <el-dialog v-model="emailVisible" title="邮件发送" width="85%" class="email-send-dialog">
       <el-form label-width="70px">
         <el-form-item label="收件人">
           <StaffSelect v-model="emailForm.to" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
@@ -144,14 +149,16 @@
         <el-form-item label="主题">
           <EnlargeInput v-model="emailForm.subject" placeholder="邮件主题" />
         </el-form-item>
-        <el-form-item label="正文">
+        <el-form-item label="正文" class="email-body-item">
           <div class="email-body-bar">
             <el-button size="small" @click="emailEditing = !emailEditing">
               {{ emailEditing ? '预览' : '编辑' }}
             </el-button>
           </div>
-          <EnlargeInput v-if="emailEditing" type="textarea" v-model="emailForm.body" :rows="16" placeholder="邮件正文（支持 Markdown）" />
-          <MarkdownRender v-else :content="emailForm.body || ''" />
+          <div class="email-body-box">
+            <EnlargeInput v-if="emailEditing" type="textarea" v-model="emailForm.body" :rows="16" placeholder="邮件正文（支持 Markdown）" style="width: 100%" />
+            <MarkdownRender v-else :content="emailForm.body || ''" style="width: 100%" />
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -163,14 +170,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { EditPen, Edit, Check, Message, Delete, Stamp, FolderChecked, CopyDocument, Refresh, Loading } from '@element-plus/icons-vue'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import {
-  listWorkReports, getWorkReport, generateWorkReport,
+  listWorkReports, getWorkReport, generateWorkReport, getWorkReportGenStatus,
   updateWorkReport, deleteWorkReport, finalizeWorkReport, sendWorkReport,
 } from '@/api/workReport'
 
@@ -208,6 +215,11 @@ function _stopGenTimer() {
 }
 const genForm = reactive({ report_type: 'daily', date_start: '', date_end: '' })
 
+// 异步生成轮询状态
+const genStageText = ref('')
+let _pollTimer = null
+let _genReportId = null
+
 function todayStr() {
   const d = new Date()
   const p = (n) => String(n).padStart(2, '0')
@@ -234,7 +246,7 @@ const router = useRouter()
 // 规则模板版横幅：仅当本次确实未用大模型且有说明（gen_notice）时提示，避免历史报告误弹
 const showRuleBanner = computed(() => current.value && current.value.gen_used_llm === 0 && !!current.value.gen_notice)
 function goManage() {
-  router.push('/llm-provider')
+  router.push('/ai-center/providers')
 }
 const editing = ref(false)
 const editContent = ref('')
@@ -248,6 +260,8 @@ const emailForm = reactive({ to: [], cc: [], subject: '', body: '' })
 function statusTagType(status) {
   if (status === 'sent') return 'success'
   if (status === 'finalized') return 'warning'
+  if (status === 'failed') return 'danger'
+  if (status === 'generating') return 'warning'
   return 'info'
 }
 
@@ -273,20 +287,65 @@ async function doGenerate() {
   _startGenTimer()
   try {
     const r = await generateWorkReport({ ...genForm })
-    if (r.used_llm) {
-      ElMessage.success(`已生成（${r.provider_name || 'AI'} 润色）`)
-    } else {
-      ElMessage.warning('大模型不可用，已生成规则模板版（详见报告顶部提示）')
-    }
-    generateVisible.value = false
-    await load()
-    openDetail(r)
+    // 后端立即返回占位报告，进入轮询
+    _genReportId = r.id
+    genStageText.value = r.gen_stage_text || '处理中'
+    generateVisible.value = true
+    _startPolling(r.id)
   } catch (e) {
-    ElMessage.error('生成失败')
-  } finally {
+    ElMessage.error('提交生成失败')
     _stopGenTimer()
+    _stopPolling()
     genLoading.value = false
   }
+}
+
+function _startPolling(id) {
+  _stopPolling()
+  _pollTimer = setInterval(() => _pollStatus(id), 2000)
+}
+function _stopPolling() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null }
+}
+async function _pollStatus(id) {
+  try {
+    const s = await getWorkReportGenStatus(id)
+    genStageText.value = s.gen_stage_text || '处理中'
+    if (typeof s.elapsed === 'number') genElapsed.value = s.elapsed
+    if (s.status === 'draft') {
+      // 生成完成
+      _stopPolling(); _stopGenTimer()
+      genLoading.value = false
+      generateVisible.value = false
+      await load()
+      try {
+        const r = await getWorkReport(id)
+        if (r.gen_used_llm) {
+          ElNotification.success({ title: '报告已生成', message: `（${r.gen_model || 'AI'} 润色）` })
+        } else {
+          ElNotification.warning({ title: '报告已生成', message: '大模型不可用，已生成规则模板版（详见报告顶部提示）' })
+        }
+        current.value = r
+        editing.value = false
+        detailVisible.value = true
+      } catch (e) { /* 列表已刷新，详情稍后自行打开 */ }
+    } else if (s.status === 'failed') {
+      _stopPolling(); _stopGenTimer()
+      genLoading.value = false
+      generateVisible.value = false
+      await load()
+      ElNotification.error({ title: '生成失败', message: s.gen_error_msg || '未知错误，请重试' })
+    }
+  } catch (e) {
+    // 轮询接口异常不中断整体，仅记录
+    console.warn('生成进度轮询失败', e)
+  }
+}
+
+function runInBackground() {
+  // 关闭弹窗但保留轮询，完成后右上角通知
+  generateVisible.value = false
+  ElMessage.info('已在后台生成，完成后会通知你')
 }
 
 async function openDetail(row) {
@@ -390,6 +449,7 @@ async function copyPath() {
 }
 
 onMounted(load)
+onUnmounted(() => { _stopPolling(); _stopGenTimer() })
 </script>
 
 <style scoped>
@@ -426,6 +486,12 @@ onMounted(load)
 .rule-banner-actions { margin-top: 10px; display: flex; gap: 8px; }
 .detail-footer { display: flex; gap: 8px; flex-wrap: wrap; }
 .email-body-bar { margin-bottom: 6px; text-align: right; }
+.email-body-item :deep(.el-form-item__content) { width: calc(100% - 70px); }
+.email-body-box { width: 100%; box-sizing: border-box; max-height: 420px; overflow-y: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 4px; padding: 8px; }
+.email-send-dialog :deep(.el-dialog) { max-width: 1200px; min-width: 720px; }
+.email-send-dialog :deep(.el-dialog__body) { padding-bottom: 8px; }
+.email-send-dialog :deep(.el-textarea) { width: 100%; }
+.email-send-dialog :deep(.el-textarea__inner) { min-height: 320px; }
 .title-link { color: var(--el-color-primary); cursor: pointer; }
 .title-link:hover { text-decoration: underline; }
 .gen-loading-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 20px; gap: 10px; color: var(--el-text-color-secondary); }

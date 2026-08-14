@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
+import markdown
 
 from core.exceptions import ValidationException
+from db.base import SessionLocal
 from db.models import PmwbWorkReport
 from services.report_collector import ReportDataCollector
 from services.report_llm import generate_report_markdown, render_rule_template, build_next_period_section
@@ -20,8 +23,47 @@ from utils.validators import validate_email_strict
 logger = logging.getLogger(__name__)
 
 REPORT_TYPE_LABELS = {"daily": "日报", "weekly": "周报", "monthly": "月报", "custom": "自定义"}
-STATUS_LABELS = {"draft": "草稿", "finalized": "已定稿", "sent": "已发送"}
+STATUS_LABELS = {"draft": "草稿", "generating": "生成中", "failed": "生成失败", "finalized": "已定稿", "sent": "已发送"}
+# 后台生成进程中断判定阈值（秒）：超过则视为僵尸任务，前端轮询时兜底标记为失败
+_ZOMBIE_TIMEOUT = 600
 OBSIDIAN_ROOT = "15-工作总结"
+
+
+def _markdown_to_email_html(md: str) -> str:
+    """把 Markdown 报告转成带基础样式的邮件 HTML。"""
+    if not md:
+        md = ""
+    # 支持表格、代码块、自动换行等常见排版
+    html = markdown.markdown(
+        md,
+        extensions=["tables", "fenced_code", "nl2br"],
+    )
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.7; color: #333; max-width: 960px; margin: 0 auto; padding: 20px; }}
+h1, h2, h3, h4 {{ color: #1a1a1a; margin-top: 24px; margin-bottom: 12px; }}
+h1 {{ font-size: 22px; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
+h2 {{ font-size: 18px; }}
+h3 {{ font-size: 16px; }}
+p {{ margin: 10px 0; }}
+ul, ol {{ padding-left: 24px; }}
+li {{ margin: 4px 0; }}
+table {{ border-collapse: collapse; width: 100%; margin: 14px 0; }}
+th, td {{ border: 1px solid #ddd; padding: 8px 10px; text-align: left; }}
+th {{ background: #f5f7fa; font-weight: 600; }}
+code {{ background: #f4f4f5; padding: 2px 6px; border-radius: 3px; font-family: monospace; }}
+pre {{ background: #f8f8f8; padding: 12px; border-radius: 4px; overflow-x: auto; }}
+blockquote {{ border-left: 4px solid #409eff; margin: 12px 0; padding-left: 12px; color: #666; }}
+strong {{ color: #1a1a1a; }}
+</style>
+</head>
+<body>
+{html}
+</body>
+</html>"""
 
 
 def _type_label(rt: str) -> str:
@@ -30,6 +72,16 @@ def _type_label(rt: str) -> str:
 
 def _status_label(s: str) -> str:
     return STATUS_LABELS.get(s, s or "草稿")
+
+
+def _gen_stage_text(stage: Optional[str]) -> str:
+    return {
+        "collecting": "采集工作数据",
+        "llm": "调用大模型生成",
+        "assembling": "组装报告正文",
+        "done": "已完成",
+        "error": "生成失败",
+    }.get(stage or "", "处理中")
 
 
 def to_out(r: PmwbWorkReport) -> Dict[str, Any]:
@@ -53,6 +105,9 @@ def to_out(r: PmwbWorkReport) -> Dict[str, Any]:
         "gen_used_llm": r.gen_used_llm or 0,
         "gen_model": r.gen_model,
         "gen_notice": r.gen_notice,
+        "gen_stage": r.gen_stage,
+        "gen_stage_text": _gen_stage_text(r.gen_stage),
+        "gen_error_msg": r.gen_error_msg,
     }
 
 
@@ -71,6 +126,7 @@ def _date_range(report_type: str, ds: Optional[date], de: Optional[date]):
 
 
 def list_reports(db: Session, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    _recover_zombies(db)
     q = db.query(PmwbWorkReport)
     if status:
         q = q.filter(PmwbWorkReport.status == status)
@@ -196,16 +252,13 @@ def _ensure_delivered_summaries(md: str, data: Dict[str, Any]) -> str:
     return md[:insert_pos] + "\n".join(block) + "\n" + md[insert_pos:]
 
 
-def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
-    report_type = params.get("report_type", "daily")
-    ds = params.get("date_start")
-    de = params.get("date_end")
-    start, end = _date_range(report_type, ds, de)
+def _assemble_report(db: Session, report_type: str, start: date, end: date):
+    """采集 + 调 LLM/降级 + 组装成最终 Markdown，返回 (md, used_llm, provider_name, notice, data)。"""
     data = ReportDataCollector(db).collect(start, end)
     data["report_type"] = report_type
     system = build_system_prompt(report_type)
     user = build_user_message(data, report_type)
-    md, used_llm, provider_name, notice = generate_report_markdown(db, system, user)
+    md, used_llm, provider_name, notice = generate_report_markdown(db, system, user, report_type)
     if not md:
         md = render_rule_template(data, report_type)
     else:
@@ -215,6 +268,16 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
         md = _ensure_sections(data, md, report_type)
         md = _ensure_delivered_summaries(md, data)
         md = md.rstrip() + "\n\n" + build_next_period_section(data, report_type)
+    return md, used_llm, provider_name, notice, data
+
+
+def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
+    """同步生成（保留兼容；新前端走异步 create_generating_report + run_generation_task）。"""
+    report_type = params.get("report_type", "daily")
+    ds = params.get("date_start")
+    de = params.get("date_end")
+    start, end = _date_range(report_type, ds, de)
+    md, used_llm, provider_name, notice, _ = _assemble_report(db, report_type, start, end)
     title = f"{_type_label(report_type)}（{start.isoformat()}~{end.isoformat()}）"
     r = PmwbWorkReport(
         report_type=report_type, title=title, content=md,
@@ -227,6 +290,136 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     db.commit()
     db.refresh(r)
     return {**to_out(r), "used_llm": bool(used_llm), "provider_name": provider_name, "llm_notice": notice}
+
+
+def create_generating_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
+    """立即落库一条 status=generating 的占位报告，返回其 out（供前端先拿到 id）。"""
+    report_type = params.get("report_type", "daily")
+    ds = params.get("date_start")
+    de = params.get("date_end")
+    start, end = _date_range(report_type, ds, de)
+    title = f"{_type_label(report_type)}（{start.isoformat()}~{end.isoformat()}）"
+    r = PmwbWorkReport(
+        report_type=report_type, title=title, content="",
+        date_start=start, date_end=end, status="generating",
+        gen_stage="collecting",
+    )
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return to_out(r)
+
+
+def _mark_failed(db: Session, r: Optional[PmwbWorkReport], msg: str):
+    if r is None:
+        return
+    try:
+        r.status = "failed"
+        r.gen_stage = "error"
+        r.gen_error_msg = str(msg)[:500]
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("标记报告生成失败失败: %s", e)
+
+
+def run_generation_task(report_id: int) -> None:
+    """后台线程：独立 Session 完成采集→LLM→组装→落库，全程更新 gen_stage。
+
+    任何异常都兜底标记 failed，保证前端轮询不会永远停在 generating。
+    """
+    db = SessionLocal()
+    r: Optional[PmwbWorkReport] = None
+    try:
+        r = db.query(PmwbWorkReport).filter(PmwbWorkReport.id == report_id).first()
+        if not r or r.status != "generating":
+            return
+        report_type = r.report_type
+        start, end = r.date_start, r.date_end
+        r.gen_stage = "collecting"
+        db.commit()
+        # 采集
+        try:
+            data = ReportDataCollector(db).collect(start, end)
+        except Exception as e:  # noqa: BLE001
+            _mark_failed(db, r, f"数据采集失败：{e}")
+            return
+        # LLM 生成
+        r.gen_stage = "llm"
+        db.commit()
+        data["report_type"] = report_type
+        system = build_system_prompt(report_type)
+        user = build_user_message(data, report_type)
+        try:
+            md, used_llm, provider_name, notice = generate_report_markdown(db, system, user, report_type)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("LLM 生成异常，走规则模板降级: %s", e)
+            md, used_llm, provider_name, notice = "", False, None, f"LLM 调用异常已降级：{str(e)[:200]}"
+        if not md:
+            md = render_rule_template(data, report_type)
+        else:
+            md = _strip_next_period(md, report_type)
+            md = _ensure_sections(data, md, report_type)
+            md = _ensure_delivered_summaries(md, data)
+            md = md.rstrip() + "\n\n" + build_next_period_section(data, report_type)
+        # 组装落库
+        r.gen_stage = "assembling"
+        db.commit()
+        r.content = md
+        r.status = "draft"
+        r.gen_stage = "done"
+        r.gen_used_llm = 1 if used_llm else 0
+        r.gen_model = provider_name or ""
+        r.gen_notice = notice or ""
+        r.gen_error_msg = None
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        logger.exception("周报后台生成失败 report_id=%s: %s", report_id, e)
+        _mark_failed(db, r, f"生成异常：{e}")
+    finally:
+        try:
+            db.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _recover_zombies(db: Session) -> None:
+    """把卡在 generating 且超过阈值的记录兜底标记为失败（进程重启/线程中断场景）。"""
+    try:
+        # 注意：模型 created_at 用 datetime.utcnow()（UTC 朴素时间），此处必须同用 utcnow，
+        # 否则中国时区下会差 8 小时，把刚创建的报告误判为僵尸。
+        cutoff = datetime.utcnow() - timedelta(seconds=_ZOMBIE_TIMEOUT)
+        rows = db.query(PmwbWorkReport).filter(
+            PmwbWorkReport.status == "generating",
+            PmwbWorkReport.created_at < cutoff,
+        ).all()
+        for r in rows:
+            r.status = "failed"
+            r.gen_stage = "error"
+            r.gen_error_msg = "生成超时或进程重启，已中断，请重新生成"
+        if rows:
+            db.commit()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("僵尸报告恢复失败（忽略）: %s", e)
+
+
+def get_gen_status(db: Session, report_id: int) -> Dict[str, Any]:
+    """返回后台生成进度（阶段/已用时/状态/失败原因），并对僵尸任务兜底恢复。"""
+    _recover_zombies(db)
+    r = db.query(PmwbWorkReport).filter(PmwbWorkReport.id == report_id).first()
+    if not r:
+        raise ValidationException("报告不存在")
+    now = datetime.utcnow()
+    created = r.created_at or now
+    elapsed = int((now - created).total_seconds())
+    return {
+        "id": r.id,
+        "status": r.status,
+        "gen_stage": r.gen_stage,
+        "gen_stage_text": _gen_stage_text(r.gen_stage),
+        "elapsed": elapsed,
+        "gen_error_msg": r.gen_error_msg,
+        "gen_notice": r.gen_notice,
+    }
 
 
 def _archive_to_obsidian(r: PmwbWorkReport) -> str:
@@ -304,11 +497,12 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
         raise ValidationException("没有可用的收件人邮箱（姓名需能在人员中台解析）")
     subject = req.get("subject") or r.title or "工作总结"
     body = req.get("body") or r.content or ""
+    html_body = _markdown_to_email_html(body)
     client = EmailCenterClient()
     try:
         result = client.send_email(
-            to=to_emails, subject=subject, body=body,
-            body_format="text", cc=cc_emails or None, raise_on_error=False,
+            to=to_emails, subject=subject, body=html_body,
+            body_format="html", cc=cc_emails or None, raise_on_error=False,
         )
     except Exception as e:  # noqa: BLE001
         r.error_msg = f"send: {e}"

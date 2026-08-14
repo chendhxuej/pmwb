@@ -76,69 +76,98 @@ class ReportDataCollector:
         delivered_items: List[Dict[str, Any]] = []
         po_risk: List[Dict[str, Any]] = []
         items: List[Dict[str, Any]] = []
+
+        # 批量预加载工单/评估并按 req_id 分组，避免逐条需求各查一次（N+1）
+        tickets_by_req: Dict[str, List[Any]] = defaultdict(list)
+        evals_by_req: Dict[str, List[Any]] = defaultdict(list)
+        try:
+            for t in self.db.query(PmwbDevTicket).all():
+                tickets_by_req[_g(t, "req_id") or ""].append(t)
+            for e in self.db.query(PmwbRequirementEvaluation).all():
+                evals_by_req[_g(e, "req_id") or ""].append(e)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("预加载工单/评估失败（按空处理）: %s", e)
+
         for r in rows:
-            req_id = _g(r, "req_id") or ""
-            req_name = _g(r, "req_name") or req_id
-            status = _g(r, "status") or "proposed"
-            priority = _g(r, "priority") or "P2"
-            created = _date_of(_g(r, "created_at"))
-            updated = _date_of(_g(r, "updated_at"))
-
-            tickets = self.db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id == req_id).all()
-            go_live = None
-            for t in tickets:
-                d = _date_of(_g(t, "go_live_date"))
-                if d and (go_live is None or d > go_live):
-                    go_live = d
-            evals = self.db.query(PmwbRequirementEvaluation).filter(
-                PmwbRequirementEvaluation.req_id == req_id
-            ).all()
-            workload = sum(float(_g(e, "workload") or 0) for e in evals)
-            risk_notes = "; ".join(str(_g(t, "risk_note") or "") for t in tickets if _g(t, "risk_note"))
-
-            # 本期新增/评估/启动开发/交付/进行中分桶
-            if _in_range(created, start, end):
-                buckets["added"].append(req_name)
-            if any(_in_range(_date_of(_g(e, "created_at")), start, end) for e in evals):
-                buckets["evaluated"].append(req_name)
-            if any(
-                _in_range(_date_of(_g(t, "created_at")), start, end)
-                or _in_range(_date_of(_g(t, "design_reviewed_date")), start, end)
-                for t in tickets
-            ):
-                buckets["dev_start"].append(req_name)
-            if go_live and _in_range(go_live, start, end):
-                buckets["delivered"].append(req_name)
-                delivered_items.append(item)
-            if status != "closed":
-                buckets["ongoing"].append(req_name)
-
-            is_high = ("P0" in str(priority)) or ("集团需求" in str(priority)) or ("紧急需求" in str(priority))
-            dev_high = any((_g(t, "priority") == "P0") for t in tickets)
-            if (is_high or dev_high) and status != "closed":
-                po_risk.append({
-                    "req_name": req_name,
-                    "priority": priority,
-                    "status": status,
-                    "go_live": go_live.isoformat() if go_live else "",
-                    "risk_note": risk_notes,
-                })
-
-            items.append({
-                "req_id": req_id,
-                "req_name": req_name,
-                "status": status,
-                "priority": priority,
-                "background": (_g(r, "background") or "")[:200],
-                "description": (_g(r, "description") or "")[:200],
-                "clarification": (_g(r, "clarification") or "")[:200],
-                "system_name": _g(r, "system_name") or "",
-                "sa_name": _g(r, "sa_name") or "",
-                "go_live": go_live.isoformat() if go_live else "",
-                "workload": workload,
-                "dev_status": [(_g(t, "status") or "") for t in tickets],
-            })
+            try:
+                item, bucket_flags, risk = self._build_requirement_item(
+                    r, start, end, tickets_by_req, evals_by_req
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("采集单条需求失败（已跳过）: %s", e)
+                continue
+            items.append(item)
+            req_name = item["req_name"]
+            for name in bucket_flags:
+                buckets[name].append(req_name)
+            if "delivered" in bucket_flags:
+                delivered_items.append(dict(item))
+            if risk:
+                po_risk.append(risk)
         return {"items": items, "buckets": buckets, "delivered_items": delivered_items, "po_risk": po_risk}
+
+    def _build_requirement_item(self, r, start, end, tickets_by_req, evals_by_req):
+        """把一条需求整理为 (明细 dict, 命中的分桶名列表, PO 级风险项或 None)。"""
+        req_id = _g(r, "req_id") or ""
+        req_name = _g(r, "req_name") or req_id
+        status = _g(r, "status") or "proposed"
+        priority = _g(r, "priority") or "P2"
+        created = _date_of(_g(r, "created_at"))
+
+        tickets = tickets_by_req.get(req_id, [])
+        evals = evals_by_req.get(req_id, [])
+        go_live = None
+        for t in tickets:
+            d = _date_of(_g(t, "go_live_date"))
+            if d and (go_live is None or d > go_live):
+                go_live = d
+        workload = sum(float(_g(e, "workload") or 0) for e in evals)
+        risk_notes = "; ".join(str(_g(t, "risk_note") or "") for t in tickets if _g(t, "risk_note"))
+
+        item = {
+            "req_id": req_id,
+            "req_name": req_name,
+            "status": status,
+            "priority": priority,
+            "background": (_g(r, "background") or "")[:200],
+            "description": (_g(r, "description") or "")[:200],
+            "clarification": (_g(r, "clarification") or "")[:200],
+            "system_name": _g(r, "system_name") or "",
+            "sa_name": _g(r, "sa_name") or "",
+            "go_live": go_live.isoformat() if go_live else "",
+            "workload": workload,
+            "dev_status": [(_g(t, "status") or "") for t in tickets],
+        }
+
+        # 本期新增/评估/启动开发/交付/进行中分桶
+        flags: List[str] = []
+        if _in_range(created, start, end):
+            flags.append("added")
+        if any(_in_range(_date_of(_g(e, "created_at")), start, end) for e in evals):
+            flags.append("evaluated")
+        if any(
+            _in_range(_date_of(_g(t, "created_at")), start, end)
+            or _in_range(_date_of(_g(t, "design_reviewed_date")), start, end)
+            for t in tickets
+        ):
+            flags.append("dev_start")
+        if go_live and _in_range(go_live, start, end):
+            flags.append("delivered")
+        if status != "closed":
+            flags.append("ongoing")
+
+        risk = None
+        is_high = ("P0" in str(priority)) or ("集团需求" in str(priority)) or ("紧急需求" in str(priority))
+        dev_high = any((_g(t, "priority") == "P0") for t in tickets)
+        if (is_high or dev_high) and status != "closed":
+            risk = {
+                "req_name": req_name,
+                "priority": priority,
+                "status": status,
+                "go_live": go_live.isoformat() if go_live else "",
+                "risk_note": risk_notes,
+            }
+        return item, flags, risk
 
     # ---- 运营支撑 ----
     def _collect_operation_issue(self, start, end):

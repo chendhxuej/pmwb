@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 # 报告标题标签（用于提示词中的《XXX》）
 _TITLE_LABELS = {
@@ -16,8 +16,8 @@ SYSTEM_PROMPT_COMMON = """你是一名资深产品经理（政企/商客方向�
 
 # 输入数据说明
 你会收到一段 JSON 格式的原始工作数据，包含以下模块：
-- requirement（需求与交付）：items 为每条需求明细；buckets 为本期需求生命周期分桶（added 新增跟踪 / evaluated 完成评估 / dev_start 启动开发 / delivered 完成开发交付 / ongoing 进行中）；delivered_items 为本期上线/交付需求明细（含 req_name/system_name/sa_name/go_live/description/background/workload/dev_status 等字段），po_risk 为 PO 级交付风险清单。
-- operation_issue（运营支撑）：by_category 各子类工单量；by_status 状态分布；by_impact 影响等级分布；by_handler 各处理人（总量/已办/超期）；high_sensitivity 为高敏（P0/P1）工单清单。
+- requirement（需求与交付）：buckets 为本期需求生命周期分桶（added 新增跟踪 / evaluated 完成评估 / dev_start 启动开发 / delivered 完成开发交付 / ongoing 进行中，括号内为需求名称清单）；delivered_items 为本期上线/交付需求明细（含 req_name/system_name/sa_name/go_live/description/background/workload/dev_status 等字段，供你写「核心实现/业务价值」）；po_risk 为 PO 级交付风险清单。（为节省 token，单条需求明细已省略，进行中/新增等规模以 buckets 名单为准）。
+- operation_issue（运营支撑）：by_category 各子类工单量；by_status 状态分布；by_impact 影响等级分布；by_handler 各处理人（总量/已办/超期）；high_sensitivity 为高敏（P0/P1）工单清单（含 issue_no/title/category/status/handler/impact）。
 - dev_ticket（开发工单）：by_status 状态分布。
 - meeting（会议）：本期会议列表（主题/时间/纪要摘要/主持人）。
 - meeting_action（会议行动项）：total/done/completion_rate 完成率。
@@ -64,6 +64,22 @@ def build_system_prompt(report_type: str) -> str:
     return prompt + "\n\n" + TYPE_PROMPTS.get(report_type, "")
 
 
+def _trim(v: Any, n: int) -> Any:
+    """字符串超长截断，其余类型原样返回。"""
+    if isinstance(v, str) and len(v) > n:
+        return v[:n] + "…"
+    return v
+
+
+# 交付明细保留字段（长文截断到 120 字，供「核心实现/业务价值」判断）
+_REQUIREMENT_DELIVERED_KEEP: Tuple[str, ...] = (
+    "req_name", "system_name", "sa_name", "go_live",
+    "description", "background", "workload", "dev_status",
+)
+_MEETING_ITEM_KEEP: Tuple[str, ...] = ("meeting_id", "title", "start_time", "summary", "host")
+_OP_ITEM_KEEP: Tuple[str, ...] = ("issue_no", "title", "category", "status", "handler", "impact")
+
+
 def build_user_message(data: Dict[str, Any], report_type: str) -> str:
     type_label = _TYPE_LABELS.get(report_type, "工作")
     parts = [
@@ -73,16 +89,48 @@ def build_user_message(data: Dict[str, Any], report_type: str) -> str:
         "以下是本期原始工作数据（JSON）：",
         "```json",
     ]
-    # 截断 items 列表（每条最多 30），保留聚合字段
-    safe: Dict[str, Any] = {}
+    # 精简策略：明细列表（需求/运营/工单的长 items）与聚合字段大量重复，
+    # 故仅保留聚合统计 + 关键名单（上线需求明细/PO风险/高敏工单/会议），去掉冗余 items，
+    # 既省约 80% 输入 token，又不影响「数据 + 判断」的撰写要求。
+    slim: Dict[str, Any] = {}
     for k, v in data.items():
-        if isinstance(v, dict) and "items" in v:
-            d = dict(v)
-            items = d.get("items") or []
-            d["items"] = items[:30]
-            safe[k] = d
+        if not isinstance(v, dict):
+            slim[k] = v
+            continue
+        if k == "requirement":
+            d = {
+                "buckets": v.get("buckets") or {},
+                "delivered_items": [
+                    {kk: _trim(it.get(kk, ""), 120) for kk in _REQUIREMENT_DELIVERED_KEEP if kk in it}
+                    for it in (v.get("delivered_items") or [])[:20]
+                ],
+                "po_risk": (v.get("po_risk") or [])[:15],
+            }
+        elif k == "operation_issue":
+            d = {
+                "by_category": v.get("by_category") or {},
+                "by_status": v.get("by_status") or {},
+                "by_impact": v.get("by_impact") or {},
+                "by_handler": v.get("by_handler") or {},
+                "high_sensitivity": [
+                    {kk: _trim(it.get(kk, ""), 80) for kk in _OP_ITEM_KEEP if kk in it}
+                    for it in (v.get("high_sensitivity") or [])[:15]
+                ],
+            }
+        elif k == "meeting":
+            items = v.get("items") or []
+            d = {
+                "total": v.get("total") or len(items),
+                "items": [
+                    {kk: _trim(it.get(kk, ""), 120) for kk in _MEETING_ITEM_KEEP if kk in it}
+                    for it in items[:20]
+                ],
+            }
+        elif k == "dev_ticket":
+            d = {"by_status": v.get("by_status") or {}}
         else:
-            safe[k] = v
-    parts.append(json.dumps(safe, ensure_ascii=False, default=str, indent=2))
+            d = v
+        slim[k] = d
+    parts.append(json.dumps(slim, ensure_ascii=False, default=str))
     parts.append("```")
     return "\n".join(parts)

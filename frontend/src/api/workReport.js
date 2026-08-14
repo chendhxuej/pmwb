@@ -24,6 +24,10 @@ export function generateWorkReport(data) {
   return request({ url: '/work-reports/generate', method: 'post', data })
 }
 
+export function getWorkReportGenStatus(id) {
+  return request({ url: `/work-reports/${id}/gen-status`, method: 'get' })
+}
+
 export function finalizeWorkReport(id) {
   return request({ url: `/work-reports/${id}/finalize`, method: 'post' })
 }
