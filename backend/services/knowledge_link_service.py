@@ -10,7 +10,9 @@
 与 services/knowledge_link.py（早期版本，按「## 关联对象」章节同步）并存，
 本模块是 spec 要求的标准实现，routers 新增端点调用本模块。
 """
-from datetime import datetime
+import json
+import re
+from datetime import date, datetime
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -25,6 +27,7 @@ from db.models import (
     PmwbMeeting,
     PmwbOperationIssue,
     PmwbRequirementExt,
+    PmwbUserStory,
 )
 from utils.obsidian import (
     append_or_replace_section,
@@ -316,12 +319,40 @@ def _remove_section(content: str, heading: str) -> str:
 # 主笔记模板
 # ---------------------------------------------------------------------------
 
+# 自动区标记块（顺序即模板与同步引擎约定）
+AUTO_BLOCK_KEYS = ["product", "process", "scenario_rules", "change_log", "deliverables", "timeline"]
+
+
+def _auto_block(key: str, body: str = "") -> str:
+    """生成一对自动区标记包裹的块（模板初始化用，body 为空即空块）。"""
+    return f"<!-- PMWB:AUTO:BEGIN key={key} -->\n{body}<!-- PMWB:AUTO:END key={key} -->"
+
+
+def _replace_auto_block(content: str, key: str, body: str) -> str:
+    """替换主笔记中指定 key 的自动区内容（保留标记，不匹配则原样返回）。
+
+    仅改写 BEGIN/END 标记之间的文本，人工区（标记之外）永不被动。幂等：
+    重复调用结果一致，不会产生重复标记。
+    """
+    begin = f"<!-- PMWB:AUTO:BEGIN key={key} -->"
+    end = f"<!-- PMWB:AUTO:END key={key} -->"
+    pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
+    replacement = f"{begin}\n{body.rstrip(chr(10))}\n{end}"
+    return pattern.sub(replacement, content, count=1)
+
+
 def build_main_note_markdown(
     domain: PmwbBusinessDomain,
     item_id: str,
     created_date: str,
 ) -> str:
-    """按方案 §4.1/4.2 生成业务知识主笔记 Markdown。"""
+    """按方案 §4.1/4.2 生成业务知识主笔记 Markdown。
+
+    结构：
+
+    - 人工基线章节（业务概述/产商品资费/服务场景/通用规则/关联索引/MOC）由人维护；
+    - 自动区（AUTO 标记块）承载系统回流内容，人工区永不被同步覆盖。
+    """
     title = f"{domain.domain_name} 业务知识主笔记"
     fm = {
         "item_id": item_id,
@@ -365,45 +396,49 @@ def build_main_note_markdown(
     lines.append("")
     lines.append("## 2. 产商品与资费体系")
     lines.append("")
-    lines.append("### 2.1 产品矩阵")
+    lines.append("### 2.1 产品矩阵（人工维护）")
     lines.append("")
     lines.append("| 产品 | 定位 | 目标客户 | 备注 |")
     lines.append("|------|------|----------|------|")
     lines.append("|      |      |          |      |")
     lines.append("")
-    lines.append("### 2.2 资费与计费规则")
+    lines.append("### 2.2 资费与计费规则（人工维护）")
     lines.append("")
     lines.append("- ")
     lines.append("")
+    lines.append("### 2.3 产品变更（自动区）")
+    lines.append("")
+    lines.append(_auto_block("product"))
+    lines.append("")
     lines.append("## 3. 客户服务场景 SOP")
     lines.append("")
-    lines.append("### 3.1 常见服务场景")
+    lines.append("### 3.1 常见服务场景（人工维护）")
     lines.append("")
     lines.append("| 场景 | 责任角色 | 关键步骤 | SLA |")
     lines.append("|------|----------|----------|-----|")
     lines.append("|      |          |          |     |")
     lines.append("")
+    lines.append("### 3.2 流程变更（自动区）")
+    lines.append("")
+    lines.append(_auto_block("process"))
+    lines.append("")
     lines.append("## 4. 业务规则")
     lines.append("")
-    lines.append("### 4.1 通用规则")
+    lines.append("### 4.1 通用规则（人工维护）")
     lines.append("")
     lines.append("- ")
     lines.append("")
-    lines.append("### 4.2 场景规则")
+    lines.append("### 4.2 场景规则（自动区）")
     lines.append("")
-    lines.append("- ")
+    lines.append(_auto_block("scenario_rules"))
     lines.append("")
-    lines.append("## 5. 优化与变更轨迹")
+    lines.append("## 5. 优化与变更轨迹（自动区）")
     lines.append("")
-    lines.append("| 日期 | 变更内容 | 原因/背景 | 影响范围 | 关联需求 |")
-    lines.append("|------|----------|-----------|----------|----------|")
-    lines.append("|      |          |           |          |          |")
+    lines.append(_auto_block("change_log"))
     lines.append("")
-    lines.append("## 6. 关联交付物")
+    lines.append("## 6. 关联交付物（自动区）")
     lines.append("")
-    lines.append("| 交付物 | 类型 | 存储路径 | 来源工单 | 更新日期 |")
-    lines.append("|--------|------|----------|----------|----------|")
-    lines.append("|        |      |          |          |          |")
+    lines.append(_auto_block("deliverables"))
     lines.append("")
     lines.append("## 7. 关联过程性内容索引")
     lines.append("")
@@ -412,7 +447,282 @@ def build_main_note_markdown(
     lines.append("## 8. 相关子笔记 MOC")
     lines.append("")
     lines.append("")
+    lines.append("## 9. 业务全过程时间线（自动区）")
+    lines.append("")
+    lines.append(_auto_block("timeline"))
+    lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
+    """把需求/用户故事/关联事件回流到主笔记的自动区，人工区零覆盖，幂等。
+
+    分级策略（kc4-2 保守回流）：
+
+    - 产商品区：已关闭且 product_changed=1 的需求；
+    - 业务流程区：已关闭且 process_changed=1 的需求；
+    - 变更轨迹：已关闭且 (product_changed|process_changed) 的需求；
+    - 场景规则：用户故事 rules 非空（不依赖需求状态，低风险结构化）；
+    - 时间线：该 domain 全部 knowledge_link，按 event_date 倒序；
+    - 交付物：已关闭需求的 deliverables JSON。
+
+    返回 {domain_code, changed, blocks_written, main_note_path}。
+    """
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+    if not item:
+        return {
+            "domain_code": domain_code,
+            "changed": False,
+            "blocks_written": [],
+            "main_note_path": None,
+            "error": "no_main_note",
+        }
+
+    content = read_markdown(item.obsidian_path) or ""
+    blocks_written: List[str] = []
+
+    reqs = (
+        db.query(PmwbRequirementExt)
+        .filter(PmwbRequirementExt.domain_code == domain_code)
+        .all()
+    )
+
+    # 产商品区：已关闭 + 勾选产商品变更
+    product_lines = []
+    for r in reqs:
+        if r.status == "closed" and (r.product_changed or 0) == 1:
+            ver = r.version_required_date.strftime("%Y-%m-%d") if r.version_required_date else "未定"
+            product_lines.append(f"- [{r.req_id}] {r.req_name or ''} — 版本要求日 {ver}")
+    product_body = "\n".join(product_lines) if product_lines else "_暂无产商品变更_"
+
+    # 业务流程区：已关闭 + 勾选流程变更
+    process_lines = []
+    for r in reqs:
+        if r.status == "closed" and (r.process_changed or 0) == 1:
+            process_lines.append(f"- [{r.req_id}] {r.req_name or ''}（流程变更）")
+    process_body = "\n".join(process_lines) if process_lines else "_暂无流程变更_"
+
+    # 变更轨迹：已关闭 + 任一变更标记
+    change_lines = []
+    for r in reqs:
+        if r.status == "closed" and ((r.product_changed or 0) == 1 or (r.process_changed or 0) == 1):
+            kind = "业务流程" if (r.process_changed or 0) == 1 else "产商品"
+            ver = r.version_required_date.strftime("%Y-%m-%d") if r.version_required_date else "未定"
+            change_lines.append(f"- {ver} · {kind} · [{r.req_id}] {r.req_name or ''}")
+    change_body = "\n".join(change_lines) if change_lines else "_暂无变更轨迹_"
+
+    # 交付物：已关闭需求的 deliverables JSON
+    deliv_lines = []
+    for r in reqs:
+        if r.status == "closed":
+            try:
+                ds = json.loads(r.deliverables) if r.deliverables else []
+            except Exception:
+                ds = []
+            if isinstance(ds, list):
+                for d in ds:
+                    if isinstance(d, dict):
+                        deliv_lines.append(
+                            f"- [{r.req_id}] {d.get('file_name', '')}（{d.get('note', '')}）"
+                        )
+    deliv_body = "\n".join(deliv_lines) if deliv_lines else "_暂无交付物_"
+
+    # 场景规则：用户故事 rules 非空（不依赖需求状态）
+    rules_lines = []
+    for r in reqs:
+        stories = (
+            db.query(PmwbUserStory).filter(PmwbUserStory.req_id == r.req_id).all()
+        )
+        for st in stories:
+            if st.rules:
+                try:
+                    arr = json.loads(st.rules)
+                except Exception:
+                    arr = []
+                if isinstance(arr, list):
+                    for rule in arr:
+                        rules_lines.append(f"- [{r.req_id}] {rule}")
+    rules_body = "\n".join(rules_lines) if rules_lines else "_暂无场景规则_"
+
+    # 时间线：该 domain 全部关联事件，按 event_date 倒序
+    tl = business_timeline(db, domain_code)
+    tl_events = tl.get("events", [])
+    tl_lines = []
+    for e in tl_events:
+        date_s = e.get("event_date") or "未定日期"
+        title = e.get("source_title") or e.get("source_id")
+        tl_lines.append(
+            f"- {date_s} · [{e.get('event_label')}] {title}（{e.get('summary') or ''}）"
+        )
+    tl_body = "\n".join(tl_lines) if tl_lines else "_暂无关联事件_"
+
+    # 应用替换（仅更改标记内文本）
+    new_content = content
+    block_map = {
+        "product": product_body,
+        "process": process_body,
+        "change_log": change_body,
+        "deliverables": deliv_body,
+        "scenario_rules": rules_body,
+        "timeline": tl_body,
+    }
+    for key, body in block_map.items():
+        new_content = _replace_auto_block(new_content, key, body)
+        if not body.startswith("_暂无"):
+            blocks_written.append(key)
+
+    changed = False
+    if new_content != content:
+        write_markdown(item.obsidian_path, new_content)
+        changed = True
+
+    return {
+        "domain_code": domain_code,
+        "changed": changed,
+        "blocks_written": blocks_written,
+        "main_note_path": item.obsidian_path,
+    }
+
+
+
+# source_type -> 时间线事件中文标签
+EVENT_LABELS = {
+    "requirement": "需求",
+    "ticket": "开发工单",
+    "meeting": "会议",
+    "operation": "运营",
+    "deliverable": "交付物",
+    "key_work": "重点工作",
+}
+
+# source_type -> 前端跳转路由
+SOURCE_ROUTES = {
+    "requirement": "/requirement-delivery",
+    "ticket": "/dev-tickets",
+    "meeting": "/meeting/list",
+    "operation": "/operation/overview",
+    "deliverable": "/requirements",
+    "key_work": "/key-works",
+}
+
+
+def _resolve_source_title(db: Session, source_type: str, source_id: str):
+    """反查关联源记录的标题，用于时间线展示。"""
+    if source_type == "requirement":
+        r = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == source_id).first()
+        return r.req_name if r else None
+    if source_type == "meeting":
+        m = db.query(PmwbMeeting).filter(PmwbMeeting.meeting_id == source_id).first()
+        return m.title if m else None
+    if source_type == "operation":
+        o = db.query(PmwbOperationIssue).filter(PmwbOperationIssue.issue_no == source_id).first()
+        return o.title if o else None
+    if source_type == "ticket":
+        t = db.query(PmwbDevTicket).filter(PmwbDevTicket.id == source_id).first()
+        return t.title if t else None
+    if source_type == "key_work":
+        k = db.query(PmwbKeyWork).filter(PmwbKeyWork.id == source_id).first()
+        return k.title if k else None
+    return None
+
+
+def business_timeline(
+    db: Session,
+    domain_code: str,
+    event_type: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> Dict:
+    """聚合某业务领域全过程时间线。
+
+    数据权威源为 pmwb_knowledge_link（按 domain_code 过滤），每条关联事件携带
+    源记录标题、跳转路由、关联主笔记路径，便于双向跳转。按 event_date 倒序，
+    缺失日期垫底；类型统计始终为全量口径（供筛选器展示）。
+    """
+    domain = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.domain_code == domain_code)
+        .first()
+    )
+    domain_name = domain.domain_name if domain else domain_code
+
+    links = (
+        db.query(PmwbKnowledgeLink)
+        .filter(PmwbKnowledgeLink.domain_code == domain_code)
+        .all()
+    )
+
+    # 全量类型统计（不受过滤影响）
+    type_counts: Dict[str, int] = {}
+    events = []
+    for link in links:
+        et = link.event_type or link.source_type
+        type_counts[et] = type_counts.get(et, 0) + 1
+        item = (
+            db.query(PmwbKnowledgeItem)
+            .filter(PmwbKnowledgeItem.id == link.knowledge_item_id)
+            .first()
+        )
+        label = EVENT_LABELS.get(et) or EVENT_LABELS.get(link.source_type) or link.source_type
+        route = SOURCE_ROUTES.get(link.source_type, "")
+        ev_date = link.event_date.strftime("%Y-%m-%d") if link.event_date else None
+        events.append(
+            {
+                "source_type": link.source_type,
+                "source_id": link.source_id,
+                "event_type": et,
+                "event_label": label,
+                "source_title": _resolve_source_title(db, link.source_type, link.source_id),
+                "source_route": route,
+                "obsidian_path": item.obsidian_path if item else None,
+                "knowledge_title": item.title if item else None,
+                "event_date": ev_date,
+                "month": link.event_date.strftime("%Y-%m") if link.event_date else None,
+                "summary": link.summary or link.note,
+            }
+        )
+
+    # 倒序：event_date 大的在前，缺失日期垫底（空日期用 0 标志 + 小值保证垫底）
+    def _sort_key(e):
+        if e["event_date"] is None:
+            return (0, "")
+        return (1, e["event_date"])
+
+    events.sort(key=_sort_key, reverse=True)
+
+    # 按类型过滤（不影响类型统计）
+    if event_type:
+        events = [e for e in events if e["event_type"] == event_type]
+    total = len(events)
+
+    # 截断
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = None
+    returned = total
+    if limit is not None:
+        returned = min(limit, total)
+        events = events[:limit]
+
+    event_types = [
+        {"value": k, "count": v, "label": EVENT_LABELS.get(k, k)}
+        for k, v in sorted(type_counts.items())
+    ]
+
+    return {
+        "domain_code": domain_code,
+        "domain_name": domain_name,
+        "total": total,
+        "returned": returned,
+        "events": events,
+        "event_types": event_types,
+    }
 
 
 def create_main_note(db: Session, domain_code: str) -> dict:

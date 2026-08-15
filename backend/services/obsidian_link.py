@@ -954,6 +954,35 @@ def archive_requirement_manual(db, req_id: str) -> Dict:
             fm["related_deliverables"] = existing_list
             write_frontmatter(main_note.obsidian_path, fm)
 
+    # 归档需求自身直挂的 JSON 交付物（kc4-4）：复制文件并回写 archived_at/obsidian_path
+    try:
+        json_deliverables = json.loads(ext.deliverables or "[]") if ext else []
+    except (json.JSONDecodeError, TypeError):
+        json_deliverables = []
+    json_changed = False
+    if json_deliverables:
+        for d in json_deliverables:
+            if d.get("archived_at"):
+                continue
+            src = d.get("local_path")
+            if not src:
+                continue
+            src_path = os.path.join(settings.OBSIDIAN_VAULT_PATH, src) if not os.path.isabs(src) else src
+            if not os.path.exists(src_path):
+                skipped.append({"file_name": d.get("file_name"), "reason": "源文件不存在"})
+                continue
+            dst_rel = f"{attachments_dir}/{sanitize_filename(d.get('file_name', 'file'))}"
+            dst_path = os.path.join(settings.OBSIDIAN_VAULT_PATH, dst_rel)
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+            shutil.copy2(src_path, dst_path)
+            now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            d["archived_at"] = now_iso
+            d["obsidian_path"] = dst_rel
+            json_changed = True
+            archived.append({"file_name": d.get("file_name"), "obsidian_path": dst_rel})
+        if json_changed:
+            ext.deliverables = json.dumps(json_deliverables, ensure_ascii=False)
+
     # 标记需求已归档
     if ext:
         ext.manual_archived = 1
@@ -967,6 +996,69 @@ def archive_requirement_manual(db, req_id: str) -> Dict:
         "skipped": skipped,
         "main_note": main_note.title if main_note else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# 需求直挂交付物（kc4-4）：JSON 交付物的增删查 + 归档
+# ---------------------------------------------------------------------------
+
+
+def _parse_deliverables(ext: "PmwbRequirementExt") -> List[Dict]:
+    """解析需求 deliverables JSON 字段为列表（容错空/非法）。"""
+    if not ext or not ext.deliverables:
+        return []
+    try:
+        data = json.loads(ext.deliverables)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def get_requirement_deliverables(db, req_id: str) -> List[Dict]:
+    """返回需求直挂交付物列表（JSON 解析后）。"""
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if not ext:
+        return []
+    return _parse_deliverables(ext)
+
+
+def add_requirement_deliverable(
+    db,
+    req_id: str,
+    file_name: str,
+    local_path: str,
+    note: str = "",
+) -> Dict:
+    """向需求直挂交付物列表追加一条；返回新增条目。"""
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if not ext:
+        raise NotFoundException(f"需求不存在：{req_id}")
+    items = _parse_deliverables(ext)
+    entry = {
+        "file_name": file_name,
+        "local_path": local_path,
+        "note": note or "",
+        "archived_at": None,
+        "obsidian_path": None,
+    }
+    items.append(entry)
+    ext.deliverables = json.dumps(items, ensure_ascii=False)
+    db.commit()
+    return entry
+
+
+def remove_requirement_deliverable(db, req_id: str, index: int) -> bool:
+    """按索引删除一条交付物；越界返回 False。"""
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if not ext:
+        return False
+    items = _parse_deliverables(ext)
+    if index < 0 or index >= len(items):
+        return False
+    items.pop(index)
+    ext.deliverables = json.dumps(items, ensure_ascii=False)
+    db.commit()
+    return True
 
 
 # ---------------------------------------------------------------------------

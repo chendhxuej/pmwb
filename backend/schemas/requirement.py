@@ -159,3 +159,10 @@ class RequirementStats(BaseModel):
     closed: int
     paused: int
     involved: int
+
+
+class RequirementDeliverableCreate(BaseModel):
+    """需求直挂交付物新增请求体。"""
+    file_name: str = Field(..., description="交付物文件名")
+    local_path: str = Field(..., description="源文件路径（相对 vault 或绝对路径）")
+    note: Optional[str] = Field("", description="备注")

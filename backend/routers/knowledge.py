@@ -19,10 +19,12 @@ from services.knowledge_link import (
     unlink,
 )
 from services.knowledge_link_service import (
+    business_timeline,
     create_main_note as create_main_note_service,
     ensure_domain_main_notes,
     link_note,
     list_by_item,
+    sync_main_note_from_links,
     unlink as unlink_by_source,
 )
 from services.obsidian_link import (
@@ -35,6 +37,18 @@ from services.obsidian_link import (
 from services.vault_sync import sync_from_vault
 
 router = APIRouter(prefix="/knowledge", tags=["知识库"])
+
+
+@router.get("/business-timeline")
+def get_business_timeline(
+    domain_code: str = Query(..., description="业务领域编码"),
+    event_type: Optional[str] = Query(None, description="按事件类型过滤"),
+    limit: Optional[int] = Query(None, description="截断条数"),
+    db: Session = Depends(get_db),
+):
+    """业务全过程时间线：聚合某领域全部关联事件，按 event_date 倒序。"""
+    data = business_timeline(db, domain_code, event_type=event_type, limit=limit)
+    return success(data=data)
 
 
 @router.get("")
@@ -150,6 +164,19 @@ def ensure_main_notes(db: Session = Depends(get_db)):
         data=result,
         message=f"扫描 {result['domains_scanned']} 个领域，新建主笔记 {result['main_notes_created']} 个，保活/重建 {result['main_notes_ensured']} 个",
     )
+
+
+@router.post("/sync-main-note")
+def sync_main_note(payload: Dict[str, Any], db: Session = Depends(get_db)):
+    """把需求/用户故事/关联事件回流到指定领域主笔记的自动区（人工区零覆盖，幂等）。
+
+    payload: {domain_code}
+    """
+    domain_code = payload.get("domain_code")
+    if not domain_code:
+        return success(data={"changed": False, "blocks_written": [], "error": "missing_domain_code"})
+    result = sync_main_note_from_links(db, domain_code)
+    return success(data=result, message="主笔记自动区已同步" if result["changed"] else "主笔记无变更")
 
 
 @router.get("/{item_id}/links")

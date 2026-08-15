@@ -5,7 +5,17 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
-from schemas.requirement import EvaluationCreate, EvaluationUpdate, RequirementExtUpdate
+from schemas.requirement import (
+    EvaluationCreate,
+    EvaluationUpdate,
+    RequirementDeliverableCreate,
+    RequirementExtUpdate,
+)
+from services.obsidian_link import (
+    add_requirement_deliverable,
+    get_requirement_deliverables,
+    remove_requirement_deliverable,
+)
 from services.requirement import requirement_service
 
 router = APIRouter(prefix="/requirements", tags=["需求管理"])
@@ -94,4 +104,33 @@ def update_requirement(req_id: str, obj_in: RequirementExtUpdate, db: Session = 
 def delete_requirement(req_id: str, db: Session = Depends(get_db)):
     """从我的工作台移除需求（删除扩展、团队评估、用户故事；保留只读 sent_emails）。"""
     ok = requirement_service.delete_requirement(db, req_id)
+    return success(data={"deleted": ok})
+
+
+# ---------------------------------------------------------------------------
+# 需求直挂交付物（kc4-4）：JSON 交付物的增删查
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{req_id}/deliverables")
+def list_requirement_deliverables(req_id: str, db: Session = Depends(get_db)):
+    """列举需求直挂交付物。"""
+    return success(data=get_requirement_deliverables(db, req_id))
+
+
+@router.post("/{req_id}/deliverables")
+def create_requirement_deliverable(
+    req_id: str, payload: RequirementDeliverableCreate, db: Session = Depends(get_db)
+):
+    """新增一条需求直挂交付物。"""
+    entry = add_requirement_deliverable(
+        db, req_id, file_name=payload.file_name, local_path=payload.local_path, note=payload.note
+    )
+    return success(data=entry)
+
+
+@router.delete("/{req_id}/deliverables/{index}")
+def delete_requirement_deliverable(req_id: str, index: int, db: Session = Depends(get_db)):
+    """按索引删除一条需求直挂交付物。"""
+    ok = remove_requirement_deliverable(db, req_id, index)
     return success(data={"deleted": ok})
