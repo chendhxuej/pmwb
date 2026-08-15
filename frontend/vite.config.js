@@ -12,6 +12,12 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
+    // 禁止浏览器缓存 dev 资源，避免重启/修复后前端仍显示旧 JS（老大反复遇到的「改了不生效」根因）
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',
