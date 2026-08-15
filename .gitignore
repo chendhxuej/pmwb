@@ -93,3 +93,8 @@ frontend/dist.bak/
 frontend/dist_bak/
 frontend/dist_new/
 frontend/dist_old_*/
+
+# ad-hoc build verification dirs
+frontend/dist-verify/
+frontend/dist-verify3/
+frontend/dist-build-test/
