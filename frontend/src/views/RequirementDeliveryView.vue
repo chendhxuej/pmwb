@@ -324,6 +324,19 @@
                       </el-form-item>
                     </div>
                     <div style="grid-column: span 6">
+                      <el-form-item :label="current.status === 'closed' ? '实际上线日期 *' : '实际上线日期'">
+                        <el-date-picker
+                          v-model="current.delivered_date"
+                          type="date"
+                          value-format="YYYY-MM-DD"
+                          style="width:100%"
+                          placeholder="选实际完成日期"
+                          clearable
+                          :class="{ 'delivered-required': current.status === 'closed' }"
+                        />
+                      </el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
                       <el-form-item label="开发单号">
                         <EnlargeInput v-model="current.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
                       </el-form-item>
@@ -483,14 +496,20 @@
                     <div class="sc-icon sc-icon-ai">🤖</div>
                     <div class="sc-body">
                       <div class="sc-title">
-                        Kimi 智能拆分
+                        AI 智能拆分
                         <span v-if="llmChecking" class="sc-badge sc-badge-info">检测中</span>
+                        <span v-else-if="!llmStatus.enabled" class="sc-badge sc-badge-off">未配置</span>
                         <span v-else-if="llmStatus.reachable" class="sc-badge sc-badge-on">已连接</span>
-                        <span v-else class="sc-badge sc-badge-off">未配置</span>
+                        <span v-else class="sc-badge sc-badge-off">API 不可用</span>
                       </div>
                       <div class="sc-desc">
                         AI 理解角色/场景/闭环，约 30 秒
                       </div>
+                      <div
+                        v-if="!llmChecking && llmStatus.enabled && !llmStatus.reachable && llmStatus.error"
+                        class="sc-error"
+                        :title="llmStatus.error"
+                      >⚠ {{ llmErrorHint }}</div>
                     </div>
                     <div class="sc-check" v-if="selectedStrategy === 'llm'">✓</div>
                   </div>
@@ -509,6 +528,14 @@
                   </div>
                 </div>
 
+                <div
+                  v-if="!llmChecking && llmStatus.enabled && !llmStatus.reachable"
+                  class="strategy-warn"
+                >
+                  <span class="sw-icon">⚠️</span>
+                  <span>AI 大模型暂时不可用{{ llmStatus.error ? '：' + llmErrorHint : '' }}。可改用「合并生成」秒级出结果，或前往「大模型管理」配置可用的 API Key。</span>
+                </div>
+
                 <el-button
                   class="mt-12 w-full"
                   type="primary"
@@ -518,11 +545,11 @@
                 >
                   <template v-if="storyGenLoading">
                     <el-icon class="is-loading"><Loading /></el-icon>
-                    {{ selectedStrategy === 'llm' ? `Kimi 正在分析需求… ${storyGenElapsed}s` : `正在生成… ${storyGenElapsed}s` }}
+                    {{ selectedStrategy === 'llm' ? `AI 正在分析需求… ${storyGenElapsed}s` : `正在生成… ${storyGenElapsed}s` }}
                   </template>
                   <template v-else>
                     <el-icon><MagicStick /></el-icon>
-                    {{ selectedStrategy === 'llm' ? 'Kimi 智能生成用户故事' : selectedStrategy === 'rules_v1' ? '按工作量生成用户故事' : '生成用户故事' }}
+                    {{ selectedStrategy === 'llm' ? 'AI 智能生成用户故事' : selectedStrategy === 'rules_v1' ? '按工作量生成用户故事' : '生成用户故事' }}
                   </template>
                 </el-button>
               </div>
@@ -561,8 +588,8 @@
                 <!-- 生成中遮罩 -->
                 <div v-if="storyGenLoading" class="story-loading-overlay">
                   <el-icon class="is-loading" :size="28"><Loading /></el-icon>
-                  <p>{{ selectedStrategy === 'llm' ? 'Kimi 正在分析需求内容，识别角色/场景/闭环…' : '正在生成用户故事…' }}</p>
-                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? 'Kimi 带推理能力，通常需要 20-40 秒，请耐心等待' : '预计 1-3 秒完成' }}</p>
+                  <p>{{ selectedStrategy === 'llm' ? 'AI 正在分析需求内容，识别角色/场景/闭环…' : '正在生成用户故事…' }}</p>
+                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? 'AI 带推理能力，通常需要 20-40 秒，请耐心等待' : '预计 1-3 秒完成' }}</p>
                 </div>
 
                 <!-- 未生成提示 -->
@@ -977,6 +1004,7 @@ async function refreshCurrent(reqId) {
       current.value.priority = res.ext?.priority || 'P2'
       current.value.status = res.ext?.status || 'proposed'
       current.value.version_required_date = res.ext?.version_required_date || ''
+      current.value.delivered_date = res.ext?.delivered_date || ''
       current.value.dev_ticket_no = res.dev_ticket_no || ''
       current.value.owner_note = res.ext?.owner_note || ''
       current.value.tags = res.ext?.tags || ''
@@ -1303,6 +1331,11 @@ async function sedimentStoryRules(st) {
 
 async function saveDetail() {
   try {
+    // 已上线状态必须填写实际上线日期
+    if (current.value.status === 'closed' && !current.value.delivered_date) {
+      ElMessage.warning('已上线需求必须填写实际上线日期')
+      return
+    }
     const payload = {
       req_name: current.value.req_name,
       system_name: current.value.system_name,
@@ -1310,6 +1343,7 @@ async function saveDetail() {
       priority: current.value.priority,
       status: current.value.status,
       version_required_date: current.value.version_required_date || null,
+      delivered_date: current.value.delivered_date || null,
       dev_ticket_no: current.value.dev_ticket_no || '',
       owner_note: current.value.owner_note,
       tags: current.value.tags,
@@ -1410,6 +1444,14 @@ async function checkLlmStatus() {
     llmChecking.value = false
   }
 }
+const llmErrorHint = computed(() => {
+  const e = llmStatus.value.error || ''
+  if (!e) return ''
+  // 去掉超长英文 URL，保留中文关键信息，过长截断
+  const zh = e.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim()
+  const base = zh || e
+  return base.length > 90 ? base.slice(0, 90) + '…' : base
+})
 function addStory() {
   stories.value.push({ title: '', desc: '', scene: '', acceptance: [''], rules: [], finalized: false })
   storiesConfirmed.value = false
@@ -1442,7 +1484,7 @@ async function generateStories(strategy = 'rules_v2') {
       finalized: false,
     }))
     storiesConfirmed.value = false
-    const labelMap = { rules_v2: '合并优先', rules_v1: '按工作量拆分', rules_v2_fallback: '合并优先', llm: 'Kimi 智能拆分' }
+    const labelMap = { rules_v2: '合并优先', rules_v1: '按工作量拆分', rules_v2_fallback: '合并优先', llm: 'AI 智能拆分' }
     strategyLabel.value = labelMap[res.strategy_used] || res.strategy_used || ''
     ElMessage.success(`已生成 ${stories.value.length} 条用户故事（${strategyLabel.value}），请预览后点击「确认落库」保存`)
   } catch (err) {
@@ -1555,7 +1597,7 @@ onMounted(async () => {
   await loadRequirements()
   await loadTickets()
   applyDeepLink()
-  checkLlmStatus()  // 后台检测 Kimi/LLM 状态，不阻塞主流程
+  checkLlmStatus()  // 后台检测大模型状态，不阻塞主流程
 })
 
 onBeforeUnmount(() => {
@@ -1666,6 +1708,14 @@ onBeforeUnmount(() => {
 .sc-badge-old { background: #f5f5f5; color: #999 }
 .sc-badge-info { background: #e6f4ff; color: #1677ff }
 .sc-check { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0 }
+.sc-error { font-size: 11px; color: #cf1322; margin-top: 4px; line-height: 1.45; word-break: break-word }
+.strategy-warn {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+  background: #fff7e6; border: 1px solid #ffd591; color: #ad6800;
+  font-size: 12px; line-height: 1.55;
+}
+.strategy-warn .sw-icon { flex-shrink: 0; font-size: 14px; line-height: 1.4 }
 
 /* ── 生成中 & 空状态 ── */
 .story-loading-overlay {
@@ -1690,4 +1740,12 @@ onBeforeUnmount(() => {
 .us-ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.8; color: var(--text-primary) }
 .us-ol li { margin-bottom: 4px }
 :deep(.us-hl) { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 2px; font-weight: 600 }
+
+/* 实际上线日期 - 已上线状态必填高亮 */
+.delivered-required :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--el-color-danger, #f56c6c) inset !important;
+}
+.delivered-required :deep(.el-input__inner::placeholder) {
+  color: var(--el-color-danger, #f56c6c);
+}
 </style>

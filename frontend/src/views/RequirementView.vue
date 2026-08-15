@@ -257,6 +257,17 @@
         <el-form-item label="开发单号">
           <EnlargeInput v-model="form.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
         </el-form-item>
+        <el-form-item label="实际上线">
+          <el-date-picker
+            v-model="form.delivered_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            placeholder="选实际上线日期"
+            style="width: 100%"
+            clearable
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -285,7 +296,29 @@
           <el-descriptions-item label="团队数">{{ detail.eval_count || 0 }} 个</el-descriptions-item>
           <el-descriptions-item label="开发单号">{{ detail.dev_ticket_no }}</el-descriptions-item>
           <el-descriptions-item label="版本要求">{{ detail.ext?.version_required_date || '未设置' }}</el-descriptions-item>
-          <el-descriptions-item label="实际上线">{{ detail.ext?.delivered_date || '未填写' }}</el-descriptions-item>
+          <el-descriptions-item label="实际上线">
+            <el-popover placement="bottom" trigger="click" width="260" popper-class="version-popover">
+              <template #reference>
+                <span class="version-text" :class="detail.ext?.delivered_date ? 'is-delivered' : 'is-unset'">
+                  {{ detail.ext?.delivered_date || '填上线日期' }}
+                </span>
+              </template>
+              <div class="version-pop">
+                <el-date-picker
+                  v-model="detail.ext.delivered_date"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  format="YYYY-MM-DD"
+                  size="small"
+                  style="width: 100%"
+                  @change="(val) => handleDetailDeliveredChange(val)"
+                />
+                <div class="version-pop-actions">
+                  <el-button size="small" text type="info" @click="handleDetailDeliveredClear">清除</el-button>
+                </div>
+              </div>
+            </el-popover>
+          </el-descriptions-item>
         </template>
       </el-descriptions>
       <div v-if="detail.background" class="detail-section">
@@ -503,7 +536,7 @@ const evalForm = reactive({
   sa_name: '', system_name: '', workload: null,
   review_workload: null, opinion: '', dev_ticket_no: '',
 })
-const form = reactive({ req_id: '', req_name: '', status: '', priority: '', domain_code: '', tags: '', personal_note: '', dev_ticket_no: '' })
+const form = reactive({ req_id: '', req_name: '', status: '', priority: '', domain_code: '', tags: '', personal_note: '', dev_ticket_no: '', delivered_date: '' })
 const rules = {
   domain_code: [{ required: true, message: '请选择业务领域', trigger: 'change' }],
 }
@@ -679,6 +712,26 @@ async function handleDeliveredClear(row) {
   }
 }
 
+// 详情弹窗内直接编辑「实际上线」
+async function handleDetailDeliveredChange(val) {
+  try {
+    await updateRequirement(detail.value.req_id, { delivered_date: val || null })
+    ElMessage.success('已保存实际上线日期')
+  } catch (err) {
+    ElMessage.error(err.message || '保存失败')
+  }
+}
+
+async function handleDetailDeliveredClear() {
+  try {
+    await updateRequirement(detail.value.req_id, { delivered_date: null })
+    if (detail.value.ext) detail.value.ext.delivered_date = null
+    ElMessage.success('已清除实际上线日期')
+  } catch (err) {
+    ElMessage.error(err.message || '操作失败')
+  }
+}
+
 function handleViewEval(ev) {
   // 查看单条评估详情（可复用详情对话框）
   detail.value = { ...ev, is_eval: true }
@@ -774,6 +827,7 @@ function handleEdit(row) {
   form.tags = row.ext?.tags || ''
   form.personal_note = row.ext?.personal_note || ''
   form.dev_ticket_no = row.dev_ticket_no || ''
+  form.delivered_date = row.ext?.delivered_date || ''
   dialogVisible.value = true
 }
 
@@ -786,6 +840,7 @@ async function handleSave() {
       tags: form.tags,
       personal_note: form.personal_note,
       dev_ticket_no: form.dev_ticket_no,
+      delivered_date: form.delivered_date || null,
     })
     ElMessage.success('保存成功')
     dialogVisible.value = false
