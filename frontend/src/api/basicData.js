@@ -7,88 +7,88 @@ export const basicDataApi = {
   importFromExcel(file) {
     const form = new FormData()
     form.append('file', file)
-    return request.post('/basic-data/import', form, {
+    return request.post('basic-data/import', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
 
   // 下载导入模板
   downloadTemplate() {
-    return request.get('/basic-data/template', {
+    return request.get('basic-data/template', {
       responseType: 'blob',
     })
   },
 
   // 选人组件分组选项：[{ org_id, org_name, options: [{ value, label, email }] }]
   getStaffOptions() {
-    return request.get('/basic-data/staff-options')
+    return request.get('basic-data/staff-options')
   },
 
   // 角色/身份定义 CRUD
   listRoles() {
-    return request.get('/basic-data/roles')
+    return request.get('basic-data/roles')
   },
   createRole(data) {
-    return request.post('/basic-data/roles', data)
+    return request.post('basic-data/roles', data)
   },
   updateRole(id, data) {
-    return request.put(`/basic-data/roles/${id}`, data)
+    return request.put(`basic-data/roles/${id}`, data)
   },
   deleteRole(id) {
-    return request.delete(`/basic-data/roles/${id}`)
+    return request.delete(`basic-data/roles/${id}`)
   },
 
   // 轻量选项（下拉用，不加载全量人员）
   getOrgOptions() {
-    return request.get('/basic-data/org-options')
+    return request.get('basic-data/org-options')
   },
   getRoleOptions() {
-    return request.get('/basic-data/role-options')
+    return request.get('basic-data/role-options')
   },
 
   // 组织 CRUD
   listOrgs() {
-    return request.get('/basic-data/orgs')
+    return request.get('basic-data/orgs')
   },
   createOrg(data) {
-    return request.post('/basic-data/orgs', data)
+    return request.post('basic-data/orgs', data)
   },
   updateOrg(id, data) {
-    return request.put(`/basic-data/orgs/${id}`, data)
+    return request.put(`basic-data/orgs/${id}`, data)
   },
   deleteOrg(id) {
-    return request.delete(`/basic-data/orgs/${id}`)
+    return request.delete(`basic-data/orgs/${id}`)
   },
 
   // 人员 CRUD
   listStaffs(params) {
-    return request.get('/basic-data/staffs', { params })
+    return request.get('basic-data/staffs', { params })
   },
   createStaff(data) {
-    return request.post('/basic-data/staffs', data)
+    return request.post('basic-data/staffs', data)
   },
   updateStaff(id, data) {
-    return request.put(`/basic-data/staffs/${id}`, data)
+    return request.put(`basic-data/staffs/${id}`, data)
   },
   deleteStaff(id) {
-    return request.delete(`/basic-data/staffs/${id}`)
+    return request.delete(`basic-data/staffs/${id}`)
   },
 
   // 业务领域
   getBusinessDomains(params = {}) {
-    return request.get('/basic-data/business-domains', { params })
+    return request.get('basic-data/business-domains', { params })
   },
   createBusinessDomain(data) {
-    return request.post('/basic-data/business-domains', data)
+    return request.post('basic-data/business-domains', data)
   },
   updateBusinessDomain(code, data) {
-    return request.put(`/basic-data/business-domains/${code}`, data)
+    return request.put(`basic-data/business-domains/${code}`, data)
   },
   deleteBusinessDomain(code) {
-    return request.delete(`/basic-data/business-domains/${code}`)
+    return request.delete(`basic-data/business-domains/${code}`)
   },
   getDomainRelated(code) {
-    return request.get(`/basic-data/business-domains/${code}/related`)
+    return request.get(`basic-data/business-domains/${code}/related`)
   },
 }
 
