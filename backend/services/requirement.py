@@ -339,7 +339,7 @@ class RequirementService:
                 continue
             if not hasattr(ext, key):
                 continue
-            if key == "version_required_date":
+            if key in ("version_required_date", "delivered_date"):
                 # 允许清空（NULL）；空串归一为 NULL
                 setattr(ext, key, None if value in (None, "") else value)
             elif value is not None:
