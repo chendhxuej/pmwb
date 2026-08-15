@@ -464,7 +464,9 @@
               </el-tag>
               <el-tag v-else type="info" size="small">未建待办</el-tag>
               <div class="act-ops">
-                <el-button size="small" @click="syncTodo(act)" :loading="act._syncing">创建待办任务</el-button>
+                <el-button size="small" @click="syncTodo(act)" :loading="act._syncing">
+                  {{ (act.owner || '') === SELF_NAME ? '创建个人待办' : '派发任务' }}
+                </el-button>
                 <el-button
                   v-if="act.related_todo_id"
                   size="small"
@@ -688,53 +690,17 @@
       </template>
     </el-dialog>
 
-    <!-- 会议邮件弹窗（通知 / 纪要） -->
-    <el-dialog
+    <!-- 会议邮件弹窗（通知 / 纪要）：统一发件组件，Markdown 编辑 + 实时 HTML 预览 -->
+    <MailComposeDialog
       v-model="mailVisible"
       :title="mailType === 'notice' ? '发送会议通知' : '发送会议纪要'"
-      width="720px"
-      destroy-on-close
-      append-to-body
-    >
-      <div class="mail-body" v-if="detailMeeting">
-        <div class="mail-row">
-          <label class="mail-label">收件人</label>
-          <StaffSelect v-model="mailTo" multiple value-key="email" placeholder="选择参会人或输入邮箱" />
-        </div>
-        <div class="mail-row">
-          <label class="mail-label">抄送</label>
-          <StaffSelect v-model="mailCcList" multiple value-key="email" placeholder="抄送人员" />
-        </div>
-        <div class="mail-row">
-          <label class="mail-label">主题</label>
-          <el-input v-model="mailSubject" placeholder="邮件主题" />
-        </div>
-        <div class="mail-row mail-tpl-row">
-          <label class="mail-label">正文</label>
-          <div class="mail-tpl-actions">
-            <span class="mail-tpl-hint">模板：</span>
-            <el-button size="small" @click="applyTemplate">重置为模板</el-button>
-          </div>
-        </div>
-        <el-input
-          v-model="mailBody"
-          type="textarea"
-          :rows="12"
-          placeholder="邮件正文（纯文本，换行将被保留）"
-          class="mail-textarea"
-        />
-        <div class="mail-tip" v-if="mailType === 'notice'">
-          · 通知模板：会议信息 + 议题清单 + 参会注意点，用于会前通知参会人。
-        </div>
-        <div class="mail-tip" v-else>
-          · 纪要模板：议题结论 + 待办事项 + 纪要摘要，用于会后同步给参会人。
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="mailVisible = false">取消</el-button>
-        <el-button type="primary" :loading="sendingMail" @click="sendMail">发送邮件</el-button>
-      </template>
-    </el-dialog>
+      :default-to="mailTo"
+      :default-cc="mailCcList"
+      :default-subject="mailSubject"
+      :default-body="mailBody"
+      :scene="mailType === 'notice' ? 'meeting_notice' : 'meeting_minutes'"
+      @send="onComposeSend"
+    />
   </div>
 </template>
 
@@ -744,12 +710,14 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { meetingApi } from '@/api/meeting'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 
 const router = useRouter()
 const route = useRoute()
-const currentUser = '陈大虾'
+const currentUser = '陈大海'
+const SELF_NAME = '陈大海'  // 与后端 settings.SELF_NAME 对齐，用于会议任务归属判断
 
 const loading = ref(false)
 const activeView = ref('cal')
@@ -1163,16 +1131,24 @@ const removeAction = (i) => detailMeeting.value.actions.splice(i, 1)
 
 const syncTodo = async (act) => {
   if (act.id == null) {
-    ElMessage.warning('请先「保存纪要」再创建待办任务')
+    ElMessage.warning('请先「保存纪要」再创建/派发任务')
+    return
+  }
+  if (!act.owner || !act.owner.trim()) {
+    ElMessage.warning('请先指定行动项负责人')
     return
   }
   act._syncing = true
   try {
     const res = await meetingApi.syncActionTodo(detailMeeting.value.id, act.id)
-    act.related_todo_id = res.todo_id
-    ElMessage.success(res.created ? '已创建待办任务' : '待办任务已存在')
+    if (res.personal) {
+      act.related_todo_id = res.todo_id
+      ElMessage.success(res.created ? '已创建个人待办' : '个人待办已存在')
+    } else {
+      ElMessage.success(res.message || '已作为团队任务派发')
+    }
   } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '创建待办失败')
+    ElMessage.error(e?.response?.data?.message || '操作失败')
   } finally {
     act._syncing = false
   }
@@ -1310,105 +1286,93 @@ const fmtEndTimeHM = (v) => {
   return d && !isNaN(d.getTime()) ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '—'
 }
 
-/* 会议通知邮件模板（纯文本） */
+/* 会议通知邮件模板（Markdown，后端统一转 HTML + 签名） */
 const buildNoticeBody = (m) => {
   const names = (m.attendees || []).map((a) => a.name).filter(Boolean)
   const greeting = names.length ? names.join('、') + '好：' : '各位好：'
   const agendaList = (m.agendas || []).length
     ? (m.agendas || [])
         .map((a, i) => {
-          let s = `${i + 1}. ${a.topic || '（待补充）'}`
-          if (a.background && String(a.background).trim()) s += `\n   背景：${a.background}`
-          if (a.conclusion && String(a.conclusion).trim()) s += `\n   结论：${a.conclusion}`
+          let s = `### ${i + 1}. ${a.topic || '（待补充）'}`
+          if (a.background && String(a.background).trim()) s += `\n\n> 背景：${a.background}`
+          if (a.conclusion && String(a.conclusion).trim()) s += `\n\n> 结论：${a.conclusion}`
           return s
         })
-        .join('\n')
+        .join('\n\n')
     : '（待补充）'
-  const lines = [
+  return [
     greeting,
     '',
-    `兹定于 ${fmtFullDateTime(m.start_time)} 召开「${m.title}」会议，敬请拨冗参加。`,
+    `兹定于 **${fmtFullDateTime(m.start_time)}** 召开「**${m.title}**」会议，敬请拨冗参加。`,
     '',
-    '会议信息：',
-    `- 时间：${fmtFullDateTime(m.start_time)} ~ ${fmtEndTimeHM(m.end_time)}`,
-    `- 地点/方式：${m.location || '—'}`,
-    `- 组织者：${m.host || '—'}`,
-    `- 召集人：${m.convener || '—'}`,
-    `- 记录人：${m.recorder || '—'}`,
-    `- 参会人：${names.join('、') || '—'}`,
-    `- 缺席：${m.absentees || '（无）'}`,
-    `- 会议类型：${typeText(m.meeting_type)}`,
+    '## 会议信息',
+    `- **时间**：${fmtFullDateTime(m.start_time)} ~ ${fmtEndTimeHM(m.end_time)}`,
+    `- **地点/方式**：${m.location || '—'}`,
+    `- **组织者**：${m.host || '—'}`,
+    `- **召集人**：${m.convener || '—'}`,
+    `- **记录人**：${m.recorder || '—'}`,
+    `- **参会人**：${names.join('、') || '—'}`,
+    `- **缺席**：${m.absentees || '（无）'}`,
+    `- **会议类型**：${typeText(m.meeting_type)}`,
     '',
-    '会议议题：',
+    '## 会议议题',
     agendaList,
-  ]
-  if (m.attendee_notes) lines.push('', `参会注意点：${m.attendee_notes}`)
-  lines.push(
+    m.attendee_notes ? `\n> 参会注意点：${m.attendee_notes}` : '',
     '',
     '请准时参会，如有冲突请提前告知。谢谢！',
-    '',
-    `${m.host || currentUser}`,
-    '中国移动江苏公司 数智化部'
-  )
-  return lines.join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
-/* 会议纪要邮件模板（纯文本） */
+/* 会议纪要邮件模板（Markdown，后端统一转 HTML + 签名） */
 const buildMinutesBody = (m) => {
   const names = (m.attendees || []).map((a) => a.name).filter(Boolean)
   const greeting = names.length ? names.join('、') + '好：' : '各位好：'
   const agendaBlock = (m.agendas || []).length
     ? (m.agendas || [])
         .map((a, i) => {
-          let s = `${i + 1}. ${a.topic || '（待补充）'}`
-          if (a.background && String(a.background).trim()) s += `\n   背景：${a.background}`
-          s += `\n   结论：${a.conclusion || '（待补充）'}`
-          if (a.division) s += `\n   分工：${a.division}`
+          let s = `### ${i + 1}. ${a.topic || '（待补充）'}`
+          if (a.background && String(a.background).trim()) s += `\n\n> 背景：${a.background}`
+          if (a.conclusion && String(a.conclusion).trim()) s += `\n\n> 结论：${a.conclusion}`
+          if (a.division && String(a.division).trim()) s += `\n\n> 分工：${a.division}`
           return s
         })
-        .join('\n')
+        .join('\n\n')
     : '（待补充）'
   const actionBlock = (m.actions || []).length
     ? (m.actions || [])
         .map((a) => {
           const box = a.status === 'done' ? 'x' : ' '
           const due = a.due_date ? `（截止 ${a.due_date}）` : ''
-          return `- [${box}] ${a.owner || '待定'}：${a.content || '—'}${due}`
+          return `- [${box}] **${a.owner || '待定'}**：${a.content || '—'}${due}`
         })
         .join('\n')
     : '（无）'
   const lines = [
     greeting,
     '',
-    `「${m.title}」已于 ${fmtFullDateTime(m.start_time)} 召开，现将会商结论与待办事项同步如下，请按分工推进。`,
+    `「**${m.title}**」已于 ${fmtFullDateTime(m.start_time)} 召开，现将会商结论与待办事项同步如下，请按分工推进。`,
     '',
-    '一、会议信息',
-    `- 时间：${fmtFullDateTime(m.start_time)} ~ ${fmtEndTimeHM(m.end_time)}`,
-    `- 地点/方式：${m.location || '—'}`,
-    `- 组织者：${m.host || '—'}`,
-    `- 记录人：${m.recorder || '—'}`,
-    `- 参会人：${names.join('、') || '—'}`,
-    `- 缺席：${m.absentees || '（无）'}`,
+    '## 一、会议信息',
+    `- **时间**：${fmtFullDateTime(m.start_time)} ~ ${fmtEndTimeHM(m.end_time)}`,
+    `- **地点/方式**：${m.location || '—'}`,
+    `- **组织者**：${m.host || '—'}`,
+    `- **记录人**：${m.recorder || '—'}`,
+    `- **参会人**：${names.join('、') || '—'}`,
+    `- **缺席**：${m.absentees || '（无）'}`,
     '',
-    '二、议题与结论',
+    '## 二、议题与结论',
     agendaBlock,
     '',
-    '三、待办事项',
+    '## 三、待办事项',
     actionBlock,
     '',
-    '四、纪要摘要',
+    '## 四、纪要摘要',
     m.summary || '（见各议题结论）',
   ]
-  if (m.obsidian_path)
-    lines.push('', `完整纪要已归档至 Obsidian：${m.obsidian_path}`)
-  lines.push(
-    '',
-    '如对纪要有补充或修正，请回复邮件或直接联系我。谢谢！',
-    '',
-    `${m.host || currentUser}`,
-    '中国移动江苏公司 数智化部'
-  )
-  return lines.join('\n')
+  if (m.obsidian_path) lines.push('', `> 完整纪要已归档至 Obsidian：${m.obsidian_path}`)
+  return lines.filter(Boolean).join('\n')
 }
 
 const applyTemplate = () => {
@@ -1440,34 +1404,35 @@ const openMailDialog = (type) => {
   mailVisible.value = true
 }
 
-const sendMail = async () => {
+const onComposeSend = async (payload) => {
   const m = detailMeeting.value
   if (!m) return
-  const to = (mailTo.value || []).filter(Boolean)
+  const to = (payload.to || []).filter(Boolean)
+  const cc = (payload.cc || []).filter(Boolean)
+  const body = (payload.body || '').trim()
   if (!to.length) {
-    ElMessage.warning('请填写收件人')
+    ElMessage.warning('请选择收件人')
     return
   }
-  if (!mailBody.value.trim()) {
+  if (!body) {
     ElMessage.warning('请输入邮件正文')
     return
   }
-  const cc = (mailCcList.value || []).filter(Boolean)
   sendingMail.value = true
   try {
     const res = await meetingApi.sendMeetingMail(m.id, {
       to,
       cc: cc.length ? cc : null,
-      subject: mailSubject.value,
-      body: mailBody.value,
+      subject: payload.subject || '',
+      body,
       mail_type: mailType.value === 'notice' ? 'meeting_notice' : 'meeting_minutes',
       recipient_names: null,
     })
-    if (res.success) {
+    if (res && res.success) {
       ElMessage.success(res.message || '邮件发送成功')
       mailVisible.value = false
     } else {
-      ElMessage.error(res.message || '邮件发送失败')
+      ElMessage.error((res && res.message) || '邮件发送失败')
     }
   } catch (e) {
     ElMessage.error(e?.response?.data?.message || '发送失败')

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
 
     EMAIL_CENTER_URL: str = "http://localhost:3210"
     EMAIL_CENTER_API_KEY: str = ""  # 可选，若邮件中心配置了 API_KEY 则填写
+
+    # 邮件统一治理：本人标识（用于会议遗留任务归属分流）+ 默认邮件签名
+    SELF_NAME: str = "陈大海"
+    EMAIL_SIGNATURE: str = "陈大海\n中国移动通信集团江苏有限公司 · 数智化部"
     MASTER_SERVICE_URL: str = "http://localhost:8001"
     OBSIDIAN_VAULT_PATH: str = "D:\\项目\\知识图谱"
 

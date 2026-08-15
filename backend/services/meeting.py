@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session, joinedload
 
+from core.config import settings
 from core.exceptions import NotFoundException, ValidationException
 from db.models import (
     EmailRecord,
@@ -17,6 +18,7 @@ from services.todo import todo_service
 from utils.email import EmailCenterClient
 from utils.master_service import MasterServiceClient
 from utils.validators import validate_email_strict
+from services.mail_dispatch import dispatch_email
 
 logger = logging.getLogger(__name__)
 
@@ -160,8 +162,14 @@ class MeetingService(BaseService[PmwbMeeting]):
         db.refresh(db_obj)
         return db_obj
 
-    def sync_action_todo(self, db: Session, meeting_id: int, action_id: int) -> dict:
-        """把会议行动项同步为 PMWB 待办任务（source=meeting），返回 {todo_id, created, todo}。"""
+    def sync_action_todo(self, db: Session, meeting_id: int, action_id: int, *, dispatch: bool = True) -> dict:
+        """会议行动项归属分流（统一邮件治理层）：
+
+        - owner == 本人(SELF_NAME) → 建个人待办（PmwbTodo）并回填 related_todo_id；
+        - owner 为团队成员 → 不进个人待办，作为「团队任务」保留在行动项，发送 HTML 派发邮件给负责人；
+        - owner 为空 → 拒绝，需先指定负责人。
+        返回 {todo_id, created, personal, dispatched, owner, message}。
+        """
         meeting = self.get(db, meeting_id)
         if not meeting:
             raise NotFoundException(f"会议不存在：id={meeting_id}")
@@ -172,36 +180,83 @@ class MeetingService(BaseService[PmwbMeeting]):
         )
         if not action:
             raise NotFoundException(f"会议行动项不存在：action_id={action_id}")
+        if not (action.owner or "").strip():
+            raise ValidationException("请先指定行动项负责人，再创建/派发任务")
 
-        # 已关联则直接返回，避免重复建待办
+        # 已是本人的个人待办则直接返回
         if action.related_todo_id:
             todo = todo_service.get(db, action.related_todo_id)
             if todo:
-                return {"todo_id": todo.id, "created": False, "todo": todo}
+                return {"todo_id": todo.id, "created": False, "personal": True, "dispatched": False, "todo": todo}
 
-        due = action.due_date
-        todo = todo_service.create(
-            db,
-            {
-                "title": (action.content or "(会议待办)")[:255],
-                "content": (
-                    f"来源会议：{meeting.title}（{meeting.meeting_id}）\n"
-                    f"负责人：{action.owner or '—'}\n"
-                    f"分类：{action.category or 'meeting'}\n"
-                    f"模板：{action.template or '—'}"
-                ),
-                "category": action.category or "meeting",
-                "priority": "P2",
-                "status": "todo",
-                "due_date": due,
-                "related_type": "meeting",
-                "related_id": str(meeting.id),
-                "source": "meeting",
-            },
+        owner = (action.owner or "").strip()
+        if owner == settings.SELF_NAME:
+            due = action.due_date
+            todo = todo_service.create(
+                db,
+                {
+                    "title": (action.content or "(会议待办)")[:255],
+                    "content": (
+                        f"来源会议：{meeting.title}（{meeting.meeting_id}）\n"
+                        f"负责人：{action.owner or '—'}\n"
+                        f"分类：{action.category or 'meeting'}\n"
+                        f"模板：{action.template or '—'}"
+                    ),
+                    "category": action.category or "meeting",
+                    "priority": "P2",
+                    "status": "todo",
+                    "due_date": due,
+                    "related_type": "meeting",
+                    "related_id": str(meeting.id),
+                    "source": "meeting",
+                },
+            )
+            action.related_todo_id = todo.id
+            db.commit()
+            return {"todo_id": todo.id, "created": True, "personal": True, "dispatched": False, "todo": todo}
+
+        # 团队成员 → 团队任务：不建个人待办，发送派发邮件
+        dispatched = False
+        note = ""
+        if dispatch:
+            md = self._build_dispatch_mail(action, meeting)
+            emails, _ = self._resolve_recipients([owner])
+            if emails:
+                res = dispatch_email(
+                    db=db,
+                    to=emails,
+                    subject=f"【任务派发】{meeting.title}",
+                    body=md,
+                    scene="action_dispatch",
+                    body_format="html",
+                    req_id=meeting.meeting_id,
+                    req_name=meeting.title,
+                    source="pmwb_meeting",
+                )
+                dispatched = res["success"]
+                note = res["message"]
+            else:
+                note = f"负责人 {owner} 未在人员中台解析到邮箱，未发送派发邮件"
+        return {
+            "todo_id": None,
+            "created": False,
+            "personal": False,
+            "dispatched": dispatched,
+            "owner": owner,
+            "message": note or "已记录为团队任务（不进入你的个人待办）",
+        }
+
+    def _build_dispatch_mail(self, action, meeting) -> str:
+        due = action.due_date or "待定"
+        return (
+            f"### 任务派发通知\n\n"
+            f"**{action.content or '(未填写内容)'}**\n\n"
+            f"- **所属会议**：{meeting.title}\n"
+            f"- **负责人**：{action.owner or '—'}\n"
+            f"- **截止日期**：{due}\n"
+            f"- **分类**：{action.category or 'meeting'}\n\n"
+            f"请按上述要求在期限内推进，并在 PMWB「会议行动项跟踪台」及时更新状态。"
         )
-        action.related_todo_id = todo.id
-        db.commit()
-        return {"todo_id": todo.id, "created": True, "todo": todo}
 
     def send_mail(
         self,
@@ -237,42 +292,25 @@ class MeetingService(BaseService[PmwbMeeting]):
         if not resolved_to:
             raise ValidationException("请至少填写一位收件人")
 
-        record = EmailRecord(
+        # 走统一邮件治理门面：HTML 转换 + 统一签名 + 落库 + 统一降级
+        scene = mail_type or "meeting_notice"
+        result = dispatch_email(
+            db=db,
+            to=resolved_to,
+            cc=resolved_cc,
+            subject=subject,
+            body=body,
+            scene=scene,
+            body_format="html",
             req_id=meeting.meeting_id,
             req_name=meeting.title,
-            email_type=mail_type or "meeting_notice",
-            recipient=",".join(resolved_to),
-            recipient_name=",".join(to),  # 原始输入（姓名/邮箱）便于追溯
-            subject=subject,
-            content=body,
-            send_status="pending",
             source="pmwb_meeting",
-            sender="pmwb",
         )
-        db.add(record)
-        db.commit()
-        db.refresh(record)
-
-        try:
-            EmailCenterClient().send_email(
-                to=resolved_to,
-                cc=resolved_cc or None,
-                subject=subject,
-                body=body,
-                body_format="text",
-            )
-            record.send_status = "success"
-            message = "邮件发送成功"
-            ok = True
-        except Exception as exc:  # noqa: BLE001
-            record.send_status = "failed"
-            record.error_msg = str(exc)
-            message = f"邮件发送失败：{exc}"
-            ok = False
-
-        db.commit()
-        db.refresh(record)
-        return {"success": ok, "record_id": record.id, "message": message}
+        return {
+            "success": result["success"],
+            "record_id": result["record_id"],
+            "message": result["message"],
+        }
 
     def _resolve_recipients(self, entries: List[str]) -> Tuple[List[str], List[str]]:
         """将收件人条目（姓名或邮箱）解析为邮箱列表。

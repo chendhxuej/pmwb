@@ -120,7 +120,10 @@ def test_update_meeting_agenda_replace(client: TestClient, db):
 
 
 def test_sync_action_todo(client: TestClient, db):
-    """会议行动项可同步为 PMWB 待办任务（带分类/模板，source=meeting），且幂等。"""
+    """会议行动项按负责人分流：成员→团队任务(不进个人待办)；本人→个人待办且幂等。"""
+    from core.config import settings
+
+    # 团队成员 owner → 团队任务，不建个人待办
     create = client.post(
         "/api/v1/meetings",
         json={
@@ -138,23 +141,45 @@ def test_sync_action_todo(client: TestClient, db):
     res = client.post(f"/api/v1/meetings/{mid}/actions/{aid}/sync-todo")
     assert res.status_code == 200
     sync = res.json()["data"]
-    assert sync["created"] is True
-    todo_id = sync["todo_id"]
-    assert todo_id
+    assert sync["personal"] is False
+    assert sync["created"] is False
+    assert sync["todo_id"] is None
 
-    # 行动项已回填关联待办
+    # 行动项未回填个人待办
     m = client.get(f"/api/v1/meetings/{mid}").json()["data"]
-    assert m["actions"][0]["related_todo_id"] == todo_id
+    assert m["actions"][0]["related_todo_id"] is None
+
+    # 本人 owner → 个人待办
+    create2 = client.post(
+        "/api/v1/meetings",
+        json={
+            "meeting_id": "MEET-SYNC-002",
+            "title": "同步测试会2",
+            "actions": [
+                {"content": "我的待办", "owner": settings.SELF_NAME, "category": "operation", "template": "领导交办待办模板"},
+            ],
+        },
+    )
+    d2 = create2.json()["data"]
+    mid2 = d2["id"]
+    aid2 = d2["actions"][0]["id"]
+    res2 = client.post(f"/api/v1/meetings/{mid2}/actions/{aid2}/sync-todo")
+    assert res2.status_code == 200
+    s2 = res2.json()["data"]
+    assert s2["personal"] is True
+    assert s2["created"] is True
+    todo_id = s2["todo_id"]
+    assert todo_id
 
     # 待办中心可见，且带来源与分类
     todos = client.get("/api/v1/todos", params={"source": "meeting"}).json()["data"]
-    assert todos["total"] >= 1
-    item = next(t for t in todos["items"] if t["id"] == todo_id)
+    item = next((t for t in todos["items"] if t["id"] == todo_id), None)
+    assert item
     assert item["category"] == "operation"
     assert item["related_type"] == "meeting"
-    assert item["related_id"] == str(mid)
+    assert item["related_id"] == str(mid2)
 
     # 幂等：再次同步不重复建待办
-    res2 = client.post(f"/api/v1/meetings/{mid}/actions/{aid}/sync-todo")
-    assert res2.json()["data"]["created"] is False
-    assert res2.json()["data"]["todo_id"] == todo_id
+    res3 = client.post(f"/api/v1/meetings/{mid2}/actions/{aid2}/sync-todo")
+    assert res3.json()["data"]["created"] is False
+    assert res3.json()["data"]["todo_id"] == todo_id

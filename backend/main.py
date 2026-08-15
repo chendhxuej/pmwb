@@ -19,6 +19,7 @@ from routers import (
     knowledge,
     llm_provider,
     mail_center,
+    mail_dispatch,
     meeting,
     meeting_action,
     obsidian,
@@ -103,6 +104,7 @@ app.include_router(meeting_action.router, prefix="/api/v1", tags=["会议行动�
 app.include_router(meeting.router, prefix="/api/v1", tags=["会议管理"])
 app.include_router(knowledge.router, prefix="/api/v1", tags=["知识库"])
 app.include_router(mail_center.router, prefix="/api/v1", tags=["邮件中心"])
+app.include_router(mail_dispatch.router, prefix="/api/v1", tags=["邮件治理"])
 app.include_router(plugin.router, prefix="/api/v1", tags=["插件接入"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["首页看板"])
 app.include_router(todo.router, prefix="/api/v1", tags=["待办中心"])
