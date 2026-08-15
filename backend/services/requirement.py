@@ -85,6 +85,7 @@ class RequirementService:
                 "priority": ext.priority,
                 "owner_note": ext.owner_note,
                 "version_required_date": ext.version_required_date,
+                "delivered_date": ext.delivered_date,
                 "domain_code": ext.domain_code,
                 "req_name": ext.req_name,
                 "background": ext.background,

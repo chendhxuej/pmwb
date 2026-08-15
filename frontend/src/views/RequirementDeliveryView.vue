@@ -808,6 +808,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="期望版本日"><el-date-picker v-model="reqForm.version_required_date" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="选择日期" /></el-form-item>
+        <el-form-item label="实际上线日"><el-date-picker v-model="reqForm.delivered_date" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="需求实际交付/上线日期" /></el-form-item>
         <el-form-item label="需求背景"><EnlargeInput v-model="reqForm.background" type="textarea" :rows="3" placeholder="覆盖原始背景" /></el-form-item>
         <el-form-item label="需求描述"><EnlargeInput v-model="reqForm.description" type="textarea" :rows="3" placeholder="覆盖原始描述" /></el-form-item>
         <el-form-item label="澄清内容"><EnlargeInput v-model="reqForm.clarification" type="textarea" :rows="3" placeholder="经评审后的澄清内容" /></el-form-item>
@@ -841,6 +842,7 @@
             <el-option label="已上线" value="live" /><el-option label="已归档" value="archived" />
           </el-select>
         </el-form-item>
+        <el-form-item label="上线时间"><el-date-picker v-model="ticketForm.go_live_date" type="date" value-format="YYYY-MM-DD" placeholder="实际上线/计划上线日期" style="width:100%" /></el-form-item>
         <el-form-item label="进度"><el-slider v-model="ticketForm.progress" :step="5" show-input /></el-form-item>
         <el-form-item label="描述"><EnlargeInput v-model="ticketForm.description" type="textarea" :rows="3" /></el-form-item>
       </el-form>
@@ -916,6 +918,7 @@ const reqForm = reactive({
   priority: 'P2',
   status: 'proposed',
   version_required_date: '',
+  delivered_date: '',
   dev_ticket_no: '',
   background: '',
   description: '',
@@ -956,6 +959,7 @@ function openReqDialog(row) {
     priority: row.ext?.priority || 'P2',
     status: row.ext?.status || 'proposed',
     version_required_date: row.ext?.version_required_date || '',
+    delivered_date: row.ext?.delivered_date || '',
     dev_ticket_no: row.dev_ticket_no || '',
     background: row.background || '',
     description: row.description || '',
@@ -1515,10 +1519,10 @@ async function generateDoc() {
 
 /* 工单弹层 */
 const ticketDialog = ref(false)
-const ticketForm = reactive({ id: null, ticket_no: '', req_id: '', system_name: '', dev_team: '', developer: '', priority: 'P2', status: 'created', progress: 0, description: '' })
+const ticketForm = reactive({ id: null, ticket_no: '', req_id: '', system_name: '', dev_team: '', developer: '', priority: 'P2', status: 'created', progress: 0, go_live_date: '', description: '' })
 function openTicketDialog(row) {
-  if (row) Object.assign(ticketForm, { ...row })
-  else Object.assign(ticketForm, { id: null, ticket_no: '', req_id: current.value.req_id || '', system_name: '', dev_team: '', developer: '', priority: 'P2', status: 'created', progress: 0, description: '' })
+  if (row) Object.assign(ticketForm, { ...row, go_live_date: row.go_live_date || '' })
+  else Object.assign(ticketForm, { id: null, ticket_no: '', req_id: current.value.req_id || '', system_name: '', dev_team: '', developer: '', priority: 'P2', status: 'created', progress: 0, go_live_date: '', description: '' })
   ticketDialog.value = true
 }
 async function saveTicket() {

@@ -28,6 +28,8 @@ class RequirementExtBase(BaseModel):
     personal_note: Optional[str] = Field(None, description="个人备注")
     priority: str = Field("P2", description="个人优先级")
     owner_note: Optional[str] = Field(None, description="负责人备忘")
+    version_required_date: Optional[date] = Field(None, description="版本要求(需求管理要求的上线时间)")
+    delivered_date: Optional[date] = Field(None, description="实际交付/上线日期")
     req_name: Optional[str] = Field(None, description="需求名称（可编辑覆盖）")
     background: Optional[str] = Field(None, description="需求背景（可编辑覆盖）")
     description: Optional[str] = Field(None, description="需求描述（可编辑覆盖）")
@@ -46,6 +48,7 @@ class RequirementExtUpdate(BaseModel):
     priority: Optional[str] = None
     owner_note: Optional[str] = None
     version_required_date: Optional[date] = None
+    delivered_date: Optional[date] = Field(None, description="实际交付/上线日期")
     req_name: Optional[str] = None
     background: Optional[str] = None
     description: Optional[str] = None
@@ -56,7 +59,7 @@ class RequirementExtUpdate(BaseModel):
     manual_archived: Optional[int] = Field(None, description="操作手册是否已归档到业务知识（0/1）")
     manual_obsidian_path: Optional[str] = Field(None, description="已归档操作手册的 Obsidian 路径")
 
-    @field_validator("version_required_date", mode="before")
+    @field_validator("version_required_date", "delivered_date", mode="before")
     @classmethod
     def _empty_to_none(cls, v):
         if v is None or v == "":
