@@ -324,6 +324,11 @@
                       </el-form-item>
                     </div>
                     <div style="grid-column: span 6">
+                      <el-form-item label="实际上线日">
+                        <el-date-picker v-model="current.delivered_date" type="date" value-format="YYYY-MM-DD" style="width:100%" placeholder="需求实际交付/上线日期" />
+                      </el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
                       <el-form-item label="开发单号">
                         <EnlargeInput v-model="current.dev_ticket_no" placeholder="需求级开发单号，如 DEV-2026-001" />
                       </el-form-item>
@@ -995,6 +1000,7 @@ async function refreshCurrent(reqId) {
       current.value.priority = res.ext?.priority || 'P2'
       current.value.status = res.ext?.status || 'proposed'
       current.value.version_required_date = res.ext?.version_required_date || ''
+      current.value.delivered_date = res.ext?.delivered_date || ''
       current.value.dev_ticket_no = res.dev_ticket_no || ''
       current.value.owner_note = res.ext?.owner_note || ''
       current.value.tags = res.ext?.tags || ''
@@ -1180,6 +1186,7 @@ async function openWorkflow(row) {
   current.value.priority = row.ext?.priority || 'P2'
   current.value.status = row.ext?.status || 'proposed'
   current.value.version_required_date = row.ext?.version_required_date || ''
+  current.value.delivered_date = row.ext?.delivered_date || ''
   current.value.dev_ticket_no = row.dev_ticket_no || ''
   current.value.owner_note = row.ext?.owner_note || ''
   current.value.tags = row.ext?.tags || ''
@@ -1328,6 +1335,7 @@ async function saveDetail() {
       priority: current.value.priority,
       status: current.value.status,
       version_required_date: current.value.version_required_date || null,
+      delivered_date: current.value.delivered_date || null,
       dev_ticket_no: current.value.dev_ticket_no || '',
       owner_note: current.value.owner_note,
       tags: current.value.tags,

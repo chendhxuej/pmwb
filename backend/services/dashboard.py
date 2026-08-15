@@ -662,7 +662,10 @@ class DashboardService:
         for kw in projects:
             goal_count = len(kw.goals or [])
             done_goals = sum(1 for g in (kw.goals or []) if g.status == "completed")
-            pct = round(done_goals / goal_count * 100, 1) if goal_count > 0 else 0
+            goal_pct = round(done_goals / goal_count * 100, 1) if goal_count > 0 else 0
+            # 优先使用重点工作自身维护的进度字段；为 0 时再按目标指标完成度计算
+            stored_pct = kw.progress or 0
+            pct = stored_pct if stored_pct > 0 else goal_pct
             items.append(ProgressItem(
                 name=kw.title,
                 current=done_goals,

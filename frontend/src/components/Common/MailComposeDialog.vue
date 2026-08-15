@@ -87,8 +87,7 @@ watch(
       cc.value = [...(props.defaultCc || [])]
       subject.value = props.defaultSubject || ''
       body.value = props.defaultBody || ''
-      lastBody = body.value
-      refreshPreview()
+      refreshPreview(true)
     }
   },
 )
@@ -98,13 +97,14 @@ function onBodyInput() {
   timer = setTimeout(refreshPreview, 250)
 }
 
-async function refreshPreview() {
-  if (body.value === lastBody) return
+async function refreshPreview(force = false) {
+  if (!force && body.value === lastBody) return
   lastBody = body.value
   try {
     const data = await previewEmail({ body: body.value, body_format: 'html', add_signature: true })
     previewHtml.value = data?.html || ''
-  } catch {
+  } catch (e) {
+    console.warn('[MailComposeDialog] 邮件预览失败：', e)
     previewHtml.value = ''
   }
 }
