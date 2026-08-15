@@ -9,6 +9,7 @@ import App from './App.vue'
 import router from './router'
 import { createPinia } from 'pinia'
 import VChart from 'vue-echarts'
+import EnlargeInput from './components/Common/EnlargeInput.vue'
 import './styles/main.css'
 import './styles/design.css'
 
@@ -19,6 +20,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 }
 
 app.component('VChart', VChart)
+app.component('EnlargeInput', EnlargeInput)
 
 app.use(createPinia())
 app.use(router)
