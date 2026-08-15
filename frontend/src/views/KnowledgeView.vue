@@ -17,7 +17,8 @@
         >
           <template #prefix><span class="kv-search-ico">🔍</span></template>
         </el-input>
-        <el-button type="primary" @click="openCreate">＋ 新建条目</el-button>
+        <el-button type="primary" plain @click="openMainNote">📘 新建主笔记</el-button>
+<el-button type="primary" @click="openCreate">＋ 新建条目</el-button>
         <el-button @click="handleSyncFromVault" :loading="syncing">⟳ 从 Vault 同步</el-button>
       </div>
     </div>
@@ -140,6 +141,13 @@
         <el-empty v-else description="暂无正文内容" />
         <div class="kv-pv-section">
           <div class="kv-pv-h2">关联需求 / 工单</div>
+<KnowledgeItemLinker
+  :item-id="previewItem?.id"
+  :domain-code="previewItem?.domain_code || ''"
+  :active-item-id="previewItem?.id"
+  @note-click="(n) => { if (n.id !== previewItem?.id) openPreview(n) }"
+/>
+
           <div class="kv-pv-linkrow">
             <span
               v-if="previewItem?.source_id"
@@ -195,6 +203,22 @@
         <el-button type="primary" @click="submitCreate">保存</el-button>
       </template>
     </el-dialog>
+<!-- 新建业务知识主笔记 -->
+<el-dialog v-model="mainNoteVisible" title="新建业务知识主笔记" width="480px" append-to-body>
+  <el-form label-width="80px">
+    <el-form-item label="业务领域">
+      <el-select v-model="mainNoteDomain" placeholder="选择二级业务领域" style="width: 100%" :loading="mainNoteLoading">
+        <el-option v-for="d in mainNoteDomains" :key="d.domain_code" :label="`${d.domain_name}（${d.domain_code}）`" :value="d.domain_code" />
+      </el-select>
+    </el-form-item>
+    <div class="text-muted" style="font-size:12px; line-height:1.6">将生成标准模板主笔记（业务概述 / 产商品资费 / SOP / 规则 / 变更轨迹 / 交付物索引），并建立知识索引与 Obsidian 文件。</div>
+  </el-form>
+  <template #footer>
+    <el-button @click="mainNoteVisible = false">取消</el-button>
+    <el-button type="primary" :loading="mainNoteCreating" :disabled="!mainNoteDomain" @click="submitMainNote">生成主笔记</el-button>
+  </template>
+</el-dialog>
+
 
     <ObsidianNoteDialog v-model="obsidianVisible" :path="obsidianPath" />
   </div>
@@ -207,6 +231,9 @@ import { knowledgeApi } from '@/api/knowledge'
 import { obsidianApi } from '@/api/obsidian'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import ObsidianNoteDialog from '@/components/Common/ObsidianNoteDialog.vue'
+
+import KnowledgeItemLinker from '@/components/Common/KnowledgeItemLinker.vue'
+import { basicDataApi } from '@/api/basicData'
 import { formatDate } from '@/utils/format'
 
 /* ---------- 状态 ---------- */
@@ -229,6 +256,43 @@ const activeFolder = ref('all')
 const activeTag = ref('all')
 
 const previewItem = ref(null)
+const mainNoteVisible = ref(false)
+const mainNoteDomain = ref('')
+const mainNoteDomains = ref([])
+const mainNoteLoading = ref(false)
+const mainNoteCreating = ref(false)
+
+const openMainNote = async () => {
+  mainNoteDomain.value = ''
+  mainNoteVisible.value = true
+  if (!mainNoteDomains.value.length) {
+    mainNoteLoading.value = true
+    try {
+      const res = await basicDataApi.getBusinessDomains({ enabled: 1 })
+      mainNoteDomains.value = (res && (res.items || res)) || []
+    } catch (e) {
+      ElMessage.error('加载业务领域失败')
+    } finally {
+      mainNoteLoading.value = false
+    }
+  }
+}
+
+const submitMainNote = async () => {
+  if (!mainNoteDomain.value) { ElMessage.warning('请选择业务领域'); return }
+  mainNoteCreating.value = true
+  try {
+    const res = await knowledgeApi.createMainNote(mainNoteDomain.value)
+    ElMessage.success(res.message || (res.data?.created ? '主笔记已生成' : '主笔记已存在'))
+    mainNoteVisible.value = false
+    await loadItems()
+    await loadObsidianNotes()
+  } catch (e) {
+    ElMessage.error('生成主笔记失败：' + (e.message || '未知错误'))
+  } finally {
+    mainNoteCreating.value = false
+  }
+}
 const previewContent = ref('')
 
 const obsidianVisible = ref(false)

@@ -7,7 +7,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="stat-card stat-warning clickable" @click="goTo('/requirement')">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.dev_ticket_missing }}</div>
+            <div class="stat-value" v-countup="stats.dev_ticket_missing"></div>
             <div class="stat-label">开发单号未录入</div>
           </div>
         </el-card>
@@ -15,7 +15,7 @@
       <div class="stat-col">
         <el-card shadow="hover">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.total }}</div>
+            <div class="stat-value" v-countup="stats.total"></div>
             <div class="stat-label">待办总数</div>
           </div>
         </el-card>
@@ -23,7 +23,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-todo">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.todo }}</div>
+            <div class="stat-value" v-countup="stats.todo"></div>
             <div class="stat-label">未开始</div>
           </div>
         </el-card>
@@ -31,7 +31,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-progress">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.in_progress }}</div>
+            <div class="stat-value" v-countup="stats.in_progress"></div>
             <div class="stat-label">进行中</div>
           </div>
         </el-card>
@@ -39,7 +39,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-done">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.done }}</div>
+            <div class="stat-value" v-countup="stats.done"></div>
             <div class="stat-label">已完成</div>
           </div>
         </el-card>
@@ -47,7 +47,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-today">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.today }}</div>
+            <div class="stat-value" v-countup="stats.today"></div>
             <div class="stat-label">今日截止</div>
           </div>
         </el-card>
@@ -55,7 +55,7 @@
       <div class="stat-col">
         <el-card shadow="hover" class="status-overdue">
           <div class="stat-item">
-            <div class="stat-value">{{ stats.overdue }}</div>
+            <div class="stat-value" v-countup="stats.overdue"></div>
             <div class="stat-label">已超期</div>
           </div>
         </el-card>
@@ -66,7 +66,7 @@
     <el-card class="search-card" shadow="never">
       <el-form :model="queryForm" inline>
         <el-form-item label="关键字">
-          <el-input v-model="queryForm.keyword" placeholder="标题/内容" clearable />
+          <EnlargeInput v-model="queryForm.keyword" placeholder="标题/内容" clearable />
         </el-form-item>
         <el-form-item label="分类">
           <el-select v-model="queryForm.category" placeholder="全部" clearable>
@@ -122,7 +122,12 @@
       <template #columns>
         <el-table-column prop="title" label="待办标题" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            <span :class="{ 'done-text': row.status === 'done' }">{{ row.title }}</span>
+            <span
+              class="todo-title"
+              :class="{ linked: row.related_id, 'done-text': row.status === 'done' }"
+              :title="row.related_id ? '点击查看关联工单详情' : ''"
+              @click="row.related_id && openLinked(row)"
+            >{{ row.title }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="category" label="分类" width="100">
@@ -140,7 +145,7 @@
             <el-select
               v-model="row.status"
               size="small"
-              style="width: 100px"
+              class="w-xs"
               @change="(val) => handleStatusChange(row, val)"
             >
               <el-option
@@ -179,7 +184,7 @@
     >
       <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
         <el-form-item label="待办标题" prop="title">
-          <el-input v-model="form.title" placeholder="待办标题" />
+          <EnlargeInput v-model="form.title" placeholder="待办标题" />
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
@@ -267,7 +272,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="关联ID" prop="related_id">
-              <el-input v-model="form.related_id" placeholder="关联对象编号" />
+              <EnlargeInput v-model="form.related_id" placeholder="关联对象编号" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -280,7 +285,7 @@
           />
         </el-form-item>
         <el-form-item label="待办内容" prop="content">
-          <el-input v-model="form.content" type="textarea" :rows="3" />
+          <EnlargeInput v-model="form.content" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -288,6 +293,53 @@
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 关联工单详情抽屉（点击待办标题直接展开，不跳转） -->
+    <el-drawer
+      v-model="woDrawerVisible"
+      :title="'工单详情 · ' + (woDetail?.issue_no || '')"
+      size="56%"
+      destroy-on-close
+    >
+      <div v-loading="woLoading" class="wo-drawer-body">
+        <template v-if="woDetail">
+          <el-descriptions :column="2" border size="small" class="wo-desc">
+            <el-descriptions-item label="工单标题" :span="2">{{ woDetail.title || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">{{ woDetail.status || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="优先级/影响">{{ woDetail.impact_level || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="责任人">{{ woDetail.handler || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="关联系统">{{ woDetail.related_system || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="发现时间">{{ fmtDate(woDetail.discovery_date) }}</el-descriptions-item>
+            <el-descriptions-item label="解决时间">{{ fmtDate(woDetail.resolve_date) }}</el-descriptions-item>
+            <el-descriptions-item label="计划完成">{{ fmtDate(woDetail.go_live_date) }}</el-descriptions-item>
+            <el-descriptions-item label="逾期">
+              <el-tag v-if="woDetail.is_overdue" type="danger" size="small">已逾期</el-tag>
+              <span v-else>正常</span>
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div class="wo-sec" v-if="woDetail.situation_desc">
+            <div class="wo-sec-title">情况说明</div>
+            <div class="wo-desc-text">{{ woDetail.situation_desc }}</div>
+          </div>
+          <div class="wo-sec" v-if="woDetail.result_feedback">
+            <div class="wo-sec-title">处理结果反馈</div>
+            <div class="wo-desc-text">{{ woDetail.result_feedback }}</div>
+          </div>
+          <div class="wo-sec" v-if="woDetail.root_cause || woDetail.solution || woDetail.lesson_learned">
+            <div class="wo-sec-title">结构化分析</div>
+            <el-descriptions :column="1" border size="small" class="wo-desc">
+              <el-descriptions-item v-if="woDetail.root_cause_type" label="根因分类">{{ woDetail.root_cause_type }}</el-descriptions-item>
+              <el-descriptions-item v-if="woDetail.root_cause" label="根因分析">{{ woDetail.root_cause }}</el-descriptions-item>
+              <el-descriptions-item v-if="woDetail.solution_type" label="解决方案类型">{{ woDetail.solution_type }}</el-descriptions-item>
+              <el-descriptions-item v-if="woDetail.solution" label="解决方案">{{ woDetail.solution }}</el-descriptions-item>
+              <el-descriptions-item v-if="woDetail.lesson_learned" label="经验总结">{{ woDetail.lesson_learned }}</el-descriptions-item>
+            </el-descriptions>
+          </div>
+        </template>
+        <el-empty v-else-if="!woLoading" description="未找到关联工单" />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -298,6 +350,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import DataTable from '@/components/Common/DataTable.vue'
 import { todoApi } from '@/api/todo'
 import { getRequirementStats } from '@/api/requirement.js'
+import { operationApi } from '@/api/operation'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -433,6 +486,56 @@ const goTo = (path) => {
   router.push(path)
 }
 
+// 点击待办标题：关联工单直接在抽屉内展开详情（不跳转）
+const woDrawerVisible = ref(false)
+const woDetail = ref(null)
+const woLoading = ref(false)
+
+const openWoDetail = async (relatedId) => {
+  woLoading.value = true
+  woDrawerVisible.value = true
+  woDetail.value = null
+  try {
+    const num = Number(relatedId)
+    let res = null
+    if (isFinite(num) && num > 0) {
+      try { res = await operationApi.getIssue(num) } catch (e) { res = null }
+    }
+    if (!res) {
+      const list = await operationApi.listIssues({ issue_no: String(relatedId), page: 1, page_size: 1 })
+      res = (list.items || [])[0] || null
+    }
+    if (!res) {
+      ElMessage.warning('未找到关联工单（编号：' + relatedId + '）')
+      woDrawerVisible.value = false
+      return
+    }
+    woDetail.value = res
+  } catch (e) {
+    ElMessage.error('加载工单详情失败')
+    woDrawerVisible.value = false
+  } finally {
+    woLoading.value = false
+  }
+}
+
+const fmtDate = (v) => (v ? String(v).slice(0, 10) : '—')
+
+const openLinked = (row) => {
+  if (!row.related_id) {
+    ElMessage.info('该待办未关联工单')
+    return
+  }
+  // 工单类（运营工单 / 开发工单）直接弹抽屉展示详情
+  if (row.related_type === 'operation' || row.related_type === 'ticket') {
+    openWoDetail(row.related_id)
+    return
+  }
+  // 其它关联类型跳转到对应模块
+  const modMap = { requirement: '/requirement', meeting: '/meeting' }
+  router.push(modMap[row.related_type] || '/operation')
+}
+
 // 开发单号未录入需求数（来自需求统计，点击跳转需求管理跟进）
 const loadDevTicketMissing = async () => {
   try {
@@ -553,17 +656,13 @@ onMounted(async () => {
   min-width: 140px;
 }
 
-.stat-card {
-  transition: all 0.3s;
-}
-
 .clickable {
   cursor: pointer;
 }
 
 .clickable:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-elevated);
 }
 
 .stat-item {
@@ -571,36 +670,24 @@ onMounted(async () => {
   padding: 10px 0;
 }
 
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: #303133;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: #606266;
-  margin-top: 6px;
-}
-
 .status-todo .stat-value {
-  color: #f56c6c;
+  color: var(--danger);
 }
 
 .status-progress .stat-value {
-  color: #e6a23c;
+  color: var(--warning);
 }
 
 .status-done .stat-value {
-  color: #67c23a;
+  color: var(--success);
 }
 
 .status-today .stat-value {
-  color: #409eff;
+  color: var(--accent);
 }
 
 .status-overdue .stat-value {
-  color: #909399;
+  color: var(--text-muted);
 }
 
 .search-card {
@@ -619,5 +706,33 @@ onMounted(async () => {
 .overdue {
   color: #f56c6c;
   font-weight: 600;
+}
+
+.todo-title.linked {
+  color: var(--accent);
+  cursor: pointer;
+}
+.todo-title.linked:hover {
+  text-decoration: underline;
+}
+
+/* 关联工单详情抽屉 */
+.wo-drawer-body {
+  padding: 4px 2px;
+}
+.wo-sec {
+  margin-top: 16px;
+}
+.wo-sec-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.wo-desc-text {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
 }
 </style>

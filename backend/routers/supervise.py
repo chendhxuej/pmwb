@@ -51,7 +51,7 @@ def _build_ticket_info(ticket_type: str, ticket_id: int | str, db: Session) -> d
             "issue_type": row.issue_type,
             "category": row.category,
             "handler": row.handler,
-            "due": str(row.due) if row.due else "",
+            "due": str(row.resolve_date) if row.resolve_date else "",
             "status": row.status,
             "situation_desc": row.situation_desc or "",
             "source": "运营问题/工单",

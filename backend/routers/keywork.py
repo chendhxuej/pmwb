@@ -3,10 +3,12 @@
 挂在 /api/v1/key-works 下。
 """
 import os
+import io
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from core.exceptions import NotFoundException
@@ -37,6 +39,7 @@ from schemas.keywork import (
 )
 from services import keywork_deliverable as deliverable_svc
 from services.keywork import keywork_service
+from services.keywork_excel import build_template_bytes, import_key_works_from_bytes
 
 router = APIRouter(prefix="/key-works", tags=["重点工作"])
 
@@ -377,3 +380,28 @@ def delete_deliverable(kw_id: int, did: int, db: Session = Depends(get_db)):
     """删除交付物（文件 + 元数据）。"""
     ok = deliverable_svc.delete_deliverable(db, kw_id, did)
     return success(data={"deleted": ok})
+
+
+# ---------------------------------------------------------------------------
+# 模版下载 / Excel 导入
+# ---------------------------------------------------------------------------
+@router.get("/template/download")
+def download_keywork_template(db: Session = Depends(get_db)):
+    """下载重点工作 Excel 导入模版（多页签：填写说明 + 数据表）。"""
+    data = build_template_bytes().getvalue()
+    fname = "重点工作导入模版.xlsx"
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="kw_template.xlsx"; filename*=UTF-8\'\'' + quote(fname)
+        },
+    )
+
+
+@router.post("/import")
+async def import_key_works(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """从 Excel 模版导入重点工作（原子入库，返回 {ok, imported, total, errors}）。"""
+    raw = await file.read()
+    result = import_key_works_from_bytes(db, raw)
+    return success(data=result)

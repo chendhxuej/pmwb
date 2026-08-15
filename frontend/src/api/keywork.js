@@ -152,3 +152,16 @@ export function downloadDeliverable(id, did) {
 export function deleteDeliverable(id, did) {
   return request.delete(`/key-works/${id}/deliverables/${did}`)
 }
+
+// ── 模版下载 / Excel 导入 ──
+export function downloadKeyworkTemplate() {
+  return request.get('/key-works/template/download', { responseType: 'blob' })
+}
+
+export function importKeyWorks(file) {
+  const form = new FormData()
+  form.append('file', file)
+  return request.post('/key-works/import', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}

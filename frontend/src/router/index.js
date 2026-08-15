@@ -54,7 +54,7 @@ const routes = [
             path: 'prod',
             name: 'WOProd',
             component: () => import('@/views/WorkOrderView.vue'),
-            meta: { title: '主动运营分析', category: 'prod' },
+            meta: { title: '生产问题分析', category: 'prod' },
           },
           {
             path: 'task',
@@ -109,6 +109,34 @@ const routes = [
         component: () => import('@/views/KeyWorkView.vue'),
         meta: { title: '重点工作', icon: 'Files' },
       },
+      // ── AI 中心：整合 AI问答 / AI总结 / 大模型管理 三大子模块 ──
+      {
+        path: 'ai-center',
+        name: 'AiCenter',
+        component: () => import('@/views/AiCenterLayout.vue'),
+        redirect: '/ai-center/qa',
+        meta: { title: 'AI中心', icon: 'MagicStick' },
+        children: [
+          {
+            path: 'qa',
+            name: 'AiQa',
+            component: () => import('@/views/AiQaView.vue'),
+            meta: { title: 'AI问答', icon: 'ChatDotRound' },
+          },
+          {
+            path: 'summary',
+            name: 'AiSummary',
+            component: () => import('@/views/WorkReportView.vue'),
+            meta: { title: 'AI总结', icon: 'EditPen' },
+          },
+          {
+            path: 'llm',
+            name: 'AiLlm',
+            component: () => import('@/views/LlmProviderManage.vue'),
+            meta: { title: '大模型管理', icon: 'Cpu' },
+          },
+        ],
+      },
       {
         path: 'basic-data',
         name: 'BasicData',
@@ -127,20 +155,45 @@ const routes = [
         path: 'knowledge-center',
         name: 'KnowledgeCenter',
         component: () => import('@/views/KnowledgeCenterView.vue'),
+        redirect: '/knowledge-center/knowledge',
         meta: { title: '知识中心', icon: 'Reading' },
         children: [
+          {
+            path: 'knowledge',
+            name: 'KcKnowledge',
+            component: () => import('@/views/KnowledgeView.vue'),
+            meta: { title: '知识库', icon: 'Collection' },
+          },
+          {
+            path: 'hub',
+            name: 'KcHub',
+            component: () => import('@/views/KnowledgeCenter/HubPanel.vue'),
+            meta: { title: '业务全景', icon: 'DataBoard' },
+          },
           {
             path: 'product-bible',
             name: 'KcProductBible',
             component: () => import('@/views/ProductBibleView.vue'),
-            meta: { title: '知识标准化管理', icon: 'Notebook', hidden: true },
+            meta: { title: '产品圣经', icon: 'Notebook' },
           },
-          // 旧版子页面深链兼容：统一重定向到新三视图，避免用户停留在旧布局
-          { path: 'knowledge', redirect: '/knowledge-center', meta: { hidden: true } },
-          { path: 'notes', redirect: '/knowledge-center', meta: { hidden: true } },
-          { path: 'domain', redirect: '/knowledge-center', meta: { hidden: true } },
-          { path: 'sql-scripts', redirect: '/knowledge-center', meta: { hidden: true } },
-          { path: 'business-domains', redirect: '/knowledge-center', meta: { hidden: true } },
+          {
+            path: 'domain',
+            name: 'KcDomain',
+            component: () => import('@/views/DomainKnowledgeView.vue'),
+            meta: { title: '按领域浏览', icon: 'Grid' },
+          },
+          {
+            path: 'sql-scripts',
+            name: 'KcSqlScripts',
+            component: () => import('@/views/SqlScriptView.vue'),
+            meta: { title: 'SQL脚本库', icon: 'Document' },
+          },
+          {
+            path: 'business-domains',
+            name: 'KcBusinessDomains',
+            component: () => import('@/views/BusinessDomainManage.vue'),
+            meta: { title: '业务知识维度', icon: 'SetUp' },
+          },
         ],
       },
       // 旧催办中心深链兼容（隐藏于菜单，重定向到任务中心）
@@ -214,38 +267,20 @@ const routes = [
         component: () => import('@/views/RequirementGroupView.vue'),
         meta: { hidden: true },
       },
-      // ── AI 中心：聚合 AI问答 / AI总结 / 大模型管理 ──
+      // ── AI 总结（已整合进 AI中心，保留深链兼容） ──
       {
-        path: 'ai-center',
-        name: 'AiCenter',
-        component: () => import('@/views/AiCenterLayout.vue'),
-        redirect: '/ai-center/qa',
-        meta: { title: 'AI中心', icon: 'MagicStick' },
-        children: [
-          {
-            path: 'qa',
-            name: 'AiQa',
-            component: () => import('@/views/AiQaView.vue'),
-            meta: { title: 'AI问答', icon: 'ChatDotRound' },
-          },
-          {
-            path: 'summary',
-            name: 'WorkReport',
-            component: () => import('@/views/WorkReportView.vue'),
-            meta: { title: 'AI总结', icon: 'EditPen' },
-          },
-          {
-            path: 'providers',
-            name: 'LlmProvider',
-            component: () => import('@/views/LlmProviderManage.vue'),
-            meta: { title: '大模型管理', icon: 'Cpu' },
-          },
-        ],
+        path: 'work-report',
+        name: 'WorkReport',
+        component: () => import('@/views/WorkReportView.vue'),
+        meta: { title: 'AI总结', icon: 'EditPen', hidden: true },
       },
-      // 旧 AI 模块深链兼容（隐藏于菜单，重定向到 AI中心 子页）
-      { path: 'work-report', redirect: '/ai-center/summary', meta: { hidden: true } },
-      { path: 'llm-provider', redirect: '/ai-center/providers', meta: { hidden: true } },
-      { path: 'ai-qa', redirect: '/ai-center/qa', meta: { hidden: true } },
+      // ── 大模型管理（已整合进 AI中心，保留深链兼容） ──
+      {
+        path: 'llm-provider',
+        name: 'LlmProvider',
+        component: () => import('@/views/LlmProviderManage.vue'),
+        meta: { title: '大模型管理', icon: 'Cpu', hidden: true },
+      },
     ],
   },
   {

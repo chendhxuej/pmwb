@@ -111,6 +111,27 @@ def list_providers(db: Session) -> List[Dict[str, Any]]:
     return [_to_view(r) for r in rows]
 
 
+def get_status(db: Session) -> Dict[str, Any]:
+    """返回 AI 问答可用的大模型状态概览（供 ai_qa /status 端点使用）。"""
+    rows = list_providers(db)
+    enabled = [r for r in rows if r.get("is_enabled")]
+    default = next((r for r in rows if r.get("is_default")), None)
+    if enabled:
+        best = default if (default and default.get("is_enabled")) else enabled[0]
+        return {
+            "available": True,
+            "provider_name": best.get("name"),
+            "provider_count": len(enabled),
+            "notice": "",
+        }
+    return {
+        "available": False,
+        "provider_name": None,
+        "provider_count": 0,
+        "notice": "未配置任何可用的大模型（请到「大模型管理」添加并启用一个）",
+    }
+
+
 def get_provider(db: Session, pid: int) -> Optional[Dict[str, Any]]:
     r = db.query(PmwbLlmProvider).filter(PmwbLlmProvider.id == pid).first()
     return _to_view(r) if r else None

@@ -18,7 +18,7 @@
     <div class="kc-body">
       <router-view v-slot="{ Component }">
         <keep-alive>
-          <component :is="Component" />
+          <component :is="Component" @open-note="openNote" />
         </keep-alive>
       </router-view>
     </div>
@@ -34,6 +34,7 @@ const router = useRouter()
 
 const tabs = [
   { path: '/knowledge-center/knowledge', label: '知识库', icon: 'Collection' },
+  { path: '/knowledge-center/hub', label: '业务全景', icon: 'DataBoard' },
   { path: '/knowledge-center/product-bible', label: '产品圣经', icon: 'Notebook' },
   { path: '/knowledge-center/notes', label: '知识沉淀', icon: 'Files' },
   { path: '/knowledge-center/domain', label: '按领域', icon: 'Grid' },
@@ -44,6 +45,11 @@ const activePath = computed(() => '/' + (route.path.split('/').slice(1, 3).join(
 
 const go = (path) => {
   if (activePath.value !== path) router.push(path)
+}
+
+const openNote = (path) => {
+  if (!path) return
+  window.open(`obsidian://open?vault=${encodeURIComponent('知识图谱')}&file=${encodeURIComponent(path)}`, '_blank')
 }
 </script>
 

@@ -56,6 +56,9 @@
           <el-option v-for="(v, k) in STATUS_MAP" :key="k" :label="v.label" :value="k" />
         </el-select>
         <el-button @click="fetchList"><el-icon><Refresh /></el-icon> 刷新</el-button>
+        <el-button @click="handleDownloadTemplate"><el-icon><Download /></el-icon> 下载模版</el-button>
+        <el-button type="success" @click="triggerImport"><el-icon><Upload /></el-icon> 导入</el-button>
+        <input ref="importFileRef" type="file" accept=".xlsx" style="display:none" @change="handleImportFile" />
       </div>
 
       <el-table
@@ -873,6 +876,48 @@ async function removeDeliverable(row) {
   await kwApi.deleteDeliverable(currentId.value, row.id)
   ElMessage.success('已删除')
   await refreshDetail()
+}
+
+// ── 模版下载 / Excel 导入 ──
+const importFileRef = ref(null)
+
+function triggerImport() {
+  importFileRef.value?.click()
+}
+
+async function handleDownloadTemplate() {
+  try {
+    const blob = await kwApi.downloadKeyworkTemplate()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '重点工作导入模版.xlsx'
+    a.click()
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    ElMessage.error('下载模版失败：' + (e?.message || e))
+  }
+}
+
+async function handleImportFile(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  try {
+    const res = await kwApi.importKeyWorks(file)
+    const data = res || {}
+    if (data.ok) {
+      ElMessage.success(`导入成功：共 ${data.imported ?? data.total} 条重点工作`)
+      fetchList()
+      fetchStats()
+    } else {
+      const errs = (data.errors || []).slice(0, 5).map((x) => `行${x.row}:${x.message}`).join('；')
+      ElMessage.warning('导入校验未通过：' + (errs || '请检查模版格式'))
+    }
+  } catch (err) {
+    ElMessage.error('导入失败：' + (err?.message || err))
+  } finally {
+    e.target.value = ''
+  }
 }
 
 onMounted(async () => {

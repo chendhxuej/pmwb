@@ -204,12 +204,16 @@ def get_stats(
 def download_analysis_template():
     """下载主动运营分析工单 Excel 模板（双 sheet：填写区 + 填写说明）。"""
     data = build_analysis_template_bytes()
+    from urllib.parse import quote
+
+    fname = "主动运营分析工单模版.xlsx"
+    # HTTP 响应头只能含 latin-1 字符，中文文件名须按 RFC 5987 用 filename* 编码，
+    # 同时保留一个 ASCII 的 filename 作为兼容回退，避免 Starlette 编码中文时 500。
+    disp = f"attachment; filename=\"analysis_template.xlsx\"; filename*=UTF-8''{quote(fname)}"
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": 'attachment; filename="主动运营分析工单模版.xlsx"'
-        },
+        headers={"Content-Disposition": disp},
     )
 
 

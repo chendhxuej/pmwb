@@ -7,7 +7,7 @@
         <div class="ss-crumb">知识中心 · 业务统计脚本归档</div>
       </div>
       <div class="ss-actions">
-        <el-input
+        <EnlargeInput
           v-model="searchKeyword"
           class="ss-search"
           placeholder="搜索脚本说明 / 编号"
@@ -16,7 +16,7 @@
           @clear="onSearch"
         >
           <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
+        </EnlargeInput>
         <el-select
           v-model="filterCategory"
           class="ss-cat"
@@ -26,6 +26,7 @@
         >
           <el-option v-for="c in categoryOptions" :key="c" :label="c" :value="c" />
         </el-select>
+        <BusinessDomainSelect v-model="filterDomain" class="ss-cat" @change="loadList" />
         <el-button type="primary" @click="openCreate">
           <el-icon><Plus /></el-icon><span>新增脚本</span>
         </el-button>
@@ -54,6 +55,12 @@
         <el-table-column prop="category" label="分类" width="130">
           <template #default="{ row }">
             <el-tag v-if="row.category" size="small" effect="light" type="primary">{{ row.category }}</el-tag>
+            <span v-else class="ss-muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="domain_code" label="业务领域" width="130">
+          <template #default="{ row }">
+            <el-tag v-if="row.domain_code" size="small" effect="light" type="success">{{ row.domain_code }}</el-tag>
             <span v-else class="ss-muted">—</span>
           </template>
         </el-table-column>
@@ -90,18 +97,21 @@
     <el-drawer v-model="editVisible" :title="isEdit ? '编辑 SQL 脚本' : '新增 SQL 脚本'" size="70%" direction="rtl" destroy-on-close>
       <el-form ref="editRef" :model="editForm" :rules="editRules" label-width="92px" class="ss-form">
         <el-form-item label="脚本说明" prop="title">
-          <el-input v-model="editForm.title" placeholder="如：各业务线活跃用户数统计" />
+          <EnlargeInput v-model="editForm.title" placeholder="如：各业务线活跃用户数统计" />
         </el-form-item>
         <el-form-item label="分类">
           <el-select v-model="editForm.category" placeholder="选择或输入业务线" filterable allow-create default-first-option clearable style="width: 100%">
             <el-option v-for="c in categoryOptions" :key="c" :label="c" :value="c" />
           </el-select>
         </el-form-item>
+        <el-form-item label="业务领域">
+          <BusinessDomainSelect v-model="editForm.domain_code" />
+        </el-form-item>
         <el-form-item label="补充说明">
-          <el-input v-model="editForm.description" type="textarea" :rows="2" placeholder="脚本用途、适用库表等备注" />
+          <EnlargeInput v-model="editForm.description" type="textarea" :rows="2" placeholder="脚本用途、适用库表等备注" />
         </el-form-item>
         <el-form-item label="SQL" prop="sql_text">
-          <el-input
+          <EnlargeInput
             v-model="editForm.sql_text"
             type="textarea"
             :rows="10"
@@ -116,9 +126,9 @@
               <span>字段名</span><span>类型</span><span>说明</span><span></span>
             </div>
             <div v-for="(f, idx) in editForm.output_fields" :key="idx" class="ss-field-row">
-              <el-input v-model="f.name" placeholder="字段名" />
-              <el-input v-model="f.type" placeholder="类型" />
-              <el-input v-model="f.desc" placeholder="说明" />
+              <EnlargeInput v-model="f.name" placeholder="字段名" />
+              <EnlargeInput v-model="f.type" placeholder="类型" />
+              <EnlargeInput v-model="f.desc" placeholder="说明" />
               <el-button circle size="small" type="danger" plain @click="removeField(idx)">
                 <el-icon><Delete /></el-icon>
               </el-button>
@@ -144,6 +154,11 @@
           <div class="ss-d-row">
             <span class="ss-d-label">分类</span>
             <el-tag v-if="detail.category" size="small" effect="light" type="primary">{{ detail.category }}</el-tag>
+            <span v-else class="ss-muted">—</span>
+          </div>
+          <div class="ss-d-row">
+            <span class="ss-d-label">业务领域</span>
+            <el-tag v-if="detail.domain_code" size="small" effect="light" type="success">{{ detail.domain_code }}</el-tag>
             <span v-else class="ss-muted">—</span>
           </div>
           <div class="ss-d-row"><span class="ss-d-label">创建时间</span><span class="ss-muted">{{ formatDate(detail.created_at) }}</span></div>
@@ -182,6 +197,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { sqlScriptApi } from '@/api/sqlScript'
 import { formatDate } from '@/utils/format'
+import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 
 /* ---------- 状态 ---------- */
 const loading = ref(false)
@@ -191,6 +207,7 @@ const saving = ref(false)
 const allItems = ref([])
 const searchKeyword = ref('')
 const filterCategory = ref('')
+const filterDomain = ref('')
 const categoryOptions = ref([])
 
 const page = ref(1)
@@ -207,6 +224,7 @@ const detailItem = ref(null)
 const editForm = reactive({
   title: '',
   category: '',
+  domain_code: '',
   description: '',
   sql_text: '',
   output_fields: [],
@@ -222,6 +240,7 @@ const filteredItems = computed(() => {
   const kw = searchKeyword.value.trim().toLowerCase()
   return allItems.value.filter((it) => {
     if (filterCategory.value && it.category !== filterCategory.value) return false
+    if (filterDomain.value && it.domain_code !== filterDomain.value) return false
     if (kw) {
       const hay = `${it.title || ''} ${it.script_no || ''}`.toLowerCase()
       if (!hay.includes(kw)) return false
@@ -242,7 +261,12 @@ watch(filteredItems, () => { page.value = 1 })
 const loadList = async () => {
   loading.value = true
   try {
-    const res = await sqlScriptApi.listSqlScripts({ page: 1, page_size: 200, category: filterCategory.value || undefined })
+    const res = await sqlScriptApi.listSqlScripts({
+      page: 1,
+      page_size: 200,
+      category: filterCategory.value || undefined,
+      domain_code: filterDomain.value || undefined,
+    })
     allItems.value = res.items || []
     // 分类下拉：合并当前筛选结果中的分类 + 已选
     const cats = new Set()
@@ -262,7 +286,7 @@ const openCreate = () => {
   isEdit.value = false
   editId.value = null
   Object.assign(editForm, {
-    title: '', category: '', description: '', sql_text: '', output_fields: [],
+    title: '', category: '', domain_code: '', description: '', sql_text: '', output_fields: [],
   })
   editVisible.value = true
 }
@@ -273,6 +297,7 @@ const openEdit = (row) => {
   Object.assign(editForm, {
     title: row.title,
     category: row.category || '',
+    domain_code: row.domain_code || '',
     description: row.description || '',
     sql_text: row.sql_text,
     output_fields: Array.isArray(row.output_fields) ? row.output_fields.map((f) => ({ ...f })) : [],
@@ -293,6 +318,7 @@ const submitEdit = () => {
     const payload = {
       title: editForm.title,
       category: editForm.category || undefined,
+      domain_code: editForm.domain_code || undefined,
       description: editForm.description || undefined,
       sql_text: editForm.sql_text,
       output_fields: editForm.output_fields.filter((f) => f.name && f.name.trim()),
@@ -321,7 +347,7 @@ const openDetail = async (row) => {
   detailItem.value = row
   detailVisible.value = true
   detailLoading.value = true
-  Object.assign(detail, { script_no: row.script_no, title: row.title, category: row.category, created_at: row.created_at, description: row.description })
+  Object.assign(detail, { script_no: row.script_no, title: row.title, category: row.category, domain_code: row.domain_code, created_at: row.created_at, description: row.description })
   try {
     const res = await sqlScriptApi.getSqlScript(row.id)
     Object.assign(detail, res)
