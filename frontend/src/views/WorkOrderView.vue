@@ -686,11 +686,20 @@ const legacyTasks = ref([])
 const importInput = ref(null)
 const importing = ref(false)
 
-const downloadTemplate = () => {
-  const a = document.createElement('a')
-  a.href = '/api/v1/operation/analysis-template/download'
-  a.download = '主动运营分析工单模版.xlsx'
-  a.click()
+const downloadTemplate = async () => {
+  try {
+    const blob = await operationApi.downloadAnalysisTemplate()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '主动运营分析工单模版.xlsx'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    ElMessage.error('下载模版失败：' + (err?.response?.data?.message || err.message || '未知错误'))
+  }
 }
 
 const triggerImport = () => importInput.value?.click()
