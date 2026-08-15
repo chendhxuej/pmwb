@@ -5,10 +5,10 @@
         <div class="ph-title">生产监控</div>
         <div class="ph-desc">
           实时指标、告警、链路监控等能力后续单独规划与开发，<br />
-          当前运营监控的「生产问题分析」工单已承接生产运营问题的发现与闭环跟踪。
+          当前运营监控的「主动运营分析」工单已承接生产运营问题的发现与闭环跟踪。
         </div>
       </template>
-      <el-button type="primary" @click="goOperation">前往「生产问题分析」工单</el-button>
+      <el-button type="primary" @click="goOperation">前往「主动运营分析」工单</el-button>
     </el-empty>
   </div>
 </template>

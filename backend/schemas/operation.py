@@ -20,7 +20,7 @@ class WorkOrderCategory(str, Enum):
     """工单大类。"""
     bug = "bug"            # BUG管理
     data = "data"          # 数据异常管理
-    prod = "prod"          # 生产问题分析
+    prod = "prod"          # 主动运营分析
     task = "task"          # 临时交办任务
     complaint = "complaint"  # 热点投诉
 

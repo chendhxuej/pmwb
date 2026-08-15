@@ -29,5 +29,29 @@ export const operationApi = {
   // 获取统计（category 不传返回全部，传则限定某大类）
   getStats(category) {
     return request.get('/operation/stats', { params: category ? { category } : {} })
-  }
+  },
+
+  // 下载主动运营分析工单模板（返回 blob，组件内用 a 标签下载）
+  downloadAnalysisTemplate() {
+    return request({
+      url: '/operation/analysis-template/download',
+      method: 'get',
+      responseType: 'blob',
+    })
+  },
+
+  // 导入主动运营分析工单（multipart/form-data）
+  importAnalysis(formData) {
+    return request({
+      url: '/operation/analysis/import',
+      method: 'post',
+      data: formData,
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  // 获取分析工单明细 + 关联遗留任务工单
+  getAnalysisDetail(id) {
+    return request.get(`/operation/issues/${id}/analysis`)
+  },
 }

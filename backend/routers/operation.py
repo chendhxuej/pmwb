@@ -1,17 +1,24 @@
+import io
 import json
 import os
 import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
+from db.models import PmwbOperationAnalysis
 from schemas.operation import OperationIssueCreate, OperationIssueUpdate
 from services.obsidian_link import sediment_operation_issue
 from services.operation import operation_issue_service
+from services.operation_analysis import (
+    build_analysis_template_bytes,
+    get_analysis_detail,
+    import_analysis_workbook,
+)
 
 # 运营工单附件统一存放目录（backend/uploads/operation/{issue_id}/）
 UPLOAD_ROOT = os.path.join(
@@ -191,3 +198,43 @@ def get_stats(
 ):
     """获取运营工单统计。"""
     return success(data=operation_issue_service.get_stats(db, category=category))
+
+
+@router.get("/analysis-template/download")
+def download_analysis_template():
+    """下载主动运营分析工单 Excel 模板（双 sheet：填写区 + 填写说明）。"""
+    data = build_analysis_template_bytes()
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="主动运营分析工单模版.xlsx"'
+        },
+    )
+
+
+@router.post("/analysis/import")
+def import_analysis(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """导入主动运营分析工单：解析 Excel → 建分析工单+明细 → 遗留任务自动建人员代办任务工单。"""
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="文件为空")
+    try:
+        result = import_analysis_workbook(db, content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"解析失败：{e}")
+    return success(data=result, message="导入成功")
+
+
+@router.get("/issues/{issue_id}/analysis")
+def get_analysis(issue_id: int, db: Session = Depends(get_db)):
+    """获取分析工单明细 + 关联遗留任务工单（人员代办任务）。"""
+    data = get_analysis_detail(db, issue_id)
+    if not data["issue"]:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    return success(data=data)
