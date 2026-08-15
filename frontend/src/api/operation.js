@@ -29,5 +29,21 @@ export const operationApi = {
   // 获取统计（category 不传返回全部，传则限定某大类）
   getStats(category) {
     return request.get('/operation/stats', { params: category ? { category } : {} })
-  }
+  },
+
+  // 下载主动运营分析 Excel 模板
+  downloadAnalysisTemplate() {
+    return request.get('/operation/analysis-template/download', {
+      responseType: 'blob',
+    })
+  },
+
+  // 导入主动运营分析工单
+  importAnalysis(file) {
+    const form = new FormData()
+    form.append('file', file)
+    return request.post('/operation/analysis/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
 }
