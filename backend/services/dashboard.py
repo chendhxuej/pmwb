@@ -667,7 +667,7 @@ class DashboardService:
         }
 
     def get_progress_items(self) -> dict:
-        """db-2 扩展：重点任务进度（从重点工作模块获取）。"""
+        """db-2 扩展：重点任务进度（取重点工作主表实际进度字段 progress，0-100）。"""
         projects = (
             self.db.query(PmwbKeyWork)
             .filter(PmwbKeyWork.status.in_(["planning", "in_progress"]))
@@ -677,13 +677,12 @@ class DashboardService:
         )
         items = []
         for kw in projects:
-            goal_count = len(kw.goals or [])
-            done_goals = sum(1 for g in (kw.goals or []) if g.status == "completed")
-            pct = round(done_goals / goal_count * 100, 1) if goal_count > 0 else 0
+            # 直接取主表实际进度百分比（0-100），即录入的"实际进展信息"
+            pct = int(kw.progress or 0)
             items.append(ProgressItem(
                 name=kw.title,
-                current=done_goals,
-                total=goal_count,
+                current=pct,
+                total=100,
                 percent=pct,
             ))
         return {"keyProjects": items}
