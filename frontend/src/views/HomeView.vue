@@ -72,7 +72,7 @@
       </div>
 
       <!-- 任务中心 -->
-      <BentoCard class="card-highlight" :span="6" :body-padding="'16px 22px 18px'">
+      <BentoCard class="card-highlight" :span="6" :body-padding="'14px 20px 14px'">
         <template #head>
           <span class="card-label">任务中心</span>
         </template>
@@ -97,7 +97,7 @@
       </BentoCard>
 
       <!-- 需求工单 -->
-      <BentoCard class="card-highlight" :span="6" :body-padding="'16px 22px 18px'">
+      <BentoCard class="card-highlight" :span="6" :body-padding="'14px 20px 14px'">
         <template #head>
           <span class="card-label">需求工单</span>
         </template>
@@ -122,7 +122,7 @@
       </BentoCard>
 
       <!-- 运营工单 -->
-      <BentoCard class="card-highlight" :span="6" :body-padding="'16px 22px 18px'">
+      <BentoCard class="card-highlight" :span="6" :body-padding="'14px 20px 14px'">
         <template #head>
           <span class="card-label">运营工单</span>
         </template>
@@ -147,7 +147,7 @@
       </BentoCard>
 
       <!-- 会议日程 -->
-      <BentoCard class="card-highlight" :span="6" :body-padding="'16px 22px 18px'">
+      <BentoCard class="card-highlight" :span="6" :body-padding="'14px 20px 14px'">
         <template #head>
           <span class="card-label">会议日程</span>
         </template>
@@ -243,7 +243,7 @@
       <BentoCard title="智能优先级 · 我的待办" :span="6">
         <template #action><a class="card-action" @click="goTo('/todo')">更多</a></template>
         <ul class="todo-list">
-          <li class="todo-item" v-for="(t, i) in todos" :key="i">
+          <li class="todo-item" v-for="(t, i) in todos.slice(0,3)" :key="i">
             <span class="todo-priority" :class="t.priorityClass">{{ t.priority }}</span>
             <div class="todo-body">
               <div class="todo-title">{{ t.title }}</div>
@@ -706,10 +706,12 @@ onUnmounted(() => {
 .greeting-inner {
   position: relative;
   z-index: 1;
-  padding: 28px 30px;
+  padding: 20px 26px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
+  justify-content: center;
+  flex: 1;
 }
 .g-top {
   display: flex;
@@ -718,32 +720,32 @@ onUnmounted(() => {
   gap: 16px;
 }
 .g-hello {
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 30px;
+  font-weight: 800;
   letter-spacing: -.3px;
   line-height: 1.25;
 }
 .g-hello span { color: #93c5fd; }
 .g-sub {
-  font-size: 14px;
+  font-size: 12.5px;
   color: #94a3b8;
   line-height: 1.5;
   max-width: 440px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .g-eff { text-align: right; flex-shrink: 0; }
 .g-eff-key { font-size: 12px; color: #64748b; margin-bottom: 4px; }
 .g-eff-val {
-  font-size: 32px;
+  font-size: 38px;
   font-weight: 800;
   font-family: var(--font-mono);
   color: #4ade80;
   letter-spacing: -1px;
 }
 .g-eff-unit { font-size: 16px; color: #64748b; }
-.g-stats { display: flex; gap: 28px; flex-wrap: wrap; }
+.g-stats { display: flex; gap: 24px; flex-wrap: wrap; }
 .g-stat { display: flex; flex-direction: column; }
-.g-stat-val { font-size: 22px; font-weight: 700; font-family: var(--font-mono); line-height: 1.2; }
+.g-stat-val { font-size: 24px; font-weight: 700; font-family: var(--font-mono); line-height: 1.2; }
 .g-stat-val.up { color: #4ade80; }
 .g-stat-val.down { color: #f87171; }
 .g-stat-val.accent { color: #93c5fd; }
@@ -792,6 +794,15 @@ onUnmounted(() => {
 .ls-dot.green { background: var(--success); }
 .ls-text { font-size: 13px; color: var(--text-primary); flex: 1; min-width: 0; }
 .ls-time { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+
+/* ── KPI 卡片（居中对齐 + 数字/标签样式）── */
+.kpi-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.kpi-num { font-size: 28px; font-weight: 800; font-family: var(--font-mono); line-height: 1.1; }
+.kpi-num.blue { color: var(--accent); }
+.kpi-num.amber { color: var(--warning); }
+.kpi-num.red { color: var(--danger); }
+.kpi-num.green { color: var(--success); }
+.kpi-label { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-top: 2px; }
 
 /* ── KPI 增量 ── */
 .kpi-delta {
@@ -875,12 +886,12 @@ onUnmounted(() => {
 .dl-val { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); margin-left: auto; }
 
 /* ── 待办 ── */
-.todo-list { list-style: none; padding: 0 22px 16px; }
+.todo-list { list-style: none; padding: 0 18px 14px; }
 .todo-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 11px 0;
+  gap: 10px;
+  padding: 7px 0;
   border-bottom: 1px solid var(--border-subtle);
   transition: background var(--transition-fast);
 }
@@ -901,8 +912,8 @@ onUnmounted(() => {
 .tp-med { background: var(--accent-soft); color: var(--accent); }
 .tp-low { background: var(--border-subtle); color: var(--text-muted); }
 .todo-body { flex: 1; min-width: 0; }
-.todo-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.4; word-break: break-word; }
-.todo-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.todo-title { font-size: 12.5px; color: var(--text-primary); line-height: 1.4; word-break: break-word; }
+.todo-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .todo-deadline { color: var(--danger); font-weight: 500; }
 .todo-overdue { color: var(--danger); background: var(--danger-soft); padding: 0 6px; border-radius: 4px; }
 
@@ -1010,12 +1021,12 @@ onUnmounted(() => {
   .tc-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
 
   /* ── 重点工作进度 ── */
-  .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 14px; }
-  .kp-item { display: flex; flex-direction: column; gap: 6px; }
+  .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 10px; }
+  .kp-item { display: flex; flex-direction: column; gap: 4px; }
   .kp-head { display: flex; align-items: center; justify-content: space-between; }
-  .kp-name { font-size: 13px; color: var(--text-primary); font-weight: 500; }
-  .kp-pct { font-size: 12.5px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
-  .kp-bar { height: 6px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
+  .kp-name { font-size: 12.5px; color: var(--text-primary); font-weight: 500; }
+  .kp-pct { font-size: 12px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+  .kp-bar { height: 5px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
   .kp-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #6aa0ff); border-radius: 4px; }
   .kp-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
 
