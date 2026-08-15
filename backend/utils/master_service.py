@@ -27,10 +27,10 @@ class MasterServiceClient:
             self._client = httpx.Client(timeout=10.0)
         return self._client
 
-    def _request(self, method: str, path: str, **kwargs) -> dict:
+    def _request(self, method: str, path: str, timeout: Optional[float] = None, **kwargs) -> dict:
         url = f"{self.base_url}{path}"
         try:
-            resp = self.client.request(method, url, **kwargs)
+            resp = self.client.request(method, url, timeout=timeout, **kwargs)
             resp.raise_for_status()
             body = resp.json()
             if body.get("code") == 0:
@@ -56,8 +56,8 @@ class MasterServiceClient:
     # ------------------------------------------------------------------
     # 组织
     # ------------------------------------------------------------------
-    def list_orgs(self) -> List[dict]:
-        r = self._request("GET", "/api/v1/basic-data/orgs")
+    def list_orgs(self, timeout: Optional[float] = None) -> List[dict]:
+        r = self._request("GET", "/api/v1/basic-data/orgs", timeout=timeout)
         return r["data"] if r["ok"] else []
 
     def get_org(self, org_id: int) -> Optional[dict]:
@@ -82,13 +82,13 @@ class MasterServiceClient:
     # ------------------------------------------------------------------
     # 人员
     # ------------------------------------------------------------------
-    def list_staffs(self, org_id: Optional[int] = None, keyword: Optional[str] = None) -> List[dict]:
+    def list_staffs(self, org_id: Optional[int] = None, keyword: Optional[str] = None, timeout: Optional[float] = None) -> List[dict]:
         params = {}
         if org_id:
             params["org_id"] = org_id
         if keyword:
             params["keyword"] = keyword
-        r = self._request("GET", "/api/v1/basic-data/staffs", params=params or None)
+        r = self._request("GET", "/api/v1/basic-data/staffs", timeout=timeout, params=params or None)
         return r["data"] if r["ok"] else []
 
     def get_staff(self, staff_id: int) -> Optional[dict]:

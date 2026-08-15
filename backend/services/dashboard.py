@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import time
 from typing import List, Optional
 import logging
 
@@ -51,6 +52,11 @@ CST = timezone(timedelta(hours=8))
 _WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
 logger = logging.getLogger(__name__)
+
+# 人员中台卡片缓存：避免人员中台(:8001)慢/不可达时每次看板加载都阻塞整页。
+# 成功或降级为空都缓存，TTL 内直接返回，重复刷新秒回。
+_PERSONNEL_CACHE_TTL = 60
+_personnel_cache: dict = {"ts": 0.0, "data": None}
 
 
 def _now_cst() -> datetime:
@@ -749,20 +755,32 @@ class DashboardService:
             return TaskCenterDist()
 
     def get_personnel_stats(self) -> PersonnelStats:
-        """看板「人员中台」卡片：组织 / 人员规模概览（异常时降级为空）。"""
+        """看板「人员中台」卡片：组织 / 人员规模概览。
+
+        设计要点（2026-08-15 优化）：
+        - 人员中台(:8001)为外部依赖，慢或不可达时不能阻塞整页看板。
+        - 两次 HTTP 调用均加短超时(2s)；整体结果缓存 60s（含降级空值），
+          使首次失败最多等一次，之后所有刷新秒回，且不影响其它卡片。
+        """
+        now = time.time()
+        if _personnel_cache["data"] is not None and now - _personnel_cache["ts"] < _PERSONNEL_CACHE_TTL:
+            return _personnel_cache["data"]
         try:
-            orgs = master_service_client.list_orgs() or []
-            staffs = master_service_client.list_staffs() or []
+            orgs = master_service_client.list_orgs(timeout=2.0) or []
+            staffs = master_service_client.list_staffs(timeout=2.0) or []
             enabled = sum(1 for s in staffs if s.get("enabled", True))
-            return PersonnelStats(
+            result = PersonnelStats(
                 org_count=len(orgs),
                 staff_count=len(staffs),
                 enabled_staff=enabled,
                 org_list=[o.get("name", "") for o in orgs if o.get("name")],
             )
         except Exception as e:
-            logger.warning("人员中台统计失败: %s", e)
-            return PersonnelStats()
+            logger.warning("人员中台统计失败(降级为空): %s", e)
+            result = PersonnelStats()
+        _personnel_cache["data"] = result
+        _personnel_cache["ts"] = now
+        return result
 
     def get_dashboard(self) -> DashboardData:
         stats = self.get_stats()
