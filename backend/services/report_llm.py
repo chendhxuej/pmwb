@@ -83,11 +83,12 @@ def build_next_period_section(data: Dict[str, Any], report_type: str) -> str:
     todo.overdue_items / requirement.po_risk / requirement.buckets.ongoing。
     """
     title = _NEXT_TITLE.get(report_type, "下阶段重点")
-    lines = [f"## 七、{title}", ""]
+    lines = [f"## 八、{title}", ""]
     req = data.get("requirement", {}) or {}
     op = data.get("operation_issue", {}) or {}
     ma = data.get("meeting_action", {}) or {}
     td = data.get("todo", {}) or {}
+    kw = data.get("key_work", {}) or {}
     hs = op.get("high_sensitivity", []) or []
     handlers = op.get("by_handler", {}) or {}
     overdue_h = [h for h, v in handlers.items() if (v.get("overdue") or 0) > 0]
@@ -97,6 +98,25 @@ def build_next_period_section(data: Dict[str, Any], report_type: str) -> str:
     po = req.get("po_risk", []) or []
     ongoing = (req.get("buckets", {}) or {}).get("ongoing", []) or []
     td_overdue_items = td.get("overdue_items") or []
+    kw_active = kw.get("active") or []
+    kw_overdue_items = kw.get("overdue") or []
+
+    # 重点工作
+    lines.append("### 重点工作")
+    if kw_active or kw_overdue_items:
+        if kw_overdue_items:
+            lines.append(f"- **盯办逾期重点工作**（{len(kw_overdue_items)} 项，限期闭环）：")
+            for w in kw_overdue_items[:6]:
+                due = w.get("planned_finish_date") or "未定"
+                lines.append(f"  - 【{w.get('title')}】（负责人：{w.get('owner') or '待指派'}，计划完成：{due}）")
+        if kw_active:
+            lines.append(f"- 继续推进重点推进事项（{len(kw_active)} 项），按进度表完成关键里程碑：")
+            for w in kw_active[:6]:
+                due = w.get("planned_finish_date") or "未定"
+                lines.append(f"  - 【{w.get('title')}】（负责人：{w.get('owner') or '待指派'}，计划完成：{due}）")
+    else:
+        lines.append("- （本期无重点工作推进/逾期，维持既有节奏）")
+    lines.append("")
 
     # 需求与交付
     lines.append("### 需求与交付")
@@ -172,6 +192,7 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     ma = data.get("meeting_action", {}) or {}
     td = data.get("todo", {}) or {}
     kn = data.get("knowledge", {}) or {}
+    kw = data.get("key_work", {}) or {}
 
     buckets = req.get("buckets", {}) or {}
     delivered = buckets.get("delivered") or []
@@ -215,14 +236,22 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         judge.append(f"个人待办完成率 {td_rate * 100:.0f}%，仍有缺口")
     if po:
         judge.append(f"{len(po)} 项 PO 级交付风险待推进")
+    kw_total = kw.get("total") or 0
+    kw_active = len(kw.get("active", []) or [])
+    kw_overdue = len(kw.get("overdue", []) or [])
+    if kw_total:
+        judge.append(f"重点工作 {kw_total} 项，进行中 {kw_active} 项"
+                     + (f"，逾期 {kw_overdue} 项须盯办" if kw_overdue else "，推进有序"))
     overview = "；".join(judge) if judge else "本期各模块运行平稳，无突出风险"
     # 整体判断作为 callout，醒目
     lines.append(f"> **本期整体判断**：{overview}。")
     lines.append("")
     lines.append("**关键指标速览：**")
+    lines.append("")
     lines.append(_md_table(
         ["维度", "指标"],
         [
+            ("重点工作", f"{kw_total} 项（进行中 {kw_active} / 逾期 {kw_overdue}）"),
             ("需求交付", f"{len(delivered)} 项（新增 {len(added)} / 评估完成 {len(evaluated)} / 启动开发 {len(dev_start)}）"),
             ("运营支撑", f"{op_total} 条（高敏 {len(hs)}）"),
             ("会议协同", f"{mt_total} 场，行动项闭环 {ma_done}/{ma_total}（{ma_rate * 100:.0f}%）"),
@@ -252,16 +281,85 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
             lines.append("**人员时效**：各处理人完成及时率整体良好，无突出超期，维持常态化支撑。")
         lines.append("")
 
-    # 二、需求与交付（先概述，再分四子章节：新增/在途/交付/风险）
-    lines.append("## 二、需求与交付")
+    # 二、重点工作（先概述，再分四子章节：总体态势/重点推进/本期完成/风险逾期）
+    lines.append("## 二、重点工作")
+    kw_cat = kw.get("by_category") or {}
+    kw_st = kw.get("by_status") or {}
+    kw_pri = kw.get("by_priority") or {}
+    kw_active_list = kw.get("active") or []
+    kw_done = kw.get("completed_in_range") or []
+    kw_over = kw.get("overdue") or []
+    lines.append(f"> **本章概述**：本期重点工作共 {kw_total} 项"
+                 + (f"——分类：{', '.join(f'{k} {v}' for k, v in kw_cat.items())}；" if kw_cat else "（暂无分类数据）；")
+                 + f"进行中 {kw_active} 项、本期完成 {len(kw_done)} 项"
+                 + (f"；逾期风险 {kw_overdue} 项须重点盯办。" if kw_overdue else "；风险可控。"))
+    lines.append("")
+
+    # 2.1 总体态势
+    lines.append("### 2.1 总体态势")
+    if kw_cat or kw_st:
+        if kw_cat:
+            lines.append("- **分类分布**：")
+            lines.append("")
+            lines.append(_md_table(["分类", "数量"], sorted(kw_cat.items(), key=lambda x: -x[1])))
+        if kw_st:
+            lines.append("- **状态分布**：")
+            lines.append("")
+            lines.append(_md_table(["状态", "数量"], sorted(kw_st.items(), key=lambda x: -x[1])))
+        if kw_pri:
+            lines.append("- **优先级分布**：")
+            lines.append("")
+            lines.append(_md_table(["优先级", "数量"], sorted(kw_pri.items(), key=lambda x: -x[1])))
+    else:
+        lines.append("- 本期暂无重点工作数据。")
+    lines.append("")
+
+    # 2.2 重点推进事项
+    lines.append("### 2.2 重点推进事项")
+    if kw_active_list:
+        lines.append(f"- 进行中 / 规划中重点工作 {len(kw_active_list)} 项，关键推进事项如下：")
+        for w in kw_active_list[:12]:
+            prog = w.get("progress") or 0
+            due = w.get("planned_finish_date") or "未定"
+            lines.append(f"  - 【{w.get('title')}】（{w.get('category')}，负责人：{w.get('owner') or '待指派'}，"
+                         f"优先级：{w.get('priority')}，进度：{prog}%，计划完成：{due}）")
+        lines.append("- 推进判断：上述事项需按进度表推进，关注里程碑与卡点。")
+    else:
+        lines.append("- 本期无进行中的重点工作。")
+    lines.append("")
+
+    # 2.3 本期完成
+    lines.append("### 2.3 本期完成")
+    if kw_done:
+        lines.append(f"- 本期完成重点工作 {len(kw_done)} 项，体现阶段性产出：")
+        for w in kw_done[:8]:
+            ca = w.get("completed_at") or ""
+            lines.append(f"  - 【{w.get('title')}】（负责人：{w.get('owner') or '—'}{'，完成：' + ca if ca else ''}）")
+    else:
+        lines.append("- 本期无新完成的重点工作。")
+    lines.append("")
+
+    # 2.4 风险与逾期
+    lines.append("### 2.4 风险与逾期")
+    if kw_over:
+        lines.append(f"- **逾期风险 {len(kw_over)} 项**（计划完成日已过仍未完结），须重点盯办：")
+        for w in kw_over[:8]:
+            lines.append(f"  - 【{w.get('title')}】（负责人：{w.get('owner') or '待指派'}，"
+                         f"计划完成：{w.get('planned_finish_date')}，状态：{w.get('status')}）")
+    else:
+        lines.append("- 暂无逾期风险，重点工作推进有序。")
+    lines.append("")
+
+    # 三、需求与交付（先概述，再分四子章节：新增/在途/交付/风险）
+    lines.append("## 三、需求与交付")
     delivered_items = req.get("delivered_items") or []
     scope_total = len(added) + len(evaluated) + len(dev_start) + len(ongoing) + len(delivered_items)
     lines.append(f"> **本章概述**：本周需求侧整体规模 {scope_total} 项——新增 {len(added)} / 评估 {len(evaluated)} / 启动开发 {len(dev_start)} / 在途 {len(ongoing)} / 交付 {len(delivered_items)}"
                  + (f"；PO 级风险 {len(po)} 项待盯办。" if po else "；风险可控。"))
     lines.append("")
 
-    # 2.1 新增需求
-    lines.append("### 2.1 新增需求")
+    # 3.1 新增需求
+    lines.append("### 3.1 新增需求")
     if added:
         tail = " 等" if len(added) > 3 else ""
         lines.append(f"- 本期新增跟踪需求 {len(added)} 项（{'; '.join(added[:3])}{tail}），需求侧持续输入。")
@@ -269,8 +367,8 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         lines.append("- 本期无新增需求跟踪。")
     lines.append("")
 
-    # 2.2 在途需求
-    lines.append("### 2.2 在途需求")
+    # 3.2 在途需求
+    lines.append("### 3.2 在途需求")
     if ongoing or dev_start or evaluated:
         tight = (len(ongoing) + len(dev_start)) > 5
         lines.append(f"- 进行中 {len(ongoing)} 条、启动开发 {len(dev_start)} 条、完成评估 {len(evaluated)} 条，合计在途规模"
@@ -279,8 +377,8 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         lines.append("- 本期无在途需求。")
     lines.append("")
 
-    # 2.3 交付需求（列表同步标注 SA）
-    lines.append("### 2.3 交付需求")
+    # 3.3 交付需求（列表同步标注 SA）
+    lines.append("### 3.3 交付需求")
     if delivered_items:
         sa_set = sorted({it.get("sa_name") for it in delivered_items if it.get("sa_name")})
         lines.append(f"- 本期完成上线/交付 {len(delivered_items)} 项需求（SA：{', '.join(sa_set)}），逐一总结如下：")
@@ -294,10 +392,11 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         lines.append(f"- 交付节奏：本期交付为 0，{len(ongoing)} 条需求仍处于进行中，交付压力后移，需关注排期与卡点。")
     lines.append("")
 
-    # 2.4 风险需求（含 SA）
-    lines.append("### 2.4 风险需求")
+    # 3.4 风险需求（含 SA）
+    lines.append("### 3.4 风险需求")
     if po:
         lines.append("- **PO 级交付风险**（需重点盯办，SA 见下表）：")
+        lines.append("")
         lines.append(_md_table(
             ["需求", "优先级", "状态", "SA", "风险/卡点"],
             [(p.get("req_name"), p.get("priority"), p.get("status"), p.get("sa_name") or "—", p.get("risk_note") or "待补充") for p in po[:10]],
@@ -306,8 +405,8 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         lines.append("- PO 级交付风险：本期无在途 PO 级风险。")
     lines.append("")
 
-    # 三、运营支撑（分析型）
-    lines.append("## 三、运营支撑")
+    # 四、运营支撑（分析型）
+    lines.append("## 四、运营支撑")
     if op_total:
         top_cat = max(op_cat, key=op_cat.get) if op_cat else "—"
         overdue_intro = [h for h, v in handlers.items() if v.get("overdue")]
@@ -315,6 +414,7 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
                      + ("，处置时效承压。" if overdue_intro else "，时效整体可控。"))
         lines.append("")
         lines.append("- **工单类别分布**：")
+        lines.append("")
         lines.append(_md_table(
             ["类别", "数量"],
             sorted(((k, v) for k, v in op_cat.items()), key=lambda x: -x[1])[:6],
@@ -338,8 +438,8 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         lines.append("- 本期无运营工单。")
     lines.append("")
 
-    # 四、会议与协同（分析型）
-    lines.append("## 四、会议与协同")
+    # 五、会议与协同（分析型）
+    lines.append("## 五、会议与协同")
     if mt_total:
         lines.append(f"> **本章概述**：本期会议 {mt_total} 场，会议行动项闭环 {ma_done}/{ma_total}（{ma_rate * 100:.0f}%）"
                      + ("，决议落地存在卡点，需盯办未闭环项。" if ma_done < ma_total else "，决议落地良好。"))
@@ -370,8 +470,8 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         lines.append("- 本期无会议。")
     lines.append("")
 
-    # 五、个人待办（分析型）
-    lines.append("## 五、个人待办")
+    # 六、个人待办（分析型）
+    lines.append("## 六、个人待办")
     if td_total:
         lines.append(f"> **本章概述**：个人待办 {td_total} 项，完成率 {td_rate * 100:.0f}%"
                      + (f"，超期 {td_overdue} 项，个人执行偏弱，需优先清理。" if td_overdue else "，保持节奏推进。"))
@@ -392,8 +492,8 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         lines.append("- 本期无个人待办。")
     lines.append("")
 
-    # 六、知识中心
-    lines.append("## 六、知识中心")
+    # 七、知识中心
+    lines.append("## 七、知识中心")
     if kn_total:
         topk = sorted(kn.get("by_category", {}).items(), key=lambda x: -x[1])[:3]
         lines.append(f"> **本章概述**：本期维护知识 {kn_total} 条，知识沉淀活跃（以 {'、'.join(f'{k}' for k, v in topk)} 为主）。")

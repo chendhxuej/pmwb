@@ -13,6 +13,7 @@ from services.report_collector import ReportDataCollector
 from services.report_llm import generate_report_markdown, render_rule_template, build_next_period_section
 from services.report_prompt import build_system_prompt, build_user_message
 from utils.email import EmailCenterClient
+from utils.markdown_mail import markdown_to_email_html
 from utils.master_service import master_service_client
 from utils.obsidian import sanitize_filename, write_markdown
 from utils.validators import validate_email_strict
@@ -137,11 +138,12 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
     """保证 LLM 输出包含所有必备小节（防止偶发漏模块），缺失则补占位说明。"""
     required = [
         ("一、本期概述", "本期概述"),
-        ("二、需求与交付", "需求与交付"),
-        ("三、运营支撑", "运营支撑"),
-        ("四、会议与协同", "会议与协同"),
-        ("五、个人待办", "个人待办"),
-        ("六、知识中心", "知识中心"),
+        ("二、重点工作", "重点工作"),
+        ("三、需求与交付", "需求与交付"),
+        ("四、运营支撑", "运营支撑"),
+        ("五、会议与协同", "会议与协同"),
+        ("六、个人待办", "个人待办"),
+        ("七、知识中心", "知识中心"),
     ]
     out = md or ""
     for title, marker in required:
@@ -151,49 +153,31 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
 
 
 def _strip_next_period(md: str, report_type: str) -> str:
-    """剥离 LLM 输出中自带的「下期重点计划」小节，便于用确定性按模块版覆盖。"""
+    """剥离 LLM 输出中自带的「下期重点计划」小节，便于用确定性按模块版覆盖。
+
+    提示词强制 LLM 将第八章标题固定写作 `## 八、...`，因此优先按固定编号标题
+    `## 八、` 定位并截断（最稳健）；若 LLM 未严格遵循编号，再回退到按类型标记词
+    （如「下周重点计划」）剥离，避免 LLM 自带版与确定性版叠成两章。
+    """
+    text = md or ""
+    # 优先按固定编号标题剥离
+    idx = text.find("\n## 八、")
+    if idx == -1:
+        idx = text.find("## 八、")  # 文档开头情形
+    if idx != -1:
+        return text[:idx].rstrip()
+    # 回退：按类型标记词剥离
     _m = {
         "daily": "明日关注",
         "weekly": "下周重点计划",
         "monthly": "下月重点工作与趋势研判",
         "custom": "下阶段重点",
     }.get(report_type, "下阶段重点")
-    idx = (md or "").find(_m)
-    if idx == -1:
-        return md or ""
-    line_start = (md or "").rfind("\n", 0, idx) + 1
-    return (md or "")[:line_start].rstrip()
-
-
-def _ensure_delivered_summaries(md: str, data: Dict[str, Any]) -> str:
-    """强制保证「二、需求与交付」中对本期上线需求逐条写完成总结；缺失则补齐。"""
-    req = data.get("requirement", {}) or {}
-    items = req.get("delivered_items") or []
-    if not items:
-        return md
-    marker = "## 二、需求与交付"
-    idx = md.find(marker)
-    if idx == -1:
-        return md
-    sec_start = idx + len(marker)
-    next_h2 = md.find("## ", sec_start)
-    sec_end = next_h2 if next_h2 != -1 else len(md)
-    section = md[sec_start:sec_end]
-    count = section.count("完成【")
-    if count >= len(items):
-        return md
-    missing = [it for it in items if it.get("req_name") and f"完成【{it.get('req_name')}】" not in section]
-    if not missing:
-        return md
-    # 从 report_llm 复用标准句式
-    from services.report_llm import _build_delivered_item_summary
-    block = ["", "- 本期上线需求逐一总结如下："]
-    block.extend(_build_delivered_item_summary(it) for it in missing)
-    insert_pos = sec_start
-    # 在标题后第一行空行后插入
-    if md[insert_pos:insert_pos + 1] == "\n":
-        insert_pos += 1
-    return md[:insert_pos] + "\n".join(block) + "\n" + md[insert_pos:]
+    idx2 = text.find(_m)
+    if idx2 == -1:
+        return text
+    line_start = text.rfind("\n", 0, idx2) + 1
+    return text[:line_start].rstrip()
 
 
 def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -209,11 +193,10 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     if not md:
         md = render_rule_template(data, report_type)
     else:
-        # LLM 负责「一~六」深度内容；下期重点计划统一用确定性按模块版，
+        # LLM 负责「一~七」深度内容；下期重点计划统一用确定性按模块版，
         # 保证「对标本期进展 + 结构稳定」，不依赖 LLM 自觉
         md = _strip_next_period(md, report_type)
         md = _ensure_sections(data, md, report_type)
-        md = _ensure_delivered_summaries(md, data)
         md = md.rstrip() + "\n\n" + build_next_period_section(data, report_type)
     title = f"{_type_label(report_type)}（{start.isoformat()}~{end.isoformat()}）"
     r = PmwbWorkReport(
@@ -303,12 +286,15 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
     if not to_emails:
         raise ValidationException("没有可用的收件人邮箱（姓名需能在人员中台解析）")
     subject = req.get("subject") or r.title or "工作总结"
-    body = req.get("body") or r.content or ""
+    raw_body = req.get("body") or r.content or ""
+    # 正文为 Markdown，统一转换为带样式 HTML（含统一签名）后再以 html 格式发送，
+    # 保证收件人收到的邮件是排版后的 HTML 而非原始 Markdown 文本
+    html_body = markdown_to_email_html(raw_body)
     client = EmailCenterClient()
     try:
         result = client.send_email(
-            to=to_emails, subject=subject, body=body,
-            body_format="text", cc=cc_emails or None, raise_on_error=False,
+            to=to_emails, subject=subject, body=html_body,
+            body_format="html", cc=cc_emails or None, raise_on_error=False,
         )
     except Exception as e:  # noqa: BLE001
         r.error_msg = f"send: {e}"

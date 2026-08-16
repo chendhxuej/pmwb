@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from db.models import (
     PmwbDevTicket,
+    PmwbKeyWork,
     PmwbKnowledgeItem,
     PmwbMeeting,
     PmwbMeetingAction,
@@ -37,6 +38,9 @@ from services.report_dict import (
     TODO_STATUS,
     TODO_CATEGORY,
     MEETING_ACTION_STATUS,
+    KW_CATEGORY,
+    KW_STATUS,
+    KW_PRIORITY,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,6 +79,7 @@ class ReportDataCollector:
             "meeting_action": self._collect_meeting_action(date_start, date_end),
             "todo": self._collect_todo(date_start, date_end),
             "knowledge": self._collect_knowledge(date_start, date_end),
+            "key_work": self._collect_key_work(date_start, date_end),
         }
 
     # ---- 需求与交付 ----
@@ -366,3 +371,70 @@ class ReportDataCollector:
                 total += 1
                 by_category[_g(k, "category") or "other"] += 1
         return {"total": total, "by_category": dict(by_category)}
+
+    # ---- 重点工作 ----
+    def _collect_key_work(self, start, end):
+        try:
+            rows = self.db.query(PmwbKeyWork).all()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("采集重点工作失败: %s", e)
+            return {"total": 0, "by_category": {}, "by_status": {}, "by_priority": {},
+                    "active": [], "completed_in_range": [], "overdue": []}
+        by_category = defaultdict(int)
+        by_status = defaultdict(int)
+        by_priority = defaultdict(int)
+        active: List[Dict[str, Any]] = []
+        completed_in_range: List[Dict[str, Any]] = []
+        overdue: List[Dict[str, Any]] = []
+        for w in rows:
+            cat = _g(w, "category") or "annual_task"
+            st = _g(w, "status") or "planning"
+            pri = _g(w, "priority") or "P2"
+            by_category[cat] += 1
+            by_status[st] += 1
+            by_priority[pri] += 1
+            title = _g(w, "title") or ""
+            owner = _g(w, "owner") or ""
+            progress = _g(w, "progress") or 0
+            planned = _date_of(_g(w, "planned_finish_date"))
+            updated = _date_of(_g(w, "updated_at"))
+            work_no = _g(w, "work_no") or ""
+            current_status = (_g(w, "current_status") or "")[:200]
+            # 本期完成（状态为已完成且更新落在区间内）
+            if st == "completed" and _in_range(updated, start, end):
+                completed_in_range.append({
+                    "work_no": work_no,
+                    "title": title,
+                    "owner": owner,
+                    "completed_at": updated.isoformat() if updated else "",
+                })
+            # 规划中/进行中/已暂停 视为重点推进事项
+            if st in ("planning", "in_progress", "paused"):
+                active.append({
+                    "work_no": work_no,
+                    "title": title,
+                    "category": tr(KW_CATEGORY, cat),
+                    "owner": owner,
+                    "priority": tr(KW_PRIORITY, pri),
+                    "status": tr(KW_STATUS, st),
+                    "progress": progress,
+                    "planned_finish_date": planned.isoformat() if planned else "",
+                    "current_status": current_status,
+                })
+            # 逾期风险：计划完成日已过且未完结（非已完成/已取消）
+            if planned and planned < end and st not in ("completed", "cancelled"):
+                overdue.append({
+                    "title": title,
+                    "owner": owner,
+                    "planned_finish_date": planned.isoformat(),
+                    "status": tr(KW_STATUS, st),
+                })
+        return {
+            "total": len(rows),
+            "by_category": tr_keys(KW_CATEGORY, by_category),
+            "by_status": tr_keys(KW_STATUS, by_status),
+            "by_priority": tr_keys(KW_PRIORITY, by_priority),
+            "active": active,
+            "completed_in_range": completed_in_range,
+            "overdue": overdue,
+        }

@@ -207,11 +207,36 @@ def test_next_period_section_lists_objects_not_just_numbers(db, monkeypatch):
     monkeypatch.setattr(wr, "generate_report_markdown", lambda db, s, u: ("", False, None, "no-llm"))
     result = wr.generate_report(db, {"report_type": "weekly", "date_start": start, "date_end": today})
     content = result["content"]
-    assert "七、下周重点计划" in content
+    assert "八、下周重点计划" in content
     # 具体对象名应出现（而非只报条数）
     assert "高敏X" in content
     assert "行动Y" in content
     assert "超期Z" in content
+
+
+def test_no_duplicate_next_period_chapter(db, monkeypatch):
+    """回归：LLM 按提示词写出的「## 八、下期重点计划」必须被剥离，
+    不得与确定性 build_next_period_section 的「## 八、下周重点计划」叠成两章。"""
+    from services import work_report as wr
+    today = date.today()
+    llm_md = (
+        "## 一、本期概述\n> 总评\n\n"
+        "## 二、重点工作\n> 概述\n\n"
+        "## 三、需求与交付\n> 概述\n\n"
+        "## 四、运营支撑\n> 概述\n\n"
+        "## 五、会议与协同\n> 概述\n\n"
+        "## 六、个人待办\n> 概述\n\n"
+        "## 七、知识中心\n> 概述\n\n"
+        "## 八、下期重点计划\n### 重点工作\n- 继续推进 X\n"
+    )
+    monkeypatch.setattr(wr, "generate_report_markdown",
+                        lambda db, s, u: (llm_md, True, "kimi", None))
+    start = today - timedelta(days=6)
+    result = wr.generate_report(db, {"report_type": "weekly", "date_start": start, "date_end": today})
+    content = result["content"]
+    # 最终只能有一个第八章标题，且为确定性版（下周），不含 LLM 自带版（下期）
+    assert content.count("## 八、下周重点计划") == 1, content.count("## 八、下周重点计划")
+    assert "## 八、下期重点计划" not in content
 
 
 def test_prompt_includes_glossary():
@@ -224,12 +249,13 @@ def test_prompt_includes_glossary():
 
 
 def test_prompt_overview_and_subsections():
-    """提示词须要求：概述综合研判+人员时效改进要求；需求章四子章节；三~六本章概述。"""
+    """提示词须要求：概述综合研判+人员时效改进要求；重点工作章+需求章四子章节；本章概述。"""
     from services.report_prompt import build_system_prompt
     p = build_system_prompt("weekly")
     assert "人员时效与改进要求" in p
-    assert "2.1 新增需求" in p and "2.2 在途需求" in p
-    assert "2.3 交付需求" in p and "2.4 风险需求" in p
+    assert "二、重点工作" in p and "2.1 总体态势" in p
+    assert "3.1 新增需求" in p and "3.2 在途需求" in p
+    assert "3.3 交付需求" in p and "3.4 风险需求" in p
     assert "本章概述" in p
     assert "标注 SA" in p or "SA 人员" in p
 
@@ -266,6 +292,56 @@ def test_collector_handler_rates(db):
     assert h["overdue_rate"] == 0.5
 
 
+def test_collector_key_work(db):
+    """重点工作采集：聚合分布转中文；active/overdue/completed_in_range 三类清单齐备。"""
+    from datetime import date as _d, datetime as _dt
+    from db.models import PmwbKeyWork
+    today = date.today()
+    # 进行中 + 逾期（计划完成日 < 今天）+ 年度任务
+    kw1 = PmwbKeyWork(work_no="KW-1", category="annual_task", title="年度任务A", owner="钱七",
+                      priority="P0", status="in_progress", progress=60,
+                      planned_finish_date=today - timedelta(days=5))
+    # 进行中、未逾期
+    kw2 = PmwbKeyWork(work_no="KW-2", category="hq_pilot", title="试点B", owner="孙八",
+                      priority="P2", status="in_progress", progress=30,
+                      planned_finish_date=today + timedelta(days=20))
+    # 本期完成
+    kw3 = PmwbKeyWork(work_no="KW-3", category="special_topic", title="专题C", owner="周九",
+                      priority="P1", status="completed",
+                      planned_finish_date=today - timedelta(days=1),
+                      updated_at=_dt(today.year, today.month, today.day, 10, 0, 0))
+    for kw in (kw1, kw2, kw3):
+        db.add(kw)
+    db.commit()
+    data = ReportDataCollector(db).collect(today - timedelta(days=6), today)
+    kw = data["key_work"]
+    assert kw["total"] == 3
+    assert kw["by_category"]["年度任务"] == 1 and kw["by_category"]["总部试点"] == 1
+    assert kw["by_status"]["进行中"] == 2 and kw["by_status"]["已完成"] == 1
+    assert len(kw["active"]) == 2
+    assert len(kw["overdue"]) == 1 and kw["overdue"][0]["title"] == "年度任务A"
+    assert len(kw["completed_in_range"]) == 1 and kw["completed_in_range"][0]["title"] == "专题C"
+
+
+def test_rule_template_no_duplicate_delivered_summary(db, monkeypatch):
+    """规则模板（及 LLM 兜底链路）交付需求只在「3.3 交付需求」出现一次，无重复『逐一总结』块。"""
+    from datetime import datetime
+    from tests.factories import RequirementExtFactory
+    from services import work_report as wr
+    today = date.today()
+    RequirementExtFactory.create(db, req_id="REQ-DUP-1", req_name="完结需求D", status="closed",
+                                 priority="P1", sa_name="王五", delivered_date=today,
+                                 description="核心功能", background="业务价值")
+    start = today - timedelta(days=6)
+    monkeypatch.setattr(wr, "generate_report_markdown", lambda db, s, u: ("", False, None, "no-llm"))
+    result = wr.generate_report(db, {"report_type": "weekly", "date_start": start, "date_end": today})
+    md = result["content"]
+    # 「本期上线需求逐一总结如下：」这种重复注入块必须不存在（已在 work_report 删除该函数）
+    assert "本期上线需求逐一总结如下：" not in md
+    assert md.count("完成【完结需求D】开发部署") == 1  # 仅 3.3 交付需求出现一次
+    assert "## 三、需求与交付" in md
+
+
 def _fake_report_data():
     """构造一份最小报告数据，用于规则模板结构断言（不依赖 DB）。"""
     return {
@@ -293,17 +369,34 @@ def _fake_report_data():
                  "by_category": {"需求": 2, "会议": 1}, "by_priority": {"P0": 1, "P1": 1, "P2": 1},
                  "overdue_items": [{"title": "超期I", "due_date": "2026-08-12", "category": "需求", "priority": "P0"}]},
         "knowledge": {"total": 2, "by_category": {"业务建设": 2}},
+        "key_work": {
+            "total": 3,
+            "by_category": {"总部试点": 1, "年度任务": 2},
+            "by_status": {"进行中": 2, "已完成": 1},
+            "by_priority": {"最高(P0)": 1, "中(P2)": 2},
+            "active": [{"title": "重点工作J", "category": "年度任务", "owner": "钱七",
+                        "priority": "最高(P0)", "status": "进行中", "progress": 60,
+                        "planned_finish_date": "2026-09-30", "current_status": "里程碑1完成"}],
+            "completed_in_range": [{"title": "重点工作K", "owner": "孙八", "completed_at": "2026-08-14"}],
+            "overdue": [{"title": "重点工作L", "owner": "周九", "planned_finish_date": "2026-08-01", "status": "进行中"}],
+        },
     }
 
 
 def test_rule_template_structure_and_sa():
-    """规则模板：概述含人员时效改进要求；需求章四子章节+SA；三~六本章概述。"""
+    """规则模板：概述含人员时效改进要求；重点工作章+需求章四子章节+SA；本章概述。"""
     from services.report_llm import render_rule_template
     md = render_rule_template(_fake_report_data(), "weekly")
     assert "人员时效与改进要求" in md
     assert "要求【钱七】" in md  # 问题处理人被点名提改进要求
     assert "孙八" not in md.split("人员时效与改进要求")[1].split("## 二")[0] or "维持常态化" in md  # 良好者不点名（粗略）
-    for sec in ["2.1 新增需求", "2.2 在途需求", "2.3 交付需求", "2.4 风险需求"]:
+    # 重点工作章节（二）及其子章节
+    assert "## 二、重点工作" in md
+    for sec in ["2.1 总体态势", "2.2 重点推进事项", "2.3 本期完成", "2.4 风险与逾期"]:
+        assert sec in md
+    assert "重点工作J" in md and "重点工作L" in md  # 重点推进 + 逾期均列出
+    # 需求与交付（三）及其子章节
+    for sec in ["3.1 新增需求", "3.2 在途需求", "3.3 交付需求", "3.4 风险需求"]:
         assert sec in md
     assert "本章概述" in md
     # 交付需求列表须带 SA
@@ -320,4 +413,27 @@ def test_rule_template_names_problem_handler_with_overdue():
     assert "钱七" in seg
     assert "超期" in seg
     assert "改进要求" in seg or "要求" in seg
+
+
+def test_send_report_uses_html(db, monkeypatch):
+    """邮件发送须将 Markdown 正文转 HTML（body_format=html），不再以纯文本发送 markdown。"""
+    from services import work_report as wr
+    r = wr.create_report(db, {
+        "report_type": "weekly",
+        "title": "测试周报",
+        "content": "# 标题\n\n- 要点一\n\n| 维度 | 指标 |\n|---|---|\n| 需求 | 3 项 |\n",
+    })
+    captured = {}
+    def fake_send(self, to, subject, body, **kwargs):
+        captured["body"] = body
+        captured["body_format"] = kwargs.get("body_format")
+        captured["to"] = to
+        return {"ok": True, "data": {}}
+    monkeypatch.setattr(wr.EmailCenterClient, "send_email", fake_send)
+    wr.send_report(db, r["id"], {"to": ["test@example.com"], "subject": "测试", "body": r["content"]})
+    assert captured.get("body_format") == "html"
+    # 转成了带样式的 HTML（含 <table>），而非原样 markdown 管道符表格
+    assert "<table" in captured.get("body", "")
+    assert "| 维度 | 指标 |" not in captured.get("body", "")
+    assert "pmwb-mail-body" in captured.get("body", "")
 

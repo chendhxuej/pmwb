@@ -97,6 +97,28 @@ MEETING_ACTION_STATUS: Dict[str, str] = {
     "closed": "已关闭",
 }
 
+# ---- 重点工作 ----
+KW_CATEGORY: Dict[str, str] = {
+    "hq_pilot": "总部试点",
+    "annual_task": "年度任务",
+    "special_topic": "专题工作",
+}
+
+KW_STATUS: Dict[str, str] = {
+    "planning": "规划中",
+    "in_progress": "进行中",
+    "completed": "已完成",
+    "paused": "已暂停",
+    "cancelled": "已取消",
+}
+
+KW_PRIORITY: Dict[str, str] = {
+    "P0": "最高(P0)",
+    "P1": "高(P1)",
+    "P2": "中(P2)",
+    "P3": "低(P3)",
+}
+
 # 所有字典按模块归类，便于 prompt 注入 glossary
 GLOSSARY: Dict[str, Dict[str, str]] = {
     "需求状态": REQUIREMENT_STATUS,
@@ -109,6 +131,9 @@ GLOSSARY: Dict[str, Dict[str, str]] = {
     "待办状态": TODO_STATUS,
     "待办分类": TODO_CATEGORY,
     "会议行动项状态": MEETING_ACTION_STATUS,
+    "重点工作分类": KW_CATEGORY,
+    "重点工作状态": KW_STATUS,
+    "重点工作优先级": KW_PRIORITY,
 }
 
 
