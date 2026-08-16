@@ -12,8 +12,7 @@ from db.models import PmwbWorkReport
 from services.report_collector import ReportDataCollector
 from services.report_llm import generate_report_markdown, render_rule_template, build_next_period_section
 from services.report_prompt import build_system_prompt, build_user_message
-from utils.email import EmailCenterClient
-from utils.markdown_mail import markdown_to_email_html
+from services.mail_dispatch import dispatch_email
 from utils.master_service import master_service_client
 from utils.obsidian import sanitize_filename, write_markdown
 from utils.validators import validate_email_strict
@@ -287,25 +286,18 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
         raise ValidationException("没有可用的收件人邮箱（姓名需能在人员中台解析）")
     subject = req.get("subject") or r.title or "工作总结"
     raw_body = req.get("body") or r.content or ""
-    # 正文为 Markdown，统一转换为带样式 HTML（含统一签名）后再以 html 格式发送，
-    # 保证收件人收到的邮件是排版后的 HTML 而非原始 Markdown 文本
-    html_body = markdown_to_email_html(raw_body)
-    client = EmailCenterClient()
-    try:
-        result = client.send_email(
-            to=to_emails, subject=subject, body=html_body,
-            body_format="html", cc=cc_emails or None, raise_on_error=False,
-        )
-    except Exception as e:  # noqa: BLE001
-        r.error_msg = f"send: {e}"
-        db.commit()
-        raise ValidationException(f"邮件发送失败：{e}")
-
-    ok = True
-    if isinstance(result, dict):
-        ok = result.get("ok", True) is not False
-    if not ok:
-        r.error_msg = f"send: {result.get('error') if isinstance(result, dict) else result}"
+    # 统一走邮件治理门面：Markdown→HTML、统一签名、落库、发信
+    result = dispatch_email(
+        db=db,
+        to=to_emails,
+        cc=cc_emails or None,
+        subject=subject,
+        scene="work_report",
+        raw_content=raw_body,
+        raise_on_error=False,
+    )
+    if not result.get("success"):
+        r.error_msg = f"send: {result.get('message')}"
         db.commit()
         raise ValidationException(f"邮件发送失败：{r.error_msg}")
 
@@ -315,6 +307,8 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
     r.cc = ", ".join(cc_emails) if cc_emails else None
     if notes:
         r.error_msg = " | ".join(notes)
+    else:
+        r.error_msg = None
     db.commit()
     db.refresh(r)
     return to_out(r)

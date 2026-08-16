@@ -7,15 +7,10 @@
 import logging
 from typing import Any
 
-from utils.email import email_client, proxy_client
+from services.mail_dispatch import dispatch_email
+from utils.email import email_client
 
 logger = logging.getLogger("pmwb.supervise")
-
-# 邮件中心默认模版类型 → 由 sup-1 种子数据创建
-TEMPLATE_TYPE_MAP = {
-    "sync": "ticket_sync",
-    "urge": "ticket_urge",
-}
 
 
 def _render_and_send(
@@ -23,79 +18,40 @@ def _render_and_send(
     template_data: dict[str, Any],
     recipients: list[str],
 ) -> dict:
-    """按场景选模版 → 渲染 → 解析收件人邮箱 → 发送。
+    """按场景选督办模版 → 解析收件人邮箱 → 走统一邮件治理门面发信。
+
+    模板渲染统一交给 3210 服务端（按 type 渲染），签名注入由门面完成。
 
     Returns:
         {"ok": True, "subject": ..., "body": ...}
         {"ok": False, "error": "..."}
     """
-    tpl_type = TEMPLATE_TYPE_MAP.get(scene)
-    if not tpl_type:
+    scene_key = "supervise_" + scene
+    if scene_key not in ("supervise_sync", "supervise_urge"):
         return {"ok": False, "error": f"未知的督办场景: {scene}"}
 
-    # 1. 获取该类型默认模版 ID
-    try:
-        tpls_resp = proxy_client.request(
-            "GET",
-            "/api/templates",
-            params={"type": tpl_type},
-        )
-    except Exception as exc:
-        logger.warning("查询邮件中心模版列表失败: %s", exc)
-        return {"ok": False, "error": f"邮件中心不可用: {exc}"}
-
-    # tpls_resp 可能是 {"items": [...]} 或直接是 list
-    tpls = []
-    if isinstance(tpls_resp, dict):
-        tpls = tpls_resp.get("items", [])
-    elif isinstance(tpls_resp, list):
-        tpls = tpls_resp
-
-    if not tpls:
-        return {"ok": False, "error": f"未找到 {tpl_type} 类型模版"}
-
-    tpl_id = tpls[0]["id"]
-
-    # 2. 渲染模版
-    try:
-        rendered = email_client.render_template(tpl_id, {"variables": template_data})
-    except Exception as exc:
-        logger.warning("渲染模版失败 (template=%s): %s", tpl_id, exc)
-        return {"ok": False, "error": f"渲染模版失败: {exc}"}
-
-    subject = rendered.get("subject", "")
-    body = rendered.get("body", "")
-    body_format = rendered.get("bodyFormat", "text")
-
-    # 3. 解析收件人邮箱
+    # 解析收件人邮箱
     resolved = email_client.resolve_contact_emails(recipients)
     to_emails = [v for v in resolved.values() if v]
     if not to_emails:
         logger.warning("督办邮件收件人邮箱全部为空: recipients=%s, resolved=%s", recipients, resolved)
         return {"ok": False, "error": "无法解析收件人邮箱"}
 
-    # 4. 发送
-    send_result = email_client.send_email(
+    result = dispatch_email(
         to=to_emails,
-        subject=subject,
-        body=body,
-        body_format=body_format,
-        email_type=f"supervise_{scene}",
+        subject="",  # 由模版渲染产出
+        scene=scene_key,
+        variables=template_data,
         raise_on_error=False,
     )
+    if not result.get("success"):
+        logger.warning("督办邮件发送失败: %s", result.get("message"))
+        return {"ok": False, "error": result.get("message", "发送失败")}
 
-    if not send_result.get("ok"):
-        logger.warning("督办邮件发送失败: %s", send_result.get("error"))
-        return send_result
-
-    logger.info(
-        "督办邮件发送成功 scene=%s recipients=%s subject=%s",
-        scene, recipients, subject,
-    )
     return {
         "ok": True,
-        "subject": subject,
-        "body": body,
+        "subject": result.get("subject", ""),
+        "body": result.get("rendered_body", ""),
     }
 
 

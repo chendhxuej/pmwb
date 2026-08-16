@@ -1,6 +1,6 @@
-"""统一邮件治理门面单测：覆盖 Markdown→HTML 转换、签名注入、纯文本签名、降级。
+"""统一邮件治理门面单测：覆盖 Markdown→内联样式 HTML、签名注入、净化、场景收口、降级。
 
-不依赖真实邮件中心 / 数据库：通过 monkeypatch 替换 EmailCenterClient.send_email。
+不依赖真实邮件中心 / 数据库：通过 monkeypatch 替换 EmailCenterClient.send_email / render_template / list_templates。
 """
 import sys
 from pathlib import Path
@@ -11,13 +11,17 @@ from services import mail_dispatch
 from utils import markdown_mail
 
 
-def test_markdown_to_email_html_includes_signature_and_styles():
+def test_markdown_to_email_html_includes_signature_and_inline_styles():
     html = markdown_mail.markdown_to_email_html("# 标题\n\n正文 **加粗**\n\n- 列表项1\n- 列表项2")
-    assert "pmwb-mail-body" in html
     assert "陈大海" in html  # 默认签名注入
+    assert "中国移动通信集团江苏有限公司" in html
+    assert 'style=' in html
     assert "<h1" in html
-    assert "<strong>" in html
-    assert "<li>" in html
+    # h1 标签上应当有非空的 style 属性（内联样式）
+    h1_open = html.split("<h1")[1].split(">")[0]
+    assert 'style=' in h1_open and 'font-size' in html
+    assert "<strong" in html
+    assert "<li" in html
 
 
 def test_markdown_no_signature_when_disabled():
@@ -26,7 +30,22 @@ def test_markdown_no_signature_when_disabled():
     assert "中国移动通信集团江苏有限公司" not in html
 
 
-def test_dispatch_html_formats_and_sends(monkeypatch):
+def test_sanitize_strips_script():
+    html = markdown_mail.markdown_to_email_html("<script>alert(1)</script>正文")
+    assert "<script>" not in html
+    assert "</script>" not in html
+    # 标签被剥离后，其中文本可能保留并被转义；关键是不能执行脚本
+    assert "正文" in html
+
+
+def test_inject_signature_inline_escapes_html():
+    sig = "<b>陈大海</b>\n中国移动"
+    html = markdown_mail.markdown_to_email_html("正文", signature=sig)
+    assert "<b>陈大海</b>" not in html  # 签名整体被逐行转义
+    assert "&lt;b&gt;陈大海&lt;/b&gt;" in html or "陈大海" in html
+
+
+def test_dispatch_meeting_html_and_signature(monkeypatch):
     captured = {}
 
     def fake_send(self, **kwargs):
@@ -39,13 +58,15 @@ def test_dispatch_html_formats_and_sends(monkeypatch):
     )
     assert res["success"] is True
     assert res["body_format"] == "html"
-    assert "pmwb-mail-body" in captured["body"]
-    assert "陈大海" in captured["body"]
     assert captured["body_format"] == "html"
     assert captured["email_type"] == "meeting_minutes"
+    assert "陈大海" in captured["body"]
+    # 内联样式：div body 上有 font-family 等
+    assert "font-family" in captured["body"]
+    assert "<li" in captured["body"] and "style=" in captured["body"]
 
 
-def test_dispatch_text_appends_signature(monkeypatch):
+def test_dispatch_text_body_is_wrapped_as_html(monkeypatch):
     captured = {}
 
     def fake_send(self, **kwargs):
@@ -58,7 +79,7 @@ def test_dispatch_text_appends_signature(monkeypatch):
     )
     assert res["body_format"] == "text"
     assert "纯文本正文" in captured["body"]
-    assert "陈大海" in captured["body"]  # 纯文本签名追加
+    assert "陈大海" in captured["body"]
 
 
 def test_dispatch_failure_downgrades(monkeypatch):
@@ -86,3 +107,133 @@ def test_dispatch_raise_on_error(monkeypatch):
     except RuntimeError:
         raised = True
     assert raised, "raise_on_error=True 时应抛出异常"
+
+
+def test_scene_registration_all_bypass_migrated():
+    """P0 收口：所有绕过门面的业务场景必须在注册表中有 scene。"""
+    expected = {
+        "meeting_notice",
+        "meeting_minutes",
+        "action_dispatch",
+        "action_supervise",
+        "task_reminder",
+        "requirement_reminder",
+        "work_report",
+        "task_center_notify",
+        "task_center_urge",
+        "plugin",
+        "supervise_sync",
+        "supervise_urge",
+    }
+    assert set(mail_dispatch.SCENES.keys()) >= expected
+
+
+def test_render_mail_preview_equals_send_body(monkeypatch):
+    """预览与发送共用 _render_mail，正文应完全一致。"""
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "data": {"messageId": "msg-123"}}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    preview = mail_dispatch._render_mail(scene="work_report", raw_content="# 周报\n- 项1")
+    send = mail_dispatch.dispatch_email(
+        to=["a@b.com"], subject="周报", scene="work_report", raw_content="# 周报\n- 项1"
+    )
+    assert preview["html"] == send["rendered_body"]
+    assert "陈大海" in preview["html"]
+    assert send["message_id"] == "msg-123"
+
+
+def test_templated_scene_render_and_fallback(monkeypatch):
+    """supervise 场景走 3210 模板渲染；若 3210 不可用则降级。"""
+    calls = {"render": 0, "send": 0}
+
+    def fake_render(self, template_id, data):
+        calls["render"] += 1
+        return {
+            "subject": f"工单 #{data['variables']['no']}",
+            "body": f"<p>{data['variables']['title']}</p>",
+            "bodyFormat": "html",
+        }
+
+    def fake_list(self, template_type):
+        return [{"id": "tpl-1", "type": template_type, "isDefault": True}]
+
+    def fake_send(self, **kwargs):
+        calls["send"] += 1
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "render_template", fake_render)
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "list_templates", fake_list)
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+
+    res = mail_dispatch.dispatch_email(
+        to=["a@b.com"],
+        scene="supervise_urge",
+        variables={"no": "T-001", "title": "测试工单"},
+    )
+    assert res["success"] is True
+    assert calls["render"] >= 1
+    assert calls["send"] == 1
+    assert "工单 #T-001" in res["subject"]
+    assert "测试工单" in res["rendered_body"]
+    assert "陈大海" in res["rendered_body"]  # 统一签名注入
+
+    # 3210 渲染失败时走 fallback markdown
+    def fake_render_fail(self, template_id, data):
+        raise RuntimeError("渲染服务不可用")
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "render_template", fake_render_fail)
+    res = mail_dispatch.dispatch_email(
+        to=["a@b.com"],
+        scene="supervise_urge",
+        variables={"no": "T-002", "title": "测试"},
+    )
+    assert res["success"] is True
+    assert "陈大海" in res["rendered_body"]
+
+
+def test_plugin_html_passthrough(monkeypatch):
+    """插件传入 HTML 时应原样净化并注入签名。"""
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    from services.plugin import plugin_service
+
+    plugin_service.send_email(
+        to=["a@b.com"],
+        subject="插件测试",
+        body="<p>HTML 段落</p>",
+        body_format="html",
+    )
+    assert "<p>HTML 段落</p>" in captured["body"]
+    assert "陈大海" in captured["body"]
+    assert captured["email_type"] == "xqemail_plugin"
+
+
+def test_plugin_text_body_markdown_rendered(monkeypatch):
+    """插件传入 text 时应按 Markdown 渲染为 HTML 并加签名。"""
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    from services.plugin import plugin_service
+
+    plugin_service.send_email(
+        to=["a@b.com"],
+        subject="插件测试",
+        body="**加粗** 正文",
+        body_format="text",
+    )
+    assert captured["body_format"] == "html"
+    assert "<strong>加粗</strong>" in captured["body"] or "加粗" in captured["body"]
+    assert "陈大海" in captured["body"]

@@ -1,5 +1,4 @@
 import uuid
-from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -28,9 +27,9 @@ def _create_email_record(db: Session, req_id: str = "REQ-REMINDER-001", email_ty
 
 
 def test_send_reminder_success(client: TestClient, db: Session, monkeypatch):
-    mock_client = MagicMock()
-    mock_client.send_email.return_value = {"ok": True, "data": {"message_id": "msg-123", "status": "ok"}}
-    monkeypatch.setattr(reminder_service, "email_client", mock_client)
+    def fake_send(self, **kwargs):
+        return {"ok": True, "data": {"messageId": "msg-123", "status": "ok"}}
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.send_email", fake_send)
     payload = {
         "req_id": "REQ-REMINDER-001",
         "req_name": "测试需求",
@@ -55,9 +54,9 @@ def test_send_reminder_success(client: TestClient, db: Session, monkeypatch):
 
 
 def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, monkeypatch):
-    mock_client = MagicMock()
-    mock_client.send_email.return_value = {"ok": True, "data": {"status": "ok"}}
-    monkeypatch.setattr(reminder_service, "email_client", mock_client)
+    def fake_send(self, **kwargs):
+        return {"ok": True, "data": {"status": "ok"}}
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.send_email", fake_send)
     payload = {
         "req_id": "REQ-REMINDER-NAME",
         "req_name": "测试需求",
@@ -75,9 +74,9 @@ def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, mo
 
 
 def test_send_reminder_failure(client: TestClient, db: Session, monkeypatch):
-    mock_client = MagicMock()
-    mock_client.send_email.return_value = {"ok": False, "error": "邮件中心不可用"}
-    monkeypatch.setattr(reminder_service, "email_client", mock_client)
+    def fake_send(self, **kwargs):
+        return {"ok": False, "error": "邮件中心不可用"}
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.send_email", fake_send)
     payload = {
         "req_id": "REQ-REMINDER-002",
         "req_name": "测试需求失败",

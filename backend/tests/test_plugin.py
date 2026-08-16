@@ -118,7 +118,10 @@ def test_plugin_send_mocked(client: "TestClient"):
         _, kwargs = mock_send.call_args
         assert kwargs.get("email_type") == "xqemail_plugin"
         assert kwargs.get("to") == ["someone@example.com"]
-        assert kwargs.get("body_format") == "text"
+        # 统一治理后，text 正文也经 Markdown→HTML 渲染后以 html 格式发送，避免纯文本显示源码
+        assert kwargs.get("body_format") == "html"
+        assert "hello" in kwargs.get("body", "")
+        assert "陈大海" in kwargs.get("body", "")
 
 
 def test_plugin_send_list_and_attachments(client: "TestClient"):

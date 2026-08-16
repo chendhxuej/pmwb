@@ -429,11 +429,11 @@ def test_send_report_uses_html(db, monkeypatch):
         captured["body_format"] = kwargs.get("body_format")
         captured["to"] = to
         return {"ok": True, "data": {}}
-    monkeypatch.setattr(wr.EmailCenterClient, "send_email", fake_send)
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.send_email", fake_send)
     wr.send_report(db, r["id"], {"to": ["test@example.com"], "subject": "测试", "body": r["content"]})
     assert captured.get("body_format") == "html"
     # 转成了带样式的 HTML（含 <table>），而非原样 markdown 管道符表格
     assert "<table" in captured.get("body", "")
     assert "| 维度 | 指标 |" not in captured.get("body", "")
-    assert "pmwb-mail-body" in captured.get("body", "")
+    assert "陈大海" in captured.get("body", "")
 

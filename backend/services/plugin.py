@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db.models import SaInfo, SentEmail
-from utils.email import EmailCenterClient
+from services.mail_dispatch import dispatch_email
 from utils.master_service import master_service_client
 
 # 与 2525 中继 ensureSaInfoTable 对齐（create_all 已建表，这里仅作兜底）
@@ -33,9 +33,6 @@ SA_INFO_DDL = """CREATE TABLE IF NOT EXISTS sa_info (
 class PluginService:
     """插件接入 Service。"""
 
-    def __init__(self):
-        self.email_client = EmailCenterClient()
-
     # ---------------- 统一邮件中心发信 ----------------
     def send_email(
         self,
@@ -46,21 +43,24 @@ class PluginService:
         body_format: str = "text",
         attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """通过统一邮件中心发送邮件（对齐 2525 /send）。"""
-        result = self.email_client.send_email(
+        """通过统一邮件治理门面发送邮件（插件原始契约扁平 JSON 保持兼容）。"""
+        result = dispatch_email(
             to=to,
             cc=cc,
             subject=subject,
-            body=body,
-            body_format=body_format,
-            email_type="xqemail_plugin",
+            scene="plugin",
+            raw_content=body,
+            html_passthrough=body_format == "html",
+            body_format="html",
             attachments=attachments,
+            raise_on_error=True,
         )
         return {
-            "success": True,
-            "messageId": result.get("messageId", ""),
-            "fromEmail": result.get("fromEmail", ""),
-            "accountId": result.get("accountId", ""),
+            "success": result.get("success", False),
+            "message": result.get("message", ""),
+            "messageId": result.get("message_id") or result.get("record_id"),
+            "fromEmail": "",
+            "accountId": "",
         }
 
     # ---------------- sent_emails 写入（数据接入）----------------

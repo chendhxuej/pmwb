@@ -33,6 +33,7 @@ from schemas.task_center import (
     TaskSendRequest,
     TaskStats,
 )
+from services.mail_dispatch import dispatch_email
 from utils.dateflags import flag_due_date
 from utils.email import EmailCenterClient
 from utils.master_service import master_service_client
@@ -616,42 +617,21 @@ class TaskCenterService:
                 break
 
         email_type = "pmwb_task_urge" if obj_in.send_type == "urge" else "pmwb_task_notify"
-        record = EmailRecord(
+        scene = "task_center_urge" if obj_in.send_type == "urge" else "task_center_notify"
+
+        result = dispatch_email(
+            db=db,
+            to=obj_in.to,
+            cc=obj_in.cc,
+            subject=obj_in.subject,
+            scene=scene,
+            raw_content=body,
+            email_type=email_type,
             req_id=";".join(f"{t.source}:{t.source_id}" for t in obj_in.tasks)[:64],
             req_name=(first_title or "任务中心邮件")[:255],
-            email_type=email_type,
-            recipient=obj_in.to,
-            recipient_name=None,
-            subject=obj_in.subject,
-            content=body,
-            send_status="pending",
-            source="task-center",
-            sender=obj_in.operator or "task-center",
-        )
-        db.add(record)
-        db.commit()
-        db.refresh(record)
-
-        result = self.email_client.send_email(
-            to=obj_in.to,
-            subject=obj_in.subject,
-            body=body,
-            cc=obj_in.cc,
             raise_on_error=False,
         )
-        if result.get("ok"):
-            record.send_status = "success"
-            record.error_msg = None
-            message = "邮件发送成功"
-            success_flag = True
-        else:
-            record.send_status = "failed"
-            record.error_msg = result.get("error")
-            message = f"邮件发送失败：{result.get('error')}"
-            success_flag = False
-        db.commit()
-        db.refresh(record)
-        return {"success": success_flag, "record_ids": [record.id], "message": message}
+        return {"success": result.get("success", False), "record_ids": [result.get("record_id")] if result.get("record_id") else [], "message": result.get("message", "")}
 
 
 task_center_service = TaskCenterService()

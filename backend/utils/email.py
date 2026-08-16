@@ -64,6 +64,18 @@ class EmailCenterClient:
         response.raise_for_status()
         return response.json()
 
+    def list_templates(self, template_type: str | None = None) -> list:
+        """按 type 列出统一邮件中心模版（返回 items 列表，可能为 []）。"""
+        try:
+            params = {"type": template_type} if template_type else None
+            response = self.client.get("/api/templates", params=params, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("items", []) if isinstance(data, dict) else (data or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("查询邮件中心模版列表失败: %s", exc)
+            return []
+
 
     def search_contacts(self, keyword: str) -> list:
         """在统一邮件中心通讯录中搜索联系人（按姓名/邮箱/部门模糊匹配）。"""

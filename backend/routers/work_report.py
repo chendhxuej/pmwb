@@ -88,12 +88,6 @@ def finalize(report_id: int, db: Session = Depends(get_db)):
     return success(data=svc.finalize_report(db, report_id))
 
 
-@router.post("/{report_id}/preview")
-def preview(report_id: int, db: Session = Depends(get_db)):
-    r = svc.get_report(db, report_id)
-    return success(data={"content": r.get("content")})
-
-
 @router.post("/{report_id}/send")
 def send(report_id: int, req: SendRequest, db: Session = Depends(get_db)):
     return success(data=svc.send_report(db, report_id, req.model_dump()))

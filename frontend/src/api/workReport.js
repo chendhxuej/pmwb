@@ -29,10 +29,6 @@ export function finalizeWorkReport(id) {
   return request({ url: `/work-reports/${id}/finalize`, method: 'post' })
 }
 
-export function previewWorkReport(id, data) {
-  return request({ url: `/work-reports/${id}/preview`, method: 'post', data })
-}
-
 export function sendWorkReport(id, data) {
   // 发送走统一邮件中心，网络操作可能偏慢，放宽超时避免误报
   return request({ url: `/work-reports/${id}/send`, method: 'post', data, timeout: 120000 })
