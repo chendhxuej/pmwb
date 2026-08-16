@@ -116,6 +116,7 @@ class PmwbDevTicket(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     ticket_no = Column(String(64), nullable=False, comment="开发工单编号")
+    title = Column(String(256), comment="工单标题")
     req_id = Column(String(64), nullable=False, comment="关联需求编号")
     domain_code = Column(String(64), comment="关联业务领域编码")
     system_name = Column(String(128), nullable=False, comment="涉及系统")
@@ -128,6 +129,7 @@ class PmwbDevTicket(Base):
     test_completed_date = Column(Date, comment="测试完成日期")
     go_live_date = Column(Date, comment="实际上线日期")
     archived_date = Column(Date, comment="归档日期")
+    planned_finish_date = Column(Date, comment="计划完成时间")
     status = Column(
         Enum(
             "created",
@@ -462,6 +464,7 @@ class PmwbMeetingAction(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     meeting_id = Column(Integer, ForeignKey("pmwb_meeting.id"), nullable=False, comment="关联会议ID")
     content = Column(Text, nullable=False, comment="行动项内容")
+    title = Column(String(256), comment="行动项标题（独立标题；为空时前端回退显示 content）")
     owner = Column(String(64), comment="负责人")
     due_date = Column(Date, comment="截止日期")
     status = Column(String(32), default="pending", comment="状态")

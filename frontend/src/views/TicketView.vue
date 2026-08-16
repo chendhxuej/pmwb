@@ -91,6 +91,7 @@
 
     <el-dialog v-model="detailDialogVisible" title="工单详情" width="720px" destroy-on-close>
       <el-descriptions v-loading="detailLoading" :column="2" border>
+        <el-descriptions-item label="标题">{{ detail.title || detail.ticket_no || '-' }}</el-descriptions-item>
         <el-descriptions-item label="工单编号">{{ detail.ticket_no || '-' }}</el-descriptions-item>
         <el-descriptions-item label="关联需求">{{ detail.req_id || '-' }}</el-descriptions-item>
         <el-descriptions-item label="涉及系统">{{ detail.system_name || '-' }}</el-descriptions-item>
@@ -224,6 +225,7 @@ const searchFields = [
 ]
 
 const columns = [
+  { prop: 'title', label: '标题', minWidth: 200 },
   { prop: 'ticket_no', label: '工单编号', width: 160 },
   { prop: 'req_id', label: '关联需求', width: 140 },
   { prop: 'system_name', label: '系统', width: 120 },

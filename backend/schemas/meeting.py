@@ -51,6 +51,7 @@ class MeetingAttendeeOut(MeetingAttendeeBase):
 class MeetingActionBase(BaseModel):
     id: Optional[int] = Field(None, description="行动项ID（更新时携带，新建留空）")
     content: str = Field(..., description="行动项内容")
+    title: Optional[str] = Field(None, max_length=256, description="行动项标题（独立标题）")
     owner: Optional[str] = Field(None, max_length=64, description="负责人")
     due_date: Optional[str] = Field(None, description="截止日期")
     status: MeetingActionStatus = Field(MeetingActionStatus.pending, description="状态")
@@ -216,6 +217,7 @@ class MeetingActionUpdate(BaseModel):
     """行动项完整编辑请求。"""
 
     content: Optional[str] = Field(None, description="行动项内容")
+    title: Optional[str] = Field(None, max_length=256, description="行动项标题")
     owner: Optional[str] = Field(None, max_length=64, description="负责人")
     due_date: Optional[str] = Field(None, description="截止日期")
     status: Optional[MeetingActionStatus] = Field(None, description="状态")
@@ -250,6 +252,7 @@ class MeetingActionItemOut(BaseModel):
     meeting_title: str
     meeting_id_no: str
     content: str
+    title: Optional[str] = None
     owner: Optional[str]
     due_date: Optional[str]
     status: MeetingActionStatus

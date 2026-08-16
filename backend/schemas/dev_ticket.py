@@ -15,6 +15,7 @@ class DevTicketStatus(str):
 
 class DevTicketBase(BaseModel):
     ticket_no: str = Field(..., max_length=64, description="开发工单编号")
+    title: Optional[str] = Field(None, max_length=256, description="工单标题")
     req_id: str = Field(..., max_length=64, description="关联需求编号")
     domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     system_name: str = Field(..., max_length=128, description="涉及系统")
@@ -31,6 +32,7 @@ class DevTicketBase(BaseModel):
     test_completed_date: Optional[date] = None
     go_live_date: Optional[date] = None
     archived_date: Optional[date] = None
+    planned_finish_date: Optional[date] = None
 
 
 class DevTicketCreate(DevTicketBase):
@@ -46,6 +48,8 @@ class DevTicketUpdate(BaseModel):
     priority: Optional[str] = None
     progress: Optional[int] = None
     domain_code: Optional[str] = None
+    title: Optional[str] = None
+    planned_finish_date: Optional[date] = None
 
 
 class DevTicketStatusUpdate(BaseModel):

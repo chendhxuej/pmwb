@@ -49,7 +49,9 @@
     <el-card shadow="never" class="table-card" v-loading="loading">
       <el-table :data="tableData" stripe>
         <el-table-column prop="meeting_title" label="会议主题" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="content" label="行动项内容" min-width="260" show-overflow-tooltip />
+        <el-table-column label="行动项" min-width="260" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.title || row.content }}</template>
+        </el-table-column>
         <el-table-column prop="owner" label="负责人" width="120" />
         <el-table-column prop="created_at" label="创建时间" width="130">
           <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '-' }}</template>
