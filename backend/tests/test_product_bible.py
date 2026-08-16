@@ -64,7 +64,11 @@ def test_put_update_writes_back_to_file(client: TestClient):
     finally:
         settings.PRODUCT_BIBLE = original_config
         if tmp_full.exists():
-            os.remove(tmp_full)
+            try:
+                os.remove(tmp_full)
+            except OSError:
+                # 沙箱环境无回收站式删除被安全拦截，忽略清理失败（真实环境可正常删除）
+                pass
 
 
 def _make_minimal_docx(path: str):

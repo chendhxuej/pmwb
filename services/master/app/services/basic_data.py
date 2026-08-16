@@ -85,6 +85,8 @@ class BasicDataService:
         obj = db.get(PmwbOrg, org_id)
         if not obj:
             return False
+        # 级联删除该组织下人员，避免删除组织后留下孤儿人员数据
+        db.query(PmwbStaff).filter(PmwbStaff.org_id == org_id).delete()
         db.delete(obj)
         db.commit()
         return True

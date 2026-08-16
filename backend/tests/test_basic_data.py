@@ -77,10 +77,13 @@ class TestStaffCrud:
     def test_delete_org_cascades_staff(self, client):
         org_name = _unique_name("BOSS")
         org = _create_org(client, org_name)
-        _create_staff(client, org["id"], "陈增明")
+        staff_name = _unique_name("成员")
+        staff = _create_staff(client, org["id"], staff_name)
         client.delete(f"/api/v1/basic-data/orgs/{org['id']}")
         resp = client.get("/api/v1/basic-data/staffs")
-        assert all(s["name"] != "陈增明" for s in resp.json()["data"])
+        staff_ids = [s["id"] for s in resp.json()["data"]]
+        # 删除组织应级联删除其下人员（按 id 判定，避免与真实人员重名干扰）
+        assert staff["id"] not in staff_ids
 
 
 class TestStaffOptions:
