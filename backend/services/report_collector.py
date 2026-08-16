@@ -25,6 +25,19 @@ from db.models import (
     PmwbRequirementExt,
     PmwbTodo,
 )
+from services.report_dict import (
+    tr,
+    tr_keys,
+    REQUIREMENT_STATUS,
+    REQUIREMENT_PRIORITY,
+    DEV_TICKET_STATUS,
+    OP_ISSUE_CATEGORY,
+    OP_ISSUE_STATUS,
+    IMPACT_LEVEL,
+    TODO_STATUS,
+    TODO_CATEGORY,
+    MEETING_ACTION_STATUS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +130,7 @@ class ReportDataCollector:
                 "go_live": go_live.isoformat() if go_live else "",
                 "delivered_date": req_delivered.isoformat() if req_delivered else "",
                 "workload": workload,
-                "dev_status": [(_g(t, "status") or "") for t in tickets],
+                "dev_status": [tr(DEV_TICKET_STATUS, _g(t, "status")) for t in tickets],
             }
 
             # 本期新增/评估/启动开发/交付/进行中分桶
@@ -142,8 +155,8 @@ class ReportDataCollector:
             if (is_high or dev_high) and status != "closed":
                 po_risk.append({
                     "req_name": req_name,
-                    "priority": priority,
-                    "status": status,
+                    "priority": tr(REQUIREMENT_PRIORITY, priority),
+                    "status": tr(REQUIREMENT_STATUS, status),
                     "go_live": go_live.isoformat() if go_live else "",
                     "risk_note": risk_notes,
                 })
@@ -188,25 +201,25 @@ class ReportDataCollector:
                 high.append({
                     "issue_no": _g(r, "issue_no"),
                     "title": _g(r, "title"),
-                    "category": cat,
-                    "status": st,
+                    "category": tr(OP_ISSUE_CATEGORY, cat),
+                    "status": tr(OP_ISSUE_STATUS, st),
                     "handler": handler,
-                    "impact": impact,
+                    "impact": tr(IMPACT_LEVEL, impact),
                 })
             if _in_range(disc, start, end) or _in_range(resolve, start, end):
                 items.append({
                     "issue_no": _g(r, "issue_no"),
                     "title": _g(r, "title"),
-                    "category": cat,
-                    "status": st,
-                    "impact": impact,
+                    "category": tr(OP_ISSUE_CATEGORY, cat),
+                    "status": tr(OP_ISSUE_STATUS, st),
+                    "impact": tr(IMPACT_LEVEL, impact),
                     "handler": handler,
                 })
         return {
             "items": items,
-            "by_category": dict(by_category),
-            "by_status": dict(by_status),
-            "by_impact": dict(by_impact),
+            "by_category": tr_keys(OP_ISSUE_CATEGORY, by_category),
+            "by_status": tr_keys(OP_ISSUE_STATUS, by_status),
+            "by_impact": tr_keys(IMPACT_LEVEL, by_impact),
             "by_handler": {k: v for k, v in by_handler.items()},
             "high_sensitivity": high,
         }
@@ -228,11 +241,11 @@ class ReportDataCollector:
                 items.append({
                     "ticket_no": _g(t, "ticket_no"),
                     "system_name": _g(t, "system_name"),
-                    "status": st,
+                    "status": tr(DEV_TICKET_STATUS, st),
                     "go_live": go_live.isoformat() if go_live else "",
                     "risk_note": _g(t, "risk_note") or "",
                 })
-        return {"items": items, "by_status": dict(by_status)}
+        return {"items": items, "by_status": tr_keys(DEV_TICKET_STATUS, by_status)}
 
     # ---- 会议 ----
     def _collect_meeting(self, start, end):
@@ -261,18 +274,29 @@ class ReportDataCollector:
             rows = self.db.query(PmwbMeetingAction).all()
         except Exception as e:  # noqa: BLE001
             logger.warning("采集行动项失败: %s", e)
-            return {"total": 0, "done": 0, "completion_rate": 0.0}
+            return {"total": 0, "done": 0, "completion_rate": 0.0, "unfinished": []}
         total = 0
         done = 0
+        unfinished: List[Dict[str, Any]] = []
         for a in rows:
             due = _date_of(_g(a, "due_date"))
             if not (_in_range(due, start, end) or _in_range(_date_of(_g(a, "created_at")), start, end)):
                 continue
             total += 1
-            if (_g(a, "status") or "pending") in ("done", "closed"):
+            st = _g(a, "status") or "pending"
+            if st in ("done", "closed"):
                 done += 1
+            else:
+                # 未闭环行动项：下期计划需逐一列出具体对象（标题/负责人/截止日）
+                a_title = _g(a, "title") or _g(a, "content") or "（无标题行动项）"
+                unfinished.append({
+                    "title": a_title[:80],
+                    "owner": _g(a, "owner") or "待指派",
+                    "due_date": due.isoformat() if due else "",
+                    "status": tr(MEETING_ACTION_STATUS, st),
+                })
         rate = round(done / total, 2) if total else 0.0
-        return {"total": total, "done": done, "completion_rate": rate}
+        return {"total": total, "done": done, "completion_rate": rate, "unfinished": unfinished}
 
     # ---- 个人待办 ----
     def _collect_todo(self, start, end):
@@ -286,6 +310,7 @@ class ReportDataCollector:
         overdue = 0
         by_category = defaultdict(int)
         by_priority = defaultdict(int)
+        overdue_items: List[Dict[str, Any]] = []
         today = date.today()
         for t in rows:
             st = _g(t, "status") or "todo"
@@ -298,16 +323,25 @@ class ReportDataCollector:
             ):
                 continue
             total += 1
-            by_category[_g(t, "category") or "other"] += 1
+            cat = _g(t, "category") or "other"
+            by_category[cat] += 1
             by_priority[_g(t, "priority") or "P2"] += 1
             if st in ("done", "cancelled") and completed:
                 done += 1
             if st not in ("done", "cancelled") and due and due < today:
                 overdue += 1
+                overdue_items.append({
+                    "title": (_g(t, "title") or "")[:80],
+                    "due_date": due.isoformat(),
+                    "category": tr(TODO_CATEGORY, cat),
+                    "priority": tr(IMPACT_LEVEL, _g(t, "priority")),
+                })
         rate = round(done / total, 2) if total else 0.0
         return {
             "total": total, "done": done, "completion_rate": rate, "overdue": overdue,
-            "by_category": dict(by_category), "by_priority": dict(by_priority),
+            "by_category": tr_keys(TODO_CATEGORY, by_category),
+            "by_priority": tr_keys(IMPACT_LEVEL, by_priority),
+            "overdue_items": overdue_items,
         }
 
     # ---- 知识中心 ----

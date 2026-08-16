@@ -114,7 +114,9 @@
             </div>
           </div>
         </el-alert>
-        <MarkdownRender v-if="!editing" :content="current.content || ''" />
+        <div v-if="!editing" class="wr-report">
+          <MarkdownRender :content="current.content || ''" />
+        </div>
         <el-input v-else type="textarea" v-model="editContent" :rows="26" placeholder="可手工编辑报告内容" />
       </div>
 
@@ -151,7 +153,9 @@
             </el-button>
           </div>
           <el-input v-if="emailEditing" type="textarea" v-model="emailForm.body" :rows="16" placeholder="邮件正文（支持 Markdown）" />
-          <MarkdownRender v-else :content="emailForm.body || ''" />
+          <div v-else class="wr-report wr-report--email">
+            <MarkdownRender :content="emailForm.body || ''" />
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -431,4 +435,71 @@ onMounted(load)
 .gen-loading-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 20px; gap: 10px; color: var(--el-text-color-secondary); }
 .gen-loading-overlay p { margin: 0; }
 .gen-elapsed { font-size: 13px; color: var(--el-color-primary); font-weight: 600; }
+
+/* ---- AI总结报告专属排版层（仅作用于报告 markdown，不影响共用 MarkdownRender 其他场景）---- */
+.wr-report { --wr-accent: var(--el-color-primary, #409eff); }
+.wr-report :deep(.markdown-body) {
+  font-size: 14px;
+  line-height: 1.72;
+  color: #2b3445;
+}
+/* 报告主标题：hero 色带 */
+.wr-report :deep(.markdown-body > h1:first-child) {
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  font-size: 22px;
+  line-height: 1.3;
+  color: #fff;
+  background: linear-gradient(100deg, var(--wr-accent), color-mix(in srgb, var(--wr-accent) 55%, #ffffff));
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.18);
+}
+/* 一级章节：左侧色条 + 序号徽标观感 */
+.wr-report :deep(.markdown-body h2) {
+  position: relative;
+  margin: 28px 0 12px;
+  padding: 6px 0 6px 14px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2d3d;
+  border: none;
+  border-left: 4px solid var(--wr-accent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--wr-accent) 8%, transparent), transparent 60%);
+  border-radius: 0 6px 6px 0;
+}
+.wr-report :deep(.markdown-body h3) {
+  margin: 18px 0 8px;
+  padding-left: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+  border-left: 3px solid color-mix(in srgb, var(--wr-accent) 60%, #c0c4cc);
+}
+/* 关键判断 callout 强化 */
+.wr-report :deep(.markdown-body blockquote) {
+  margin: 14px 0;
+  padding: 12px 16px;
+  background: #eef5ff;
+  border-left: 4px solid var(--wr-accent);
+  border-radius: 0 8px 8px 0;
+  color: #2b3445;
+}
+.wr-report :deep(.markdown-body blockquote p) {
+  margin: 2px 0;
+  font-weight: 500;
+}
+/* 分布/指标表格：首列加粗、斑马纹、圆角 */
+.wr-report :deep(.markdown-body .table-wrap) { border: none; border-radius: 10px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05); }
+.wr-report :deep(.markdown-body table) { min-width: 0; border-radius: 10px; overflow: hidden; }
+.wr-report :deep(.markdown-body thead th) { background: color-mix(in srgb, var(--wr-accent) 12%, #f5f7fa); }
+.wr-report :deep(.markdown-body tbody tr:first-child td:first-child),
+.wr-report :deep(.markdown-body tbody tr td:first-child) { font-weight: 600; color: #1f2d3d; }
+/* 列表项间距更舒适 */
+.wr-report :deep(.markdown-body li) { margin: 6px 0; }
+.wr-report :deep(.markdown-body ul) { padding-left: 22px; }
+/* 邮件预览内缩小 hero 与圆角，避免弹窗过满 */
+.wr-report--email :deep(.markdown-body > h1:first-child) { font-size: 18px; padding: 12px 16px; border-radius: 10px; }
+.wr-report--email :deep(.markdown-body h2) { margin: 20px 0 10px; font-size: 16px; }
+
 </style>

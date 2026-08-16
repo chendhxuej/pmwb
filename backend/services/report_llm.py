@@ -5,7 +5,7 @@ LLM 不可用时自动降级到规则模板（render_rule_template），保证�
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 from services.llm_provider import call_best_available
 
@@ -50,6 +50,17 @@ def _build_delivered_item_summary(it: Dict[str, Any]) -> str:
     return f"  - 完成【{req_name}】开发部署{meta}：核心实现「{core}」，体现「{value}」"
 
 
+def _md_table(headers: List[str], rows: List[Tuple[str, ...]]) -> str:
+    """生成 GFM 表格字符串（无数据时返回空串）。"""
+    if not rows:
+        return ""
+    lines = ["| " + " | ".join(headers) + " |",
+             "| " + " | ".join(["---"] * len(headers)) + " |"]
+    for r in rows:
+        lines.append("| " + " | ".join(str(c) for c in r) + " |")
+    return "\n".join(lines)
+
+
 def generate_report_markdown(db, system_prompt: str, user_message: str):
     """调用 LLM 生成报告正文，返回 (markdown, used_llm, provider_name, notice)。
 
@@ -65,7 +76,12 @@ def generate_report_markdown(db, system_prompt: str, user_message: str):
 
 
 def build_next_period_section(data: Dict[str, Any], report_type: str) -> str:
-    """构造「下期重点计划」小节（按模块对齐本期进展，规则模板与 LLM 兜底共用）。"""
+    """构造「下期重点计划」小节（按模块对齐本期进展，规则模板与 LLM 兜底共用）。
+
+    关键改进：计划段逐一列出具体对象（高敏工单标题 / 未闭环行动项 / 超期待办），
+    不再只给数字；对象清单来自采集器补抛的 high_sensitivity / meeting_action.unfinished /
+    todo.overdue_items / requirement.po_risk / requirement.buckets.ongoing。
+    """
     title = _NEXT_TITLE.get(report_type, "下阶段重点")
     lines = [f"## 七、{title}", ""]
     req = data.get("requirement", {}) or {}
@@ -77,41 +93,65 @@ def build_next_period_section(data: Dict[str, Any], report_type: str) -> str:
     overdue_h = [h for h, v in handlers.items() if (v.get("overdue") or 0) > 0]
     ma_total = ma.get("total") or 0
     ma_done = ma.get("done") or 0
+    ma_unfinished = ma.get("unfinished") or []
     po = req.get("po_risk", []) or []
     ongoing = (req.get("buckets", {}) or {}).get("ongoing", []) or []
+    td_overdue_items = td.get("overdue_items") or []
 
+    # 需求与交付
     lines.append("### 需求与交付")
-    for p in po[:5]:
-        lines.append(f"- 推进 {p.get('req_name')}（{p.get('priority')}/{p.get('status')}，风险：{p.get('risk_note') or '待补充'}）闭环上线")
+    if po:
+        lines.append("- **PO 级风险需求闭环**（需重点盯办）：")
+        for p in po[:5]:
+            lines.append(f"  - 推进【{p.get('req_name')}】（{p.get('priority')}/{p.get('status')}）"
+                         f"闭环上线，卡点：{p.get('risk_note') or '待补充'}")
     if ongoing:
-        lines.append(f"- 继续推进进行中需求：{'; '.join(ongoing[:5])}")
+        lines.append(f"- 继续推进进行中需求（{len(ongoing)} 条）：")
+        for n in ongoing[:6]:
+            lines.append(f"  - {n}")
     if not po and not ongoing:
         lines.append("- （本期无在途/风险需求，按计划推进既有需求）")
     lines.append("")
 
+    # 运营支撑
     lines.append("### 运营支撑")
     if hs:
-        lines.append(f"- 盯办高敏工单（P0/P1）{len(hs)} 条闭环，防止升级")
+        lines.append(f"- **高敏（P0/P1）工单盯办**（{len(hs)} 条，防止升级）：")
+        for h in hs[:6]:
+            handler = h.get("handler") or "待指派"
+            lines.append(f"  - 【{h.get('title') or h.get('issue_no')}】（{h.get('category')}/{h.get('impact')}"
+                         f"，处理人：{handler}）闭环处置")
     if overdue_h:
         lines.append(f"- 跟进超期处理人：{', '.join(overdue_h[:5])}，压缩处置时长")
     if not hs and not overdue_h:
         lines.append("- （本期运营平稳，维持常态化支撑）")
     lines.append("")
 
+    # 会议与协同
     lines.append("### 会议与协同")
-    if ma_total and ma_done < ma_total:
-        lines.append(f"- 闭环未完成的会议行动项（剩 {ma_total - ma_done} 项）")
+    if ma_unfinished:
+        lines.append(f"- **未闭环会议行动项**（剩 {len(ma_unfinished)} 项，需指定责任人跟办）：")
+        for a in ma_unfinished[:6]:
+            due = a.get("due_date") or "未定"
+            lines.append(f"  - 【{a.get('title')}】（负责人：{a.get('owner')}，截止：{due}）")
+    elif ma_total:
+        lines.append(f"- （本期 {ma_total} 项会议行动项均已闭环，关注新决议落地）")
     else:
-        lines.append("- （本期会议行动项均已闭环，关注新决议落地）")
+        lines.append("- （本期无会议行动项跟踪）")
     lines.append("")
 
+    # 个人待办
     lines.append("### 个人待办")
-    if td.get("overdue"):
-        lines.append(f"- 清理超期个人待办（{td['overdue']} 项）")
+    if td_overdue_items:
+        lines.append(f"- **清理超期个人待办**（{len(td_overdue_items)} 项）：")
+        for t in td_overdue_items[:6]:
+            due = t.get("due_date") or "未定"
+            lines.append(f"  - 【{t.get('title')}】（{t.get('category')}，截止：{due}）")
     else:
         lines.append("- （个人待办无超期，保持节奏）")
     lines.append("")
 
+    # 知识中心
     lines.append("### 知识中心")
     lines.append("- 沉淀本期典型问题/交付经验到知识库，形成可复用资产")
     lines.append("")
@@ -156,7 +196,7 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     ma_done = ma.get("done") or 0
     ma_rate = float(ma.get("completion_rate", 0) or 0)
 
-    # 一、本期概述（分析型：整体判断领先）
+    # ---- 关键指标速览（表格，便于一眼掌握全局）----
     lines.append("## 一、本期概述")
     judge = []
     if delivered:
@@ -176,12 +216,20 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     if po:
         judge.append(f"{len(po)} 项 PO 级交付风险待推进")
     overview = "；".join(judge) if judge else "本期各模块运行平稳，无突出风险"
-    lines.append(f"- 本期整体判断：{overview}。")
-    lines.append(
-        f"- 关键数据：需求新增 {len(added)}/评估完成 {len(evaluated)}/启动开发 {len(dev_start)}/交付 {len(delivered)}；"
-        f"运营工单 {op_total} 条（高敏 {len(hs)}）；会议 {mt_total} 场；"
-        f"个人待办 {td_total} 项（完成率 {td_rate * 100:.0f}%）；知识维护 {kn_total} 条。"
-    )
+    # 整体判断作为 callout，醒目
+    lines.append(f"> **本期整体判断**：{overview}。")
+    lines.append("")
+    lines.append("**关键指标速览：**")
+    lines.append(_md_table(
+        ["维度", "指标"],
+        [
+            ("需求交付", f"{len(delivered)} 项（新增 {len(added)} / 评估完成 {len(evaluated)} / 启动开发 {len(dev_start)}）"),
+            ("运营支撑", f"{op_total} 条（高敏 {len(hs)}）"),
+            ("会议协同", f"{mt_total} 场，行动项闭环 {ma_done}/{ma_total}（{ma_rate * 100:.0f}%）"),
+            ("个人待办", f"{td_total} 项（完成率 {td_rate * 100:.0f}%，超期 {td_overdue}）"),
+            ("知识中心", f"{kn_total} 条"),
+        ],
+    ))
     lines.append("")
 
     # 二、需求与交付（分析型，上线需求逐一总结）
@@ -193,7 +241,6 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
             lines.append(_build_delivered_item_summary(it))
         lines.append(f"- 交付节奏判断：{len(delivered_items)} 项需求已按计划上线，交付侧有实质产出。")
     elif delivered:
-        # 兼容无 delivered_items 明细的旧数据
         tail = " 等" if len(delivered) > 5 else ""
         lines.append(f"- 交付：完成 {len(delivered)} 项需求开发交付（{'; '.join(delivered[:5])}{tail}），交付侧有实质产出。")
     else:
@@ -207,12 +254,11 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     if dev_start:
         lines.append(f"- 启动开发：{len(dev_start)} 项需求启动开发。")
     if po:
-        lines.append("- PO 级交付风险（需重点盯办）：")
-        for p in po[:10]:
-            lines.append(
-                f"  - {p.get('req_name')}（{p.get('priority')}/{p.get('status')}，"
-                f"上线{p.get('go_live') or '未定'}）：{p.get('risk_note') or '风险待补充'}"
-            )
+        lines.append("- **PO 级交付风险**（需重点盯办）：")
+        lines.append(_md_table(
+            ["需求", "优先级", "状态", "风险/卡点"],
+            [(p.get("req_name"), p.get("priority"), p.get("status"), p.get("risk_note") or "待补充") for p in po[:10]],
+        ))
     else:
         lines.append("- PO 级交付风险：本期无在途 PO 级风险。")
     lines.append("")
@@ -220,17 +266,19 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     # 三、运营支撑（分析型）
     lines.append("## 三、运营支撑")
     if op_total:
-        top = sorted(op_cat.items(), key=lambda x: -x[1])[:3]
-        top_str = "、".join(f"{k} {v}" for k, v in top)
-        lines.append(f"- 工单分布：本期共 {op_total} 条，高发类别为 {top_str}，建议针对高发类别建立常态化处置与知识沉淀。")
+        lines.append("- **工单类别分布**：")
+        lines.append(_md_table(
+            ["类别", "数量"],
+            sorted(((k, v) for k, v in op_cat.items()), key=lambda x: -x[1])[:6],
+        ))
         if hs:
-            hs_cats: Dict[str, int] = {}
-            for h in hs:
-                c = h.get("category") or "?"
-                hs_cats[c] = hs_cats.get(c, 0) + 1
-            lines.append(f"- 高敏工单（P0/P1）{len(hs)} 条（{'; '.join(f'{k} {v}' for k, v in hs_cats.items())}），已纳入重点盯办，防止升级投诉。")
+            lines.append(f"- **高敏（P0/P1）工单 {len(hs)} 条**，已纳入重点盯办，防止升级投诉：")
+            for h in hs[:6]:
+                handler = h.get("handler") or "待指派"
+                lines.append(f"  - 【{h.get('title') or h.get('issue_no')}】（{h.get('category')}/{h.get('impact')}"
+                             f"，处理人：{handler}）")
         else:
-            lines.append("- 高敏工单（P0/P1）：本期无。")
+            lines.append("- 高敏（P0/P1）工单：本期无。")
         backlog = sorted(handlers.items(), key=lambda x: -(x[1].get("total", 0) - x[1].get("done", 0)))[:3]
         if backlog:
             bstr = "；".join(f"{h} 积压 {v['total'] - v['done']} 条（已办 {v['done']}/{v['total']}）" for h, v in backlog)
@@ -275,18 +323,22 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     lines.append("## 五、个人待办")
     if td_total:
         if td_overdue:
-            lines.append(f"- 个人待办 {td_total} 项，完成率 {td_rate * 100:.0f}%，超期 {td_overdue} 项——本周个人执行偏弱，需优先清理超期项。")
+            lines.append(f"- 个人待办 {td_total} 项，完成率 {td_rate * 100:.0f}%，**超期 {td_overdue} 项**——本周个人执行偏弱，需优先清理超期项：")
+            for t in (td.get("overdue_items") or [])[:6]:
+                due = t.get("due_date") or "未定"
+                lines.append(f"  - 【{t.get('title')}】（{t.get('category')}，截止：{due}）")
         elif td_rate < 1:
             lines.append(f"- 个人待办 {td_total} 项，完成率 {td_rate * 100:.0f}%，仍有 {td_total - td_done} 项在办，保持节奏推进。")
         else:
             lines.append(f"- 个人待办 {td_total} 项，完成率 100%，执行良好。")
         if td.get("by_category"):
-            lines.append(f"- 待办分类：{td['by_category']}。")
+            cat_str = "、".join(f"{k} {v}" for k, v in (td.get("by_category") or {}).items())
+            lines.append(f"- 待办分类：{cat_str}。")
     else:
         lines.append("- 本期无个人待办。")
     lines.append("")
 
-    # 六、知识中心（分析型）
+    # 六、知识中心
     lines.append("## 六、知识中心")
     if kn_total:
         topk = sorted(kn.get("by_category", {}).items(), key=lambda x: -x[1])[:3]
@@ -296,6 +348,6 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         lines.append("- 本期暂无知识沉淀。")
     lines.append("")
 
-    # 七、下期重点计划（按模块对齐本期进展，确定性版）
+    # 七、下期重点计划（按模块对齐本期进展，列出具体对象）
     lines.append(build_next_period_section(data, report_type))
     return "\n".join(lines)
