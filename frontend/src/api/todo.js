@@ -18,7 +18,7 @@ export const todoApi = {
   },
 
   updateTodoStatus(id, status) {
-    return request.patch(`/todos/${id}/status`, null, { params: { status } })
+    return request.put(`/todos/${id}/status`, { status })
   },
 
   deleteTodo(id) {

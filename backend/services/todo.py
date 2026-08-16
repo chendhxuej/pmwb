@@ -142,6 +142,9 @@ class TodoService(BaseService[PmwbTodo]):
         for it in items:
             it.related_title = title_map.get(it.id)
 
+        # 即时刷新 is_overdue（不写库），避免历史残留导致 UI 红条错标
+        self._refresh_overdue_inplace(items)
+
         pages = (total + page_size - 1) // page_size if page_size > 0 else 1
         return {
             "total": total,
@@ -157,6 +160,8 @@ class TodoService(BaseService[PmwbTodo]):
             return None
         title_map = _build_related_title_map(db, [obj])
         obj.related_title = title_map.get(obj.id)
+        # 即时刷新 is_overdue（不写库），避免历史残留导致 UI 红条错标
+        self._refresh_overdue_inplace([obj])
         return obj
 
     def get_stats(self, db: Session) -> TodoStats:
@@ -166,7 +171,16 @@ class TodoService(BaseService[PmwbTodo]):
         in_progress = db.query(func.count(self.model.id)).filter(self.model.status == "in_progress").scalar()
         done = db.query(func.count(self.model.id)).filter(self.model.status == "done").scalar()
         cancelled = db.query(func.count(self.model.id)).filter(self.model.status == "cancelled").scalar()
-        overdue = db.query(func.count(self.model.id)).filter(self.model.is_overdue == 1).scalar()
+        # overdue 实时计算：未完成态 + due_date < today（不依赖 DB 里 is_overdue 的历史值）
+        overdue = (
+            db.query(func.count(self.model.id))
+            .filter(
+                self.model.status.notin_(["done", "cancelled"]),
+                self.model.due_date.isnot(None),
+                self.model.due_date < today,
+            )
+            .scalar()
+        )
         today_count = db.query(func.count(self.model.id)).filter(self.model.due_date == today).scalar()
         return TodoStats(
             total=total,
@@ -224,6 +238,28 @@ class TodoService(BaseService[PmwbTodo]):
             obj.is_overdue = 1 if due_date < today else 0
         else:
             obj.is_overdue = 0
+
+    def _refresh_overdue_inplace(self, items: List[PmwbTodo]):
+        """批量把内存里的 obj.is_overdue 校正为「今天 vs due_date」的实时结果（不写库）。
+
+        解决 list/get 接口直接返回 DB 历史 is_overdue 导致的问题：
+        - 跨天后没有 create/update 触发过的待办 is_overdue 没刷新；
+        - 已完成态没把 is_overdue 清零的红条残留。
+        """
+        if not items:
+            return
+        today = datetime.utcnow().date()
+        for obj in items:
+            due = obj.due_date
+            if isinstance(due, str):
+                try:
+                    due = date.fromisoformat(due)
+                except ValueError:
+                    due = None
+            if due and obj.status not in ("done", "cancelled") and due < today:
+                obj.is_overdue = 1
+            else:
+                obj.is_overdue = 0
 
 
 todo_service = TodoService()
