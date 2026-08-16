@@ -1,11 +1,12 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
-from schemas.meeting import MeetingCreate, MeetingMailSendRequest, MeetingUpdate
+from db.models import PmwbMeeting, PmwbMeetingAction
+from schemas.meeting import MeetingActionItemOut, MeetingCreate, MeetingMailSendRequest, MeetingUpdate
 from services.meeting import meeting_service
 from services.obsidian_link import delete_meeting_minutes, sediment_meeting
 
@@ -74,6 +75,20 @@ def sediment_meeting_endpoint(
 def delete_meeting_minutes_endpoint(meeting_id: int, db: Session = Depends(get_db)):
     """删除会议纪要：清理 Obsidian 文件、知识索引与关联记录。"""
     return success(data=delete_meeting_minutes(db, meeting_id))
+
+
+@router.get("/actions/{action_id}")
+def get_action(action_id: int, db: Session = Depends(get_db)):
+    """根据行动项 ID 获取详情（含所属会议标题），供待办中心抽屉展示关联信息。"""
+    action = db.query(PmwbMeetingAction).filter(PmwbMeetingAction.id == action_id).first()
+    if not action:
+        raise HTTPException(status_code=404, detail=f"行动项 {action_id} 不存在")
+    meeting = db.query(PmwbMeeting).filter(PmwbMeeting.id == action.meeting_id).first()
+    return success(data={
+        "action": MeetingActionItemOut.model_validate(action).model_dump(mode="json"),
+        "meeting_id": meeting.id if meeting else None,
+        "meeting_title": meeting.title if meeting else None,
+    })
 
 
 @router.post("/{meeting_id}/actions/{action_id}/sync-todo")

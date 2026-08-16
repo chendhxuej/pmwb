@@ -1,12 +1,93 @@
 from datetime import date, datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import PmwbTodo
+from db.models import PmwbTodo, PmwbMeeting, PmwbMeetingAction, PmwbOperationIssue, PmwbRequirementExt
 from schemas.todo import TodoStats
 from services.base import BaseService
+
+
+def _build_related_title_map(db: Session, items: List[PmwbTodo]) -> Dict[int, Optional[str]]:
+    """批量反查每条待办的关联对象标题（meeting/operation/ticket/requirement）。
+
+    返回: todo_id -> related_title
+    """
+    result: Dict[int, Optional[str]] = {}
+
+    # 按 related_type 分桶收集 related_id
+    meeting_action_ids: List[int] = []
+    operation_issue_nos: List[str] = []
+    requirement_ids: List[str] = []
+
+    todo_cache: List[PmwbTodo] = []
+    for t in items:
+        if not t.related_type or not t.related_id:
+            result[t.id] = None
+            continue
+        todo_cache.append(t)
+        if t.related_type == "meeting":
+            try:
+                meeting_action_ids.append(int(t.related_id))
+            except (TypeError, ValueError):
+                pass
+        elif t.related_type in ("operation", "ticket"):
+            operation_issue_nos.append(str(t.related_id))
+        elif t.related_type == "requirement":
+            requirement_ids.append(str(t.related_id))
+        else:
+            result[t.id] = None
+
+    # 1) meeting: action_id -> meeting_id -> meeting.title
+    action_to_meeting_title: Dict[int, Optional[str]] = {}
+    if meeting_action_ids:
+        actions = (
+            db.query(PmwbMeetingAction.id, PmwbMeetingAction.meeting_id, PmwbMeeting.title)
+            .join(PmwbMeeting, PmwbMeeting.id == PmwbMeetingAction.meeting_id)
+            .filter(PmwbMeetingAction.id.in_(meeting_action_ids))
+            .all()
+        )
+        for aid, _mid, mtitle in actions:
+            action_to_meeting_title[aid] = mtitle
+
+    # 2) operation/ticket: issue_no -> title
+    issue_title_map: Dict[str, str] = {}
+    if operation_issue_nos:
+        rows = (
+            db.query(PmwbOperationIssue.issue_no, PmwbOperationIssue.title)
+            .filter(PmwbOperationIssue.issue_no.in_(operation_issue_nos))
+            .all()
+        )
+        for no, title in rows:
+            issue_title_map[no] = title
+
+    # 3) requirement: req_id -> req_name
+    req_name_map: Dict[str, str] = {}
+    if requirement_ids:
+        rows = (
+            db.query(PmwbRequirementExt.req_id, PmwbRequirementExt.req_name)
+            .filter(PmwbRequirementExt.req_id.in_(requirement_ids))
+            .all()
+        )
+        for rid, name in rows:
+            req_name_map[rid] = name
+
+    for t in todo_cache:
+        if t.related_type == "meeting":
+            try:
+                aid = int(t.related_id)
+                result[t.id] = action_to_meeting_title.get(aid)
+            except (TypeError, ValueError):
+                result[t.id] = None
+        elif t.related_type in ("operation", "ticket"):
+            result[t.id] = issue_title_map.get(str(t.related_id))
+        elif t.related_type == "requirement":
+            result[t.id] = req_name_map.get(str(t.related_id))
+        else:
+            result[t.id] = None
+
+    return result
 
 
 class TodoService(BaseService[PmwbTodo]):
@@ -55,6 +136,11 @@ class TodoService(BaseService[PmwbTodo]):
             .all()
         )
 
+        # 注入 related_title（SQLAlchemy 实例需要 service 主动 setattr 才能被 Pydantic 序列化）
+        title_map = _build_related_title_map(db, items)
+        for it in items:
+            it.related_title = title_map.get(it.id)
+
         pages = (total + page_size - 1) // page_size if page_size > 0 else 1
         return {
             "total": total,
@@ -63,6 +149,14 @@ class TodoService(BaseService[PmwbTodo]):
             "pages": pages,
             "items": items,
         }
+
+    def get(self, db: Session, id: int) -> PmwbTodo | None:
+        obj = super().get(db, id)
+        if obj is None:
+            return None
+        title_map = _build_related_title_map(db, [obj])
+        obj.related_title = title_map.get(obj.id)
+        return obj
 
     def get_stats(self, db: Session) -> TodoStats:
         today = datetime.utcnow().date()

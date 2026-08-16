@@ -92,6 +92,7 @@ class TodoOut(TodoBase):
     created_at: datetime
     updated_at: datetime
     is_overdue: bool
+    related_title: Optional[str] = Field(None, description="关联对象标题（服务层注入,meeting=会议标题/operation=工单标题/requirement=需求名称）")
 
     class Config:
         from_attributes = True

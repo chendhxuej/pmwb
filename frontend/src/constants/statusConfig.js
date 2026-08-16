@@ -56,11 +56,12 @@ export const MODULE_STATUS = {
     cancelled: { label: '已取消', tone: 'neutral' },
   },
 
-  // 会议行动项（MeetingActionsView）—— 后端值为 todo/in_progress/done；逾期由 sensitive 控制
+  // 会议行动项（MeetingActionsView）—— 后端真实枚举：pending / in_progress / done / not_attended
   meeting_action: {
-    todo: { label: '未开始', tone: 'info' },
+    pending: { label: '未开始', tone: 'info', sensitive: true },
     in_progress: { label: '进行中', tone: 'primary' },
     done: { label: '已完成', tone: 'success' },
+    not_attended: { label: '未参会', tone: 'neutral' },
   },
 
   // 重点工作（KeyWorkView STATUS_MAP）

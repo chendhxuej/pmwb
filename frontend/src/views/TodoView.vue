@@ -143,7 +143,7 @@
             </el-popover>
           </template>
         </el-table-column>
-        <el-table-column prop="due_date" label="计划完成" width="130">
+        <el-table-column prop="due_date" label="计划完成" width="160">
           <template #default="{ row }">
             <span :class="['due-cell', 'due-' + dueTone(row)]">
               {{ row.due_date ? String(row.due_date).slice(0, 10) : '—' }}
@@ -151,9 +151,18 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="related_id" label="关联" width="100">
+        <el-table-column prop="related_title" label="关联" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.related_id" class="link-id" :title="row.related_id">{{ row.related_id }}</span>
+            <span
+              v-if="row.related_title"
+              class="related-title-cell"
+              :title="row.related_title"
+            >{{ row.related_title }}</span>
+            <span
+              v-else-if="row.related_id"
+              class="link-id"
+              :title="row.related_id"
+            >{{ row.related_id }}</span>
             <span v-else class="dim-text">—</span>
           </template>
         </el-table-column>
@@ -339,6 +348,43 @@
         <el-empty v-else-if="!woLoading" description="未找到关联工单" />
       </div>
     </el-drawer>
+
+    <!-- 关联会议行动项详情抽屉（点击待办标题·会议类型时打开） -->
+    <el-drawer
+      v-model="maDrawerVisible"
+      :title="'会议行动项 · ' + (maDetail?.meeting_title || '')"
+      size="56%"
+      destroy-on-close
+    >
+      <div v-loading="maLoading" class="wo-drawer-body">
+        <template v-if="maDetail && maDetail.action">
+          <el-descriptions :column="2" border size="small" class="wo-desc">
+            <el-descriptions-item label="所属会议" :span="2">
+              <span class="meeting-title-text">{{ maDetail.meeting_title || '—' }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="行动项标题" :span="2">
+              {{ maDetail.action.title || maDetail.action.content || '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <StatusBadge module="meeting_action" :value="maDetail.action.status" />
+            </el-descriptions-item>
+            <el-descriptions-item label="负责人">{{ maDetail.action.owner || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="截止日期">{{ fmtDate(maDetail.action.due_date) }}</el-descriptions-item>
+            <el-descriptions-item label="完成时间">{{ fmtDate(maDetail.action.completed_at) }}</el-descriptions-item>
+          </el-descriptions>
+
+          <div class="wo-sec" v-if="maDetail.action.content">
+            <div class="wo-sec-title">行动项描述</div>
+            <div class="wo-desc-text">{{ maDetail.action.content }}</div>
+          </div>
+          <div class="wo-sec" v-if="maDetail.action.result_note">
+            <div class="wo-sec-title">处理结果</div>
+            <div class="wo-desc-text">{{ maDetail.action.result_note }}</div>
+          </div>
+        </template>
+        <el-empty v-else-if="!maLoading" description="未找到关联会议行动项" />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -365,6 +411,7 @@ import StatusBadge from '@/components/Common/StatusBadge.vue'
 import EnlargeInput from '@/components/Common/EnlargeInput.vue'
 import { todoApi } from '@/api/todo'
 import { operationApi } from '@/api/operation'
+import { meetingApi } from '@/api/meeting'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -723,17 +770,47 @@ const openWoDetail = async (relatedId) => {
   }
 }
 
+// 点击关联「会议」：在抽屉内展示行动项详情（不再 router.push('/meeting') 跳列表）
+const maDrawerVisible = ref(false)
+const maDetail = ref(null)
+const maLoading = ref(false)
+const openMeetingActionDetail = async (actionId, fallbackTitle) => {
+  maLoading.value = true
+  maDrawerVisible.value = true
+  maDetail.value = null
+  try {
+    const res = await meetingApi.getAction(actionId)
+    const data = res?.data || res
+    maDetail.value = {
+      action: data?.action || null,
+      meeting_id: data?.meeting_id,
+      meeting_title: data?.meeting_title || fallbackTitle,
+    }
+  } catch (e) {
+    ElMessage.error('加载会议行动项失败')
+    maDrawerVisible.value = false
+  } finally {
+    maLoading.value = false
+  }
+}
+
 const openLinked = (row) => {
   if (!row.related_id) {
-    ElMessage.info('该待办未关联工单')
+    ElMessage.info('该待办未关联对象')
     return
   }
+  // 所有关联类型都在 TodoView 内以抽屉形式呈现，不再 router.push 跳页面
   if (row.related_type === 'operation' || row.related_type === 'ticket') {
     openWoDetail(row.related_id)
     return
   }
-  const modMap = { requirement: '/requirement', meeting: '/meeting' }
-  router.push(modMap[row.related_type] || '/operation')
+  if (row.related_type === 'meeting') {
+    openMeetingActionDetail(row.related_id, row.related_title)
+    return
+  }
+  // requirement：暂时仍跳详情（无轻量端点时可保留，未来补齐抽屉）
+  ElMessage.info('需求详情暂保留跳转，即将支持抽屉')
+  router.push('/requirement')
 }
 
 const handleSearch = () => {
@@ -1096,6 +1173,7 @@ onMounted(async () => {
   gap: 4px;
   font-family: var(--font-mono);
   font-size: 12.5px;
+  white-space: nowrap;
 }
 .due-cell.due-overdue {
   color: #f5222d;
@@ -1154,16 +1232,32 @@ onMounted(async () => {
   font-size: 12.5px;
   color: var(--accent);
 }
+.related-title-cell {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
 
-/* 行差异化（逾期 / 已完成） */
-:deep(.row-overdue) {
-  background: #fff1f0 !important;
+/* 行差异化（逾期 / 已完成）—— 逾期只染左侧红条，不染整行底色，彻底避免粉色块 */
+:deep(.row-overdue) > td {
+  background: #fafafa !important;
+  box-shadow: inset 3px 0 0 #f5222d !important;
+}
+:deep(.row-overdue):first-child > td {
+  border-top: 1px solid rgba(245, 34, 45, 0.15);
 }
 :deep(.row-overdue:hover) > td {
-  background: #ffecea !important;
+  background: #f0f0f0 !important;
 }
 :deep(.row-done) {
   opacity: 0.85;
+}
+
+/* 关联会议抽屉：会议标题加粗 */
+.meeting-title-text {
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 /* 关联工单详情抽屉 */
