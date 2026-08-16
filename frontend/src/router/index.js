@@ -150,49 +150,56 @@ const routes = [
         component: () => import('@/views/BusinessDomainManage.vue'),
         meta: { title: '业务领域管理', hidden: true },
       },
-      // ── 知识中心：聚合知识类子模块 ──
+      // ── 知识中心：业务全景（保留子路由以防历史深链崩溃，菜单仅展示 hub） ──
       {
         path: 'knowledge-center',
         name: 'KnowledgeCenter',
         component: () => import('@/views/KnowledgeCenterView.vue'),
-        redirect: '/knowledge-center/knowledge',
+        redirect: '/knowledge-center/hub',
         meta: { title: '知识中心', icon: 'Reading' },
         children: [
-          {
-            path: 'knowledge',
-            name: 'KcKnowledge',
-            component: () => import('@/views/KnowledgeView.vue'),
-            meta: { title: '知识库', icon: 'Collection' },
-          },
           {
             path: 'hub',
             name: 'KcHub',
             component: () => import('@/views/KnowledgeCenter/HubPanel.vue'),
             meta: { title: '业务全景', icon: 'DataBoard' },
           },
+          // ── 历史子模块（hidden：保留深链，不在左侧菜单展示） ──
+          {
+            path: 'knowledge',
+            name: 'KcKnowledge',
+            component: () => import('@/views/KnowledgeView.vue'),
+            meta: { title: '知识库', icon: 'Collection', hidden: true },
+          },
           {
             path: 'product-bible',
             name: 'KcProductBible',
             component: () => import('@/views/ProductBibleView.vue'),
-            meta: { title: '产品圣经', icon: 'Notebook' },
+            meta: { title: '产品圣经', icon: 'Notebook', hidden: true },
           },
           {
             path: 'domain',
             name: 'KcDomain',
             component: () => import('@/views/DomainKnowledgeView.vue'),
-            meta: { title: '按领域浏览', icon: 'Grid' },
+            meta: { title: '按领域浏览', icon: 'Grid', hidden: true },
           },
           {
             path: 'sql-scripts',
             name: 'KcSqlScripts',
             component: () => import('@/views/SqlScriptView.vue'),
-            meta: { title: 'SQL脚本库', icon: 'Document' },
+            meta: { title: 'SQL脚本库', icon: 'Document', hidden: true },
           },
           {
             path: 'business-domains',
             name: 'KcBusinessDomains',
             component: () => import('@/views/BusinessDomainManage.vue'),
-            meta: { title: '业务知识维度', icon: 'SetUp' },
+            meta: { title: '业务知识维度', icon: 'SetUp', hidden: true },
+          },
+          {
+            path: 'notes',
+            name: 'KcNotes',
+            component: () => import('@/views/KnowledgeCenter/HubPanel.vue'),
+            meta: { title: '知识沉淀', icon: 'Files', hidden: true },
           },
         ],
       },

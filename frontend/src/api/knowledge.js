@@ -10,6 +10,11 @@ export const knowledgeApi = {
     return request.get('/knowledge/business-timeline', { params })
   },
 
+  // 把需求/用户故事/关联事件回流到指定领域主笔记的自动区（人工区零覆盖，幂等）
+  syncMainNote(domainCode) {
+    return request.post('/knowledge/sync-main-note', { domain_code: domainCode })
+  },
+
   getItem(id) {
     return request.get(`/knowledge/${id}`)
   },
