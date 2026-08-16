@@ -65,6 +65,7 @@ const badgeStyle = computed(() => ({
   background: toneVars.value.bg,
   borderColor: toneVars.value.border,
   '--pulse-bg': toneVars.value.bg,
+  '--pulse-ring': toneVars.value.border,
 }))
 </script>
 
@@ -96,7 +97,7 @@ const badgeStyle = computed(() => ({
 }
 /* 敏感字段（逾期 / 超期 / 风险）：脉冲高亮，明显区别于普通状态 */
 .pm-status-badge.is-sensitive {
-  animation: pm-status-pulse 1.5s ease-in-out infinite;
+  animation: pm-status-pulse 2s ease-in-out infinite;
 }
 @keyframes pm-status-pulse {
   0%,
@@ -105,7 +106,7 @@ const badgeStyle = computed(() => ({
     transform: translateZ(0);
   }
   50% {
-    box-shadow: 0 0 0 4px var(--pulse-bg, #fef0f0);
+    box-shadow: 0 0 0 3px var(--pulse-ring, #ffa39e);
   }
 }
 </style>

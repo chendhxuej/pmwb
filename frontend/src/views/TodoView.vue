@@ -61,7 +61,7 @@
     <!-- 待办列表 -->
     <DataTable
       :data="displayedData"
-      :total="pagination.total"
+      :total="tableTotal"
       :loading="loading"
       v-model:page="pagination.page"
       v-model:pageSize="pagination.page_size"
@@ -117,7 +117,7 @@
                   <StatusBadge
                     module="todo"
                     :value="row.status"
-                    :sensitive="row.is_overdue || row.status === 'cancelled'"
+                    :sensitive="row.is_overdue"
                   />
                   <el-icon class="status-edit-tip"><ArrowDown /></el-icon>
                 </span>
@@ -356,7 +356,6 @@ import {
   Warning,
   Calendar,
   List,
-  Cpu,
   PieChart,
   Tickets,
   Document,
@@ -365,7 +364,6 @@ import DataTable from '@/components/Common/DataTable.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import EnlargeInput from '@/components/Common/EnlargeInput.vue'
 import { todoApi } from '@/api/todo'
-import { getRequirementStats } from '@/api/requirement.js'
 import { operationApi } from '@/api/operation'
 
 const loading = ref(false)
@@ -455,11 +453,10 @@ const stats = reactive({
   cancelled: 0,
   overdue: 0,
   today: 0,
-  dev_ticket_missing: 0,
 })
 
 // ────────────────────────────────────────────────
-// 7 张统计磁贴（仿运营 cat-tile 风格，差异化色彩+图标）
+// 6 张统计磁贴（仿运营 cat-tile 风格，差异化色彩+图标）
 // ────────────────────────────────────────────────
 const statTiles = computed(() => {
   const t = stats
@@ -472,8 +469,8 @@ const statTiles = computed(() => {
       count: t.overdue,
       sub: '需立即处理',
       tone: 'danger',
-      bg: '#fef2f2',
-      fg: '#d9544d',
+      bg: '#fff1f0',
+      fg: '#f5222d',
       icon: Warning,
       clickable: true,
       active: filterKey.value === 'overdue',
@@ -539,18 +536,6 @@ const statTiles = computed(() => {
       clickable: true,
       active: filterKey.value === 'done',
     },
-    {
-      key: 'dev_ticket_missing',
-      label: '开发单号未录入',
-      count: t.dev_ticket_missing,
-      sub: '需补录工单号',
-      tone: 'warning',
-      bg: '#fdf6ec',
-      fg: '#d98a1f',
-      icon: Cpu,
-      clickable: true,
-      active: filterKey.value === 'dev_ticket_missing',
-    },
   ]
 })
 
@@ -610,6 +595,14 @@ const displayedData = computed(() => {
   return tableData.value
 })
 
+// 客户端过滤（overdue/today）时，分页总数应与可见行一致，避免“显示 N 条却 N 页”的错位
+const tableTotal = computed(() => {
+  if (filterKey.value === 'overdue' || filterKey.value === 'today') {
+    return displayedData.value.length
+  }
+  return pagination.total
+})
+
 // ────────────────────────────────────────────────
 // 数据加载
 // ────────────────────────────────────────────────
@@ -657,14 +650,9 @@ const goTo = (path) => {
 }
 
 // 点击 stat tile：与列表筛选联动
-// 7 项卡片：dev_ticket_missing 跳需求模块；total 仅展示；
-// overdue/today 在前端用 is_overdue / due_date 客户端过滤（避免依赖后端参数）；
+// total 仅展示；overdue/today 在前端用 is_overdue / due_date 客户端过滤（避免依赖后端参数）；
 // 其它状态按 status 筛选。
 function onStatClick(key) {
-  if (key === 'dev_ticket_missing') {
-    router.push('/requirement')
-    return
-  }
   if (key === 'total') return
   filterKey.value = filterKey.value === key ? '' : key
   if (filterKey.value === 'overdue' || filterKey.value === 'today') {
@@ -748,16 +736,6 @@ const openLinked = (row) => {
   router.push(modMap[row.related_type] || '/operation')
 }
 
-// 开发单号未录入需求数（来自需求统计，点击跳转需求管理跟进）
-const loadDevTicketMissing = async () => {
-  try {
-    const res = await getRequirementStats()
-    stats.dev_ticket_missing = res.dev_ticket_missing || 0
-  } catch (error) {
-    console.error('加载开发单号未录入统计失败', error)
-  }
-}
-
 const handleSearch = () => {
   pagination.page = 1
   loadData()
@@ -830,7 +808,6 @@ const handleSubmit = async () => {
 onMounted(async () => {
   await loadData()
   loadStats()
-  loadDevTicketMissing()
   applyDeepLink()
 })
 </script>
@@ -850,7 +827,7 @@ onMounted(async () => {
 /* ───── 统计磁贴（仿运营 cat-tile：图标 chip + 大数字 + 副文字） ───── */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -870,6 +847,9 @@ onMounted(async () => {
   transform: translateY(-2px);
   box-shadow: var(--shadow-elevated);
   border-color: var(--accent);
+}
+.stat-tile.clickable:active {
+  transform: translateY(0);
 }
 .stat-tile.active {
   border-color: var(--accent);
@@ -1043,7 +1023,7 @@ onMounted(async () => {
   font-family: var(--font-mono);
   letter-spacing: 0.5px;
 }
-.priority-chip.pri-P0 { background: #fef0f0; color: #d9544d; }
+.priority-chip.pri-P0 { background: #fff1f0; color: #f5222d; }
 .priority-chip.pri-P1 { background: #fdf6ec; color: #d98a1f; }
 .priority-chip.pri-P2 { background: #ecf5ff; color: #409eff; }
 .priority-chip.pri-P3 { background: #f4f4f5; color: #909399; }
@@ -1118,7 +1098,7 @@ onMounted(async () => {
   font-size: 12.5px;
 }
 .due-cell.due-overdue {
-  color: var(--danger);
+  color: #f5222d;
   font-weight: 700;
 }
 .due-cell.due-today {
@@ -1177,10 +1157,10 @@ onMounted(async () => {
 
 /* 行差异化（逾期 / 已完成） */
 :deep(.row-overdue) {
-  background: var(--danger-soft) !important;
+  background: #fff1f0 !important;
 }
 :deep(.row-overdue:hover) > td {
-  background: #ffe5e5 !important;
+  background: #ffecea !important;
 }
 :deep(.row-done) {
   opacity: 0.85;

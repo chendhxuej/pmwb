@@ -16,7 +16,7 @@
 // success 绿(完成/上线) · info 灰(中性·关闭) · neutral 浅灰(无效·取消)
 // ───────────────────────────────────────────────
 export const SEMANTIC_TONES = {
-  danger: { color: '#f56c6c', bg: '#fef0f0', border: '#fbc4c4', dot: '#f56c6c', rank: 5 },
+  danger: { color: '#f5222d', bg: '#fff1f0', border: '#ffa39e', dot: '#f5222d', rank: 5 },
   warning: { color: '#e6a23c', bg: '#fdf6ec', border: '#f5dab1', dot: '#e6a23c', rank: 3 },
   primary: { color: '#409eff', bg: '#ecf5ff', border: '#b3d8ff', dot: '#409eff', rank: 4 },
   success: { color: '#67c23a', bg: '#f0f9eb', border: '#c2e7b0', dot: '#67c23a', rank: 1 },
