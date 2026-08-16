@@ -48,17 +48,17 @@ export const MODULE_STATUS = {
     archived: { label: '已归档', tone: 'neutral' },
   },
 
-  // 待办（TodoView）—— 状态列为行内可编辑，Phase 2 接入
+  // 待办（TodoView）—— 状态值为后端 Pydantic 枚举：todo/in_progress/done/cancelled
   todo: {
-    pending: { label: '待处理', tone: 'danger', sensitive: true },
+    todo: { label: '未开始', tone: 'info' },
     in_progress: { label: '进行中', tone: 'primary' },
     done: { label: '已完成', tone: 'success' },
     cancelled: { label: '已取消', tone: 'neutral' },
   },
 
-  // 会议行动项（MeetingActionsView）
+  // 会议行动项（MeetingActionsView）—— 后端值为 todo/in_progress/done；逾期由 sensitive 控制
   meeting_action: {
-    pending: { label: '待处理', tone: 'danger', sensitive: true },
+    todo: { label: '未开始', tone: 'info' },
     in_progress: { label: '进行中', tone: 'primary' },
     done: { label: '已完成', tone: 'success' },
   },

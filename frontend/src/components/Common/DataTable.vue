@@ -3,6 +3,8 @@
     <el-table
       v-loading="loading"
       :data="data"
+      :row-key="rowKey"
+      :row-class-name="rowClassName"
       stripe
       border
       style="width: 100%"
@@ -64,6 +66,10 @@ const props = defineProps({
   pageSize: { type: Number, default: 20 },
   showPagination: { type: Boolean, default: true },
   showAction: { type: Boolean, default: true },
+  // 行 key（透传 el-table row-key）：按字段取 id，便于 :row-class-name 命中
+  rowKey: { type: [String, Function], default: '' },
+  // 行 className（透传 el-table row-class-name）：用于逾期 / 完成等差异化底色
+  rowClassName: { type: [String, Function], default: '' },
 })
 
 // 检查 columns 中是否已定义了 actions 插槽列（避免重复渲染操作列）

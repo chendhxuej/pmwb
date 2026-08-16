@@ -2,175 +2,172 @@
   <div class="todo-view">
     <h2 class="page-title">待办中心</h2>
 
-    <!-- 统计卡片 -->
-    <div class="stats-row">
-      <div class="stat-col">
-        <el-card shadow="hover" class="stat-card stat-warning clickable" @click="goTo('/requirement')">
-          <div class="stat-item">
-            <div class="stat-value" v-countup="stats.dev_ticket_missing"></div>
-            <div class="stat-label">开发单号未录入</div>
-          </div>
-        </el-card>
-      </div>
-      <div class="stat-col">
-        <el-card shadow="hover">
-          <div class="stat-item">
-            <div class="stat-value" v-countup="stats.total"></div>
-            <div class="stat-label">待办总数</div>
-          </div>
-        </el-card>
-      </div>
-      <div class="stat-col">
-        <el-card shadow="hover" class="status-todo">
-          <div class="stat-item">
-            <div class="stat-value" v-countup="stats.todo"></div>
-            <div class="stat-label">未开始</div>
-          </div>
-        </el-card>
-      </div>
-      <div class="stat-col">
-        <el-card shadow="hover" class="status-progress">
-          <div class="stat-item">
-            <div class="stat-value" v-countup="stats.in_progress"></div>
-            <div class="stat-label">进行中</div>
-          </div>
-        </el-card>
-      </div>
-      <div class="stat-col">
-        <el-card shadow="hover" class="status-done">
-          <div class="stat-item">
-            <div class="stat-value" v-countup="stats.done"></div>
-            <div class="stat-label">已完成</div>
-          </div>
-        </el-card>
-      </div>
-      <div class="stat-col">
-        <el-card shadow="hover" class="status-today">
-          <div class="stat-item">
-            <div class="stat-value" v-countup="stats.today"></div>
-            <div class="stat-label">今日截止</div>
-          </div>
-        </el-card>
-      </div>
-      <div class="stat-col">
-        <el-card shadow="hover" class="status-overdue">
-          <div class="stat-item">
-            <div class="stat-value" v-countup="stats.overdue"></div>
-            <div class="stat-label">已超期</div>
-          </div>
-        </el-card>
+    <!-- 统计磁贴：仿运营 cat-tile 风格，7 项差异化配色 -->
+    <div class="stats-grid">
+      <div
+        v-for="t in statTiles"
+        :key="t.key"
+        class="stat-tile"
+        :class="['tone-' + t.tone, { clickable: t.clickable, active: t.active }]"
+        @click="t.clickable && onStatClick(t.key)"
+      >
+        <div class="stat-tile-top">
+          <span class="stat-name">{{ t.label }}</span>
+          <span class="stat-ico" :style="{ background: t.bg, color: t.fg }">
+            <el-icon><component :is="t.icon" /></el-icon>
+          </span>
+        </div>
+        <div class="stat-count">{{ t.count }}</div>
+        <div class="stat-count-sub">{{ t.sub }}</div>
+        <div class="stat-rate" v-if="t.rate !== undefined">
+          <span>{{ t.rateLabel || '完成率' }}</span>
+          <span class="stat-rate-val">{{ t.rate }}%</span>
+        </div>
+        <div class="stat-bar" v-if="t.rate !== undefined">
+          <div class="stat-bar-fill" :style="{ width: t.rate + '%', background: t.fg }"></div>
+        </div>
       </div>
     </div>
 
-    <!-- 搜索表单 -->
-    <el-card class="search-card" shadow="never">
-      <el-form :model="queryForm" inline>
-        <el-form-item label="关键字">
-          <EnlargeInput v-model="queryForm.keyword" placeholder="标题/内容" clearable />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="queryForm.category" placeholder="全部" clearable>
-            <el-option
-              v-for="item in categoryOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="queryForm.status" placeholder="全部" clearable>
-            <el-option
-              v-for="item in statusOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="优先级">
-          <el-select v-model="queryForm.priority" placeholder="全部" clearable>
-            <el-option
-              v-for="item in priorityOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <div class="toolbar">
-      <el-button type="primary" @click="handleAdd">新增待办</el-button>
+    <!-- 紧凑检索栏 -->
+    <div class="search-bar">
+      <div class="search-bar-fields">
+        <div class="search-field">
+          <el-icon class="search-prefix"><Search /></el-icon>
+          <EnlargeInput
+            v-model="queryForm.keyword"
+            placeholder="标题 / 内容 / 工单号"
+            clearable
+            size="default"
+          />
+        </div>
+        <el-select v-model="queryForm.category" placeholder="全部分类" clearable size="default" class="search-select">
+          <el-option v-for="i in categoryOptions" :key="i.value" :label="i.label" :value="i.value" />
+        </el-select>
+        <el-select v-model="queryForm.status" placeholder="全部状态" clearable size="default" class="search-select">
+          <el-option v-for="i in statusOptions" :key="i.value" :label="i.label" :value="i.value" />
+        </el-select>
+        <el-select v-model="queryForm.priority" placeholder="全部优先级" clearable size="default" class="search-select">
+          <el-option v-for="i in priorityOptions" :key="i.value" :label="i.label" :value="i.value" />
+        </el-select>
+      </div>
+      <div class="search-bar-actions">
+        <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
+        <el-button :icon="RefreshLeft" @click="handleReset">重置</el-button>
+        <el-button type="primary" plain :icon="Plus" @click="handleAdd">新增待办</el-button>
+      </div>
     </div>
 
+    <!-- 待办列表 -->
     <DataTable
-      :data="tableData"
+      :data="displayedData"
       :total="pagination.total"
       :loading="loading"
       v-model:page="pagination.page"
       v-model:pageSize="pagination.page_size"
+      row-key="id"
+      :row-class-name="rowClassName"
       @change="loadData"
       @edit="handleEdit"
       @delete="handleDelete"
     >
       <template #columns>
-        <el-table-column prop="title" label="待办标题" min-width="200" show-overflow-tooltip>
+        <el-table-column prop="title" label="待办标题" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">
-            <span
-              class="todo-title"
-              :class="{ linked: row.related_id, 'done-text': row.status === 'done' }"
-              :title="row.related_id ? '点击查看关联工单详情' : ''"
-              @click="row.related_id && openLinked(row)"
-            >{{ row.title }}</span>
+            <div class="title-cell">
+              <span
+                class="todo-title"
+                :class="{ linked: row.related_id, 'done-text': row.status === 'done' }"
+                :title="row.related_id ? '点击查看关联工单详情' : ''"
+                @click="row.related_id && openLinked(row)"
+              >{{ row.title }}</span>
+              <el-tag
+                v-if="row.related_id"
+                size="small"
+                type="info"
+                effect="plain"
+                class="related-chip"
+              >
+                <el-icon><Link /></el-icon><span>{{ relatedTypeText(row.related_type) }}</span>
+              </el-tag>
+              <span v-if="row.repeat_type && row.repeat_type !== 'none'" class="repeat-chip">重复</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="category" label="分类" width="100">
+        <el-table-column prop="category" label="分类" width="90">
           <template #default="{ row }">
-            {{ categoryText(row.category) }}
+            <span class="dim-text">{{ categoryText(row.category) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="priority" label="优先级" width="90">
+        <el-table-column prop="priority" label="优先级" width="80">
           <template #default="{ row }">
-            <el-tag :type="priorityType(row.priority)" size="small">{{ row.priority }}</el-tag>
+            <span :class="['priority-chip', 'pri-' + (row.priority || 'P3')]">{{ row.priority || 'P3' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="120">
+        <el-table-column prop="status" label="状态" width="140">
           <template #default="{ row }">
-            <el-select
-              v-model="row.status"
-              size="small"
-              class="w-xs"
-              @change="(val) => handleStatusChange(row, val)"
+            <el-popover
+              placement="bottom"
+              :width="220"
+              trigger="click"
+              v-model:visible="statusPopoverVisible[row.id]"
             >
-              <el-option
-                v-for="item in statusOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
+              <template #reference>
+                <span class="status-cell">
+                  <StatusBadge
+                    module="todo"
+                    :value="row.status"
+                    :sensitive="row.is_overdue || row.status === 'cancelled'"
+                  />
+                  <el-icon class="status-edit-tip"><ArrowDown /></el-icon>
+                </span>
+              </template>
+              <div class="status-switch">
+                <div class="status-switch-title">切换状态</div>
+                <div class="status-switch-grid">
+                  <button
+                    v-for="s in statusOptions"
+                    :key="s.value"
+                    class="status-switch-btn"
+                    :class="{ active: row.status === s.value }"
+                    :disabled="statusLoadingMap[row.id]"
+                    @click="changeStatus(row, s.value)"
+                  >
+                    <StatusBadge module="todo" :value="s.value" />
+                    <span class="status-switch-check" v-if="row.status === s.value">
+                      <el-icon><Check /></el-icon>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </el-popover>
           </template>
         </el-table-column>
-        <el-table-column prop="due_date" label="计划完成" width="120">
+        <el-table-column prop="due_date" label="计划完成" width="130">
           <template #default="{ row }">
-            <span :class="{ overdue: row.is_overdue }">{{ row.due_date || '-' }}</span>
+            <span :class="['due-cell', 'due-' + dueTone(row)]">
+              {{ row.due_date ? String(row.due_date).slice(0, 10) : '—' }}
+              <span class="due-flag" v-if="dueFlagText(row)">{{ dueFlagText(row) }}</span>
+            </span>
           </template>
         </el-table-column>
-        <el-table-column prop="related_type" label="关联" width="140">
+        <el-table-column prop="related_id" label="关联" width="100">
           <template #default="{ row }">
-            <el-tag v-if="row.related_type" size="small" type="info">{{ relatedTypeText(row.related_type) }}</el-tag>
-            <span v-else>-</span>
+            <span v-if="row.related_id" class="link-id" :title="row.related_id">{{ row.related_id }}</span>
+            <span v-else class="dim-text">—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="source" label="来源" width="100" />
-        <el-table-column prop="created_at" label="创建时间" width="130">
-          <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '-' }}</template>
+        <el-table-column prop="source" label="来源" width="80">
+          <template #default="{ row }">
+            <span class="source-tag" :class="'src-' + (row.source || 'manual')">
+              {{ row.source || 'manual' }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="110">
+          <template #default="{ row }">
+            <span class="dim-text">{{ row.created_at ? String(row.created_at).slice(0, 10) : '—' }}</span>
+          </template>
         </el-table-column>
       </template>
     </DataTable>
@@ -304,17 +301,19 @@
       <div v-loading="woLoading" class="wo-drawer-body">
         <template v-if="woDetail">
           <el-descriptions :column="2" border size="small" class="wo-desc">
-            <el-descriptions-item label="工单标题" :span="2">{{ woDetail.title || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="状态">{{ woDetail.status || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="优先级/影响">{{ woDetail.impact_level || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="责任人">{{ woDetail.handler || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="关联系统">{{ woDetail.related_system || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="工单标题" :span="2">{{ woDetail.title || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <StatusBadge module="operation" :value="woDetail.status" :sensitive="woDetail.is_overdue" />
+            </el-descriptions-item>
+            <el-descriptions-item label="优先级/影响">{{ woDetail.impact_level || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="责任人">{{ woDetail.handler || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="关联系统">{{ woDetail.related_system || '—' }}</el-descriptions-item>
             <el-descriptions-item label="发现时间">{{ fmtDate(woDetail.discovery_date) }}</el-descriptions-item>
             <el-descriptions-item label="解决时间">{{ fmtDate(woDetail.resolve_date) }}</el-descriptions-item>
             <el-descriptions-item label="计划完成">{{ fmtDate(woDetail.go_live_date) }}</el-descriptions-item>
             <el-descriptions-item label="逾期">
-              <el-tag v-if="woDetail.is_overdue" type="danger" size="small">已逾期</el-tag>
-              <span v-else>正常</span>
+              <StatusBadge v-if="woDetail.is_overdue" module="operation" value="overdue" :sensitive="true" />
+              <span v-else class="dim-text">正常</span>
             </el-descriptions-item>
           </el-descriptions>
 
@@ -347,7 +346,24 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Search,
+  Plus,
+  RefreshLeft,
+  ArrowDown,
+  Check,
+  Link,
+  Warning,
+  Calendar,
+  List,
+  Cpu,
+  PieChart,
+  Tickets,
+  Document,
+} from '@element-plus/icons-vue'
 import DataTable from '@/components/Common/DataTable.vue'
+import StatusBadge from '@/components/Common/StatusBadge.vue'
+import EnlargeInput from '@/components/Common/EnlargeInput.vue'
 import { todoApi } from '@/api/todo'
 import { getRequirementStats } from '@/api/requirement.js'
 import { operationApi } from '@/api/operation'
@@ -370,6 +386,9 @@ const queryForm = reactive({
   status: '',
   priority: '',
 })
+
+// 点击 stat tile 是否筛选/跳转
+const filterKey = ref('')
 
 const categoryOptions = [
   { value: 'requirement', label: '需求' },
@@ -397,11 +416,6 @@ const priorityOptions = [
 const categoryText = (category) => {
   const item = categoryOptions.find((i) => i.value === category)
   return item ? item.label : category
-}
-
-const priorityType = (priority) => {
-  const map = { P0: 'danger', P1: 'warning', P2: 'primary', P3: 'info' }
-  return map[priority] || 'info'
 }
 
 const relatedTypeText = (type) => {
@@ -444,6 +458,161 @@ const stats = reactive({
   dev_ticket_missing: 0,
 })
 
+// ────────────────────────────────────────────────
+// 7 张统计磁贴（仿运营 cat-tile 风格，差异化色彩+图标）
+// ────────────────────────────────────────────────
+const statTiles = computed(() => {
+  const t = stats
+  const total = t.total || 0
+  const doneRate = total ? +((t.done * 100) / total).toFixed(1) : 0
+  return [
+    {
+      key: 'overdue',
+      label: '已超期',
+      count: t.overdue,
+      sub: '需立即处理',
+      tone: 'danger',
+      bg: '#fef2f2',
+      fg: '#d9544d',
+      icon: Warning,
+      clickable: true,
+      active: filterKey.value === 'overdue',
+    },
+    {
+      key: 'today',
+      label: '今日截止',
+      count: t.today,
+      sub: '当日交付',
+      tone: 'warning',
+      bg: '#fef7ed',
+      fg: '#d98a1f',
+      icon: Calendar,
+      clickable: true,
+      active: filterKey.value === 'today',
+    },
+    {
+      key: 'total',
+      label: '待办总数',
+      count: t.total,
+      sub: `完成率 ${doneRate}%`,
+      tone: 'neutral',
+      bg: '#eef2f7',
+      fg: '#64748b',
+      icon: PieChart,
+      rate: doneRate,
+      rateLabel: '完成率',
+      clickable: false,
+    },
+    {
+      key: 'todo',
+      label: '未开始',
+      count: t.todo,
+      sub: '等待启动',
+      tone: 'info',
+      bg: '#eff6ff',
+      fg: '#3b82f6',
+      icon: Document,
+      clickable: true,
+      active: filterKey.value === 'todo',
+    },
+    {
+      key: 'in_progress',
+      label: '进行中',
+      count: t.in_progress,
+      sub: '推进中',
+      tone: 'primary',
+      bg: '#ecf5ff',
+      fg: '#409eff',
+      icon: Tickets,
+      clickable: true,
+      active: filterKey.value === 'in_progress',
+    },
+    {
+      key: 'done',
+      label: '已完成',
+      count: t.done,
+      sub: '已交付',
+      tone: 'success',
+      bg: '#ecfdf3',
+      fg: '#0f9d6b',
+      icon: Check,
+      clickable: true,
+      active: filterKey.value === 'done',
+    },
+    {
+      key: 'dev_ticket_missing',
+      label: '开发单号未录入',
+      count: t.dev_ticket_missing,
+      sub: '需补录工单号',
+      tone: 'warning',
+      bg: '#fdf6ec',
+      fg: '#d98a1f',
+      icon: Cpu,
+      clickable: true,
+      active: filterKey.value === 'dev_ticket_missing',
+    },
+  ]
+})
+
+// ────────────────────────────────────────────────
+// 计划完成日期差异化（4 档语义色）
+// ────────────────────────────────────────────────
+function todayStr() {
+  const d = new Date()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+function dueTone(row) {
+  if (row.status === 'done' || row.status === 'cancelled') return 'none'
+  if (!row.due_date) return 'none'
+  const today = todayStr()
+  if (row.due_date < today) return 'overdue'
+  if (row.due_date === today) return 'today'
+  // 3 天内
+  const due = new Date(row.due_date + 'T00:00:00')
+  const now = new Date(today + 'T00:00:00')
+  const diff = Math.round((due - now) / (1000 * 60 * 60 * 24))
+  if (diff <= 3) return 'soon'
+  return 'normal'
+}
+
+function dueFlagText(row) {
+  const t = dueTone(row)
+  if (t === 'overdue') return '已超期'
+  if (t === 'today') return '今日'
+  if (t === 'soon') return '临近'
+  return ''
+}
+
+// ────────────────────────────────────────────────
+// 行的 className：逾期 / 已完成 整行差异化
+// ────────────────────────────────────────────────
+function rowClassName({ row }) {
+  const t = dueTone(row)
+  const flags = []
+  if (row.is_overdue || t === 'overdue') flags.push('row-overdue')
+  if (row.status === 'done') flags.push('row-done')
+  return flags.join(' ')
+}
+
+// ────────────────────────────────────────────────
+// 客户端 filter（overdue/today 视图层过滤，不依赖后端参数）
+// ────────────────────────────────────────────────
+const displayedData = computed(() => {
+  if (filterKey.value === 'overdue') {
+    return tableData.value.filter((r) => r.is_overdue || (r.due_date && r.due_date < todayStr() && r.status !== 'done' && r.status !== 'cancelled'))
+  }
+  if (filterKey.value === 'today') {
+    return tableData.value.filter((r) => r.due_date === todayStr() && r.status !== 'done' && r.status !== 'cancelled')
+  }
+  return tableData.value
+})
+
+// ────────────────────────────────────────────────
+// 数据加载
+// ────────────────────────────────────────────────
 const loadData = async () => {
   loading.value = true
   try {
@@ -482,14 +651,61 @@ function applyDeepLink() {
   const row = tableData.value.find((t) => String(t.id) === String(id))
   if (row) handleEdit(row)
 }
+
 const goTo = (path) => {
   router.push(path)
+}
+
+// 点击 stat tile：与列表筛选联动
+// 7 项卡片：dev_ticket_missing 跳需求模块；total 仅展示；
+// overdue/today 在前端用 is_overdue / due_date 客户端过滤（避免依赖后端参数）；
+// 其它状态按 status 筛选。
+function onStatClick(key) {
+  if (key === 'dev_ticket_missing') {
+    router.push('/requirement')
+    return
+  }
+  if (key === 'total') return
+  filterKey.value = filterKey.value === key ? '' : key
+  if (filterKey.value === 'overdue' || filterKey.value === 'today') {
+    queryForm.status = ''
+  } else {
+    queryForm.status = filterKey.value
+  }
+  pagination.page = 1
+  loadData()
+}
+
+// ────────────────────────────────────────────────
+// 状态切换（通过 popover 按钮组触发，避免行内 el-select 视觉扁平）
+// ────────────────────────────────────────────────
+const statusPopoverVisible = ref({})
+const statusLoadingMap = ref({})
+async function changeStatus(row, newStatus) {
+  if (!row || row.status === newStatus) {
+    statusPopoverVisible.value[row.id] = false
+    return
+  }
+  statusLoadingMap.value[row.id] = true
+  try {
+    await todoApi.updateTodoStatus(row.id, newStatus)
+    ElMessage.success('状态已更新')
+    statusPopoverVisible.value[row.id] = false
+    await loadData()
+    await loadStats()
+  } catch (error) {
+    ElMessage.error('状态更新失败')
+  } finally {
+    delete statusLoadingMap.value[row.id]
+  }
 }
 
 // 点击待办标题：关联工单直接在抽屉内展开详情（不跳转）
 const woDrawerVisible = ref(false)
 const woDetail = ref(null)
 const woLoading = ref(false)
+
+const fmtDate = (v) => (v ? String(v).slice(0, 10) : '—')
 
 const openWoDetail = async (relatedId) => {
   woLoading.value = true
@@ -519,19 +735,15 @@ const openWoDetail = async (relatedId) => {
   }
 }
 
-const fmtDate = (v) => (v ? String(v).slice(0, 10) : '—')
-
 const openLinked = (row) => {
   if (!row.related_id) {
     ElMessage.info('该待办未关联工单')
     return
   }
-  // 工单类（运营工单 / 开发工单）直接弹抽屉展示详情
   if (row.related_type === 'operation' || row.related_type === 'ticket') {
     openWoDetail(row.related_id)
     return
   }
-  // 其它关联类型跳转到对应模块
   const modMap = { requirement: '/requirement', meeting: '/meeting' }
   router.push(modMap[row.related_type] || '/operation')
 }
@@ -556,6 +768,7 @@ const handleReset = () => {
   queryForm.category = ''
   queryForm.status = ''
   queryForm.priority = ''
+  filterKey.value = ''
   pagination.page = 1
   loadData()
 }
@@ -583,17 +796,6 @@ const handleDelete = (row) => {
     loadData()
     loadStats()
   })
-}
-
-const handleStatusChange = async (row, status) => {
-  try {
-    await todoApi.updateTodoStatus(row.id, status)
-    ElMessage.success('状态更新成功')
-    loadData()
-    loadStats()
-  } catch (error) {
-    ElMessage.error('状态更新失败')
-  }
 }
 
 const handleSubmit = async () => {
@@ -639,90 +841,354 @@ onMounted(async () => {
 }
 
 .page-title {
-  margin-bottom: 20px;
+  margin: 0 0 18px;
   font-size: 20px;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
-.stats-row {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+/* ───── 统计磁贴（仿运营 cat-tile：图标 chip + 大数字 + 副文字） ───── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 14px;
   margin-bottom: 16px;
 }
-
-.stat-col {
-  flex: 1;
-  min-width: 140px;
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 16px 18px;
+  cursor: default;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
 }
-
-.clickable {
-  cursor: pointer;
-}
-
-.clickable:hover {
+.stat-tile.clickable { cursor: pointer; }
+.stat-tile.clickable:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-elevated);
+  border-color: var(--accent);
 }
-
-.stat-item {
-  text-align: center;
-  padding: 10px 0;
+.stat-tile.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
-
-.status-todo .stat-value {
-  color: var(--danger);
+.stat-tile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
-
-.status-progress .stat-value {
-  color: var(--warning);
-}
-
-.status-done .stat-value {
-  color: var(--success);
-}
-
-.status-today .stat-value {
-  color: var(--accent);
-}
-
-.status-overdue .stat-value {
-  color: var(--text-muted);
-}
-
-.search-card {
-  margin-bottom: 16px;
-}
-
-.toolbar {
-  margin-bottom: 16px;
-}
-
-.done-text {
-  text-decoration: line-through;
-  color: #909399;
-}
-
-.overdue {
-  color: #f56c6c;
+.stat-name {
+  font-size: 13px;
   font-weight: 600;
+  color: var(--text-secondary);
+}
+.stat-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.stat-count {
+  font-size: 28px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1;
+}
+.stat-count-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.stat-rate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.stat-rate-val {
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+.stat-bar {
+  height: 5px;
+  border-radius: 5px;
+  background: #eef2f7;
+  margin-top: 5px;
+  overflow: hidden;
+}
+.stat-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width var(--transition-fast);
 }
 
+/* ───── 紧凑检索栏 ───── */
+.search-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+.search-bar-fields {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.search-field {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+  display: flex;
+  align-items: center;
+}
+.search-prefix {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  z-index: 2;
+  pointer-events: none;
+  font-size: 14px;
+}
+.search-field :deep(.el-input__wrapper) {
+  padding-left: 34px;
+}
+.search-select {
+  width: 140px;
+}
+.search-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ───── 表格列样式 ───── */
+.title-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.todo-title {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: default;
+  transition: color var(--transition-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+}
 .todo-title.linked {
-  color: var(--accent);
   cursor: pointer;
 }
 .todo-title.linked:hover {
+  color: var(--accent);
   text-decoration: underline;
+}
+.todo-title.done-text {
+  text-decoration: line-through;
+  color: #a8abb2;
+}
+.related-chip {
+  flex-shrink: 0;
+}
+.related-chip :deep(.el-icon) {
+  margin-right: 3px;
+  vertical-align: -1px;
+}
+.repeat-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: 4px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+/* 优先级小色块 */
+.priority-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+}
+.priority-chip.pri-P0 { background: #fef0f0; color: #d9544d; }
+.priority-chip.pri-P1 { background: #fdf6ec; color: #d98a1f; }
+.priority-chip.pri-P2 { background: #ecf5ff; color: #409eff; }
+.priority-chip.pri-P3 { background: #f4f4f5; color: #909399; }
+
+/* 状态列（点击徽标 → popover 切换） */
+.status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 8px;
+  transition: background var(--transition-fast);
+}
+.status-cell:hover {
+  background: var(--border-subtle);
+}
+.status-edit-tip {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.status-switch {
+  padding: 4px;
+}
+.status-switch-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+.status-switch-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.status-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+.status-switch-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.status-switch-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.status-switch-check {
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 计划完成日期：4 档语义色 */
+.due-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.due-cell.due-overdue {
+  color: var(--danger);
+  font-weight: 700;
+}
+.due-cell.due-today {
+  color: var(--warning);
+  font-weight: 700;
+}
+.due-cell.due-soon {
+  color: var(--warning);
+}
+.due-cell.due-normal {
+  color: var(--text-primary);
+}
+.due-flag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  background: currentColor;
+  color: #fff !important;
+  font-family: var(--font-mono);
+}
+.due-flag::before { content: ''; }
+
+/* 来源标签 */
+.source-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+.source-tag.src-meeting {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.source-tag.src-manual {
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+/* 辅助文本 */
+.dim-text {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+.link-id {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent);
+}
+
+/* 行差异化（逾期 / 已完成） */
+:deep(.row-overdue) {
+  background: var(--danger-soft) !important;
+}
+:deep(.row-overdue:hover) > td {
+  background: #ffe5e5 !important;
+}
+:deep(.row-done) {
+  opacity: 0.85;
 }
 
 /* 关联工单详情抽屉 */
-.wo-drawer-body {
-  padding: 4px 2px;
-}
-.wo-sec {
-  margin-top: 16px;
-}
+.wo-drawer-body { padding: 4px 2px; }
+.wo-sec { margin-top: 16px; }
 .wo-sec-title {
   font-size: 13px;
   font-weight: 600;
@@ -734,5 +1200,13 @@ onMounted(async () => {
   line-height: 1.7;
   color: var(--text-secondary);
   white-space: pre-wrap;
+}
+
+/* 响应式 */
+@media (max-width: 1400px) {
+  .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 960px) {
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
