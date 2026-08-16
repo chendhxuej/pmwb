@@ -21,7 +21,8 @@ export function deleteWorkReport(id) {
 }
 
 export function generateWorkReport(data) {
-  return request({ url: '/work-reports/generate', method: 'post', data })
+  // 周报生成同步调 LLM（Kimi 生成长篇约 30~90s），必须放宽超时，否则前端 30s 提前断开误报
+  return request({ url: '/work-reports/generate', method: 'post', data, timeout: 120000 })
 }
 
 export function finalizeWorkReport(id) {
@@ -33,5 +34,6 @@ export function previewWorkReport(id, data) {
 }
 
 export function sendWorkReport(id, data) {
-  return request({ url: `/work-reports/${id}/send`, method: 'post', data })
+  // 发送走统一邮件中心，网络操作可能偏慢，放宽超时避免误报
+  return request({ url: `/work-reports/${id}/send`, method: 'post', data, timeout: 120000 })
 }
