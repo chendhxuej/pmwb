@@ -43,7 +43,11 @@
               <el-tag :type="statusTagType(row.status)">{{ row.status_label }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" width="170" />
+          <el-table-column label="创建时间" width="170">
+            <template #default="{ row }">
+              {{ formatDateTime(row.created_at) }}
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="160" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row)">查看</el-button>
@@ -173,6 +177,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, Edit, Check, Message, Delete, Stamp, FolderChecked, CopyDocument, Refresh, Loading } from '@element-plus/icons-vue'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import { formatDateTime } from '@/utils/format'
 import {
   listWorkReports, getWorkReport, generateWorkReport,
   updateWorkReport, deleteWorkReport, finalizeWorkReport, sendWorkReport,
