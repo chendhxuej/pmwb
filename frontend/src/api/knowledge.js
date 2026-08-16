@@ -5,6 +5,11 @@ export const knowledgeApi = {
     return request.get('/knowledge', { params })
   },
 
+  // 业务全过程时间线（双源：知识关联 + 归属工单）
+  getBusinessTimeline(params) {
+    return request.get('/knowledge/business-timeline', { params })
+  },
+
   getItem(id) {
     return request.get(`/knowledge/${id}`)
   },
