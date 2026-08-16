@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -33,6 +33,16 @@ def _status_label(s: str) -> str:
     return STATUS_LABELS.get(s, s or "草稿")
 
 
+_CN_TZ = timezone(timedelta(hours=8))
+
+
+def _cn_iso(dt: Optional[datetime]) -> Optional[str]:
+    """ORM 时间戳以 datetime.utcnow 写入(naive UTC)，输出时转 UTC+8 带时区 ISO，前端 dayjs 自动按本地时区展示。"""
+    if not dt:
+        return None
+    return dt.replace(tzinfo=timezone.utc).astimezone(_CN_TZ).isoformat()
+
+
 def to_out(r: PmwbWorkReport) -> Dict[str, Any]:
     return {
         "id": r.id,
@@ -49,8 +59,8 @@ def to_out(r: PmwbWorkReport) -> Dict[str, Any]:
         "obsidian_path": r.obsidian_path,
         "finalized_at": r.finalized_at.isoformat() if r.finalized_at else None,
         "sent_at": r.sent_at.isoformat() if r.sent_at else None,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
-        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        "created_at": _cn_iso(r.created_at),
+        "updated_at": _cn_iso(r.updated_at),
         "gen_used_llm": r.gen_used_llm or 0,
         "gen_model": r.gen_model,
         "gen_notice": r.gen_notice,
