@@ -38,6 +38,37 @@ def read_markdown(relative_path: str) -> Optional[str]:
     return file_path.read_text(encoding="utf-8")
 
 
+def extract_section(content: str, title: str) -> Optional[str]:
+    """按标题精确提取某章节正文（不含标题行本身）。
+
+    匹配以 #~###### 开头、标题文本等于 title 的行；返回其后直到下一个
+    同级或更高级标题之前的全部内容（去首尾空行）。未匹配返回 None。
+    兼容嵌套子章节：子章节标题层级更深，不会被误判为结束。
+    """
+    if not content:
+        return None
+    lines = content.splitlines()
+    start_idx = None
+    level = None
+    target = title.strip()
+    for i, line in enumerate(lines):
+        m = re.match(r"^(#{1,6})\s+(.*)$", line.strip())
+        if m and m.group(2).strip() == target:
+            start_idx = i
+            level = len(m.group(1))
+            break
+    if start_idx is None:
+        return None
+    out = []
+    for line in lines[start_idx + 1:]:
+        m = re.match(r"^(#{1,6})\s+", line.strip())
+        if m and len(m.group(1)) <= level:
+            break
+        out.append(line)
+    text = "\n".join(out).strip("\n")
+    return text or None
+
+
 def parse_title(markdown: str) -> str:
     """取第一个一级标题作为标题，否则返回空串。"""
     for line in (markdown or "").splitlines():

@@ -31,6 +31,7 @@ from db.models import (
 )
 from utils.obsidian import (
     append_or_replace_section,
+    extract_section,
     read_frontmatter,
     read_markdown,
     replace_section,
@@ -454,6 +455,82 @@ def build_main_note_markdown(
     return "\n".join(lines) + "\n"
 
 
+# 主笔记标准结构章节定义（编号前缀用于跨域措辞差异匹配）。
+# kind: baseline(人工维护) / auto(系统自动) / system(系统维护)，对应前端徽标颜色。
+MAIN_NOTE_SECTIONS = [
+    {"prefix": "1", "key": "overview", "kind": "baseline", "kind_label": "人工维护"},
+    {"prefix": "2.1", "key": "product_matrix", "kind": "baseline", "kind_label": "人工维护"},
+    {"prefix": "2.2", "key": "pricing", "kind": "baseline", "kind_label": "人工维护"},
+    {"prefix": "2.3", "key": "product_change", "kind": "auto", "kind_label": "系统自动"},
+    {"prefix": "3.1", "key": "service_scenario", "kind": "baseline", "kind_label": "人工维护"},
+    {"prefix": "3.2", "key": "process_change", "kind": "auto", "kind_label": "系统自动"},
+    {"prefix": "4.1", "key": "general_rules", "kind": "baseline", "kind_label": "人工维护"},
+    {"prefix": "4.2", "key": "scenario_rules", "kind": "auto", "kind_label": "系统自动"},
+    {"prefix": "5", "key": "change_track", "kind": "auto", "kind_label": "系统自动"},
+    {"prefix": "6", "key": "deliverables", "kind": "auto", "kind_label": "系统自动"},
+    {"prefix": "7", "key": "related_index", "kind": "system", "kind_label": "系统维护"},
+    {"prefix": "8", "key": "moc", "kind": "system", "kind_label": "系统维护"},
+    {"prefix": "9", "key": "timeline", "kind": "auto", "kind_label": "系统自动"},
+    {"prefix": "10", "key": "related_systems", "kind": "baseline", "kind_label": "人工维护"},
+]
+
+
+def get_main_note_structured(db: Session, domain_code: str) -> Dict:
+    """读取某业务领域主笔记，按标准结构返回分章节内容。
+
+    用于前端「知识标准化管理（主笔记标准结构）」展示。章节通过编号前缀
+    匹配（如 "2.1"），兼容各域主笔记措辞差异（「系统自动」/「自动区」等）。
+    """
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+    if not item or not item.obsidian_path:
+        return {"domain_code": domain_code, "title": "", "obsidian_path": "", "sections": []}
+    content = read_markdown(item.obsidian_path) or ""
+
+    # 解析全部标题（层级 + 文本）
+    headings = []
+    for line in content.splitlines():
+        m = re.match(r"^(#{1,6})\s+(.*)$", line.strip())
+        if m:
+            headings.append(m.group(2).strip())
+
+    sections = []
+    for sec in MAIN_NOTE_SECTIONS:
+        matched = None
+        for text in headings:
+            pm = re.match(r"^(\d+(?:\.\d+)*)\b\s*(.*)$", text)
+            if pm and pm.group(1) == sec["prefix"]:
+                matched = text
+                break
+        if not matched:
+            sections.append({
+                "key": sec["key"],
+                "title": "",
+                "kind": sec["kind"],
+                "kind_label": sec["kind_label"],
+                "markdown": "_暂无数据_",
+            })
+            continue
+        md = extract_section(content, matched) or "_暂无数据_"
+        sections.append({
+            "key": sec["key"],
+            "title": matched,
+            "kind": sec["kind"],
+            "kind_label": sec["kind_label"],
+            "markdown": md,
+        })
+    return {
+        "domain_code": domain_code,
+        "title": item.title or "",
+        "obsidian_path": item.obsidian_path,
+        "sections": sections,
+    }
+
+
 def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
     """把需求/用户故事/关联事件回流到主笔记的自动区，人工区零覆盖，幂等。
 
@@ -631,6 +708,53 @@ def _resolve_source_title(db: Session, source_type: str, source_id: str):
     return None
 
 
+def _ticket_event(source_type: str, source_id, title, event_dt, summary) -> Dict:
+    """把一条「按 domain_code 归属的工单」规范成与时间线事件同构的字典。"""
+    et = source_type
+    label = EVENT_LABELS.get(et) or et
+    route = SOURCE_ROUTES.get(source_type, "")
+    ev_date = event_dt.strftime("%Y-%m-%d") if event_dt else None
+    return {
+        "source_type": source_type,
+        "source_id": str(source_id),
+        "event_type": et,
+        "event_label": label,
+        "source_title": title,
+        "source_route": route,
+        "obsidian_path": None,
+        "knowledge_title": None,
+        "event_date": ev_date,
+        "month": event_dt.strftime("%Y-%m") if event_dt else None,
+        "summary": summary,
+    }
+
+
+def _collect_domain_tickets(db: Session, domain_code: str, covered: set) -> List[Dict]:
+    """收集按 domain_code 归属但未显式建 knowledge_link 的工单（需求/会议/运营）。
+
+    与 business_timeline API 同源，保证「知识标准化管理」主笔记 §9 时间线与
+    时间线 API 一致：既含显式 knowledge_link，也含按 domain_code 归属但
+    未显式建关联的工单（去重由 covered 集合控制）。
+    """
+    out = []
+    for r in db.query(PmwbRequirementExt).filter(PmwbRequirementExt.domain_code == domain_code).all():
+        sid = r.req_id
+        if ("requirement", str(sid)) in covered:
+            continue
+        out.append(_ticket_event("requirement", sid, r.req_name, r.created_at, ""))
+    for m in db.query(PmwbMeeting).filter(PmwbMeeting.domain_code == domain_code).all():
+        sid = m.meeting_id
+        if ("meeting", str(sid)) in covered:
+            continue
+        out.append(_ticket_event("meeting", sid, m.title, m.start_time, m.summary or ""))
+    for o in db.query(PmwbOperationIssue).filter(PmwbOperationIssue.domain_code == domain_code).all():
+        sid = o.issue_no
+        if ("operation", str(sid)) in covered:
+            continue
+        out.append(_ticket_event("operation", sid, o.title, o.created_at or o.discovery_date, o.situation_desc or ""))
+    return out
+
+
 def business_timeline(
     db: Session,
     domain_code: str,
@@ -685,6 +809,13 @@ def business_timeline(
                 "summary": link.summary or link.note,
             }
         )
+
+    # 双源：纳入按 domain_code 归属但未显式建关联的工单（需求/会议/运营），
+    # 与「知识标准化管理」主笔记 §9 时间线同源去重，保证两端一致。
+    covered = {(link.source_type, str(link.source_id)) for link in links}
+    for t in _collect_domain_tickets(db, domain_code, covered):
+        type_counts[t["event_type"]] = type_counts.get(t["event_type"], 0) + 1
+        events.append(t)
 
     # 倒序：event_date 大的在前，缺失日期垫底（空日期用 0 标志 + 小值保证垫底）
     def _sort_key(e):

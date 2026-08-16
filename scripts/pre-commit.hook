@@ -1,0 +1,8 @@
+#!/bin/bash
+# PMWB pre-commit 门禁钩子（安装：复制到 .git/hooks/pre-commit 并 chmod +x）
+# 作用：每次 git commit 前跑 commit-gate.sh，拦截整路由 NameError / 功能蒸发类回归。
+# 紧急跳过：PMWB_SKIP_GATE=1 git commit ...
+if [ -z "${PMWB_SKIP_GATE:-}" ]; then
+  ROOT="$(git rev-parse --show-toplevel)"
+  "$ROOT/scripts/commit-gate.sh" || exit 1
+fi

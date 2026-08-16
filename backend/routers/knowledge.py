@@ -22,6 +22,7 @@ from services.knowledge_link_service import (
     business_timeline,
     create_main_note as create_main_note_service,
     ensure_domain_main_notes,
+    get_main_note_structured,
     link_note,
     list_by_item,
     sync_main_note_from_links,
@@ -154,6 +155,17 @@ def create_main_note(
         data=result,
         message="主笔记已生成" if result["created"] else "主笔记已存在",
     )
+
+
+@router.get("/main-note/{domain_code}")
+def get_main_note(domain_code: str, db: Session = Depends(get_db)):
+    """知识标准化管理：读取某领域业务知识主笔记的标准结构（14 章节 + 时间线）。
+
+    用于前端「知识标准化管理（主笔记标准结构）」展示，章节通过编号前缀
+    匹配，兼容各域主笔记措辞差异。
+    """
+    data = get_main_note_structured(db, domain_code)
+    return success(data=data)
 
 
 @router.post("/ensure-main-notes")

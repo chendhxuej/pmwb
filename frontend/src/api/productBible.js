@@ -16,6 +16,11 @@ export const productBibleApi = {
     return request.put(`/product-bible/${key}`, { markdown })
   },
 
+  // 知识标准化管理：读取某领域业务知识主笔记的标准结构（14 章节 + 时间线）
+  getMainNote(domainCode) {
+    return request.get(`/knowledge/main-note/${domainCode}`)
+  },
+
   // docx 内嵌图片的直链（后端 media 路由）
   getMediaUrl(key, filename) {
     return `/api/v1/product-bible/${key}/media/${encodeURIComponent(filename)}`
