@@ -1,5 +1,7 @@
 """首页看板接口测试（含看板重构 db-2 扩展字段）。"""
 
+from datetime import datetime, timedelta
+
 from fastapi.testclient import TestClient
 
 from tests.factories import (
@@ -25,8 +27,10 @@ def test_dashboard_stats(client: TestClient, db):
 
 def test_dashboard_module_stats(client: TestClient, db):
     """db-2 扩展：module_stats 各模块返回。"""
+    # 看板按「周一为起点」的本地周窗口统计本周会议；测试固定放在本周三，避免周日跑 +1 天落到下周导致 totalThisWeek=0 的边界误判
+    meeting_time = datetime.now() - timedelta(days=datetime.now().weekday()) + timedelta(days=3)
     TodoFactory.create(db, status="todo")
-    MeetingFactory.create(db, status="planned")
+    MeetingFactory.create(db, status="planned", start_time=meeting_time)
     OperationIssueFactory.create(db, status="pending")
     RequirementExtFactory.create(db, status="proposed")
     KnowledgeFactory.create(db)
