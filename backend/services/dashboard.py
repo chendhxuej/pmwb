@@ -80,8 +80,11 @@ def _day_start(day: datetime.date) -> datetime:
 
 
 def _cst_day_utc_bounds(day: datetime.date):
-    """中国本地某日 00:00 对应的 UTC naive 上下界（库表 DateTime 以 UTC 存储）。"""
-    start = datetime(day.year, day.month, day.day) - timedelta(hours=8)
+    """中国本地某日 00:00 ~ 次日 00:00 的 naive datetime 上下界。
+
+    created_at/updated_at 已从 UTC 改为 UTC+8 存储，直接用本地日期边界。
+    """
+    start = _day_start(day)
     return start, start + timedelta(days=1)
 
 
@@ -90,10 +93,10 @@ def _weekday_cn(day: datetime.date) -> str:
 
 
 def _rel_time(dt: Optional[datetime]) -> str:
-    """相对时间文案（库表为 UTC，与 datetime.utcnow() 对齐）。"""
+    """相对时间文案（库表已统一 UTC+8 存储，与 datetime.now() 对齐）。"""
     if not dt:
         return "—"
-    delta = datetime.utcnow() - dt
+    delta = datetime.now() - dt
     if delta < timedelta(minutes=1):
         return "刚刚"
     if delta < timedelta(hours=1):
@@ -382,7 +385,7 @@ class DashboardService:
         for it in items:
             date = ""
             if it.updated_at:
-                date = (it.updated_at + timedelta(hours=8)).strftime("%Y-%m-%d")
+                date = it.updated_at.strftime("%Y-%m-%d") if it.updated_at else ""
             result.append(
                 RequirementSummaryItem(
                     name=it.req_name or it.req_id or "未命名需求",
@@ -491,7 +494,7 @@ class DashboardService:
             PmwbRequirementExt.status == "closed",
         ).scalar() or 0
         # 需求开发超期：状态=开发中(dev) 且 建单时间超20天
-        req_overdue_cutoff = datetime.utcnow() - timedelta(days=20)
+        req_overdue_cutoff = datetime.now() - timedelta(days=20)
         req_overdue_dev = self.db.query(func.count(PmwbRequirementExt.id)).filter(
             PmwbRequirementExt.status == "dev",
             PmwbRequirementExt.created_at < req_overdue_cutoff,

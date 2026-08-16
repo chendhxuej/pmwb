@@ -362,17 +362,12 @@ def search_user_stories(
     page_size = max(1, min(page_size, 200))
     rows = q.offset((page - 1) * page_size).limit(page_size).all()
 
-    from datetime import timedelta
-
     items: List[Dict[str, Any]] = []
     for st, req_name in rows:
         d = _story_to_dict(st)
         d["req_id"] = st.req_id
         d["req_name"] = req_name or ""
-        # 库表按 UTC 存储，展示统一 +8h 转中国时间
-        d["created_at"] = (
-            (st.created_at + timedelta(hours=8)).isoformat() if st.created_at else None
-        )
+        d["created_at"] = st.created_at.isoformat() if st.created_at else None
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}

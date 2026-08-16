@@ -543,28 +543,27 @@ def get_log(log_id: str):
 @router.get("/stats")
 def mail_center_stats(db: Session = Depends(get_db)):
     """邮件中心统计概览：聚合邮件中心(3210)和 PMWB 本地数据。"""
-    bj_tz = timezone(timedelta(hours=8))
-    now = datetime.now(bj_tz)
+    now = datetime.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=today_start.weekday())
     seven_days_ago = today_start - timedelta(days=7)
 
-    # 本地 PMWB 统计数据
+    # 本地 PMWB 统计数据（created_at 已统一 UTC+8 存储，直接用本地时间比较）
     try:
         today_count = db.query(EmailRecord).filter(
-            EmailRecord.created_at >= today_start.astimezone(timezone.utc)
+            EmailRecord.created_at >= today_start
         ).count()
 
         week_count = db.query(EmailRecord).filter(
-            EmailRecord.created_at >= week_start.astimezone(timezone.utc)
+            EmailRecord.created_at >= week_start
         ).count()
 
         # 近7天成功率
         seven_day_total = db.query(EmailRecord).filter(
-            EmailRecord.created_at >= seven_days_ago.astimezone(timezone.utc)
+            EmailRecord.created_at >= seven_days_ago
         ).count()
         seven_day_ok = db.query(EmailRecord).filter(
-            EmailRecord.created_at >= seven_days_ago.astimezone(timezone.utc),
+            EmailRecord.created_at >= seven_days_ago,
             EmailRecord.send_status.in_(["success", "sent"]),
         ).count()
         success_rate = round(seven_day_ok / seven_day_total * 100, 1) if seven_day_total > 0 else 0.0
@@ -572,7 +571,7 @@ def mail_center_stats(db: Session = Depends(get_db)):
         # 待处理异常（最近失败邮件数）
         pending_alerts = db.query(EmailRecord).filter(
             EmailRecord.send_status == "failed",
-            EmailRecord.created_at >= seven_days_ago.astimezone(timezone.utc),
+            EmailRecord.created_at >= seven_days_ago,
         ).count()
     except SQLAlchemyError as exc:
         logger.warning("统计：查询 email_records 失败: %s", exc)

@@ -117,7 +117,7 @@ class DevTicketService:
         obj.progress = self.STATUS_PROGRESS.get(status, obj.progress)
         date_field = self.STATUS_DATE_FIELDS.get(status)
         if date_field:
-            setattr(obj, date_field, datetime.utcnow().date())
+            setattr(obj, date_field, datetime.now().date())
         self._add_log(db, ticket_id, from_status, status, operator, note)
         db.commit()
         db.refresh(obj)

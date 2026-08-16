@@ -62,7 +62,7 @@ class MeetingFactory:
         **kwargs,
     ):
         if start_time is None:
-            start_time = datetime.utcnow() + timedelta(days=1)
+            start_time = datetime.now() + timedelta(days=1)
         obj = PmwbMeeting(
             meeting_id=meeting_id,
             title=title,
@@ -198,7 +198,7 @@ class EmailRecordFactory:
         if req_id is None:
             req_id = f"REQ-TEST-{EmailRecordFactory._counter:04d}"
         if created_at is None:
-            created_at = datetime.utcnow()
+            created_at = datetime.now()
         obj = EmailRecord(
             req_id=req_id,
             req_name=req_name,

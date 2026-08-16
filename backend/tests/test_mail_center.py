@@ -30,8 +30,8 @@ class TestMailCenterStats:
         assert data["pendingAlerts"] == 0
 
     def test_stats_counts_today_sent(self, client: TestClient, db):
-        """今日发送量：应统计当天 UTC 时间的记录。"""
-        now = datetime.utcnow()
+        """今日发送量：应统计当天 UTC+8 时间的记录。"""
+        now = datetime.now()
         # 今日记录
         EmailRecordFactory.create(db, send_status="success", created_at=now)
         EmailRecordFactory.create(db, send_status="success", created_at=now)
@@ -45,7 +45,7 @@ class TestMailCenterStats:
 
     def test_stats_week_sent(self, client: TestClient, db):
         """本周发送量：应统计本周一至今的记录。"""
-        now = datetime.utcnow()
+        now = datetime.now()
         # 本周记录
         EmailRecordFactory.create(db, send_status="success", created_at=now)
         # 上周记录（不应计入本周）
@@ -58,7 +58,7 @@ class TestMailCenterStats:
 
     def test_stats_success_rate(self, client: TestClient, db):
         """成功率：近7天成功记录 / 总记录。"""
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = datetime.now() - timedelta(days=7)
         # 3 条成功
         for _ in range(3):
             EmailRecordFactory.create(db, send_status="success", created_at=seven_days_ago + timedelta(hours=1))
@@ -71,14 +71,14 @@ class TestMailCenterStats:
 
     def test_stats_pending_alerts(self, client: TestClient, db):
         """待处理异常：近7天失败记录数。"""
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = datetime.now() - timedelta(days=7)
         # 2 条失败
         for _ in range(2):
             EmailRecordFactory.create(db, send_status="failed", created_at=seven_days_ago + timedelta(hours=1))
         # 1 条成功（不应计入异常）
         EmailRecordFactory.create(db, send_status="success", created_at=seven_days_ago + timedelta(hours=2))
         # 1 条 8 天前的旧失败（不应计入近7天）
-        old = datetime.utcnow() - timedelta(days=8)
+        old = datetime.now() - timedelta(days=8)
         EmailRecordFactory.create(db, send_status="failed", created_at=old)
 
         response = client.get("/api/v1/mail-center/stats")

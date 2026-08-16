@@ -115,7 +115,7 @@ class KnowledgeItemService(BaseService[PmwbKnowledgeItem]):
         if not item:
             return False
         write_markdown(item.obsidian_path, content)
-        item.updated_at = datetime.utcnow()
+        item.updated_at = datetime.now()
         db.commit()
         db.refresh(item)
         return True

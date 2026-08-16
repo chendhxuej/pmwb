@@ -165,7 +165,7 @@ class TodoService(BaseService[PmwbTodo]):
         return obj
 
     def get_stats(self, db: Session) -> TodoStats:
-        today = datetime.utcnow().date()
+        today = datetime.now().date()
         total = db.query(func.count(self.model.id)).scalar()
         todo = db.query(func.count(self.model.id)).filter(self.model.status == "todo").scalar()
         in_progress = db.query(func.count(self.model.id)).filter(self.model.status == "in_progress").scalar()
@@ -198,7 +198,7 @@ class TodoService(BaseService[PmwbTodo]):
             return None
         obj.status = status
         if status == "done":
-            obj.completed_at = datetime.utcnow()
+            obj.completed_at = datetime.now()
         else:
             obj.completed_at = None
         self._check_overdue(obj)
@@ -227,7 +227,7 @@ class TodoService(BaseService[PmwbTodo]):
         return db_obj
 
     def _check_overdue(self, obj: PmwbTodo):
-        today = datetime.utcnow().date()
+        today = datetime.now().date()
         due_date = obj.due_date
         if isinstance(due_date, str):
             try:
@@ -248,7 +248,7 @@ class TodoService(BaseService[PmwbTodo]):
         """
         if not items:
             return
-        today = datetime.utcnow().date()
+        today = datetime.now().date()
         for obj in items:
             due = obj.due_date
             if isinstance(due, str):

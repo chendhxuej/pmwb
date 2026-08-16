@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -18,6 +18,16 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from db.base import Base
+
+_CN_TZ = timezone(timedelta(hours=8))
+
+
+def now_cn() -> datetime:
+    """返回当前 UTC+8 naive datetime，替代 datetime.utcnow()。
+
+    全局统一用 UTC+8 存储，避免前端再做时区补偿。
+    """
+    return datetime.now(_CN_TZ).replace(tzinfo=None)
 
 
 class PmwbRequirementExt(Base):
@@ -63,11 +73,11 @@ class PmwbRequirementExt(Base):
         default="[]",
         comment="需求直挂交付物(JSON数组),每项含file_name/local_path/note/archived_at",
     )
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -94,11 +104,11 @@ class PmwbUserStory(Base):
     acceptance = Column(Text, comment="验收标准(JSON数组)")
     rules = Column(Text, comment="业务规则(JSON数组，每条一个规则描述)")
     finalized = Column(Integer, default=0, comment="是否已定稿(0:草稿 1:定稿)")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -123,7 +133,7 @@ class PmwbDevTicket(Base):
     dev_team = Column(String(64), comment="开发团队/厂商")
     developer = Column(String(64), comment="开发负责人")
     dev_contact = Column(String(128), comment="开发联系方式")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="工单创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="工单创建时间")
     design_reviewed_date = Column(Date, comment="设计方案评审日期")
     dev_completed_date = Column(Date, comment="实际完成开发日期")
     test_completed_date = Column(Date, comment="测试完成日期")
@@ -151,8 +161,8 @@ class PmwbDevTicket(Base):
     created_by = Column(String(64), comment="创建人")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -185,7 +195,7 @@ class PmwbDevDeliverable(Base):
     source = Column(String(32), default="upload", comment="来源 (plugin/upload)")
     source_url = Column(String(1024), comment="来源URL")
     note = Column(Text, comment="备注")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
 
     __table_args__ = (
         Index("idx_deliverable_ticket_id", "ticket_id"),
@@ -204,7 +214,7 @@ class PmwbDevTicketLog(Base):
     to_status = Column(String(32), comment="变更后状态")
     operator = Column(String(64), comment="操作人")
     note = Column(Text, comment="变更原因/备注")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
 
     __table_args__ = (
         Index("idx_log_ticket_id", "ticket_id"),
@@ -247,11 +257,11 @@ class PmwbTodo(Base):
     source = Column(String(64), default="manual", comment="来源：manual/meeting/plugin")
     completed_at = Column(DateTime, comment="完成时间")
     is_overdue = Column(Integer, default=0, comment="是否超期")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -307,11 +317,11 @@ class PmwbOperationIssue(Base):
     go_live_date = Column(Date, comment="计划完成时间")
     result_feedback = Column(Text, comment="处理结果反馈")
     attachments = Column(Text, comment="附件元信息(JSON 数组)")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -353,11 +363,11 @@ class PmwbOperationAnalysis(Base):
     result_model = Column(Text, comment="分析结果-数据模型方面")
     result_abnormal_user = Column(Text, comment="分析结果-异常用户数据方面")
     result_monitor_blind = Column(Text, comment="分析结果-监控补盲方面")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -395,11 +405,11 @@ class PmwbMeeting(Base):
     related_ticket_no = Column(String(64), comment="关联开发工单编号")
     status = Column(Enum("planned", "held", "cancelled", "not_attended"), default="planned", comment="状态")
     minutes_required = Column(Boolean, default=True, comment="是否需要纪要（开完会无需记录纪要时置为 False，从待归档列表移除）")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -426,11 +436,11 @@ class PmwbMeetingAgenda(Base):
     conclusion = Column(Text, comment="商讨结论")
     division = Column(Text, comment="分工说明")
     background = Column(Text, comment="议题背景说明")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -451,7 +461,7 @@ class PmwbMeetingAttendee(Base):
     email = Column(String(128), comment="邮箱")
     dept = Column(String(128), comment="部门")
     is_required = Column(Integer, default=1, comment="是否必须参加")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
 
     __table_args__ = ({"comment": "会议参会人表"},)
 
@@ -474,11 +484,11 @@ class PmwbMeetingAction(Base):
     )
     template = Column(String(128), comment="Obsidian 待办模板名（仅元数据标签，如 个人普通待办模板）")
     related_todo_id = Column(Integer, comment="关联 pmwb_todo.id")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -509,11 +519,11 @@ class PmwbBusinessDomain(Base):
     description = Column(Text, comment="业务领域描述/说明")
     sort_order = Column(Integer, default=0, comment="排序号")
     enabled = Column(Boolean, default=True, comment="是否启用")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -556,11 +566,11 @@ class PmwbKnowledgeItem(Base):
         comment="笔记类型：main(业务知识主笔记)/sub(子笔记/过程性内容)。系统自动保活每领域的唯一 main 笔记",
     )
     summary = Column(Text, comment="摘要")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -590,11 +600,11 @@ class PmwbKnowledgeLink(Base):
     link_type = Column(String(32), default="main", comment="链接类型：main(主笔记)/sub(子笔记)/deliverable(交付物)")
     domain_code = Column(String(64), comment="冗余领域编码，便于按领域查询")
     note = Column(Text, comment="关联说明（如：本次工单修复了该规则下的异常）")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
     # kc4-1：业务事件语义扩展，支撑业务时间线(kc4-3)与主笔记 §8 变更轨迹自动生成
@@ -639,11 +649,11 @@ class PmwbRequirementEvaluation(Base):
     review_workload = Column(Numeric(10, 2), comment="复核工作量(人天)")
     opinion = Column(Text, comment="评估意见登记")
     dev_ticket_no = Column(String(255), comment="开发单号")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -669,7 +679,7 @@ class SentEmail(Base):
     system_name = Column(String(255), comment="系统")
     sa_name = Column(String(255), comment="SA")
     send_datetime = Column(String(64), comment="邮件发送日期")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="写入时间")
+    created_at = Column(DateTime, default=now_cn, comment="写入时间")
     workload = Column(Numeric(10, 2), comment="工作量")
     is_involved = Column(Integer, default=1, comment="是否涉及开发(0:否,1:是)")
     dev_ticket_no = Column(String(255), comment="开发单号")
@@ -698,7 +708,7 @@ class EmailRecord(Base):
     error_msg = Column(Text, comment="错误信息")
     source = Column(String(255), comment="来源系统")
     sender = Column(String(255), comment="发送人")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="发送时间")
+    created_at = Column(DateTime, default=now_cn, comment="发送时间")
 
     __table_args__ = (
         Index("idx_email_record_req_id", "req_id"),
@@ -716,7 +726,7 @@ class SaInfo(Base):
     system_name = Column(String(255), default=None, comment="系统名称")
     email = Column(String(255), nullable=False, comment="邮箱")
     wechat_nickname = Column(String(255), default=None, comment="微信昵称")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
 
     __table_args__ = (
         Index("uk_sa_info_system", "sa_name", "system_name"),
@@ -760,11 +770,11 @@ class PmwbKeyWork(Base):
     progress = Column(Integer, default=0, comment="进度百分比 0-100")
     acceptance_criteria = Column(Text, comment="验收标准(JSON数组)")
 
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -841,11 +851,11 @@ class PmwbKeyWorkGoal(Base):
     current_value = Column(String(255), comment="当前值")
     unit = Column(String(32), comment="单位")
     description = Column(Text, comment="说明")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -871,11 +881,11 @@ class PmwbKeyWorkMilestone(Base):
         comment="状态",
     )
     note = Column(Text, comment="说明")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -895,11 +905,11 @@ class PmwbKeyWorkMember(Base):
     name = Column(String(64), nullable=False, comment="成员姓名")
     role = Column(String(128), comment="角色")
     division_desc = Column(Text, comment="分工说明")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -923,11 +933,11 @@ class PmwbKeyWorkMonthlyPlan(Base):
         default="pending",
         comment="状态",
     )
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -952,11 +962,11 @@ class PmwbKeyWorkWeeklyPlan(Base):
         default="pending",
         comment="状态",
     )
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -977,11 +987,11 @@ class PmwbKeyWorkProgress(Base):
     record_date = Column(Date, comment="进展日期")
     reporter = Column(String(64), comment="汇报人")
     content = Column(Text, comment="进展内容")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -1013,11 +1023,11 @@ class PmwbKeyWorkMemberTask(Base):
     )
     link_id = Column(Integer, comment="关联对象ID")
     note = Column(Text, comment="备注")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -1051,7 +1061,7 @@ class PmwbKeyWorkDeliverable(Base):
     source_url = Column(String(1024), comment="来源URL")
     note = Column(Text, comment="备注")
     uploaded_by = Column(String(64), comment="上传人")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
 
     __table_args__ = (
         Index("idx_kwd_kw_id", "key_work_id"),
@@ -1077,11 +1087,11 @@ class PmwbSqlScript(Base):
     sql_text = Column(Text, nullable=False, comment="SQL 文本")
     output_fields = Column(Text, comment="输出字段样例(JSON数组: name/type/desc)")
 
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -1104,7 +1114,7 @@ class PmwbOrg(Base):
     name = Column(String(128), nullable=False, unique=True, comment="组织/团队名称")
     sort = Column(Integer, default=0, comment="排序号（小的在前）")
     enabled = Column(Boolean, default=True, nullable=False, comment="是否启用")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
 
     staffs = relationship(
         "PmwbStaff",
@@ -1135,11 +1145,11 @@ class PmwbStaff(Base):
     role_hint = Column(String(128), comment="角色/职责备注（可空）")
     sort = Column(Integer, default=0, comment="排序号（小的在前）")
     enabled = Column(Boolean, default=True, nullable=False, comment="是否启用")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 
@@ -1179,11 +1189,11 @@ class PmwbWorkReport(Base):
     obsidian_path = Column(String(512), comment="定稿后归档到 Obsidian Vault 的相对路径")
     finalized_at = Column(DateTime, comment="定稿时间")
     sent_at = Column(DateTime, comment="发送时间")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
     # 报告生成来源（与迁移 20260809000003 对齐；to_out/send_report 会读写）
@@ -1227,11 +1237,11 @@ class PmwbLlmProvider(Base):
     is_default = Column(Integer, default=0, comment="是否主用(0/1)，同一时刻至多一个")
     priority = Column(Integer, default=0, comment="fallback 优先级，越小越优先")
     last_error = Column(Text, comment="最近一次连通性探测错误（便于页面反馈）")
-    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=now_cn,
+        onupdate=now_cn,
         comment="更新时间",
     )
 

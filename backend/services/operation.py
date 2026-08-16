@@ -128,7 +128,7 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
         if resolve_date:
             obj.resolve_date = resolve_date
         if status in ("resolved", "closed") and not obj.resolve_date:
-            obj.resolve_date = datetime.utcnow()
+            obj.resolve_date = datetime.now()
         db.commit()
         db.refresh(obj)
         return obj
