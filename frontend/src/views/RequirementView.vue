@@ -128,7 +128,7 @@
         </el-table-column>
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
-            <StatusBadge :value="row.ext?.status || 'proposed'" :options="statusOptions" />
+            <StatusBadge module="requirement" :value="row.ext?.status || 'proposed'" />
           </template>
         </el-table-column>
         <el-table-column label="版本要求" width="150" align="center">

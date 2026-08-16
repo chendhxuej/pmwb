@@ -72,7 +72,7 @@
             </el-table-column>
             <el-table-column label="跟踪状态" width="90" align="center">
               <template #default="{ row }">
-                <el-tag size="small" :type="statusType(row.ext?.status)">{{ statusLabel(row.ext?.status) }}</el-tag>
+                <StatusBadge module="requirement_delivery" :value="row.ext?.status" />
               </template>
             </el-table-column>
             <el-table-column label="工作量(人天)" width="110" align="center">
@@ -204,7 +204,7 @@
               <template #default="{ row }"><span class="pm-tag" :class="priorityClass(row.priority)">{{ row.priority }}</span></template>
             </el-table-column>
             <el-table-column label="状态" width="90" align="center">
-              <template #default="{ row }"><el-tag size="small" :type="ticketStatusType(row.status)">{{ ticketStatusLabel(row.status) }}</el-tag></template>
+              <template #default="{ row }"><StatusBadge module="requirement_version" :value="row.status" /></template>
             </el-table-column>
             <el-table-column label="进度" width="140">
               <template #default="{ row }">
@@ -259,7 +259,7 @@
             <div class="wf-req-name">{{ current.req_name || '（未命名需求）' }}</div>
           </div>
           <div class="flex gap-8">
-            <el-tag size="small" :type="statusType(current.ext?.status)">{{ statusLabel(current.ext?.status) }}</el-tag>
+            <StatusBadge module="requirement_delivery" :value="current.ext?.status" />
             <el-tag size="small" :type="priorityType(current.ext?.priority)">{{ current.ext?.priority || 'P2' }}</el-tag>
           </div>
         </div>
@@ -869,6 +869,7 @@ import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import SuperviseDialog from '@/components/SuperviseDialog.vue'
 import { knowledgeApi } from '@/api/knowledge.js'
+import StatusBadge from '@/components/Common/StatusBadge.vue'
 import {
   getRequirements, getRequirement, updateRequirement, deleteRequirement,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,

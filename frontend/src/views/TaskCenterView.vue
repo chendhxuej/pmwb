@@ -139,7 +139,7 @@
         <el-table-column prop="owner" label="负责人" width="110" show-overflow-tooltip />
         <el-table-column label="状态" width="95">
           <template #default="{ row }">
-            <el-tag size="small" :type="statusTagType(row.status)">{{ row.status_label }}</el-tag>
+            <StatusBadge module="task_center" :value="row.status" />
           </template>
         </el-table-column>
         <el-table-column prop="priority" label="优先级" width="75">
@@ -345,6 +345,7 @@ import { getTaskStats, getTasks, resolveTaskContacts, sendTaskEmail, previewTask
 import { getPendingReminders, sendReminder, resolveContacts } from '@/api/reminder.js'
 import { todoApi } from '@/api/todo'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import StatusBadge from '@/components/Common/StatusBadge.vue'
 
 const router = useRouter()
 

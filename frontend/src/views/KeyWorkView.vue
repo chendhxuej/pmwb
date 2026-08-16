@@ -78,7 +78,7 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <span class="pm-tag" :class="STATUS_MAP[row.status]?.tag">{{ STATUS_MAP[row.status]?.label }}</span>
+            <StatusBadge module="keywork" :value="row.status" />
           </template>
         </el-table-column>
         <el-table-column label="优先级" width="90">
@@ -150,7 +150,7 @@
                 <span class="pm-tag" :class="PRIORITY_MAP[detail.priority]?.tag">{{ PRIORITY_MAP[detail.priority]?.label }}</span>
               </div>
               <div class="info-item"><span class="pm-field-label">生命周期状态</span>
-                <span class="pm-tag" :class="STATUS_MAP[detail.status]?.tag">{{ STATUS_MAP[detail.status]?.label }}</span>
+                <StatusBadge module="keywork" :value="detail.status" />
               </div>
               <div class="info-item"><span class="pm-field-label">计划完成时间</span>{{ detail.planned_finish_date || '—' }}</div>
               <div class="info-item"><span class="pm-field-label">进度</span>{{ detail.progress || 0 }}%</div>
@@ -516,6 +516,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as kwApi from '@/api/keywork.js'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
+import StatusBadge from '@/components/Common/StatusBadge.vue'
 import {
   CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP,
 } from '@/api/keywork.js'

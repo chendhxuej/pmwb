@@ -31,7 +31,7 @@
         @page-change="handlePageChange"
       >
         <template #status="{ row }">
-          <StatusBadge :value="row.status" :options="statusOptions" />
+          <StatusBadge module="ticket" :value="row.status" />
         </template>
         <template #priority="{ row }">
           <StatusBadge :value="row.priority" :options="priorityOptions" />
@@ -101,7 +101,7 @@
           <StatusBadge :value="detail.priority" :options="priorityOptions" />
         </el-descriptions-item>
         <el-descriptions-item label="状态">
-          <StatusBadge :value="detail.status" :options="statusOptions" />
+          <StatusBadge module="ticket" :value="detail.status" />
         </el-descriptions-item>
         <el-descriptions-item label="进度">
           <el-progress :percentage="detail.progress || 0" :status="detail.progress === 100 ? 'success' : ''" />
@@ -148,7 +148,7 @@
     <el-dialog v-model="statusDialogVisible" title="状态流转" width="500px">
       <el-form :model="statusForm" label-width="100px">
         <el-form-item label="当前状态">
-          <StatusBadge :value="statusForm.currentStatus" :options="statusOptions" />
+          <StatusBadge module="ticket" :value="statusForm.currentStatus" />
         </el-form-item>
         <el-form-item label="目标状态">
           <el-select v-model="statusForm.status">

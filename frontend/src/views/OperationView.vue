@@ -115,7 +115,7 @@
           </el-table-column>
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
-              <StatusBadge :value="row.status" :options="statusBadgeOptions" />
+              <StatusBadge module="operation" :value="row.status" :sensitive="row.is_overdue" />
             </template>
           </el-table-column>
           <el-table-column label="逾期" width="80">

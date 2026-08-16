@@ -59,7 +59,7 @@
         </el-table-column>
         <el-table-column prop="status" label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <StatusBadge module="meeting_action" :value="row.status" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
@@ -171,6 +171,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { meetingApi } from '@/api/meeting'
+import StatusBadge from '@/components/Common/StatusBadge.vue'
 
 const router = useRouter()
 

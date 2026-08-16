@@ -111,7 +111,7 @@
       </el-table-column>
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <StatusBadge :value="row.status" :options="statusBadgeOptions" />
+          <StatusBadge module="operation" :value="row.status" :sensitive="row.is_overdue" />
         </template>
       </el-table-column>
       <el-table-column label="逾期" width="80">
@@ -270,7 +270,7 @@
             <el-table-column prop="title" label="任务内容" min-width="240" show-overflow-tooltip />
             <el-table-column label="优先级" width="90"><template #default="{ row }">{{ row.impact_level || 'P2' }}</template></el-table-column>
             <el-table-column label="计划完成" width="130"><template #default="{ row }">{{ row.go_live_date ? String(row.go_live_date).slice(0, 10) : '-' }}</template></el-table-column>
-            <el-table-column label="状态" width="100"><template #default="{ row }"><StatusBadge :value="row.status" :options="statusBadgeOptions" /></template></el-table-column>
+            <el-table-column label="状态" width="100"><template #default="{ row }"><StatusBadge module="operation" :value="row.status" :sensitive="row.is_overdue" /></template></el-table-column>
           </el-table>
         </div>
 

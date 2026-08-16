@@ -20,7 +20,7 @@
       <el-table-column prop="sa_name" label="评估SA" width="100" />
       <el-table-column label="个人状态" width="100" align="center">
         <template #default="{ row }">
-          <el-tag size="small" :type="statusType(row.ext?.status)">{{ statusLabel(row.ext?.status) }}</el-tag>
+          <StatusBadge module="requirement_group" :value="row.ext?.status" />
         </template>
       </el-table-column>
       <el-table-column prop="eval_count" label="团队评估" width="90" align="center" />
@@ -51,6 +51,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
 import { getRequirements } from '@/api/requirement.js'
+import StatusBadge from '@/components/Common/StatusBadge.vue'
 
 const loading = ref(false)
 const exporting = ref(false)
