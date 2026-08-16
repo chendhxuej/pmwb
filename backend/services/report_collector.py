@@ -157,6 +157,7 @@ class ReportDataCollector:
                     "req_name": req_name,
                     "priority": tr(REQUIREMENT_PRIORITY, priority),
                     "status": tr(REQUIREMENT_STATUS, status),
+                    "sa_name": _g(r, "sa_name") or "",
                     "go_live": go_live.isoformat() if go_live else "",
                     "risk_note": risk_notes,
                 })
@@ -220,7 +221,14 @@ class ReportDataCollector:
             "by_category": tr_keys(OP_ISSUE_CATEGORY, by_category),
             "by_status": tr_keys(OP_ISSUE_STATUS, by_status),
             "by_impact": tr_keys(IMPACT_LEVEL, by_impact),
-            "by_handler": {k: v for k, v in by_handler.items()},
+            "by_handler": {
+                k: {
+                    **v,
+                    "done_rate": round(v["done"] / v["total"], 2) if v["total"] else 0.0,
+                    "overdue_rate": round(v["overdue"] / v["total"], 2) if v["total"] else 0.0,
+                }
+                for k, v in by_handler.items()
+            },
             "high_sensitivity": high,
         }
 
