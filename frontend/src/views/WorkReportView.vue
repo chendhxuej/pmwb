@@ -138,35 +138,17 @@
       </template>
     </el-drawer>
 
-    <!-- 邮件发送弹窗 -->
-    <el-dialog v-model="emailVisible" title="邮件发送" width="620px">
-      <el-form label-width="70px">
-        <el-form-item label="收件人">
-          <StaffSelect v-model="emailForm.to" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
-        </el-form-item>
-        <el-form-item label="抄送">
-          <StaffSelect v-model="emailForm.cc" multiple value-key="email" placeholder="抄送人员" />
-        </el-form-item>
-        <el-form-item label="主题">
-          <el-input v-model="emailForm.subject" placeholder="邮件主题" />
-        </el-form-item>
-        <el-form-item label="正文">
-          <div class="email-body-bar">
-            <el-button size="small" @click="emailEditing = !emailEditing">
-              {{ emailEditing ? '预览' : '编辑' }}
-            </el-button>
-          </div>
-          <el-input v-if="emailEditing" type="textarea" v-model="emailForm.body" :rows="16" placeholder="邮件正文（支持 Markdown）" />
-          <div v-else class="wr-report wr-report--email">
-            <MarkdownRender :content="emailForm.body || ''" />
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="emailVisible = false">取消</el-button>
-        <el-button type="primary" :loading="sendLoading" @click="doSend">发送</el-button>
-      </template>
-    </el-dialog>
+    <MailComposeDialog
+      v-model="mailDialogVisible"
+      title="发送工作总结邮件"
+      :default-to="mailDialogTo"
+      :default-cc="mailDialogCc"
+      :default-subject="mailDialogSubject"
+      :default-body="mailDialogBody"
+      value-key="email"
+      :custom-send="(payload) => sendWorkReport(current.value.id, payload)"
+      @success="handleMailSuccess"
+    />
   </div>
 </template>
 
@@ -176,7 +158,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, Edit, Check, Message, Delete, Stamp, FolderChecked, CopyDocument, Refresh, Loading } from '@element-plus/icons-vue'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
-import StaffSelect from '@/components/Common/StaffSelect.vue'
+import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import { formatDateTime } from '@/utils/format'
 import {
   listWorkReports, getWorkReport, generateWorkReport,
@@ -249,10 +231,11 @@ const editing = ref(false)
 const editContent = ref('')
 const finalizeLoading = ref(false)
 
-const emailVisible = ref(false)
-const sendLoading = ref(false)
-const emailEditing = ref(true)
-const emailForm = reactive({ to: [], cc: [], subject: '', body: '' })
+const mailDialogVisible = ref(false)
+const mailDialogTo = ref([])
+const mailDialogCc = ref([])
+const mailDialogSubject = ref('')
+const mailDialogBody = ref('')
 
 function statusTagType(status) {
   if (status === 'sent') return 'success'
@@ -362,31 +345,16 @@ async function doDelete(row) {
 }
 
 function openEmail() {
-  emailForm.to = (current.value.recipient || '').split(',').map(s => s.trim()).filter(Boolean)
-  emailForm.cc = (current.value.cc || '').split(',').map(s => s.trim()).filter(Boolean)
-  emailForm.subject = current.value.title || ''
-  emailForm.body = current.value.content || ''
-  emailEditing.value = true
-  emailVisible.value = true
+  mailDialogTo.value = (current.value.recipient || '').split(',').map(s => s.trim()).filter(Boolean)
+  mailDialogCc.value = (current.value.cc || '').split(',').map(s => s.trim()).filter(Boolean)
+  mailDialogSubject.value = current.value.title || ''
+  mailDialogBody.value = current.value.content || ''
+  mailDialogVisible.value = true
 }
 
-async function doSend() {
-  if (!emailForm.to.length) {
-    ElMessage.warning('请至少选择一个收件人')
-    return
-  }
-  sendLoading.value = true
-  try {
-    const r = await sendWorkReport(current.value.id, { ...emailForm })
-    current.value = r
-    ElMessage.success('邮件已发送')
-    emailVisible.value = false
-    await load()
-  } catch (e) {
-    ElMessage.error('发送失败：' + (e?.message || '未知错误'))
-  } finally {
-    sendLoading.value = false
-  }
+async function handleMailSuccess(res) {
+  current.value = res?.data || current.value
+  await load()
 }
 
 async function copyPath() {
@@ -434,7 +402,6 @@ onMounted(load)
 .rule-banner-body { font-size: 13px; line-height: 1.6; }
 .rule-banner-actions { margin-top: 10px; display: flex; gap: 8px; }
 .detail-footer { display: flex; gap: 8px; flex-wrap: wrap; }
-.email-body-bar { margin-bottom: 6px; text-align: right; }
 .title-link { color: var(--el-color-primary); cursor: pointer; }
 .title-link:hover { text-decoration: underline; }
 .gen-loading-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 20px; gap: 10px; color: var(--el-text-color-secondary); }
@@ -503,8 +470,5 @@ onMounted(load)
 /* 列表项间距更舒适 */
 .wr-report :deep(.markdown-body li) { margin: 6px 0; }
 .wr-report :deep(.markdown-body ul) { padding-left: 22px; }
-/* 邮件预览内缩小 hero 与圆角，避免弹窗过满 */
-.wr-report--email :deep(.markdown-body > h1:first-child) { font-size: 18px; padding: 12px 16px; border-radius: 10px; }
-.wr-report--email :deep(.markdown-body h2) { margin: 20px 0 10px; font-size: 16px; }
 
 </style>

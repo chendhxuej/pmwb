@@ -99,32 +99,16 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="superviseVisible" title="行动项督办" width="480px">
-      <el-form :model="superviseForm" label-width="80px">
-        <el-form-item label="行动项">
-          <div class="dialog-content">{{ superviseForm.content }}</div>
-        </el-form-item>
-        <el-form-item label="负责人">
-          <div class="dialog-content">{{ superviseForm.owner || '-' }}</div>
-        </el-form-item>
-        <el-form-item label="督办类型">
-          <el-radio-group v-model="superviseForm.scene">
-            <el-radio label="sync">同步通知</el-radio>
-            <el-radio label="urge">催办</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="收件人">
-          <el-input
-            v-model="superviseForm.recipientsText"
-            placeholder="多个收件人姓名用逗号分隔，为空则取负责人"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="superviseVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmSupervise" :loading="superviseLoading">发送督办</el-button>
-      </template>
-    </el-dialog>
+    <MailComposeDialog
+      v-model="mailDialogVisible"
+      :title="mailDialogTitle"
+      :default-to="mailDialogTo"
+      :default-subject="mailDialogSubject"
+      :default-body="mailDialogBody"
+      scene="action_supervise"
+      value-key="email"
+      @success="handleMailSuccess"
+    />
 
     <el-dialog v-model="editVisible" title="编辑行动项" width="560px">
       <el-form :model="editForm" label-width="90px" :rules="editRules" ref="editFormRef">
@@ -174,6 +158,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { meetingApi } from '@/api/meeting'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 
 const router = useRouter()
 
@@ -288,45 +273,42 @@ function gotoMeeting(row) {
   router.push(`/meeting?id=${row.meeting_id}`)
 }
 
-const superviseVisible = ref(false)
-const superviseLoading = ref(false)
-const superviseForm = reactive({
-  meeting_id: null,
-  id: null,
-  content: '',
-  owner: '',
-  scene: 'urge',
-  recipientsText: '',
-})
+// 统一邮件弹窗数据
+const mailDialogVisible = ref(false)
+const mailDialogTitle = ref('发送督办邮件')
+const mailDialogTo = ref([])
+const mailDialogSubject = ref('')
+const mailDialogBody = ref('')
 
-function handleSupervise(row) {
-  superviseForm.meeting_id = row.meeting_id
-  superviseForm.id = row.id
-  superviseForm.content = row.content
-  superviseForm.owner = row.owner || ''
-  superviseForm.scene = 'urge'
-  superviseForm.recipientsText = row.owner || ''
-  superviseVisible.value = true
+function buildSuperviseBody(row, scene) {
+  const lines = [
+    `${row.owner || '相关同事'}：`,
+    ``,
+    `以下会议行动项需要${scene === 'urge' ? '尽快推进' : '同步知悉'}，详情如下：`,
+    ``,
+    `- 行动项内容：${row.content || ''}`,
+    `- 负责人：${row.owner || '未分配'}`,
+    `- 截止日期：${row.due_date || '未设置'}`,
+    `- 当前状态：${statusLabel(row.status) || row.status || '待处理'}`,
+    ``,
+    `请及时处理并反馈进展，辛苦了！`,
+    ``,
+    `——产品经理工作台（PMWB）`,
+  ]
+  return lines.join('\n')
 }
 
-async function confirmSupervise() {
-  const recipients = superviseForm.recipientsText
-    .split(/[,，;；]/)
-    .map(s => s.trim())
-    .filter(Boolean)
-  superviseLoading.value = true
-  try {
-    await meetingApi.superviseAction(superviseForm.meeting_id, superviseForm.id, {
-      scene: superviseForm.scene,
-      recipients: recipients.length ? recipients : undefined,
-    })
-    ElMessage.success('督办邮件已发送')
-    superviseVisible.value = false
-  } catch (err) {
-    ElMessage.error(err.message || '督办失败')
-  } finally {
-    superviseLoading.value = false
-  }
+function handleSupervise(row, scene = 'urge') {
+  mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
+  mailDialogTo.value = row.owner ? [row.owner] : []
+  mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.content || `会议行动项 #${row.id}`)
+  mailDialogBody.value = buildSuperviseBody(row, scene)
+  mailDialogVisible.value = true
+}
+
+function handleMailSuccess() {
+  mailDialogVisible.value = false
+  loadData()
 }
 
 const editVisible = ref(false)

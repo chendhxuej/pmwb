@@ -219,62 +219,17 @@
       </template>
     </el-drawer>
 
-    <!-- 任务邮件对话框（通知/催办） -->
-    <el-dialog v-model="emailDialogVisible" :title="emailForm.send_type === 'urge' ? '发送催办邮件' : '发送通知邮件'" width="620px">
-      <el-form :model="emailForm" label-width="100px">
-        <el-form-item label="关联任务">
-          <div class="task-chips">
-            <el-tag v-for="t in emailForm.tasks" :key="t.task_id" size="small" closable @close="removeEmailTask(t)">
-              [{{ t.source_label }}] {{ t.title?.slice(0, 24) }}
-            </el-tag>
-          </div>
-        </el-form-item>
-        <el-form-item label="收件人">
-          <StaffSelect v-model="emailTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
-          <div class="form-hint">已按负责人姓名自动解析邮箱；无邮箱时回退显示姓名。</div>
-        </el-form-item>
-        <el-form-item label="抄送">
-          <StaffSelect v-model="emailCc" multiple value-key="email" placeholder="抄送人员" />
-        </el-form-item>
-        <el-form-item label="主题">
-          <el-input v-model="emailForm.subject" />
-        </el-form-item>
-        <el-form-item label="正文">
-          <el-input v-model="emailForm.body" type="textarea" :rows="8" />
-          <div class="form-hint">发送时系统会在正文末尾自动附上任务清单（标题/负责人/状态/截止时间）。</div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="emailDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="emailSending" @click="handleTaskEmailSend">发送</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 需求催办邮件对话框（沿用原催办中心交互） -->
-    <el-dialog v-model="urgeDialogVisible" title="发送催办邮件" width="600px">
-      <el-form :model="urgeForm" label-width="100px">
-        <el-form-item label="需求编号">
-          <el-input v-model="urgeForm.req_id" disabled />
-        </el-form-item>
-        <el-form-item label="收件人">
-          <StaffSelect v-model="urgeTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
-          <div class="form-hint">收件人邮箱按姓名自动从邮件中心通讯录解析；无邮箱时回退显示姓名。</div>
-        </el-form-item>
-        <el-form-item label="抄送">
-          <StaffSelect v-model="urgeCc" multiple value-key="email" placeholder="抄送人员" />
-        </el-form-item>
-        <el-form-item label="主题">
-          <el-input v-model="urgeForm.subject" />
-        </el-form-item>
-        <el-form-item label="正文">
-          <el-input v-model="urgeForm.body" type="textarea" :rows="10" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="urgeDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="urgeSending" @click="handleUrgeSend">发送</el-button>
-      </template>
-    </el-dialog>
+    <MailComposeDialog
+      v-model="mailDialogVisible"
+      :title="mailDialogTitle"
+      :default-to="mailDialogTo"
+      :default-cc="mailDialogCc"
+      :default-subject="mailDialogSubject"
+      :default-body="mailDialogBody"
+      value-key="email"
+      :custom-send="mailDialogSendFn"
+      @success="handleMailSuccess"
+    />
 
     <!-- 新建待办（个人待办整合入口，复用待办核心字段） -->
     <el-dialog
@@ -341,10 +296,11 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Plus } from '@element-plus/icons-vue'
-import { getTaskStats, getTasks, resolveTaskContacts, sendTaskEmail, previewTaskEmail } from '@/api/taskCenter.js'
-import { getPendingReminders, sendReminder, resolveContacts } from '@/api/reminder.js'
+import { getTaskStats, getTasks, sendTaskEmail } from '@/api/taskCenter.js'
+import { getPendingReminders, sendReminder } from '@/api/reminder.js'
 import { todoApi } from '@/api/todo'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 
 const router = useRouter()
@@ -524,125 +480,83 @@ function gotoSource(task) {
   if (task?.source_url) router.push(task.source_url)
 }
 
-// ------- 任务邮件（通知/催办） -------
-const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
-function invalidEmails(raw) {
-  if (!raw) return []
-  return raw
-    .split(/[,;，；\s]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((s) => !EMAIL_RE.test(s))
+// ------- 统一邮件发送弹窗（任务邮件 / 需求催办） -------
+const mailDialogVisible = ref(false)
+const mailDialogTitle = ref('发送邮件')
+const mailDialogTo = ref([])
+const mailDialogCc = ref([])
+const mailDialogSubject = ref('')
+const mailDialogBody = ref('')
+// 'task' | 'urge'，决定 customSend 调用哪个后端接口
+const mailDialogMode = ref('task')
+const mailDialogContext = ref({})
+
+async function mailDialogSendFn(payload) {
+  if (mailDialogMode.value === 'task') {
+    const ctx = mailDialogContext.value
+    return sendTaskEmail({
+      tasks: (ctx.tasks || []).map((t) => ({ source: t.source, source_id: t.source_id })),
+      to: (payload.to || []).join(', '),
+      cc: (payload.cc || []).length ? (payload.cc || []).join(', ') : null,
+      subject: payload.subject,
+      body: payload.body,
+      send_type: ctx.send_type,
+      operator: 'pmwb',
+    })
+  }
+  const ctx = mailDialogContext.value
+  return sendReminder({
+    req_id: ctx.req_id,
+    req_name: ctx.req_name,
+    to: (payload.to || []).join(', '),
+    cc: (payload.cc || []).length ? (payload.cc || []).join(', ') : null,
+    recipient_name: ctx.recipient_name,
+    subject: payload.subject,
+    body: payload.body,
+    operator: 'pmwb',
+  })
 }
 
-const emailDialogVisible = ref(false)
-const emailSending = ref(false)
-const emailForm = reactive({ tasks: [], to: '', cc: '', subject: '', body: '', send_type: 'urge' })
-const emailTo = ref([])
-const emailCc = ref([])
-const urgeForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
-const urgeTo = ref([])
-const urgeCc = ref([])
+function handleMailSuccess() {
+  mailDialogVisible.value = false
+  if (mailDialogMode.value === 'task') {
+    selectedTasks.value = []
+  } else {
+    loadUrgeGroups()
+    loadStats()
+  }
+}
 
 async function openTaskEmail(rows, sendType) {
   if (!rows.length) return
-  emailForm.tasks = rows.slice()
-  emailForm.send_type = sendType
-  emailTo.value = []
-  emailCc.value = []
+  mailDialogMode.value = 'task'
+  mailDialogTitle.value = sendType === 'urge' ? '发送催办邮件' : '发送通知邮件'
   const first = rows[0]
-  emailForm.subject =
+  mailDialogSubject.value =
     (sendType === 'urge' ? '催办：' : '通知：') +
     (rows.length === 1 ? (first.title || '') : `${rows.length} 项待办任务`)
-  // 默认兜底正文（预览接口失败时使用）
-  emailForm.body =
+  mailDialogBody.value =
     sendType === 'urge'
       ? '各位：\n\n以下任务已到跟进节点，麻烦尽快处理并反馈进展，辛苦了！\n\n——产品经理工作台（PMWB）'
       : '各位：\n\n同步以下任务的当前情况，请知悉。\n\n——产品经理工作台（PMWB）'
-  // 按负责人姓名自动解析邮箱（排除"我"/未分配）
-  const names = [...new Set(
-    rows.map((t) => (t.owner || '').trim()).filter((n) => n && n !== '我' && n !== '未分配')
-  )].flatMap((n) => n.split(/[,;，；、\s]+/).filter(Boolean))
-  if (names.length) {
-    try {
-      const map = (await resolveTaskContacts([...new Set(names)])) || {}
-      const resolved = []
-      const missing = []
-      for (const n of new Set(names)) {
-        if (map[n]) resolved.push(map[n])
-        else missing.push(n)
-      }
-      emailTo.value = resolved
-      if (missing.length) {
-        ElMessage.warning(`以下负责人未在通讯录找到邮箱，请手动填写：${missing.join('、')}`)
-      }
-    } catch (e) {
-      console.error('解析收件人失败', e)
-    }
-  }
-  // 拉取后端模板化拼装的正文预览（所见即所得：标题/内容/责任人/完成时间）
-  try {
-    const res = await previewTaskEmail(
-      emailForm.tasks.map((t) => ({ source: t.source, source_id: t.source_id })),
-      sendType
-    )
-    if (res && res.success && res.body) emailForm.body = res.body
-  } catch (e) {
-    console.error('预览正文生成失败', e)
-  }
-  emailDialogVisible.value = true
-}
-
-function removeEmailTask(t) {
-  emailForm.tasks = emailForm.tasks.filter((x) => x.task_id !== t.task_id)
-}
-
-async function handleTaskEmailSend() {
-  if (!emailForm.tasks.length) {
-    ElMessage.warning('请至少保留一个关联任务')
-    return
-  }
-  emailForm.to = (emailTo.value || []).join(', ')
-  emailForm.cc = (emailCc.value || []).join(', ')
-  if (!emailForm.to || !emailForm.subject) {
-    ElMessage.warning('请填写收件人和主题')
-    return
-  }
-  const bad = [...invalidEmails(emailForm.to), ...invalidEmails(emailForm.cc)]
-  if (bad.length) {
-    ElMessage.warning(`收件人邮箱格式不正确：${bad.join('、')}`)
-    return
-  }
-  emailSending.value = true
-  try {
-    const res = await sendTaskEmail({
-      tasks: emailForm.tasks.map((t) => ({ source: t.source, source_id: t.source_id })),
-      to: emailForm.to,
-      cc: emailForm.cc || null,
-      subject: emailForm.subject,
-      body: emailForm.body,
-      send_type: emailForm.send_type,
-      operator: 'pmwb',
-    })
-    if (res && res.success) {
-      ElMessage.success('邮件发送成功')
-      emailDialogVisible.value = false
-      selectedTasks.value = []
-    } else {
-      ElMessage.warning(res?.message || '邮件发送失败')
-    }
-  } catch (e) {
-    console.error('任务邮件发送失败', e)
-  } finally {
-    emailSending.value = false
-  }
+  mailDialogContext.value = { tasks: rows.slice(), send_type: sendType }
+  // 预填负责人姓名（StaffSelect 会按姓名解析邮箱）
+  const names = [
+    ...new Set(
+      rows
+        .map((t) => (t.owner || '').trim())
+        .filter((n) => n && n !== '我' && n !== '未分配')
+        .flatMap((n) => n.split(/[,;，；、\s]+/).filter(Boolean)),
+    ),
+  ]
+  mailDialogTo.value = names
+  mailDialogCc.value = []
+  mailDialogVisible.value = true
 }
 
 // ------- 需求催办 Tab（沿用原催办中心逻辑） -------
 const urgeLoading = ref(false)
 const urgeGroups = ref([])
-const urgeDialogVisible = ref(false)
-const urgeSending = ref(false)
 
 async function loadUrgeGroups() {
   urgeLoading.value = true
@@ -652,30 +566,6 @@ async function loadUrgeGroups() {
     ElMessage.error(e.message || '获取待催办列表失败')
   } finally {
     urgeLoading.value = false
-  }
-}
-
-async function prefillUrgeRecipients(names) {
-  urgeForm.recipient_name = (names || []).join(', ')
-  urgeTo.value = []
-  urgeCc.value = []
-  const list = (names || []).filter(Boolean)
-  if (!list.length) return
-  try {
-    const map = (await resolveContacts(list)) || {}
-    const resolved = []
-    const missing = []
-    for (const n of list) {
-      const email = map[n] || map[n.trim()]
-      if (email) resolved.push(email)
-      else missing.push(n)
-    }
-    urgeTo.value = resolved
-    if (missing.length) {
-      ElMessage.warning(`以下 SA 未在邮件中心通讯录找到邮箱，请手动填写：${missing.join('、')}`)
-    }
-  } catch (e) {
-    console.error('解析收件人邮箱失败', e)
   }
 }
 
@@ -723,60 +613,33 @@ function openUrgeBatch(group) {
     ElMessage.warning('该组需求未分配 SA，无法自动解析收件人，请到需求管理指定 SA 后催办。')
     return
   }
-  urgeForm.req_id = group.items.map((i) => i.req_id).join('; ')
-  urgeForm.req_name = ''
-  urgeForm.subject = `催办：${group.sa_name} 负责的 ${group.count} 个需求评估`
-  urgeForm.body = buildUrgeBatchBody(group.sa_name, group.items)
-  prefillUrgeRecipients([group.sa_name])
-  urgeDialogVisible.value = true
+  mailDialogMode.value = 'urge'
+  mailDialogTitle.value = '发送催办邮件'
+  mailDialogSubject.value = `催办：${group.sa_name} 负责的 ${group.count} 个需求评估`
+  mailDialogBody.value = buildUrgeBatchBody(group.sa_name, group.items)
+  mailDialogContext.value = {
+    req_id: group.items.map((i) => i.req_id).join('; '),
+    req_name: '',
+    recipient_name: group.sa_name,
+  }
+  mailDialogTo.value = [group.sa_name]
+  mailDialogCc.value = []
+  mailDialogVisible.value = true
 }
 
 function openUrgeSingle(item) {
-  urgeForm.req_id = item.req_id
-  urgeForm.req_name = item.req_name
-  urgeForm.subject = `催办：${item.req_name || item.req_id}`
-  urgeForm.body = buildUrgeSingleBody(item)
-  prefillUrgeRecipients(item.sa_name ? [item.sa_name] : [])
-  urgeDialogVisible.value = true
-}
-
-async function handleUrgeSend() {
-  urgeForm.to = (urgeTo.value || []).join(', ')
-  urgeForm.cc = (urgeCc.value || []).join(', ')
-  if (!urgeForm.to || !urgeForm.subject) {
-    ElMessage.warning('请填写收件人和主题')
-    return
+  mailDialogMode.value = 'urge'
+  mailDialogTitle.value = '发送催办邮件'
+  mailDialogSubject.value = `催办：${item.req_name || item.req_id}`
+  mailDialogBody.value = buildUrgeSingleBody(item)
+  mailDialogContext.value = {
+    req_id: item.req_id,
+    req_name: item.req_name,
+    recipient_name: item.sa_name || '',
   }
-  const bad = [...invalidEmails(urgeForm.to), ...invalidEmails(urgeForm.cc)]
-  if (bad.length) {
-    ElMessage.warning(`收件人邮箱格式不正确：${bad.join('、')}（请填写真实邮箱）`)
-    return
-  }
-  urgeSending.value = true
-  try {
-    const res = await sendReminder({
-      req_id: urgeForm.req_id,
-      req_name: urgeForm.req_name,
-      to: urgeForm.to,
-      cc: urgeForm.cc,
-      recipient_name: urgeForm.recipient_name,
-      subject: urgeForm.subject,
-      body: urgeForm.body,
-      operator: 'pmwb',
-    })
-    if (res && res.success) {
-      ElMessage.success('催办邮件发送成功')
-      urgeDialogVisible.value = false
-      await loadUrgeGroups()
-      loadStats()
-    } else {
-      ElMessage.warning(res?.message || '催办邮件发送失败')
-    }
-  } catch (e) {
-    console.error('催办邮件发送失败', e)
-  } finally {
-    urgeSending.value = false
-  }
+  mailDialogTo.value = item.sa_name ? [item.sa_name] : []
+  mailDialogCc.value = []
+  mailDialogVisible.value = true
 }
 
 onMounted(() => {
@@ -864,11 +727,6 @@ onMounted(() => {
   display: flex;
   gap: 8px;
 }
-.task-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 .table-hint {
   font-size: 13px;
   color: #909399;
@@ -891,11 +749,5 @@ onMounted(() => {
 .sa-name {
   font-size: 16px;
   font-weight: 600;
-}
-.form-hint {
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.5;
-  margin-top: 4px;
 }
 </style>

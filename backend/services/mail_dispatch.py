@@ -134,6 +134,11 @@ def _render_mail(
     sc = get_scene(scene) if scene else MailScene("")
     sig_on = add_signature if add_signature is not None else sc.add_signature
 
+    # scene 模式下，前端 MailComposeDialog 把可编辑正文放在 variables.body；
+    # raw 场景需要将其提取为 raw_content，否则预览/发送正文为空
+    if not raw_content and variables:
+        raw_content = variables.get("body") or variables.get("content")
+
     use_templated = bool(template_id) or (sc.template_key and not sc.raw)
     body_html = ""
     rendered_subject = None

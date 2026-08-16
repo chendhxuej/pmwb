@@ -299,30 +299,26 @@
         <el-button @click="detailVisible = false">关闭</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="reminderVisible" title="发送催办邮件" width="600px">
-      <el-form :model="reminderForm" label-width="100px">
-        <el-form-item label="需求编号">
-          <el-input v-model="reminderForm.req_id" disabled />
-        </el-form-item>
-        <el-form-item label="收件人">
-          <StaffSelect v-model="reminderTo" multiple value-key="email" placeholder="选择人员自动带出邮箱，支持手输" />
-          <div class="form-hint">从基础数据中选择人员，自动带出邮箱；无邮箱时回退显示姓名。</div>
-        </el-form-item>
-        <el-form-item label="抄送">
-          <StaffSelect v-model="reminderCc" multiple value-key="email" placeholder="抄送人员" />
-        </el-form-item>
-        <el-form-item label="主题">
-          <el-input v-model="reminderForm.subject" />
-        </el-form-item>
-        <el-form-item label="正文">
-          <el-input v-model="reminderForm.body" type="textarea" :rows="6" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="reminderVisible = false">取消</el-button>
-        <el-button type="primary" :loading="reminderLoading" @click="handleReminderSend">发送</el-button>
-      </template>
-    </el-dialog>
+    <MailComposeDialog
+      v-model="reminderVisible"
+      title="发送催办邮件"
+      :default-to="reminderTo"
+      :default-cc="reminderCc"
+      :default-subject="reminderSubject"
+      :default-body="reminderBody"
+      value-key="email"
+      :custom-send="(payload) => sendReminder({
+        req_id: reminderReqId,
+        req_name: reminderReqName,
+        to: (payload.to || []).join(', '),
+        cc: (payload.cc || []).length ? (payload.cc || []).join(', ') : null,
+        recipient_name: reminderRecipientName,
+        subject: payload.subject,
+        body: payload.body,
+        operator: 'pmwb',
+      })"
+      @success="handleReminderSuccess"
+    />
 
     <el-dialog v-model="evalFormVisible" :title="evalForm.id ? '编辑团队评估' : '新增团队评估'" width="560px">
       <el-form :model="evalForm" label-width="110px">
@@ -362,6 +358,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import { knowledgeApi } from '@/api/knowledge.js'
@@ -370,7 +367,7 @@ import {
   getRequirementStats, getEvaluations, updateEvaluation,
   createEvaluation, deleteEvaluation
 } from '@/api/requirement.js'
-import { sendReminder, getReminderRecords, resolveContacts } from '@/api/reminder.js'
+import { sendReminder, getReminderRecords } from '@/api/reminder.js'
 
 const searchFields = [
   { name: 'keyword', label: '关键字', type: 'input', placeholder: '编号/名称/提出人' },
@@ -464,7 +461,6 @@ const statsItems = computed(() => [
 const dialogVisible = ref(false)
 const detailVisible = ref(false)
 const reminderVisible = ref(false)
-const reminderLoading = ref(false)
 const evalFormVisible = ref(false)
 const evalForm = reactive({
   req_id: '', req_name: '', id: null,
@@ -477,7 +473,11 @@ const rules = {
 }
 const detail = ref({})
 const reminderRecords = ref([])
-const reminderForm = reactive({ req_id: '', req_name: '', to: '', cc: '', recipient_name: '', subject: '', body: '' })
+const reminderReqId = ref('')
+const reminderReqName = ref('')
+const reminderSubject = ref('')
+const reminderBody = ref('')
+const reminderRecipientName = ref('')
 const reminderTo = ref([])
 const reminderCc = ref([])
 
@@ -795,48 +795,6 @@ async function fetchReminderRecords(reqId) {
   }
 }
 
-// 严格邮箱正则（ASCII 本地名），与后端校验保持一致
-const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
-
-function validateEmailsField(raw) {
-  if (!raw) return []
-  return raw
-    .split(/[,;，；\s]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((s) => !EMAIL_RE.test(s))
-}
-
-// 按 SA 姓名从统一邮件中心通讯录解析真实邮箱并预填收件人
-async function prefillRecipients(names) {
-  reminderForm.recipient_name = (names || []).join(', ')
-  reminderTo.value = []
-  reminderCc.value = []
-  const list = (names || []).filter(Boolean)
-  if (!list.length) return
-  try {
-    const res = await resolveContacts(list)
-    // 注意：request.js 拦截器在 code===0 时已返回 data.data（即邮箱映射对象本身），
-    // res 已经是 {姓名: 邮箱} 映射，不要再取 res.data（会是 undefined）。
-    const map = res || {}
-    const resolved = []
-    const missing = []
-    for (const n of list) {
-      const email = map[n] || map[n.trim()]
-      if (email) resolved.push(email)
-      else missing.push(n)
-    }
-    reminderTo.value = resolved
-    if (missing.length) {
-      ElMessage.warning(
-        `以下 SA 未在邮件中心通讯录找到邮箱，请手动填写真实邮箱或先在邮件中心添加：${missing.join('、')}`
-      )
-    }
-  } catch (e) {
-    console.error('解析收件人邮箱失败', e)
-  }
-}
-
 function buildDefaultReminderBody(req, systemName, saName) {
   const salutation = saName
     ? `${saName}（${systemName || '相关'}团队）：`
@@ -886,25 +844,27 @@ async function aggregateSaRecipients(reqId) {
 
 // 需求级催办：自动获取该需求下全部系统的对应 SA，群发给所有团队
 async function handleReminderOpen(row) {
-  reminderForm.req_id = row.req_id
-  reminderForm.req_name = row.req_name
+  reminderReqId.value = row.req_id
+  reminderReqName.value = row.req_name
   const saNames = await aggregateSaRecipients(row.req_id)
   const names = saNames.length ? saNames : (row.sa_name ? [row.sa_name] : [])
-  await prefillRecipients(names)
+  reminderRecipientName.value = names.join(', ')
+  reminderTo.value = names
   reminderCc.value = []
-  reminderForm.subject = `催办：${row.req_name || row.req_id}`
-  reminderForm.body = buildDefaultReminderBody(row)
+  reminderSubject.value = `催办：${row.req_name || row.req_id}`
+  reminderBody.value = buildDefaultReminderBody(row)
   reminderVisible.value = true
 }
 
 // 团队级催办：按当前系统的对应 SA 精确发送
 async function handleReminderOpenEval(ev) {
-  reminderForm.req_id = ev.req_id
-  reminderForm.req_name = ev.req_name
+  reminderReqId.value = ev.req_id
+  reminderReqName.value = ev.req_name
   reminderCc.value = []
-  reminderForm.subject = `催办：${ev.req_name || ev.req_id}（${ev.system_name || '系统'}）`
-  reminderForm.body = buildDefaultReminderBody(ev, ev.system_name, ev.sa_name)
-  await prefillRecipients([ev.sa_name])
+  reminderSubject.value = `催办：${ev.req_name || ev.req_id}（${ev.system_name || '系统'}）`
+  reminderBody.value = buildDefaultReminderBody(ev, ev.system_name, ev.sa_name)
+  reminderRecipientName.value = ev.sa_name || ''
+  reminderTo.value = ev.sa_name ? [ev.sa_name] : []
   reminderVisible.value = true
 }
 
@@ -913,49 +873,10 @@ function handleReminderFromDetail() {
   handleReminderOpen(detail.value)
 }
 
-async function handleReminderSend() {
-  reminderForm.to = (reminderTo.value || []).join(', ')
-  reminderForm.cc = (reminderCc.value || []).join(', ')
-  if (!reminderForm.to || !reminderForm.subject) {
-    ElMessage.warning('请填写收件人和主题')
-    return
-  }
-  const bad = [
-    ...validateEmailsField(reminderForm.to),
-    ...validateEmailsField(reminderForm.cc),
-  ]
-  if (bad.length) {
-    ElMessage.warning(
-      `收件人邮箱格式不正确：${bad.join('、')}（请填写真实邮箱，可在邮件中心通讯录按姓名查询）`
-    )
-    return
-  }
-  reminderLoading.value = true
-  try {
-    const res = await sendReminder({
-      req_id: reminderForm.req_id,
-      req_name: reminderForm.req_name,
-      to: reminderForm.to,
-      cc: reminderForm.cc,
-      recipient_name: reminderForm.recipient_name,
-      subject: reminderForm.subject,
-      body: reminderForm.body,
-      operator: 'pmwb',
-    })
-    if (res && res.success) {
-      ElMessage.success('催办邮件发送成功')
-    } else {
-      ElMessage.warning(res?.message || '催办邮件发送失败')
-    }
-    reminderVisible.value = false
-    if (detailVisible.value) {
-      await fetchReminderRecords(reminderForm.req_id)
-    }
-  } catch (err) {
-    // 服务端已通过拦截器提示具体错误（如 400 校验失败），此处仅记录避免重复弹窗
-    console.error('催办邮件发送失败', err)
-  } finally {
-    reminderLoading.value = false
+async function handleReminderSuccess() {
+  reminderVisible.value = false
+  if (detailVisible.value) {
+    await fetchReminderRecords(reminderReqId.value)
   }
 }
 
@@ -966,12 +887,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.form-hint {
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.5;
-  margin-top: 4px;
-}
 .stats-row {
   display: flex;
   gap: 16px;
