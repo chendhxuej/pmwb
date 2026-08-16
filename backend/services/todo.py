@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import PmwbTodo, PmwbMeeting, PmwbMeetingAction, PmwbOperationIssue, PmwbRequirementExt
+from db.models import PmwbTodo, PmwbMeeting, PmwbOperationIssue, PmwbRequirementExt
 from schemas.todo import TodoStats
 from services.base import BaseService
 
@@ -13,11 +13,17 @@ def _build_related_title_map(db: Session, items: List[PmwbTodo]) -> Dict[int, Op
     """批量反查每条待办的关联对象标题（meeting/operation/ticket/requirement）。
 
     返回: todo_id -> related_title
+
+    字段约定：
+    - related_type=meeting  → related_id 存的是 PmwbMeeting.id（不是 PmwbMeetingAction.id，
+      见 services/meeting.py::sync_action_todo），按 meeting.title 反查。
+    - related_type in operation/ticket → related_id 存的是 issue_no，按工单标题反查。
+    - related_type=requirement → related_id 存的是 req_id，按需求名称反查。
     """
     result: Dict[int, Optional[str]] = {}
 
     # 按 related_type 分桶收集 related_id
-    meeting_action_ids: List[int] = []
+    meeting_ids: List[int] = []
     operation_issue_nos: List[str] = []
     requirement_ids: List[str] = []
 
@@ -29,7 +35,7 @@ def _build_related_title_map(db: Session, items: List[PmwbTodo]) -> Dict[int, Op
         todo_cache.append(t)
         if t.related_type == "meeting":
             try:
-                meeting_action_ids.append(int(t.related_id))
+                meeting_ids.append(int(t.related_id))
             except (TypeError, ValueError):
                 pass
         elif t.related_type in ("operation", "ticket"):
@@ -39,17 +45,12 @@ def _build_related_title_map(db: Session, items: List[PmwbTodo]) -> Dict[int, Op
         else:
             result[t.id] = None
 
-    # 1) meeting: action_id -> meeting_id -> meeting.title
-    action_to_meeting_title: Dict[int, Optional[str]] = {}
-    if meeting_action_ids:
-        actions = (
-            db.query(PmwbMeetingAction.id, PmwbMeetingAction.meeting_id, PmwbMeeting.title)
-            .join(PmwbMeeting, PmwbMeeting.id == PmwbMeetingAction.meeting_id)
-            .filter(PmwbMeetingAction.id.in_(meeting_action_ids))
-            .all()
-        )
-        for aid, _mid, mtitle in actions:
-            action_to_meeting_title[aid] = mtitle
+    # 1) meeting: meeting_id -> meeting.title（todo.related_id 是 PmwbMeeting.id）
+    meeting_title_map: Dict[int, Optional[str]] = {}
+    if meeting_ids:
+        rows = db.query(PmwbMeeting.id, PmwbMeeting.title).filter(PmwbMeeting.id.in_(meeting_ids)).all()
+        for mid, mtitle in rows:
+            meeting_title_map[mid] = mtitle
 
     # 2) operation/ticket: issue_no -> title
     issue_title_map: Dict[str, str] = {}
@@ -76,8 +77,8 @@ def _build_related_title_map(db: Session, items: List[PmwbTodo]) -> Dict[int, Op
     for t in todo_cache:
         if t.related_type == "meeting":
             try:
-                aid = int(t.related_id)
-                result[t.id] = action_to_meeting_title.get(aid)
+                mid = int(t.related_id)
+                result[t.id] = meeting_title_map.get(mid)
             except (TypeError, ValueError):
                 result[t.id] = None
         elif t.related_type in ("operation", "ticket"):

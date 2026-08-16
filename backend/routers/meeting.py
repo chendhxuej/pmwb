@@ -77,17 +77,76 @@ def delete_meeting_minutes_endpoint(meeting_id: int, db: Session = Depends(get_d
     return success(data=delete_meeting_minutes(db, meeting_id))
 
 
-@router.get("/actions/{action_id}")
-def get_action(action_id: int, db: Session = Depends(get_db)):
-    """根据行动项 ID 获取详情（含所属会议标题），供待办中心抽屉展示关联信息。"""
-    action = db.query(PmwbMeetingAction).filter(PmwbMeetingAction.id == action_id).first()
-    if not action:
-        raise HTTPException(status_code=404, detail=f"行动项 {action_id} 不存在")
-    meeting = db.query(PmwbMeeting).filter(PmwbMeeting.id == action.meeting_id).first()
+@router.get("/actions/{related_id}")
+def get_action(related_id: int, db: Session = Depends(get_db)):
+    """根据 ID 获取行动项详情或会议详情（兼容待办关联查询）。
+
+    - 待办中心 todo.related_id 实际存的是 PmwbMeeting.id（见 sync_action_todo），
+      所以这里同时支持两种查询：
+      1) 若 related_id 是 PmwbMeetingAction.id → 返回单个 action + 所属会议标题；
+      2) 否则按 PmwbMeeting.id 查会议，返回「会议详情 + 该会议下所有 actions」。
+
+    返回结构：
+    - kind='action' → {kind, action, meeting_id, meeting_title}
+    - kind='meeting' → {kind, meeting_id, meeting_no, meeting_title, meeting_type,
+                        start_time, end_time, location, host, summary,
+                        actions: [序列化 action, ...]}
+    """
+    def _serialize_action(action: PmwbMeetingAction, meeting: Optional[PmwbMeeting]) -> dict:
+        """把 PmwbMeetingAction 序列化成 MeetingActionItemOut 兼容结构（手动注入 meeting 信息）。"""
+        return {
+            "id": action.id,
+            "meeting_id": action.meeting_id,
+            "meeting_title": meeting.title if meeting else "",
+            "meeting_id_no": meeting.meeting_id if meeting else "",
+            "content": action.content,
+            "title": action.title,
+            "owner": action.owner,
+            "due_date": action.due_date.isoformat() if action.due_date else None,
+            "status": action.status,
+            "category": action.category,
+            "template": action.template,
+            "related_todo_id": action.related_todo_id,
+            "created_at": action.created_at.isoformat() if action.created_at else None,
+            "updated_at": action.updated_at.isoformat() if action.updated_at else None,
+        }
+
+    # 1) 优先按 action_id 查
+    action = db.query(PmwbMeetingAction).filter(PmwbMeetingAction.id == related_id).first()
+    if action:
+        meeting = db.query(PmwbMeeting).filter(PmwbMeeting.id == action.meeting_id).first()
+        return success(data={
+            "kind": "action",
+            "action": _serialize_action(action, meeting),
+            "meeting_id": meeting.id if meeting else None,
+            "meeting_title": meeting.title if meeting else None,
+        })
+
+    # 2) 回退按 meeting_id 查
+    meeting = db.query(PmwbMeeting).filter(PmwbMeeting.id == related_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail=f"行动项或会议 {related_id} 不存在")
+
+    actions = (
+        db.query(PmwbMeetingAction)
+        .filter(PmwbMeetingAction.meeting_id == meeting.id)
+        .order_by(PmwbMeetingAction.id.asc())
+        .all()
+    )
+    action_items = [_serialize_action(a, meeting) for a in actions]
     return success(data={
-        "action": MeetingActionItemOut.model_validate(action).model_dump(mode="json"),
-        "meeting_id": meeting.id if meeting else None,
-        "meeting_title": meeting.title if meeting else None,
+        "kind": "meeting",
+        "meeting_id": meeting.id,
+        "meeting_no": meeting.meeting_id,
+        "meeting_title": meeting.title,
+        "meeting_type": meeting.meeting_type,
+        "start_time": meeting.start_time.isoformat() if meeting.start_time else None,
+        "end_time": meeting.end_time.isoformat() if meeting.end_time else None,
+        "location": meeting.location,
+        "host": meeting.host,
+        "summary": meeting.summary,
+        "status": meeting.status,
+        "actions": action_items,
     })
 
 

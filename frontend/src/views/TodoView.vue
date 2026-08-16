@@ -349,40 +349,60 @@
       </div>
     </el-drawer>
 
-    <!-- 关联会议行动项详情抽屉（点击待办标题·会议类型时打开） -->
+    <!-- 关联会议详情抽屉（兼容传入 meeting_id 或 action_id，展示会议信息+该会议下所有行动项） -->
     <el-drawer
       v-model="maDrawerVisible"
-      :title="'会议行动项 · ' + (maDetail?.meeting_title || '')"
-      size="56%"
+      :title="'会议 · ' + (maDetail?.meeting_title || '')"
+      size="60%"
       destroy-on-close
     >
       <div v-loading="maLoading" class="wo-drawer-body">
-        <template v-if="maDetail && maDetail.action">
+        <template v-if="maDetail">
           <el-descriptions :column="2" border size="small" class="wo-desc">
-            <el-descriptions-item label="所属会议" :span="2">
+            <el-descriptions-item label="会议标题" :span="2">
               <span class="meeting-title-text">{{ maDetail.meeting_title || '—' }}</span>
             </el-descriptions-item>
-            <el-descriptions-item label="行动项标题" :span="2">
-              {{ maDetail.action.title || maDetail.action.content || '—' }}
-            </el-descriptions-item>
+            <el-descriptions-item label="会议编号">{{ maDetail.meeting_no || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="会议类型">{{ maDetail.meeting_type || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="开始时间">{{ fmtDateTime(maDetail.start_time) }}</el-descriptions-item>
+            <el-descriptions-item label="结束时间">{{ fmtDateTime(maDetail.end_time) }}</el-descriptions-item>
+            <el-descriptions-item label="主持人">{{ maDetail.host || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="地点">{{ maDetail.location || '—' }}</el-descriptions-item>
             <el-descriptions-item label="状态">
-              <StatusBadge module="meeting_action" :value="maDetail.action.status" />
+              <StatusBadge v-if="maDetail.status" module="meeting" :value="maDetail.status" />
+              <span v-else class="dim-text">—</span>
             </el-descriptions-item>
-            <el-descriptions-item label="负责人">{{ maDetail.action.owner || '—' }}</el-descriptions-item>
-            <el-descriptions-item label="截止日期">{{ fmtDate(maDetail.action.due_date) }}</el-descriptions-item>
-            <el-descriptions-item label="完成时间">{{ fmtDate(maDetail.action.completed_at) }}</el-descriptions-item>
           </el-descriptions>
 
-          <div class="wo-sec" v-if="maDetail.action.content">
-            <div class="wo-sec-title">行动项描述</div>
-            <div class="wo-desc-text">{{ maDetail.action.content }}</div>
+          <div class="wo-sec" v-if="maDetail.summary">
+            <div class="wo-sec-title">会议摘要</div>
+            <div class="wo-desc-text">{{ maDetail.summary }}</div>
           </div>
-          <div class="wo-sec" v-if="maDetail.action.result_note">
-            <div class="wo-sec-title">处理结果</div>
-            <div class="wo-desc-text">{{ maDetail.action.result_note }}</div>
+
+          <div class="wo-sec">
+            <div class="wo-sec-title">
+              行动项
+              <span class="dim-text">（共 {{ (maDetail.actions || []).length }} 条）</span>
+            </div>
+            <el-empty v-if="!(maDetail.actions || []).length" description="该会议暂无行动项" :image-size="60" />
+            <div v-else class="action-list">
+              <div
+                v-for="act in maDetail.actions"
+                :key="act.id"
+                class="action-item"
+              >
+                <div class="action-item-head">
+                  <StatusBadge module="meeting_action" :value="act.status" />
+                  <span class="action-owner">负责人：{{ act.owner || '—' }}</span>
+                  <span class="action-due" v-if="act.due_date">截止 {{ fmtDate(act.due_date) }}</span>
+                </div>
+                <div class="action-content">{{ act.title || act.content || '—' }}</div>
+                <div v-if="act.result_note" class="action-result">{{ act.result_note }}</div>
+              </div>
+            </div>
           </div>
         </template>
-        <el-empty v-else-if="!maLoading" description="未找到关联会议行动项" />
+        <el-empty v-else-if="!maLoading" description="未找到关联会议" />
       </div>
     </el-drawer>
   </div>
@@ -741,6 +761,7 @@ const woDetail = ref(null)
 const woLoading = ref(false)
 
 const fmtDate = (v) => (v ? String(v).slice(0, 10) : '—')
+const fmtDateTime = (v) => (v ? String(v).slice(0, 16).replace('T', ' ') : '—')
 
 const openWoDetail = async (relatedId) => {
   woLoading.value = true
@@ -770,24 +791,43 @@ const openWoDetail = async (relatedId) => {
   }
 }
 
-// 点击关联「会议」：在抽屉内展示行动项详情（不再 router.push('/meeting') 跳列表）
+// 点击关联「会议」：在抽屉内展示会议详情 + 该会议下所有行动项（不再 router.push 跳列表）
+// todo.related_id 实际存的是 PmwbMeeting.id（见 backend/services/meeting.py::sync_action_todo），
+// 后端 getAction 端点已自动兼容：优先按 action_id 查、未命中按 meeting_id 查。
 const maDrawerVisible = ref(false)
 const maDetail = ref(null)
 const maLoading = ref(false)
-const openMeetingActionDetail = async (actionId, fallbackTitle) => {
+const openMeetingActionDetail = async (relatedId, fallbackTitle) => {
   maLoading.value = true
   maDrawerVisible.value = true
   maDetail.value = null
   try {
-    const res = await meetingApi.getAction(actionId)
+    const res = await meetingApi.getAction(relatedId)
     const data = res?.data || res
+    if (!data) {
+      ElMessage.warning('未找到关联会议')
+      maDrawerVisible.value = false
+      return
+    }
+    // 兼容 kind=action（单条）与 kind=meeting（会议+actions）两种返回
+    const actions = data.actions || (data.action ? [data.action] : [])
     maDetail.value = {
-      action: data?.action || null,
-      meeting_id: data?.meeting_id,
-      meeting_title: data?.meeting_title || fallbackTitle,
+      kind: data.kind || 'meeting',
+      meeting_id: data.meeting_id ?? relatedId,
+      meeting_no: data.meeting_no,
+      meeting_title: data.meeting_title || fallbackTitle,
+      meeting_type: data.meeting_type,
+      start_time: data.start_time,
+      end_time: data.end_time,
+      location: data.location,
+      host: data.host,
+      summary: data.summary,
+      status: data.status,
+      actions,
     }
   } catch (e) {
-    ElMessage.error('加载会议行动项失败')
+    const msg = e?.response?.data?.message || e?.message || '加载会议信息失败'
+    ElMessage.error(`加载会议信息失败：${msg}`)
     maDrawerVisible.value = false
   } finally {
     maLoading.value = false
@@ -1258,6 +1298,54 @@ onMounted(async () => {
 .meeting-title-text {
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* 会议抽屉行动项列表 */
+.action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.action-item {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.action-item:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-elevated);
+}
+.action-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.action-owner { color: var(--text-secondary); }
+.action-due {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.action-content {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.action-result {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-subtle);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 /* 关联工单详情抽屉 */
