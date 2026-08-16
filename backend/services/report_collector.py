@@ -85,16 +85,40 @@ class ReportDataCollector:
             updated = _date_of(_g(r, "updated_at"))
 
             tickets = self.db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id == req_id).all()
-            go_live = None
+            ticket_go_live = None
             for t in tickets:
                 d = _date_of(_g(t, "go_live_date"))
-                if d and (go_live is None or d > go_live):
-                    go_live = d
+                if d and (ticket_go_live is None or d > ticket_go_live):
+                    ticket_go_live = d
             evals = self.db.query(PmwbRequirementEvaluation).filter(
                 PmwbRequirementEvaluation.req_id == req_id
             ).all()
             workload = sum(float(_g(e, "workload") or 0) for e in evals)
             risk_notes = "; ".join(str(_g(t, "risk_note") or "") for t in tickets if _g(t, "risk_note"))
+
+            # 权威上线日期：需求表 delivered_date（用户在「已上线」时手工填报的实际上线日期）优先，
+            # 回退开发工单 go_live_date（多工单取最晚）。delivered_date 是 AI 周报上线判断的事实依据，
+            # 仅依赖开发工单上线日会导致「已上线但工单未填上线日」的完结需求工单不被识别。
+            req_delivered = _date_of(_g(r, "delivered_date"))
+            go_live = req_delivered or ticket_go_live
+
+            # 先构造本行明细 dict（供 items / delivered_items / po_risk 复用，
+            # 修复此前在 delivered 分支引用未定义变量 item 的崩溃隐患）
+            item = {
+                "req_id": req_id,
+                "req_name": req_name,
+                "status": status,
+                "priority": priority,
+                "background": (_g(r, "background") or "")[:200],
+                "description": (_g(r, "description") or "")[:200],
+                "clarification": (_g(r, "clarification") or "")[:200],
+                "system_name": _g(r, "system_name") or "",
+                "sa_name": _g(r, "sa_name") or "",
+                "go_live": go_live.isoformat() if go_live else "",
+                "delivered_date": req_delivered.isoformat() if req_delivered else "",
+                "workload": workload,
+                "dev_status": [(_g(t, "status") or "") for t in tickets],
+            }
 
             # 本期新增/评估/启动开发/交付/进行中分桶
             if _in_range(created, start, end):
@@ -124,20 +148,7 @@ class ReportDataCollector:
                     "risk_note": risk_notes,
                 })
 
-            items.append({
-                "req_id": req_id,
-                "req_name": req_name,
-                "status": status,
-                "priority": priority,
-                "background": (_g(r, "background") or "")[:200],
-                "description": (_g(r, "description") or "")[:200],
-                "clarification": (_g(r, "clarification") or "")[:200],
-                "system_name": _g(r, "system_name") or "",
-                "sa_name": _g(r, "sa_name") or "",
-                "go_live": go_live.isoformat() if go_live else "",
-                "workload": workload,
-                "dev_status": [(_g(t, "status") or "") for t in tickets],
-            })
+            items.append(item)
         return {"items": items, "buckets": buckets, "delivered_items": delivered_items, "po_risk": po_risk}
 
     # ---- 运营支撑 ----
