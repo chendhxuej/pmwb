@@ -374,7 +374,9 @@ class TestTaskSendTemplateVariables:
         # tasks 用 template_data 的 HTML 列表，不被后端兜底覆盖
         assert rendered.get("tasks") == "<ul><li><b>T-E 任务测试</b>（负责人：张三）</li></ul>"
         assert rendered.get("sendType") == "urge"
-        assert rendered.get("body") == "编辑区自定义正文"
+        # body 传给 3210 前已由 Markdown 转 HTML，供模板 {{{body}}} 原始 HTML 插值
+        assert "编辑区自定义正文" in rendered.get("body", "")
+        assert rendered.get("body", "").startswith("<div")
 
     def test_send_notification_tasks_fallback(self, db, svc, monkeypatch):
         """T-E：无 template_data 时 tasks 回退后端 build_email_body 文本清单（旧调用兼容）。"""

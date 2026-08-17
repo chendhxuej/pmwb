@@ -194,12 +194,13 @@ NEW_TEMPLATES: list[dict] = [
 EXISTING_CHECKS: list[dict] = [
     {
         "type": "meeting_notice",
-        "expect_vars": ["meetingTopic", "meetingTime", "meetingLocation", "host"],
+        "expect_vars": ["meetingTopic", "meetingTime", "meetingLocation", "host", "body"],
         "sample": {
             "meetingTopic": "一网通产品需求评审会",
             "meetingTime": "2026-08-17 14:00",
             "meetingLocation": "会议室A",
             "host": "陈大海",
+            "body": "## 会议信息\n- **参会人**：张三、李四\n## 会议议题\n（待补充）",
         },
     },
     {
@@ -381,7 +382,13 @@ def main() -> int:
             print(f"  [FAIL] {chk['type']}: 3210 中不存在")
             errors.append(f"{chk['type']}: 模板缺失")
             continue
-        missing = [v for v in chk["expect_vars"] if "{{" + v + "}}" not in (found.get("bodyTemplate") or "")]
+        tpl_body = found.get("bodyTemplate") or ""
+        missing = []
+        for v in chk["expect_vars"]:
+            has_escaped = "{{" + v + "}}" in tpl_body
+            has_raw = "{{{" + v + "}}}" in tpl_body
+            if not has_escaped and not has_raw:
+                missing.append(v)
         if missing:
             print(f"  [WARN] {chk['type']}: 模板缺少变量 {missing}")
         else:

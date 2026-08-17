@@ -144,8 +144,9 @@ def test_send_reminder_with_template_data(client: TestClient, db: Session, monke
     assert "需求前期评估" in rendered["items"]
     # items 优先取 template_data，不被 body（编辑正文）覆盖
     assert "编辑区自定义正文" not in rendered["items"]
-    # 编辑正文仍在 body 变量（供 fallback 兜底）
-    assert rendered["body"] == "编辑区自定义正文"
+    # 编辑正文在 body 变量，传给 3210 前已由 Markdown 转 HTML（供 {{{body}}} 原始 HTML 插值）
+    assert "编辑区自定义正文" in rendered["body"]
+    assert rendered["body"].startswith("<div")
 
 
 def test_send_reminder_items_fallback_body(client: TestClient, db: Session, monkeypatch):

@@ -141,7 +141,12 @@ def _render_templated(
             raise RuntimeError(f"未找到 {sc.template_key} 类型模版")
         default = next((t for t in items if t.get("isDefault")), items[0])
         tpl_id = default["id"]
-    rendered = client.render_template(tpl_id, {"variables": variables or template_data or {}})
+    # 预处理：body / content 从 Markdown 转 HTML，供模板 {{{var}}} 原始 HTML 插值
+    vars_copy = dict(variables or template_data or {})
+    for key in ("body", "content"):
+        if key in vars_copy and vars_copy[key]:
+            vars_copy[key] = markdown_to_email_html(vars_copy[key], inject_signature=False)
+    rendered = client.render_template(tpl_id, {"variables": vars_copy})
     subject = rendered.get("subject", "")
     body = rendered.get("body", "")
     fmt = rendered.get("bodyFormat", "html")
