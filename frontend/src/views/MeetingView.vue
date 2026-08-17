@@ -699,6 +699,7 @@
       :default-subject="mailSubject"
       :default-body="mailBody"
       :scene="mailType === 'notice' ? 'meeting_notice' : 'meeting_minutes'"
+      :variables="mailVariables"
       @send="onComposeSend"
     />
   </div>
@@ -1273,7 +1274,20 @@ const mailTo = ref([]) // string[]: 邮箱优先，无邮箱回退姓名
 const mailCcList = ref([]) // string[]
 const mailSubject = ref('')
 const mailBody = ref('')
+const mailVariables = ref({})
 const sendingMail = ref(false)
+
+/* 与后端 _build_meeting_variables 对齐的日期格式化（preview=实发） */
+const fmtBackendDateTime = (v) => {
+  const d = toDate(v)
+  return d && !isNaN(d.getTime())
+    ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    : ''
+}
+const fmtBackendDate = (v) => {
+  const d = toDate(v)
+  return d && !isNaN(d.getTime()) ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : ''
+}
 
 const fmtFullDateTime = (v) => {
   const d = toDate(v)
@@ -1378,12 +1392,32 @@ const buildMinutesBody = (m) => {
 const applyTemplate = () => {
   const m = detailMeeting.value
   if (!m) return
+  const names = (m.attendees || []).map((a) => a.name).filter(Boolean)
   if (mailType.value === 'notice') {
     mailSubject.value = `【会议通知】${m.title} · ${formatDateTime(m.start_time)}`
     mailBody.value = buildNoticeBody(m)
+    mailVariables.value = {
+      meetingTopic: m.title || '',
+      meetingTime: fmtBackendDateTime(m.start_time),
+      meetingLocation: m.location || '待定',
+      host: m.host || '',
+    }
   } else {
     mailSubject.value = `【会议纪要】${m.title} · ${formatDateTime(m.start_time)}`
     mailBody.value = buildMinutesBody(m)
+    const actionHtml = (m.actions || []).length
+      ? '<ul>' + (m.actions || []).map((a) => {
+          const due = a.due_date ? `（截止 ${a.due_date}）` : ''
+          return `<li><strong>${a.owner || '待定'}</strong>：${a.content || '—'}${due}</li>`
+        }).join('') + '</ul>'
+      : ''
+    mailVariables.value = {
+      meetingTitle: m.title || '',
+      meetingDate: fmtBackendDate(m.start_time),
+      attendees: names.join('、') || '待定',
+      content: mailBody.value, // preview 用 Markdown 原文；实发时后端转 HTML
+      actionItems: actionHtml,
+    }
   }
 }
 
