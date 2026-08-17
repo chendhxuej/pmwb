@@ -318,3 +318,82 @@ class TestTaskCenterSourceUrl:
             assert len(item.source_url) > len(item.source_url.split("?")[0]) + 1, (
                 f"{item.source} source_url query is empty: {item.source_url}"
             )
+
+
+# ---------------------------------------------------------------------------
+# T-E：task_center_notify/urge 模板变量契约
+# ---------------------------------------------------------------------------
+
+class TestTaskSendTemplateVariables:
+    """T-E：send_notification 模板变量——template_data 透传 + 无 template_data 回退兼容。"""
+
+    def _mock_templates(self, monkeypatch, rendered):
+        def fake_list(self, template_type):
+            return [{"id": "tpl-tc", "type": template_type, "isDefault": True}]
+
+        def fake_render(self, template_id, data):
+            rendered.update(data.get("variables", {}))
+            v = data.get("variables", {})
+            return {
+                "subject": "任务催办提醒" if v.get("sendType") == "urge" else "任务同步通知",
+                "body": f"<div>{v.get('tasks')}</div>",
+                "bodyFormat": "html",
+            }
+
+        monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.list_templates", fake_list)
+        monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.render_template", fake_render)
+        monkeypatch.setattr(
+            "services.mail_dispatch.EmailCenterClient.send_email",
+            lambda self, **kw: {"ok": True, "data": {"status": "ok"}},
+        )
+
+    def test_send_notification_with_template_data(self, db, svc, monkeypatch):
+        """T-E：前端 template_data(tasks HTML+sendType) 进入模板变量，body 保留编辑内容。"""
+        from schemas.task_center import TaskRef, TaskSendRequest
+
+        todo = TodoFactory.create(db, title="T-E 任务测试")
+        db.commit()
+        db.refresh(todo)
+
+        rendered: dict = {}
+        self._mock_templates(monkeypatch, rendered)
+        req = TaskSendRequest(
+            tasks=[TaskRef(source="todo", source_id=str(todo.id))],
+            to="owner@example.com",
+            subject="催办：T-E 任务测试",
+            body="编辑区自定义正文",
+            send_type="urge",
+            template_data={
+                "tasks": "<ul><li><b>T-E 任务测试</b>（负责人：张三）</li></ul>",
+                "sendType": "urge",
+                "body": "编辑区自定义正文",
+            },
+        )
+        result = svc.send_notification(db, req)
+        assert result["success"] is True
+        # tasks 用 template_data 的 HTML 列表，不被后端兜底覆盖
+        assert rendered.get("tasks") == "<ul><li><b>T-E 任务测试</b>（负责人：张三）</li></ul>"
+        assert rendered.get("sendType") == "urge"
+        assert rendered.get("body") == "编辑区自定义正文"
+
+    def test_send_notification_tasks_fallback(self, db, svc, monkeypatch):
+        """T-E：无 template_data 时 tasks 回退后端 build_email_body 文本清单（旧调用兼容）。"""
+        from schemas.task_center import TaskRef, TaskSendRequest
+
+        todo = TodoFactory.create(db, title="T-E 回退测试")
+        db.commit()
+        db.refresh(todo)
+
+        rendered: dict = {}
+        self._mock_templates(monkeypatch, rendered)
+        req = TaskSendRequest(
+            tasks=[TaskRef(source="todo", source_id=str(todo.id))],
+            to="owner@example.com",
+            subject="通知：T-E 回退测试",
+            send_type="notify",
+        )
+        result = svc.send_notification(db, req)
+        assert result["success"] is True
+        # 无 template_data → 后端兜底文本清单进入 tasks 变量
+        assert "T-E 回退测试" in rendered.get("tasks", "")
+        assert rendered.get("sendType") == "notify"

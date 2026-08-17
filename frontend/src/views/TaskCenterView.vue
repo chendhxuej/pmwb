@@ -491,7 +491,7 @@ const mailDialogSubject = ref('')
 const mailDialogBody = ref('')
 // 'task' | 'urge'，决定 customSend 调用哪个后端接口
 const mailDialogMode = ref('task')
-// T-C：scene 模式变量——urge（需求催办）切 requirement_reminder 模板，task 保持 raw
+// T-E：scene 模式变量——task 切 task_center_notify/urge 模板，urge（需求催办）切 requirement_reminder 模板
 const mailDialogScene = ref('')
 const mailDialogVariables = ref({})
 const mailDialogContext = ref({})
@@ -507,6 +507,8 @@ async function mailDialogSendFn(payload) {
       body: payload.body,
       send_type: ctx.send_type,
       operator: 'pmwb',
+      // T-E：scene 模式下把模板变量透传后端（tasks HTML 列表），保证发送与预览同模板渲染
+      template_data: payload.variables || null,
     })
   }
   const ctx = mailDialogContext.value
@@ -533,12 +535,35 @@ function handleMailSuccess() {
   }
 }
 
+// T-E：构建任务清单 HTML（{{{tasks}}} 透传，3210 模板引擎不支持循环，由调用方格式化）
+function escapeHtmlText(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
+function buildTaskListHtml(rows) {
+  const items = (rows || [])
+    .map((t) => {
+      const title = escapeHtmlText(t.title || '（无标题）')
+      const owner = escapeHtmlText(t.owner || '未分配')
+      const due = escapeHtmlText(t.due_date || '')
+      const status = escapeHtmlText(t.status_label || t.status || '')
+      const dueText = due ? ` · 截止：${due}` : ''
+      const statusText = status ? ` · 状态：${status}` : ''
+      return `<li><b>${title}</b>（负责人：${owner}${dueText}${statusText}）</li>`
+    })
+    .join('')
+  return `<ul style="padding-left:20px;margin:8px 0;line-height:1.8;">${items}</ul>`
+}
+
 async function openTaskEmail(rows, sendType) {
   if (!rows.length) return
   mailDialogMode.value = 'task'
-  // 任务邮件保持 raw（正文由后端 task_center 按 send_type 渲染，T-E 再切 scene）
-  mailDialogScene.value = ''
-  mailDialogVariables.value = {}
+  // T-E：task 模式切 task_center_notify/urge 场景，正文由 3210 模板渲染（tasks HTML 列表）
+  mailDialogScene.value = sendType === 'urge' ? 'task_center_urge' : 'task_center_notify'
+  mailDialogVariables.value = {
+    tasks: buildTaskListHtml(rows),
+    sendType: sendType === 'urge' ? 'urge' : 'notify',
+  }
   mailDialogTitle.value = sendType === 'urge' ? '发送催办邮件' : '发送通知邮件'
   const first = rows[0]
   mailDialogSubject.value =

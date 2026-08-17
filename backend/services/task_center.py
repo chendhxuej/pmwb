@@ -33,7 +33,7 @@ from schemas.task_center import (
     TaskSendRequest,
     TaskStats,
 )
-from services.mail_dispatch import dispatch_email
+from services.mail_dispatch import _render_mail, dispatch_email
 from utils.dateflags import flag_due_date
 from utils.email import EmailCenterClient
 from utils.master_service import master_service_client
@@ -581,20 +581,31 @@ class TaskCenterService:
     def send_notification(self, db: Session, obj_in: TaskSendRequest) -> Dict[str, Any]:
         """发送任务通知/催办邮件，落 email_records（source=task-center）。
 
-        dry_run=True 时仅返回后端模板化拼装的正文（用于前端预览，所见即所得）。
-        正文优先使用前端传入（即预览所见），为空才由后端兜底生成。
+        dry_run=True 时仅返回模板渲染正文（用于前端预览，所见即所得）。
+        scene 模式（task_center_notify/urge）：3210 模板渲染正文；
+        模板变量优先取前端 template_data（tasks HTML 列表），缺失时后端兜底生成文本清单。
         """
         if not obj_in.tasks:
             raise ValidationException("请至少选择一个任务")
 
-        # 正文：优先使用前端传入（预览即最终发送），为空则后端兜底生成
-        if obj_in.body and obj_in.body.strip():
-            body = obj_in.body
-        else:
-            body = self.build_email_body(db, obj_in.tasks, obj_in.send_type)
+        scene = "task_center_urge" if obj_in.send_type == "urge" else "task_center_notify"
+        tdata = obj_in.template_data or {}
 
+        # 模板变量：tasks 列表（{{{tasks}}} 透传 HTML）+ sendType；body 承载可编辑正文（模板渲染降级时兜底）
+        variables: Dict[str, Any] = {
+            "tasks": tdata.get("tasks") or self.build_email_body(db, obj_in.tasks, obj_in.send_type),
+            "sendType": tdata.get("sendType") or obj_in.send_type,
+            "body": obj_in.body or tdata.get("body") or "",
+        }
+
+        # 预览：仅渲染模板，不校验收件人、不发送、不落库
         if obj_in.dry_run:
-            return {"success": True, "preview": True, "body": body}
+            rendered = _render_mail(
+                scene=scene,
+                variables=variables,
+                subject=obj_in.subject,
+            )
+            return {"success": True, "preview": True, "body": rendered["rendered_body"], "subject": rendered["subject"]}
 
         bad: List[str] = []
         _, invalid_to = split_and_validate_emails(obj_in.to or "")
@@ -617,7 +628,6 @@ class TaskCenterService:
                 break
 
         email_type = "pmwb_task_urge" if obj_in.send_type == "urge" else "pmwb_task_notify"
-        scene = "task_center_urge" if obj_in.send_type == "urge" else "task_center_notify"
 
         result = dispatch_email(
             db=db,
@@ -625,7 +635,8 @@ class TaskCenterService:
             cc=obj_in.cc,
             subject=obj_in.subject,
             scene=scene,
-            raw_content=body,
+            variables=variables,
+            raw_content=obj_in.body,
             email_type=email_type,
             req_id=";".join(f"{t.source}:{t.source_id}" for t in obj_in.tasks)[:64],
             req_name=(first_title or "任务中心邮件")[:255],

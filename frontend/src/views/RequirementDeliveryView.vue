@@ -257,6 +257,7 @@
       :default-subject="mailDialogSubject"
       :default-body="mailDialogBody"
       :scene="mailDialogScene"
+      :variables="mailDialogVariables"
       value-key="email"
     />
 
@@ -951,6 +952,8 @@ const mailDialogTo = ref([])
 const mailDialogSubject = ref('')
 const mailDialogBody = ref('')
 const mailDialogScene = ref('supervise_urge')
+// T-E：supervise_urge/sync 模板变量（复用工单 7 变量：no/title/category/handler/resolveDate/status/description）
+const mailDialogVariables = ref({})
 
 function buildReqSuperviseBody(row, scene = 'urge') {
   return [
@@ -981,6 +984,16 @@ function openSupervise(row, scene = 'urge') {
   mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
   mailDialogTo.value = String(row.sa_name || row.owner || row.proposer || '').split(',').filter(Boolean)
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.req_name || row.req_id || '')
+  // T-E：模板变量——正文由 3210 supervise_urge/sync 模板渲染，字段按需求语义映射
+  mailDialogVariables.value = {
+    no: row.req_id || '',
+    title: row.req_name || row.title || '',
+    category: row.system_name || '需求',
+    handler: row.owner || row.sa_name || '',
+    resolveDate: row.ext?.version_required_date || row.ext?.delivered_date || '',
+    status: row.ext?.status || row.status || '',
+    description: row.description || row.background || '（无）',
+  }
   mailDialogBody.value = buildReqSuperviseBody(row, scene)
   mailDialogScene.value = scene === 'sync' ? 'supervise_sync' : 'supervise_urge'
   mailDialogVisible.value = true
