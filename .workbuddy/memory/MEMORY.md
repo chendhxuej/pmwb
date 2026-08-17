@@ -20,12 +20,15 @@
 - 前端 basicData.js 路径坑：basic-data 类请求须相对路径 `'basic-data/...'`（无前导 `/`），否则 axios 丢 /api/v1 前缀；人员数据唯一源是 8001 中台。
 - 抽屉草稿：composables/useDrawerDraft.js 统一 localStorage。
 
-## 架构整改：邮件统一治理（核心，2026-08-16 规划）
-- **设计意图**：所有发邮件触点走 `services/mail_dispatch.dispatch_email`（场景注册表 SCENES），正文经 `utils/markdown_mail.markdown_to_email_html`+统一签名，落库 EmailRecord。预览端点 POST /api/v1/mail-dispatch/preview。
-- **现状失真（已查证）**：实际只有 meeting.py 走了门面；reminder/plugin/work_report/task_center/supervise 5 处**绕过门面直连** EmailCenterClient → 统一签名/HTML 样式/落库只在会议生效（周报·督办更不写 email_records）；前端 4 套预览分裂、周报预览≠实发。
-- **已确认决策（写进计划文件）**：① 模板以 3210 服务端为事实源（按 type 渲染、运营零代码改文案）；② 全量收口（5 处迁门面 + 前端 4 套预览收敛为 1 个 MailComposeDialog）。计划：C:\Users\chend\.workbuddy\plans\quantum-nebula-newton.md。
-- 默认签名 settings.EMAIL_SIGNATURE、本人 settings.SELF_NAME 在 core/config.py；3210 无签名概念，签名由 PMWB 内联注入。
-- 催办/逾期单一来源：utils/dateflags.py。会议行动项分流：owner==SELF_NAME 建个人待办，否则走 action_dispatch 邮件（见 memory 旧条目细节）。会议收件人兼容「姓名/邮箱」，非邮箱经 MasterServiceClient.resolve_staff_emails。
+## 架构整改：邮件统一治理（核心，2026-08-16 规划，P0-P2 已完成 8/17）
+- **设计意图**：所有发邮件触点走 `services/mail_dispatch.dispatch_email`（场景注册表 SCENES 12 场景），正文经 `utils/markdown_mail.markdown_to_email_html`+统一签名，落库 EmailRecord。预览端点 POST /api/v1/mail-dispatch/preview，发送端点 POST /api/v1/mail-dispatch/send。
+- **P0（8/16 完成）**：后端 5 处 bypass（reminder/plugin/work_report/task_center/supervise）迁入 dispatch_email 门面。
+- **P1（8/16 完成 commit 857c07c）**：前端 4 套预览弹窗收敛为 MailComposeDialog 统一组件（MeetingActionsView/WorkReportView/TaskCenterView/RequirementView）。
+- **P2（8/17 完成 commit d8edf86）**：运营模块收口——WorkOrderView/RequirementDeliveryView 删除 SuperviseDialog，接入 MailComposeDialog。supervise_sync/urge 改 raw=True（3210 无 ticket_sync/ticket_urge 模板，原 template_key 指向不存在模板导致正文为空）。
+- **模板设计方案（8/17）**：docs/邮件场景模板设计方案.md。三阶段：Phase1 启用已有 3210 模板（meeting_notice/task_reminder/requirement_reminder），Phase2 新建 7 个 3210 模板，Phase3 work_report/plugin 保持 raw。变量统一 camelCase。
+- **现状（待改造）**：12 场景全部 raw=True，3210 的 5 个模板无一被引用。前端 6 个 .vue 文件各自 buildBody()。
+- 默认签名 settings.EMAIL_SIGNATURE_MAP={"default":EMAIL_SIGNATURE}、本人 settings.SELF_NAME 在 core/config.py；3210 无签名概念，签名由 PMWB 内联注入（inject_signature_inline）。
+- 催办/逾期单一来源：utils/dateflags.py。会议收件人兼容「姓名/邮箱」，非邮箱经 MasterServiceClient.resolve_staff_emails。统一 send 端点 _resolve_recipients 也有姓名解析。
 
 ## 协同开发/git 安全铁律
 - 禁 main 直开发：feature 分支（feature/<task-id>-<kebab>）→ Vicky2号审查合版。质量门禁：pytest+vitest+build+浏览器冒烟+审查+Grep。
