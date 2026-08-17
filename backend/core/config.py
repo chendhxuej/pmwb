@@ -23,9 +23,9 @@ class Settings(BaseSettings):
 
     # 邮件统一治理：本人标识（用于会议遗留任务归属分流）+ 默认邮件签名
     SELF_NAME: str = "陈大海"
-    EMAIL_SIGNATURE: str = "陈大海\n中国移动通信集团江苏有限公司 · 数智化部"
+    EMAIL_SIGNATURE: str = "陈大海\n中国移动通信集团江苏有限公司 · 数智化部\n13901581364"
     # 邮件签名档（v1 仅 default；后续可按 scene 的 signature_key 引用多档，P3 再做管理页）
-    EMAIL_SIGNATURE_MAP: dict = {"default": "陈大海\n中国移动通信集团江苏有限公司 · 数智化部"}
+    EMAIL_SIGNATURE_MAP: dict = {"default": "陈大海\n中国移动通信集团江苏有限公司 · 数智化部\n13901581364"}
     MASTER_SERVICE_URL: str = "http://localhost:8001"
     OBSIDIAN_VAULT_PATH: str = "D:\\项目\\知识图谱"
 

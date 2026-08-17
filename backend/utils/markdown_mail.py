@@ -85,18 +85,24 @@ def _sanitize(html_str: str) -> str:
     return bleach.clean(html_str, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
 
 
+_SYSTEM_NOTE = "备注：此邮件由产品经理个人工作台（PMWB）触发"
+
+
 def inject_signature_inline(html_str: str, signature: str | None) -> str:
-    """将多行纯文本签名渲染为内联 style 签名块（逐行转义，防止注入）。"""
+    """将多行纯文本签名渲染为内联 style 签名块，并在签名上方追加系统说明（上下空行）。"""
     if not signature:
         return html_str
     lines = [ln.strip() for ln in signature.splitlines() if ln.strip()]
     if not lines:
         return html_str
+    note = f'<p style="margin:2px 0;">{html.escape(_SYSTEM_NOTE)}</p>'
+    spacer = '<p style="margin:2px 0;">&nbsp;</p>'
     inner = "".join(f'<p style="margin:2px 0;">{html.escape(ln)}</p>' for ln in lines)
     sig = (
         f'<div style="margin-top:22px;padding-top:12px;'
         f'border-top:1px solid #e5e6eb;color:#4e5969;'
-        f'font-size:13px;line-height:1.6;">{inner}</div>'
+        f'font-size:13px;line-height:1.6;">'
+        f'{note}{spacer}{inner}</div>'
     )
     return html_str + sig
 
