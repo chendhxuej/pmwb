@@ -1179,7 +1179,7 @@ function buildSuperviseBody(row, scene = 'urge') {
     `| 类型 | ${typeLabel || ''} |`,
     `| 处理人 | ${row.handler || ''} |`,
     `| 计划完成日期 | ${row.resolve_date || ''} |`,
-    `| 当前状态 | ${row.status || ''} |`,
+    `| 当前状态 | ${statusBadgeOptions[row.status]?.label || row.status || ''} |`,
     '',
     '### 问题描述',
     row.situation_desc || row.description || '（无）',
@@ -1204,7 +1204,7 @@ const openSupervise = (row, scene = 'urge') => {
     category: issueTypeLabel(row.category, row.issue_type) || '',
     handler: row.handler || '',
     resolveDate: row.resolve_date || '',
-    status: row.status || '',
+    status: statusBadgeOptions[row.status]?.label || row.status || '',
     description: row.situation_desc || row.description || '（无）',
   }
   mailDialogBody.value = buildSuperviseBody(row, scene)

@@ -966,7 +966,7 @@ function buildReqSuperviseBody(row, scene = 'urge') {
     `| SA | ${row.sa_name || ''} |`,
     `| 负责人 | ${row.owner || ''} |`,
     `| 优先级 | ${row.ext?.priority || 'P2'} |`,
-    `| 当前状态 | ${row.ext?.status || ''} |`,
+    `| 当前状态 | ${statusLabel(row.ext?.status || row.status) || (row.ext?.status || row.status || '')} |`,
     `| 期望上线月份 | ${row.ext?.version_required_date || ''} |`,
     '',
     '### 需求描述',
@@ -991,7 +991,7 @@ function openSupervise(row, scene = 'urge') {
     category: row.system_name || '需求',
     handler: row.owner || row.sa_name || '',
     resolveDate: row.ext?.version_required_date || row.ext?.delivered_date || '',
-    status: row.ext?.status || row.status || '',
+    status: statusLabel(row.ext?.status || row.status) || (row.ext?.status || row.status || ''),
     description: row.description || row.background || '（无）',
   }
   mailDialogBody.value = buildReqSuperviseBody(row, scene)
