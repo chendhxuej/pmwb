@@ -222,6 +222,8 @@
     <MailComposeDialog
       v-model="mailDialogVisible"
       :title="mailDialogTitle"
+      :scene="mailDialogScene"
+      :variables="mailDialogVariables"
       :default-to="mailDialogTo"
       :default-cc="mailDialogCc"
       :default-subject="mailDialogSubject"
@@ -489,6 +491,9 @@ const mailDialogSubject = ref('')
 const mailDialogBody = ref('')
 // 'task' | 'urge'，决定 customSend 调用哪个后端接口
 const mailDialogMode = ref('task')
+// T-C：scene 模式变量——urge（需求催办）切 requirement_reminder 模板，task 保持 raw
+const mailDialogScene = ref('')
+const mailDialogVariables = ref({})
 const mailDialogContext = ref({})
 
 async function mailDialogSendFn(payload) {
@@ -512,7 +517,8 @@ async function mailDialogSendFn(payload) {
     cc: (payload.cc || []).length ? (payload.cc || []).join(', ') : null,
     recipient_name: ctx.recipient_name,
     subject: payload.subject,
-    body: payload.body,
+    body: payload.variables?.body || payload.body || '',
+    template_data: payload.variables || null,
     operator: 'pmwb',
   })
 }
@@ -530,6 +536,9 @@ function handleMailSuccess() {
 async function openTaskEmail(rows, sendType) {
   if (!rows.length) return
   mailDialogMode.value = 'task'
+  // 任务邮件保持 raw（正文由后端 task_center 按 send_type 渲染，T-E 再切 scene）
+  mailDialogScene.value = ''
+  mailDialogVariables.value = {}
   mailDialogTitle.value = sendType === 'urge' ? '发送催办邮件' : '发送通知邮件'
   const first = rows[0]
   mailDialogSubject.value =
@@ -608,12 +617,45 @@ function buildUrgeSingleBody(item) {
   ].join('\n')
 }
 
+// T-C：批量催办诉求（xqemail_reminder 模板 items 变量）
+function buildUrgeBatchItems(items) {
+  const lines = [
+    `以下 ${items.length} 个需求已到前期评估环节，请尽快完成每个需求的①前期评估（可行性、范围、依赖）②工作量初评（大概多少人天）和预计完成时间并反馈：`,
+    ``,
+  ]
+  items.forEach((it, i) => {
+    lines.push(`${i + 1}. [${it.req_id}] ${it.req_name}`)
+    lines.push(`   系统：${it.system_name || '未指定'} | 提出人：${it.proposer || '未知'}`)
+  })
+  return lines.join('\n')
+}
+
+// T-C：单条催办诉求（xqemail_reminder 模板 items 变量）
+function buildUrgeSingleItems(item) {
+  const lines = [
+    `该需求已到前期评估环节，请尽快完成以下事项并反馈：`,
+    `1. 需求前期评估（可行性、范围、依赖这些）；`,
+    `2. 工作量初评（大概要多少人天）和预计完成时间。`,
+  ]
+  if (item.system_name) lines.push(`负责系统：${item.system_name}`)
+  if (item.description) lines.push(`需求描述：${item.description}`)
+  return lines.join('\n')
+}
+
 function openUrgeBatch(group) {
   if (group.sa_name === '未分配') {
     ElMessage.warning('该组需求未分配 SA，无法自动解析收件人，请到需求管理指定 SA 后催办。')
     return
   }
   mailDialogMode.value = 'urge'
+  mailDialogScene.value = 'requirement_reminder'
+  mailDialogVariables.value = {
+    reqId: group.items.map((i) => i.req_id).join('; '),
+    reqName: `${group.sa_name} 负责的 ${group.count} 个需求评估`,
+    saName: group.sa_name,
+    proposeTime: '',
+    items: buildUrgeBatchItems(group.items),
+  }
   mailDialogTitle.value = '发送催办邮件'
   mailDialogSubject.value = `催办：${group.sa_name} 负责的 ${group.count} 个需求评估`
   mailDialogBody.value = buildUrgeBatchBody(group.sa_name, group.items)
@@ -629,6 +671,14 @@ function openUrgeBatch(group) {
 
 function openUrgeSingle(item) {
   mailDialogMode.value = 'urge'
+  mailDialogScene.value = 'requirement_reminder'
+  mailDialogVariables.value = {
+    reqId: item.req_id || '',
+    reqName: item.req_name || '',
+    saName: item.sa_name || '',
+    proposeTime: item.propose_time || item.send_datetime || '',
+    items: buildUrgeSingleItems(item),
+  }
   mailDialogTitle.value = '发送催办邮件'
   mailDialogSubject.value = `催办：${item.req_name || item.req_id}`
   mailDialogBody.value = buildUrgeSingleBody(item)

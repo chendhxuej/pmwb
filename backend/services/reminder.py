@@ -48,16 +48,18 @@ class ReminderService:
             )
 
         # 统一走邮件治理门面：统一渲染、签名、落库、发信
-        # T-B: requirement_reminder 模板化——xqemail_reminder 模板变量
-        # reqId/reqName/saName/proposeTime/items；saName/proposeTime 前端经 template_data 透传
+        # T-B/T-C: requirement_reminder 模板化——xqemail_reminder 模板变量
+        # reqId/reqName/saName/proposeTime/items；前端经 template_data 全量透传 variables：
+        #   items=催办诉求（模板消费），body=可编辑正文（模板兜底时用）
+        # 旧调用（无 template_data）回退 obj_in.body，保持兼容。
         tdata = obj_in.template_data or {}
         variables = {
-            "reqId": obj_in.req_id or "",
-            "reqName": obj_in.req_name or "",
+            "reqId": obj_in.req_id or tdata.get("reqId") or "",
+            "reqName": obj_in.req_name or tdata.get("reqName") or "",
             "saName": tdata.get("saName") or "",
             "proposeTime": tdata.get("proposeTime") or "",
-            "items": obj_in.body or "",
-            "body": obj_in.body or "",
+            "items": tdata.get("items") or obj_in.body or "",
+            "body": obj_in.body or tdata.get("body") or "",
         }
         result = dispatch_email(
             db=db,

@@ -302,6 +302,8 @@
     <MailComposeDialog
       v-model="reminderVisible"
       title="发送催办邮件"
+      scene="requirement_reminder"
+      :variables="reminderVariables"
       :default-to="reminderTo"
       :default-cc="reminderCc"
       :default-subject="reminderSubject"
@@ -314,7 +316,8 @@
         cc: (payload.cc || []).length ? (payload.cc || []).join(', ') : null,
         recipient_name: reminderRecipientName,
         subject: payload.subject,
-        body: payload.body,
+        body: payload.variables?.body || payload.body || '',
+        template_data: payload.variables || null,
         operator: 'pmwb',
       })"
       @success="handleReminderSuccess"
@@ -473,6 +476,7 @@ const rules = {
 }
 const detail = ref({})
 const reminderRecords = ref([])
+const reminderVariables = ref({})
 const reminderReqId = ref('')
 const reminderReqName = ref('')
 const reminderSubject = ref('')
@@ -795,6 +799,20 @@ async function fetchReminderRecords(reqId) {
   }
 }
 
+// T-C：催办诉求（xqemail_reminder 模板 items 变量，模板正文消费）
+function buildUrgeItems(req, systemName) {
+  const lines = [
+    `该需求已到前期评估环节，请尽快完成以下事项并反馈：`,
+    `1. 需求前期评估（可行性、范围、依赖这些）；`,
+    `2. 工作量初评（大概要多少人天）和预计完成时间。`,
+  ]
+  if (systemName) {
+    lines.push(`负责系统：${systemName}`)
+  }
+  return lines.join('\n')
+}
+
+// 编辑区默认正文（可编辑；3210 模板正常渲染时仅作为 fallback 兜底内容）
 function buildDefaultReminderBody(req, systemName, saName) {
   const salutation = saName
     ? `${saName}（${systemName || '相关'}团队）：`
@@ -852,6 +870,13 @@ async function handleReminderOpen(row) {
   reminderTo.value = names
   reminderCc.value = []
   reminderSubject.value = `催办：${row.req_name || row.req_id}`
+  reminderVariables.value = {
+    reqId: row.req_id || '',
+    reqName: row.req_name || '',
+    saName: names.join(', '),
+    proposeTime: row.propose_time || '',
+    items: buildUrgeItems(row),
+  }
   reminderBody.value = buildDefaultReminderBody(row)
   reminderVisible.value = true
 }
@@ -862,6 +887,13 @@ async function handleReminderOpenEval(ev) {
   reminderReqName.value = ev.req_name
   reminderCc.value = []
   reminderSubject.value = `催办：${ev.req_name || ev.req_id}（${ev.system_name || '系统'}）`
+  reminderVariables.value = {
+    reqId: ev.req_id || '',
+    reqName: ev.req_name || '',
+    saName: ev.sa_name || '',
+    proposeTime: ev.propose_time || ev.send_datetime || '',
+    items: buildUrgeItems(ev, ev.system_name),
+  }
   reminderBody.value = buildDefaultReminderBody(ev, ev.system_name, ev.sa_name)
   reminderRecipientName.value = ev.sa_name || ''
   reminderTo.value = ev.sa_name ? [ev.sa_name] : []

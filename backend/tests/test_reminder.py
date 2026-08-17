@@ -94,6 +94,95 @@ def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, mo
     assert record.recipient == "chen@example.com,zhao@example.com"
 
 
+def test_send_reminder_with_template_data(client: TestClient, db: Session, monkeypatch):
+    """T-C：前端 template_data 全量透传——saName/proposeTime/items 进入模板变量，items 优先于 body。"""
+    rendered: dict = {}
+
+    def fake_list(self, template_type):
+        return [{"id": "tpl-r", "type": template_type, "isDefault": True}]
+
+    def fake_render(self, template_id, data):
+        rendered.update(data.get("variables", {}))
+        v = data.get("variables", {})
+        return {
+            "subject": f"【需求催办】{v.get('reqName')} 请尽快处理",
+            "body": (
+                f"需求编码：{v.get('reqId')} 责任人：{v.get('saName')} "
+                f"提出时间：{v.get('proposeTime')} 催办内容：{v.get('items')}"
+            ),
+            "bodyFormat": "text",
+        }
+
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.list_templates", fake_list)
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.render_template", fake_render)
+    monkeypatch.setattr(
+        "services.mail_dispatch.EmailCenterClient.send_email",
+        lambda self, **kw: {"ok": True, "data": {"status": "ok"}},
+    )
+    payload = {
+        "req_id": "REQ-TDATA",
+        "req_name": "一网通报价工具优化",
+        "to": "sa@example.com",
+        "subject": "催办：一网通报价工具优化",
+        "body": "编辑区自定义正文",
+        "template_data": {
+            "reqId": "REQ-TDATA",
+            "reqName": "一网通报价工具优化",
+            "saName": "张三, 李四",
+            "proposeTime": "2026-08-10 14:30",
+            "items": "该需求已到前期评估环节，请尽快完成以下事项并反馈：\n1. 需求前期评估；\n2. 工作量初评。",
+            "body": "编辑区自定义正文",
+        },
+    }
+    response = client.post("/api/v1/reminders/send", json=payload)
+    assert response.status_code == 200
+    assert response.json()["code"] == 0
+    assert response.json()["data"]["success"] is True
+    # 模板变量正确消费 template_data 全量字段
+    assert rendered["saName"] == "张三, 李四"
+    assert rendered["proposeTime"] == "2026-08-10 14:30"
+    assert "需求前期评估" in rendered["items"]
+    # items 优先取 template_data，不被 body（编辑正文）覆盖
+    assert "编辑区自定义正文" not in rendered["items"]
+    # 编辑正文仍在 body 变量（供 fallback 兜底）
+    assert rendered["body"] == "编辑区自定义正文"
+
+
+def test_send_reminder_items_fallback_body(client: TestClient, db: Session, monkeypatch):
+    """T-C 兼容：旧调用无 template_data 时 items 回退 body，行为与模板化前一致。"""
+    rendered: dict = {}
+
+    def fake_list(self, template_type):
+        return [{"id": "tpl-r", "type": template_type, "isDefault": True}]
+
+    def fake_render(self, template_id, data):
+        rendered.update(data.get("variables", {}))
+        v = data.get("variables", {})
+        return {
+            "subject": f"【需求催办】{v.get('reqName')} 请尽快处理",
+            "body": f"催办内容：{v.get('items')}",
+            "bodyFormat": "text",
+        }
+
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.list_templates", fake_list)
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.render_template", fake_render)
+    monkeypatch.setattr(
+        "services.mail_dispatch.EmailCenterClient.send_email",
+        lambda self, **kw: {"ok": True, "data": {"status": "ok"}},
+    )
+    payload = {
+        "req_id": "REQ-FB",
+        "req_name": "回退测试",
+        "to": "sa@example.com",
+        "subject": "催办：回退测试",
+        "body": "旧调用纯正文",
+    }
+    response = client.post("/api/v1/reminders/send", json=payload)
+    assert response.status_code == 200
+    assert response.json()["code"] == 0
+    assert "旧调用纯正文" in rendered["items"]
+
+
 def test_send_reminder_failure(client: TestClient, db: Session, monkeypatch):
     _mock_templates(monkeypatch)
 
