@@ -147,7 +147,15 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <el-button link type="warning" @click="openSupervise(row)">督办</el-button>
+            <el-dropdown @command="(cmd) => openSupervise(row, cmd)">
+              <el-button link type="warning">督办<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="urge">催办</el-dropdown-item>
+                  <el-dropdown-item command="sync">同步通知</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
         </template>
       </el-table-column>
@@ -335,7 +343,15 @@
           <el-button v-if="detailRow?.status === 'closed'" type="success" :loading="sedimentRulesLoading" @click="sedimentRules">
             <el-icon><Connection /></el-icon><span>沉淀业务规则</span>
           </el-button>
-          <el-button type="primary" @click="openSupervise(detailRow)"><el-icon><Promotion /></el-icon><span>邮件督办</span></el-button>
+          <el-dropdown @command="(cmd) => openSupervise(detailRow, cmd)">
+            <el-button type="primary"><el-icon><Promotion /></el-icon><span>邮件督办</span><el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="urge">催办</el-dropdown-item>
+                <el-dropdown-item command="sync">同步通知</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </template>
     </el-drawer>
@@ -478,13 +494,15 @@
       </template>
     </el-dialog>
 
-    <!-- 邮件督办弹层（sup-3：统一走 /api/v1/supervise/ticket） -->
-    <SuperviseDialog
-      v-model="superviseVisible"
-      :ticket-type="'operation'"
-      :ticket-id="superviseIssue?.id"
-      :ticket-brief="superviseBrief"
-      :default-recipients="superviseDefaultRecipients"
+    <!-- 统一邮件弹窗（督办：催办 / 同步通知） -->
+    <MailComposeDialog
+      v-model="mailDialogVisible"
+      :title="mailDialogTitle"
+      :default-to="mailDialogTo"
+      :default-subject="mailDialogSubject"
+      :default-body="mailDialogBody"
+      :scene="mailDialogScene"
+      value-key="email"
       @success="recordSupervise"
     />
 
@@ -532,7 +550,7 @@ import { ElMessage } from 'element-plus'
 import { Plus, Edit, Promotion, RefreshRight, Connection, Document, ArrowDown, Download, UploadFilled } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
-import SuperviseDialog from '@/components/SuperviseDialog.vue'
+import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import { operationApi } from '@/api/operation'
@@ -1137,27 +1155,53 @@ const syncKnowledgeLinks = async (sourceId) => {
 // 详情页「已沉淀知识笔记」展示用：从 obsidian_path 解析文件名
 const noteTitle = (path) => (path || '').split('/').pop().replace(/\.md$/, '') || path
 
-// ---- 邮件督办（sup-3：统一走 /api/v1/supervise/ticket，由后端代理模板渲染与发送） ----
-const superviseVisible = ref(false)
-const superviseIssue = ref(null)
+// ---- 统一邮件弹窗（督办：催办 / 同步通知，走 MailComposeDialog 统一组件） ----
+const mailDialogVisible = ref(false)
+const mailDialogTitle = ref('发送督办邮件')
+const mailDialogTo = ref([])
+const mailDialogSubject = ref('')
+const mailDialogBody = ref('')
+const mailDialogScene = ref('supervise_urge')
+const _superviseIssue = ref(null)
 
-const superviseBrief = computed(() => {
-  const i = superviseIssue.value
-  if (!i) return ''
-  return `${i.issue_no ? i.issue_no + ' ' : ''}${i.title || ''}`
-})
+function buildSuperviseBody(row, scene = 'urge') {
+  const typeLabel = issueTypeLabel(row.category, row.issue_type)
+  return [
+    scene === 'urge' ? '## 催办通知' : '## 工单进展同步',
+    '',
+    '| 字段 | 内容 |',
+    '|------|------|',
+    `| 工单编号 | ${row.issue_no || row.id || ''} |`,
+    `| 标题 | ${row.title || ''} |`,
+    `| 类型 | ${typeLabel || ''} |`,
+    `| 处理人 | ${row.handler || ''} |`,
+    `| 计划完成日期 | ${row.resolve_date || ''} |`,
+    `| 当前状态 | ${row.status || ''} |`,
+    '',
+    '### 问题描述',
+    row.situation_desc || row.description || '（无）',
+    '',
+    '---',
+    scene === 'urge'
+      ? '请尽快处理该工单，如有疑问请及时沟通。'
+      : '请知悉该工单最新进展，如有疑问请及时沟通。',
+  ].join('\n')
+}
 
-const superviseDefaultRecipients = computed(() => (superviseIssue.value?.handler || '').split(',').filter(Boolean))
-
-const openSupervise = (row) => {
+const openSupervise = (row, scene = 'urge') => {
   if (!row) return
-  superviseIssue.value = row
-  superviseVisible.value = true
+  _superviseIssue.value = row
+  mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
+  mailDialogTo.value = (row.handler || '').split(',').filter(Boolean)
+  mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.issue_no || '')
+  mailDialogBody.value = buildSuperviseBody(row, scene)
+  mailDialogScene.value = scene === 'sync' ? 'supervise_sync' : 'supervise_urge'
+  mailDialogVisible.value = true
 }
 
 /** 发送成功后写入该工单督办记录（前端记录，因后端暂无督办记录存储字段） */
 const recordSupervise = () => {
-  const issue = superviseIssue.value
+  const issue = _superviseIssue.value
   if (!issue?.id) return
   const rec = {
     to: (issue.handler || '').split(',').filter(Boolean).join('、'),
@@ -1332,5 +1376,5 @@ onMounted(async () => {
 .dot-suspended { background: #909399; }
 
 
-/* 邮件督办（sup-3：弹窗由 SuperviseDialog 组件承载，样式随组件） */
+/* 邮件督办：统一走 MailComposeDialog 组件 */
 </style>

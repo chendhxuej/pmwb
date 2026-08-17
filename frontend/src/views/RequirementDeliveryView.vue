@@ -84,7 +84,15 @@
             <el-table-column label="操作" width="170" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openReqDialog(row)">编辑</el-button>
-                <el-button link type="warning" size="small" @click.stop="openSupervise(row)">督办</el-button>
+                <el-dropdown @command="(cmd) => openSupervise(row, cmd)">
+                  <el-button link type="warning" size="small">督办<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="urge">催办</el-dropdown-item>
+                      <el-dropdown-item command="sync">同步通知</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
                 <el-button link type="danger" size="small" @click.stop="removeReq(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -241,13 +249,15 @@
       </el-tab-pane>
     </el-tabs>
 
-    <!-- 邮件督办（sup-3：统一走 /api/v1/supervise/ticket） -->
-    <SuperviseDialog
-      v-model="superviseVisible"
-      ticket-type="requirement"
-      :ticket-id="superviseReq?.req_id"
-      :ticket-brief="superviseReqBrief"
-      :default-recipients="superviseDefaultRecipients"
+    <!-- 统一邮件弹窗（督办：催办 / 同步通知） -->
+    <MailComposeDialog
+      v-model="mailDialogVisible"
+      :title="mailDialogTitle"
+      :default-to="mailDialogTo"
+      :default-subject="mailDialogSubject"
+      :default-body="mailDialogBody"
+      :scene="mailDialogScene"
+      value-key="email"
     />
 
     <!-- ════════ 4步工作流抽屉 ════════ -->
@@ -867,7 +877,8 @@ import { formatDate, formatDateTime } from '@/utils/format'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
-import SuperviseDialog from '@/components/SuperviseDialog.vue'
+import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { knowledgeApi } from '@/api/knowledge.js'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import {
@@ -933,27 +944,46 @@ const reqForm = reactive({
   tags: '',
   personal_note: '',
 })
-// ---- 邮件督办（sup-3） ----
-const superviseVisible = ref(false)
-const superviseReq = ref(null)
+// ---- 统一邮件弹窗（督办：催办 / 同步通知，走 MailComposeDialog 统一组件） ----
+const mailDialogVisible = ref(false)
+const mailDialogTitle = ref('发送督办邮件')
+const mailDialogTo = ref([])
+const mailDialogSubject = ref('')
+const mailDialogBody = ref('')
+const mailDialogScene = ref('supervise_urge')
 
-const superviseReqBrief = computed(() => {
-  const r = superviseReq.value
-  if (!r) return ''
-  return `${r.req_id ? r.req_id + ' ' : ''}${r.req_name || r.title || ''}`
-})
+function buildReqSuperviseBody(row, scene = 'urge') {
+  return [
+    scene === 'urge' ? '## 需求催办通知' : '## 需求进展同步',
+    '',
+    '| 字段 | 内容 |',
+    '|------|------|',
+    `| 需求编号 | ${row.req_id || ''} |`,
+    `| 需求名称 | ${row.req_name || row.title || ''} |`,
+    `| SA | ${row.sa_name || ''} |`,
+    `| 负责人 | ${row.owner || ''} |`,
+    `| 优先级 | ${row.ext?.priority || 'P2'} |`,
+    `| 当前状态 | ${row.ext?.status || ''} |`,
+    `| 期望上线月份 | ${row.ext?.version_required_date || ''} |`,
+    '',
+    '### 需求描述',
+    row.description || row.background || '（无）',
+    '',
+    '---',
+    scene === 'urge'
+      ? '请尽快评估/处理该需求，如有疑问请及时沟通。'
+      : '请知悉该需求最新进展，如有疑问请及时沟通。',
+  ].join('\n')
+}
 
-const superviseDefaultRecipients = computed(() => {
-  const r = superviseReq.value
-  if (!r) return []
-  // 优先取 SA / 负责人，其次提案人
-  return String(r.sa_name || r.owner || r.proposer || '').split(',').filter(Boolean)
-})
-
-function openSupervise(row) {
+function openSupervise(row, scene = 'urge') {
   if (!row) return
-  superviseReq.value = row
-  superviseVisible.value = true
+  mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
+  mailDialogTo.value = String(row.sa_name || row.owner || row.proposer || '').split(',').filter(Boolean)
+  mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.req_name || row.req_id || '')
+  mailDialogBody.value = buildReqSuperviseBody(row, scene)
+  mailDialogScene.value = scene === 'sync' ? 'supervise_sync' : 'supervise_urge'
+  mailDialogVisible.value = true
 }
 
 function openReqDialog(row) {

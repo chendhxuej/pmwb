@@ -147,7 +147,7 @@ def test_render_mail_preview_equals_send_body(monkeypatch):
 
 
 def test_templated_scene_render_and_fallback(monkeypatch):
-    """supervise 场景走 3210 模板渲染；若 3210 不可用则降级。"""
+    """supervise 场景 raw 模式：variables.body 注入正文 + 签名；template_id 直接传参时走 3210 模板渲染。"""
     calls = {"render": 0, "send": 0}
 
     def fake_render(self, template_id, data):
@@ -169,30 +169,45 @@ def test_templated_scene_render_and_fallback(monkeypatch):
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "list_templates", fake_list)
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
 
+    # supervise_urge 是 raw 场景，正文来自 variables.body
     res = mail_dispatch.dispatch_email(
         to=["a@b.com"],
         scene="supervise_urge",
-        variables={"no": "T-001", "title": "测试工单"},
+        variables={"no": "T-001", "title": "测试工单", "body": "请尽快处理该工单。"},
     )
     assert res["success"] is True
-    assert calls["render"] >= 1
+    assert calls["render"] == 0  # raw 场景不调模板渲染
     assert calls["send"] == 1
-    assert "工单 #T-001" in res["subject"]
-    assert "测试工单" in res["rendered_body"]
+    assert "请尽快处理该工单" in res["rendered_body"]
     assert "陈大海" in res["rendered_body"]  # 统一签名注入
+
+    # template_id 直接传参时走 3210 模板渲染
+    res2 = mail_dispatch.dispatch_email(
+        to=["a@b.com"],
+        scene="supervise_urge",
+        template_id="tpl-1",
+        variables={"no": "T-001", "title": "测试工单"},
+    )
+    assert res2["success"] is True
+    assert calls["render"] >= 1
+    assert "工单 #T-001" in res2["subject"]
+    assert "测试工单" in res2["rendered_body"]
+    assert "陈大海" in res2["rendered_body"]
 
     # 3210 渲染失败时走 fallback markdown
     def fake_render_fail(self, template_id, data):
         raise RuntimeError("渲染服务不可用")
 
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "render_template", fake_render_fail)
-    res = mail_dispatch.dispatch_email(
+    res3 = mail_dispatch.dispatch_email(
         to=["a@b.com"],
         scene="supervise_urge",
-        variables={"no": "T-002", "title": "测试"},
+        template_id="tpl-1",
+        variables={"no": "T-002", "title": "测试", "body": "降级测试正文"},
     )
-    assert res["success"] is True
-    assert "陈大海" in res["rendered_body"]
+    assert res3["success"] is True
+    assert "降级测试正文" in res3["rendered_body"]
+    assert "陈大海" in res3["rendered_body"]
 
 
 def test_plugin_html_passthrough(monkeypatch):

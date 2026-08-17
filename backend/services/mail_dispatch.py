@@ -62,8 +62,9 @@ SCENES: dict[str, MailScene] = {
     "task_center_notify": MailScene("task_center_notify", email_type="pmwb_task_notify", source="task-center"),
     "task_center_urge": MailScene("task_center_urge", email_type="pmwb_task_urge", source="task-center"),
     "plugin": MailScene("plugin", email_type="xqemail_plugin", source="plugin"),
-    "supervise_sync": MailScene("supervise_sync", email_type="supervise_sync", source="pmwb_supervise", template_key="ticket_sync", raw=False),
-    "supervise_urge": MailScene("supervise_urge", email_type="supervise_urge", source="pmwb_supervise", template_key="ticket_urge", raw=False),
+    # supervise 场景：3210 无 ticket_sync/ticket_urge 模板，改为 raw 模式（前端构建正文）
+    "supervise_sync": MailScene("supervise_sync", email_type="supervise_sync", source="pmwb_supervise", raw=True),
+    "supervise_urge": MailScene("supervise_urge", email_type="supervise_urge", source="pmwb_supervise", raw=True),
 }
 
 
