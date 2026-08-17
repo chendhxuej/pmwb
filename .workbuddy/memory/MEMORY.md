@@ -20,13 +20,14 @@
 - 前端 basicData.js 路径坑：basic-data 类请求须相对路径 `'basic-data/...'`（无前导 `/`），否则 axios 丢 /api/v1 前缀；人员数据唯一源是 8001 中台。
 - 抽屉草稿：composables/useDrawerDraft.js 统一 localStorage。
 
-## 架构整改：邮件统一治理（核心，2026-08-16 规划，P0-P2 已完成 8/17）
+## 架构整改：邮件统一治理（核心，2026-08-16 规划，**P0-P2 + T-A~T-F 全部完成 8/17**）
 - **设计意图**：所有发邮件触点走 `services/mail_dispatch.dispatch_email`（场景注册表 SCENES 12 场景），正文经 `utils/markdown_mail.markdown_to_email_html`+统一签名，落库 EmailRecord。预览端点 POST /api/v1/mail-dispatch/preview，发送端点 POST /api/v1/mail-dispatch/send。
 - **P0（8/16 完成）**：后端 5 处 bypass（reminder/plugin/work_report/task_center/supervise）迁入 dispatch_email 门面。
 - **P1（8/16 完成 commit 857c07c）**：前端 4 套预览弹窗收敛为 MailComposeDialog 统一组件（MeetingActionsView/WorkReportView/TaskCenterView/RequirementView）。
-- **P2（8/17 完成 commit d8edf86）**：运营模块收口——WorkOrderView/RequirementDeliveryView 删除 SuperviseDialog，接入 MailComposeDialog。supervise_sync/urge 改 raw=True（3210 无 ticket_sync/ticket_urge 模板，原 template_key 指向不存在模板导致正文为空）。
-- **模板设计方案（8/17）**：docs/邮件场景模板设计方案.md。三阶段：Phase1 启用已有 3210 模板（meeting_notice/task_reminder/requirement_reminder），Phase2 新建 7 个 3210 模板，Phase3 work_report/plugin 保持 raw。变量统一 camelCase。
-- **现状（待改造）**：12 场景全部 raw=True，3210 的 5 个模板无一被引用。前端 6 个 .vue 文件各自 buildBody()。
+- **P2（8/17 完成 commit d8edf86）**：运营模块收口——WorkOrderView/RequirementDeliveryView 删除 SuperviseDialog，接入 MailComposeDialog。
+- **T-A~T-F（8/17 完成，12 场景模板化治理闭环）**：docs/邮件场景模板设计方案.md 状态 ✅。10 场景 raw=False 消费 3210 模板（meeting_notice/task_reminder/requirement_reminder 已有 + 7 新建：meeting_minutes/action_dispatch/action_supervise/supervise_urge/supervise_sync/task_center_notify/task_center_urge），work_report/plugin 保持 raw。提交链：T-A 168703e → T-B a5fedcf → T-C e39ee0c → T-D b48bf73 → T-E 9d4410d → T-F 文档/验证。
+- **模板变量铁律**：3210 引擎仅支持 `{{var}}`/`{{{var}}}`，无 if/each——列表变量调用方格式化（如 TaskCenterView buildTaskListHtml 转义后 {{{tasks}}} 透传）；催办/同步主题词用 sceneLabel 变量区分。variables.body 承载编辑区正文，仅模板渲染降级时兜底（_render_mail 降级优先级 variables.body > fallback_template）。
+- **task_center 特例**：发送走独立接口 /task-center/send（customSend），预览走 mail-dispatch/preview——两者同渲染逻辑；send_notification 组装 variables（tdata 优先回退 build_email_body），dry_run 走 _render_mail 保证预览=实发。
 - 默认签名 settings.EMAIL_SIGNATURE_MAP={"default":EMAIL_SIGNATURE}、本人 settings.SELF_NAME 在 core/config.py；3210 无签名概念，签名由 PMWB 内联注入（inject_signature_inline）。
 - 催办/逾期单一来源：utils/dateflags.py。会议收件人兼容「姓名/邮箱」，非邮箱经 MasterServiceClient.resolve_staff_emails。统一 send 端点 _resolve_recipients 也有姓名解析。
 
