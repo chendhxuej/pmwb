@@ -19,6 +19,8 @@
 - SQLite/MySQL 方言：日期区间用 naive datetime 上下界（>= day_start, < day_end），勿 cast(col,Date)。
 - 前端 basicData.js 路径坑：basic-data 类请求须相对路径 `'basic-data/...'`（无前导 `/`），否则 axios 丢 /api/v1 前缀；人员数据唯一源是 8001 中台。
 - 抽屉草稿：composables/useDrawerDraft.js 统一 localStorage。
+- 业务领域下拉统一走缓存：前端通过 `loadBusinessDomains(params)` 加载，`BusinessDomainSelect` 挂载时订阅刷新；管理页新增/编辑/停用后必须调用 `refreshBusinessDomains()` 广播刷新，确保所有使用业务领域的输入框实时同步最新定义。
+- 邮件模板变量状态字段必须转译：3210 模板只接收字符串，状态 value（如 `pending`/`processing`）禁止直接透传，须在前端调用侧用各视图已有的 label 映射函数/对象转成中文（如 `statusBadgeOptions[s]?.label`、`statusLabel(s)`）。
 
 ## 架构整改：邮件统一治理（核心，2026-08-16 规划，**P0-P2 + T-A~T-F 全部完成 8/17**）
 - **设计意图**：所有发邮件触点走 `services/mail_dispatch.dispatch_email`（场景注册表 SCENES 12 场景），正文经 `utils/markdown_mail.markdown_to_email_html`+统一签名，落库 EmailRecord。预览端点 POST /api/v1/mail-dispatch/preview，发送端点 POST /api/v1/mail-dispatch/send。

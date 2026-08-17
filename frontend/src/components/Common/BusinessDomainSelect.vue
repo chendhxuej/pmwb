@@ -4,6 +4,7 @@
     placeholder="选择业务领域"
     clearable
     filterable
+    :loading="loading"
     :disabled="disabled"
     style="width: 100%"
     @update:model-value="onSelect"
@@ -24,8 +25,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { basicDataApi } from '@/api/basicData.js'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { loadBusinessDomains, subscribeBusinessDomains } from '@/api/basicData.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -35,15 +36,19 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'change'])
 
 const domainTree = ref([])
-const loaded = ref(false)
+const loading = ref(false)
 
-const loadDomains = async () => {
-  if (loaded.value) return
+const DOMAIN_PARAMS = { tree: true }
+const DOMAIN_KEY = JSON.stringify(DOMAIN_PARAMS)
+
+const loadDomains = async (force = false) => {
+  loading.value = true
   try {
-    domainTree.value = await basicDataApi.getBusinessDomains({ tree: true })
-    loaded.value = true
+    domainTree.value = await loadBusinessDomains(DOMAIN_PARAMS, force)
   } catch {
     // 静默失败，选择器显示为空
+  } finally {
+    loading.value = false
   }
 }
 
@@ -52,5 +57,17 @@ const onSelect = (val) => {
   emit('change', val)
 }
 
-onMounted(loadDomains)
+let unsub = null
+onMounted(() => {
+  loadDomains()
+  unsub = subscribeBusinessDomains((key, data) => {
+    if (key === DOMAIN_KEY) {
+      domainTree.value = data
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (unsub) unsub()
+})
 </script>

@@ -100,7 +100,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { basicDataApi } from '@/api/basicData.js'
+import { basicDataApi, refreshBusinessDomains } from '@/api/basicData.js'
 
 // ── 数据 ──
 const domainTree = ref([])
@@ -202,6 +202,7 @@ const handleSave = async () => {
     }
     dialogVisible.value = false
     await loadData()
+    refreshBusinessDomains().catch(() => {})
   } catch (err) {
     ElMessage.error(err?.response?.data?.detail || err?.message || '保存失败')
   } finally {
@@ -215,6 +216,7 @@ const handleDelete = async (code) => {
     await basicDataApi.deleteBusinessDomain(code)
     ElMessage.success('已停用')
     await loadData()
+    refreshBusinessDomains().catch(() => {})
   } catch {
     ElMessage.error('停用失败')
   }

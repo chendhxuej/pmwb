@@ -225,7 +225,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { knowledgeApi } from '@/api/knowledge'
 import { obsidianApi } from '@/api/obsidian'
@@ -233,7 +233,7 @@ import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import ObsidianNoteDialog from '@/components/Common/ObsidianNoteDialog.vue'
 
 import KnowledgeItemLinker from '@/components/Common/KnowledgeItemLinker.vue'
-import { basicDataApi } from '@/api/basicData'
+import { loadBusinessDomains, subscribeBusinessDomains } from '@/api/basicData'
 import { formatDate } from '@/utils/format'
 
 /* ---------- 状态 ---------- */
@@ -261,20 +261,18 @@ const mainNoteDomain = ref('')
 const mainNoteDomains = ref([])
 const mainNoteLoading = ref(false)
 const mainNoteCreating = ref(false)
+let unsubDomains = null
 
 const openMainNote = async () => {
   mainNoteDomain.value = ''
   mainNoteVisible.value = true
-  if (!mainNoteDomains.value.length) {
-    mainNoteLoading.value = true
-    try {
-      const res = await basicDataApi.getBusinessDomains({ enabled: 1 })
-      mainNoteDomains.value = (res && (res.items || res)) || []
-    } catch (e) {
-      ElMessage.error('加载业务领域失败')
-    } finally {
-      mainNoteLoading.value = false
-    }
+  mainNoteLoading.value = true
+  try {
+    mainNoteDomains.value = await loadBusinessDomains({ enabled: 1 }, true)
+  } catch (e) {
+    ElMessage.error('加载业务领域失败')
+  } finally {
+    mainNoteLoading.value = false
   }
 }
 
@@ -531,6 +529,15 @@ onMounted(() => {
   loadItems()
   loadObsidianNotes()
   loadMeta()
+  unsubDomains = subscribeBusinessDomains((key, data) => {
+    if (key === JSON.stringify({ enabled: 1 })) {
+      mainNoteDomains.value = data
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (unsubDomains) unsubDomains()
 })
 </script>
 

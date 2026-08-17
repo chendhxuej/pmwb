@@ -93,6 +93,106 @@ export const basicDataApi = {
 }
 
 // ---------------------------------------------------------------------------
+// 业务领域模块级缓存（BusinessDomainSelect / 知识中心主笔记 / 管理页共享）
+// L1: 同组件实例 — 本组件 ref 更新
+// L2: 同前端实例 — subscribers 广播（同页面多个选择器 / 跨路由）
+// L3: 跨标签页   — BroadcastChannel
+// ---------------------------------------------------------------------------
+const domainCache = new Map()
+const domainPromise = new Map()
+const domainSubscribers = new Set()
+const domainKeys = new Set()
+
+// L3: BroadcastChannel 跨标签页广播
+const _domainBc =
+  typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel('pmwb-business-domains')
+    : null
+
+if (_domainBc) {
+  _domainBc.onmessage = (event) => {
+    if (event.data?.type === 'refresh') {
+      // 收到其他标签页的变更通知，静默刷新本地缓存
+      _refreshDomainCaches(true).catch(() => {})
+    }
+  }
+}
+
+function _domainKey(params) {
+  const sorted = Object.keys(params || {})
+    .sort()
+    .reduce((acc, k) => {
+      acc[k] = params[k]
+      return acc
+    }, {})
+  return JSON.stringify(sorted)
+}
+
+function _doLoadDomain(params, force) {
+  const key = _domainKey(params)
+  if (!force && domainCache.has(key)) return Promise.resolve(domainCache.get(key))
+  if (!force && domainPromise.has(key)) return domainPromise.get(key)
+
+  domainKeys.add(key)
+  domainPromise.set(
+    key,
+    basicDataApi
+      .getBusinessDomains(params)
+      .then((data) => {
+        const normalized = Array.isArray(data) ? data : data?.items || []
+        domainCache.set(key, normalized)
+        domainPromise.delete(key)
+        domainSubscribers.forEach((fn) => {
+          try {
+            fn(key, normalized)
+          } catch (e) {
+            // 忽略订阅者异常，避免影响其他组件
+          }
+        })
+        return normalized
+      })
+      .catch((err) => {
+        domainPromise.delete(key)
+        throw err
+      })
+  )
+  return domainPromise.get(key)
+}
+
+export async function loadBusinessDomains(params = { tree: true }, force = false) {
+  return _doLoadDomain(params, force)
+}
+
+async function _refreshDomainCaches(notify = true) {
+  domainCache.clear()
+  domainPromise.clear()
+  if (!notify) return
+  const keys = Array.from(domainKeys)
+  await Promise.allSettled(
+    keys.map((key) => {
+      const params = JSON.parse(key)
+      return _doLoadDomain(params, true).catch(() => {})
+    })
+  )
+}
+
+export function refreshBusinessDomains() {
+  // L3: 通知其他标签页
+  if (_domainBc) {
+    try {
+      _domainBc.postMessage({ type: 'refresh', ts: Date.now() })
+    } catch {}
+  }
+  return _refreshDomainCaches(true)
+}
+
+// 订阅缓存刷新（BusinessDomainSelect 挂载时订阅，卸载时退订）
+export function subscribeBusinessDomains(fn) {
+  domainSubscribers.add(fn)
+  return () => domainSubscribers.delete(fn)
+}
+
+// ---------------------------------------------------------------------------
 // 选人选项模块级缓存（所有 StaffSelect 共享一次加载；管理页变更后调用 refresh）
 // L1 同组件实例 — 本组件 ref 更新
 // L2 同前端实例 — subscribers 广播（同页面多个 StaffSelect / 跨路由）
