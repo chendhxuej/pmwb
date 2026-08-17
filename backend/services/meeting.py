@@ -16,6 +16,7 @@ from db.models import (
 from services.base import BaseService
 from services.todo import todo_service
 from utils.email import EmailCenterClient
+from utils.markdown_mail import markdown_to_email_html
 from utils.master_service import MasterServiceClient
 from utils.validators import validate_email_strict
 from services.mail_dispatch import dispatch_email
@@ -226,7 +227,12 @@ class MeetingService(BaseService[PmwbMeeting]):
                     db=db,
                     to=emails,
                     subject=f"【任务派发】{meeting.title}",
-                    body=md,
+                    # T-B: 模板化，variables 供 action_dispatch 模板（meetingTitle/actions）渲染
+                    variables={
+                        "meetingTitle": meeting.title or "",
+                        "actions": markdown_to_email_html(md, inject_signature=False),
+                        "body": md,  # 3210 抖动时降级用（fallback 优先 raw_content）
+                    },
                     scene="action_dispatch",
                     body_format="html",
                     req_id=meeting.meeting_id,
@@ -294,12 +300,13 @@ class MeetingService(BaseService[PmwbMeeting]):
 
         # 走统一邮件治理门面：HTML 转换 + 统一签名 + 落库 + 统一降级
         scene = mail_type or "meeting_notice"
+        variables = self._build_meeting_variables(db, scene, meeting, body)
         result = dispatch_email(
             db=db,
             to=resolved_to,
             cc=resolved_cc,
             subject=subject,
-            body=body,
+            variables=variables,
             scene=scene,
             body_format="html",
             req_id=meeting.meeting_id,
@@ -310,6 +317,54 @@ class MeetingService(BaseService[PmwbMeeting]):
             "success": result["success"],
             "record_id": result["record_id"],
             "message": result["message"],
+        }
+
+    def _build_meeting_variables(
+        self, db: Session, scene: str, meeting: PmwbMeeting, body: str
+    ) -> Dict[str, Any]:
+        """按场景构建 3210 模板变量（T-B 模板化）。
+
+        - meeting_notice: meetingTopic/meetingTime/meetingLocation/host
+        - meeting_minutes: meetingTitle/meetingDate/attendees/content/actionItems
+        - 其余场景（meeting_minutes 外的历史调用）兜底 meeting_notice 变量
+        - body 保留供 3210 抖动降级使用
+        """
+        body = body or ""
+        if scene == "meeting_minutes":
+            attendee_names = [
+                a.name
+                for a in db.query(PmwbMeetingAttendee)
+                .filter(PmwbMeetingAttendee.meeting_id == meeting.id)
+                .all()
+            ]
+            actions = (
+                db.query(PmwbMeetingAction)
+                .filter(PmwbMeetingAction.meeting_id == meeting.id)
+                .all()
+            )
+            action_html = "".join(
+                f"<li><strong>{a.owner or '—'}</strong>：{a.content or ''}"
+                f"（截止 {a.due_date or '待定'}）</li>"
+                for a in actions
+            )
+            return {
+                "meetingTitle": meeting.title or "",
+                "meetingDate": (
+                    meeting.start_time.strftime("%Y-%m-%d") if meeting.start_time else ""
+                ),
+                "attendees": "、".join(attendee_names) or "待定",
+                "content": markdown_to_email_html(body, inject_signature=False),
+                "actionItems": f"<ul>{action_html}</ul>" if action_html else "",
+                "body": body,
+            }
+        return {
+            "meetingTopic": meeting.title or "",
+            "meetingTime": (
+                meeting.start_time.strftime("%Y-%m-%d %H:%M") if meeting.start_time else ""
+            ),
+            "meetingLocation": meeting.location or "待定",
+            "host": meeting.host or "",
+            "body": body,
         }
 
     def _resolve_recipients(self, entries: List[str]) -> Tuple[List[str], List[str]]:

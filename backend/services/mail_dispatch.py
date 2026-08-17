@@ -48,23 +48,64 @@ class MailScene:
 
 # 场景注册表：所有发邮件触点在此声明统一样式/签名/类型。
 # P0 全量收口：reminder/plugin/work_report/task_center/supervise 均迁入本门面。
-# template_key 暂置空（raw markdown）；P1 启用 3210 模版化时按场景填 type，
-# 仅 supervise 两类已用 3210 模版（ticket_sync/ticket_urge），本处直接启用。
+# T-B（2026-08-17）：10 场景启用 3210 模板（raw=False + template_key），
+# 3210 模板由 scripts/sync_email_templates.py 幂等建设；work_report/plugin 保持 raw。
+# 每个切模板场景配 fallback_template（Markdown 兜底），3210 抖动时正文不空。
 SCENES: dict[str, MailScene] = {
-    "meeting_notice": MailScene("meeting_notice", email_type="meeting_notice", source="pmwb_meeting"),
-    "meeting_minutes": MailScene("meeting_minutes", email_type="meeting_minutes", source="pmwb_meeting"),
-    "action_dispatch": MailScene("action_dispatch", email_type="action_dispatch", source="pmwb_meeting"),
-    "action_supervise": MailScene("action_supervise", email_type="action_supervise", source="pmwb_supervise"),
-    "task_reminder": MailScene("task_reminder", email_type="task_reminder", source="pmwb_task"),
-    "requirement_reminder": MailScene("requirement_reminder", email_type="pmwb_reminder", source="pmwb_reminder"),
+    "meeting_notice": MailScene(
+        "meeting_notice", email_type="meeting_notice", source="pmwb_meeting",
+        template_key="meeting_notice", raw=False,
+        fallback_template="## 会议通知\n\n会议主题与安排请查看系统通知或联系主持人。",
+    ),
+    "meeting_minutes": MailScene(
+        "meeting_minutes", email_type="meeting_minutes", source="pmwb_meeting",
+        template_key="meeting_minutes", raw=False,
+        fallback_template="## 会议纪要\n\n纪要正文请查看系统或邮件中心。",
+    ),
+    "action_dispatch": MailScene(
+        "action_dispatch", email_type="action_dispatch", source="pmwb_meeting",
+        template_key="action_dispatch", raw=False,
+        fallback_template="## 会议行动项派发\n\n请查看邮件中心对应会议的行动项清单，及时跟进处理。",
+    ),
+    "action_supervise": MailScene(
+        "action_supervise", email_type="action_supervise", source="pmwb_supervise",
+        template_key="action_supervise", raw=False,
+        fallback_template="## 会议行动项督办\n\n请查看系统内行动项详情并及时反馈进展。",
+    ),
+    "task_reminder": MailScene(
+        "task_reminder", email_type="task_reminder", source="pmwb_task",
+        template_key="task_reminder", raw=False,
+        fallback_template="## 任务督办提醒\n\n任务详情请查看系统或邮件中心。",
+    ),
+    "requirement_reminder": MailScene(
+        "requirement_reminder", email_type="pmwb_reminder", source="pmwb_reminder",
+        template_key="xqemail_reminder", raw=False,
+        fallback_template="## 需求催办通知\n\n请查看系统内需求详情并及时处理。",
+    ),
     # 新增/改造场景（收口后统一走门面）
     "work_report": MailScene("work_report", email_type="work_report", source="pmwb_work_report"),
-    "task_center_notify": MailScene("task_center_notify", email_type="pmwb_task_notify", source="task-center"),
-    "task_center_urge": MailScene("task_center_urge", email_type="pmwb_task_urge", source="task-center"),
+    "task_center_notify": MailScene(
+        "task_center_notify", email_type="pmwb_task_notify", source="task-center",
+        template_key="task_center_notify", raw=False,
+        fallback_template="## 任务同步通知\n\n任务清单请查看系统任务中心。",
+    ),
+    "task_center_urge": MailScene(
+        "task_center_urge", email_type="pmwb_task_urge", source="task-center",
+        template_key="task_center_urge", raw=False,
+        fallback_template="## 任务催办提醒\n\n请查看系统任务中心，尽快处理并反馈进展。",
+    ),
     "plugin": MailScene("plugin", email_type="xqemail_plugin", source="plugin"),
-    # supervise 场景：3210 无 ticket_sync/ticket_urge 模板，改为 raw 模式（前端构建正文）
-    "supervise_sync": MailScene("supervise_sync", email_type="supervise_sync", source="pmwb_supervise", raw=True),
-    "supervise_urge": MailScene("supervise_urge", email_type="supervise_urge", source="pmwb_supervise", raw=True),
+    # supervise 场景：3210 模板已由 T-A 建设（supervise_urge/supervise_sync type）
+    "supervise_sync": MailScene(
+        "supervise_sync", email_type="supervise_sync", source="pmwb_supervise",
+        template_key="supervise_sync", raw=False,
+        fallback_template="## 工单进展同步\n\n工单详情请查看系统运营监控。",
+    ),
+    "supervise_urge": MailScene(
+        "supervise_urge", email_type="supervise_urge", source="pmwb_supervise",
+        template_key="supervise_urge", raw=False,
+        fallback_template="## 催办通知\n\n工单详情请查看系统运营监控，请尽快处理。",
+    ),
 }
 
 
@@ -152,7 +193,8 @@ def _render_mail(
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("3210 模版渲染失败，走降级: %s", exc)
-            fb = sc.fallback_template or raw_content or ""
+            # 降级优先用调用方正文（variables.body，信息完整），其次场景通用 Markdown 兜底
+            fb = raw_content or sc.fallback_template or ""
             body_html = markdown_to_email_html(fb, inject_signature=False)
             rendered_subject = None
             body_format = "html"

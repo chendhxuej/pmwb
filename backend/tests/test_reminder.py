@@ -26,7 +26,26 @@ def _create_email_record(db: Session, req_id: str = "REQ-REMINDER-001", email_ty
     return record
 
 
+def _mock_templates(monkeypatch):
+    """requirement_reminder 场景模板化：mock list_templates/render_template，避免真实依赖 3210。"""
+    def fake_list(self, template_type):
+        return [{"id": "tpl-r", "type": template_type, "isDefault": True}]
+
+    def fake_render(self, template_id, data):
+        v = data.get("variables", {})
+        return {
+            "subject": f"【需求催办】{v.get('reqName')} 请尽快处理",
+            "body": f"需求编码：{v.get('reqId')} 需求名称：{v.get('reqName')} 催办内容：{v.get('items')}",
+            "bodyFormat": "text",
+        }
+
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.list_templates", fake_list)
+    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.render_template", fake_render)
+
+
 def test_send_reminder_success(client: TestClient, db: Session, monkeypatch):
+    _mock_templates(monkeypatch)
+
     def fake_send(self, **kwargs):
         return {"ok": True, "data": {"messageId": "msg-123", "status": "ok"}}
     monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.send_email", fake_send)
@@ -54,6 +73,8 @@ def test_send_reminder_success(client: TestClient, db: Session, monkeypatch):
 
 
 def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, monkeypatch):
+    _mock_templates(monkeypatch)
+
     def fake_send(self, **kwargs):
         return {"ok": True, "data": {"status": "ok"}}
     monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.send_email", fake_send)
@@ -74,6 +95,8 @@ def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, mo
 
 
 def test_send_reminder_failure(client: TestClient, db: Session, monkeypatch):
+    _mock_templates(monkeypatch)
+
     def fake_send(self, **kwargs):
         return {"ok": False, "error": "邮件中心不可用"}
     monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.send_email", fake_send)
