@@ -24,7 +24,11 @@ export const PRIORITY_MAP = {
   P3: { label: 'P3', tag: 'gray' },
 }
 
-// 里程碑/计划/待办 状态
+// 月/周计划状态
+export const PLAN_STATUS_MAP = {
+  pending: { label: '未开始', tag: 'gray' },
+  done: { label: '已完成', tag: 'green' },
+}
 export const MS_STATUS_MAP = {
   pending: { label: '未开始', tag: 'gray' },
   in_progress: { label: '进行中', tag: 'blue' },
@@ -117,6 +121,10 @@ export function addMonthlyPlan(id, data) {
   return request.post(`/key-works/${id}/monthly-plans`, data)
 }
 
+export function updateMonthlyPlan(id, pid, data) {
+  return request.put(`/key-works/${id}/monthly-plans/${pid}`, data)
+}
+
 export function deleteMonthlyPlan(id, pid) {
   return request.delete(`/key-works/${id}/monthly-plans/${pid}`)
 }
@@ -124,6 +132,10 @@ export function deleteMonthlyPlan(id, pid) {
 // ── 周计划 ──
 export function addWeeklyPlan(id, data) {
   return request.post(`/key-works/${id}/weekly-plans`, data)
+}
+
+export function updateWeeklyPlan(id, pid, data) {
+  return request.put(`/key-works/${id}/weekly-plans/${pid}`, data)
 }
 
 export function deleteWeeklyPlan(id, pid) {

@@ -154,8 +154,17 @@ class KeyWorkMemberOut(KeyWorkMemberBase):
 
 class KeyWorkMonthlyPlanBase(BaseModel):
     month: str = Field(..., max_length=7, description="月份 YYYY-MM")
-    content: Optional[str] = Field(None, description="计划内容")
+    task_date: Optional[date] = Field(None, description="创建日期")
+    title: Optional[str] = Field(None, max_length=500, description="任务标题")
+    content: Optional[str] = Field(None, description="任务描述")
+    assignee: Optional[str] = Field(None, max_length=64, description="责任人")
+    due_date: Optional[date] = Field(None, description="计划完成日期")
     status: PlanStatus = Field(PlanStatus.pending, description="状态")
+
+    @field_validator("task_date", "due_date", mode="before")
+    @classmethod
+    def _empty_date_to_none(cls, v):
+        return None if v in ("", None) else v
 
 
 class KeyWorkMonthlyPlanCreate(KeyWorkMonthlyPlanBase):
@@ -174,8 +183,17 @@ class KeyWorkMonthlyPlanOut(KeyWorkMonthlyPlanBase):
 
 class KeyWorkWeeklyPlanBase(BaseModel):
     week: str = Field(..., max_length=10, description="周次 YYYY-Www")
-    content: Optional[str] = Field(None, description="计划内容")
+    task_date: Optional[date] = Field(None, description="创建日期")
+    title: Optional[str] = Field(None, max_length=500, description="任务标题")
+    content: Optional[str] = Field(None, description="任务描述")
+    assignee: Optional[str] = Field(None, max_length=64, description="责任人")
+    due_date: Optional[date] = Field(None, description="计划完成日期")
     status: PlanStatus = Field(PlanStatus.pending, description="状态")
+
+    @field_validator("task_date", "due_date", mode="before")
+    @classmethod
+    def _empty_weekly_date_to_none(cls, v):
+        return None if v in ("", None) else v
 
 
 class KeyWorkWeeklyPlanCreate(KeyWorkWeeklyPlanBase):
@@ -190,6 +208,40 @@ class KeyWorkWeeklyPlanOut(KeyWorkWeeklyPlanBase):
 
     class Config:
         from_attributes = True
+
+
+class KeyWorkMonthlyPlanUpdate(BaseModel):
+    """月度计划部分更新（所有字段可选）。"""
+
+    month: Optional[str] = Field(None, max_length=7, description="月份 YYYY-MM")
+    task_date: Optional[date] = Field(None, description="创建日期")
+    title: Optional[str] = Field(None, max_length=500, description="任务标题")
+    content: Optional[str] = Field(None, description="任务描述")
+    assignee: Optional[str] = Field(None, max_length=64, description="责任人")
+    due_date: Optional[date] = Field(None, description="计划完成日期")
+    status: Optional[PlanStatus] = None
+
+    @field_validator("task_date", "due_date", mode="before")
+    @classmethod
+    def _empty_date_to_none_update(cls, v):
+        return None if v in ("", None) else v
+
+
+class KeyWorkWeeklyPlanUpdate(BaseModel):
+    """周计划部分更新（所有字段可选）。"""
+
+    week: Optional[str] = Field(None, max_length=10, description="周次 YYYY-Www")
+    task_date: Optional[date] = Field(None, description="创建日期")
+    title: Optional[str] = Field(None, max_length=500, description="任务标题")
+    content: Optional[str] = Field(None, description="任务描述")
+    assignee: Optional[str] = Field(None, max_length=64, description="责任人")
+    due_date: Optional[date] = Field(None, description="计划完成日期")
+    status: Optional[PlanStatus] = None
+
+    @field_validator("task_date", "due_date", mode="before")
+    @classmethod
+    def _empty_weekly_date_to_none_update(cls, v):
+        return None if v in ("", None) else v
 
 
 class KeyWorkProgressBase(BaseModel):

@@ -247,10 +247,23 @@
             <el-button size="small" type="primary" @click="openMonthlyDialog()"><el-icon><Plus /></el-icon> 新增月计划</el-button>
           </div>
           <el-table :data="detail?.monthly_plans || []" border stripe size="small">
-            <el-table-column prop="month" label="月份" width="120" />
-            <el-table-column prop="content" label="计划内容" min-width="240" show-overflow-tooltip />
-            <el-table-column label="操作" width="80" fixed="right">
+            <el-table-column prop="month" label="月份" width="110" />
+            <el-table-column prop="task_date" label="创建日期" width="110" />
+            <el-table-column prop="title" label="任务标题" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="content" label="任务描述" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="assignee" label="责任人" width="100" />
+            <el-table-column prop="due_date" label="计划完成" width="110" />
+            <el-table-column label="状态" width="120">
               <template #default="{ row }">
+                <el-select :model-value="row.status" size="small" style="width: 100px"
+                  @change="(v) => changeMonthlyStatus(row, v)">
+                  <el-option v-for="(v, k) in PLAN_STATUS_MAP" :key="k" :label="v.label" :value="k" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openMonthlyDialog(row)">编辑</el-button>
                 <el-button link type="danger" @click="removeMonthly(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -264,10 +277,23 @@
             <el-button size="small" type="primary" @click="openWeeklyDialog()"><el-icon><Plus /></el-icon> 新增周计划</el-button>
           </div>
           <el-table :data="detail?.weekly_plans || []" border stripe size="small">
-            <el-table-column prop="week" label="周次" width="120" />
-            <el-table-column prop="content" label="计划内容" min-width="240" show-overflow-tooltip />
-            <el-table-column label="操作" width="80" fixed="right">
+            <el-table-column prop="week" label="周次" width="110" />
+            <el-table-column prop="task_date" label="创建日期" width="110" />
+            <el-table-column prop="title" label="任务标题" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="content" label="任务描述" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="assignee" label="责任人" width="100" />
+            <el-table-column prop="due_date" label="计划完成" width="110" />
+            <el-table-column label="状态" width="120">
               <template #default="{ row }">
+                <el-select :model-value="row.status" size="small" style="width: 100px"
+                  @change="(v) => changeWeeklyStatus(row, v)">
+                  <el-option v-for="(v, k) in PLAN_STATUS_MAP" :key="k" :label="v.label" :value="k" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openWeeklyDialog(row)">编辑</el-button>
                 <el-button link type="danger" @click="removeWeekly(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -284,11 +310,16 @@
             <el-timeline-item
               v-for="p in (detail?.progresses || [])"
               :key="p.id"
-              :timestamp="p.progress_date"
+              :timestamp="p.record_date"
               placement="top"
             >
               <div class="progress-item">
-                <span>{{ p.content }}</span>
+                <div>
+                  <div>{{ p.content }}</div>
+                  <div class="text-muted" style="font-size: 12px; margin-top: 4px">
+                    {{ p.reporter ? '汇报人：' + p.reporter : '' }}{{ p.created_at ? (p.reporter ? ' · ' : '') + String(p.created_at).slice(0, 10) : '' }}
+                  </div>
+                </div>
                 <el-button link type="danger" size="small" @click="removeProgress(p)"><el-icon><Delete /></el-icon></el-button>
               </div>
             </el-timeline-item>
@@ -446,10 +477,19 @@
     </el-dialog>
 
     <!-- 月计划对话框 -->
-    <el-dialog v-model="monthlyVisible" title="月度计划" width="480px">
-      <el-form :model="monthlyForm" label-width="80px">
+    <el-dialog v-model="monthlyVisible" :title="monthlyEditingId ? '编辑月度计划' : '新增月度计划'" width="560px">
+      <el-form :model="monthlyForm" label-width="100px">
         <el-form-item label="月份" required><el-input v-model="monthlyForm.month" placeholder="如 2026-08" /></el-form-item>
-        <el-form-item label="内容" required><el-input v-model="monthlyForm.content" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="创建日期"><el-date-picker v-model="monthlyForm.task_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="任务标题"><el-input v-model="monthlyForm.title" /></el-form-item>
+        <el-form-item label="任务描述"><el-input v-model="monthlyForm.content" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="责任人"><StaffSelect v-model="monthlyForm.assignee" /></el-form-item>
+        <el-form-item label="计划完成"><el-date-picker v-model="monthlyForm.due_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="monthlyForm.status" style="width:100%">
+            <el-option v-for="(v,k) in PLAN_STATUS_MAP" :key="k" :label="v.label" :value="k" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="monthlyVisible = false">取消</el-button>
@@ -458,10 +498,19 @@
     </el-dialog>
 
     <!-- 周计划对话框 -->
-    <el-dialog v-model="weeklyVisible" title="周计划" width="480px">
-      <el-form :model="weeklyForm" label-width="80px">
+    <el-dialog v-model="weeklyVisible" :title="weeklyEditingId ? '编辑周计划' : '新增周计划'" width="560px">
+      <el-form :model="weeklyForm" label-width="100px">
         <el-form-item label="周次" required><el-input v-model="weeklyForm.week" placeholder="如 2026-W32" /></el-form-item>
-        <el-form-item label="内容" required><el-input v-model="weeklyForm.content" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="创建日期"><el-date-picker v-model="weeklyForm.task_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="任务标题"><el-input v-model="weeklyForm.title" /></el-form-item>
+        <el-form-item label="任务描述"><el-input v-model="weeklyForm.content" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="责任人"><StaffSelect v-model="weeklyForm.assignee" /></el-form-item>
+        <el-form-item label="计划完成"><el-date-picker v-model="weeklyForm.due_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="weeklyForm.status" style="width:100%">
+            <el-option v-for="(v,k) in PLAN_STATUS_MAP" :key="k" :label="v.label" :value="k" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="weeklyVisible = false">取消</el-button>
@@ -472,7 +521,7 @@
     <!-- 进展对话框 -->
     <el-dialog v-model="progressVisible" title="记录工作进展" width="520px">
       <el-form :model="progressForm" label-width="80px">
-        <el-form-item label="日期"><el-date-picker v-model="progressForm.progress_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
+        <el-form-item label="日期"><el-date-picker v-model="progressForm.record_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="内容" required><el-input v-model="progressForm.content" type="textarea" :rows="3" /></el-form-item>
       </el-form>
       <template #footer>
@@ -518,7 +567,7 @@ import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import {
-  CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP,
+  CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP, PLAN_STATUS_MAP,
 } from '@/api/keywork.js'
 
 const route = useRoute()
@@ -570,13 +619,15 @@ const memberVisible = ref(false)
 const memberForm = ref({ name: '', role: '', division: '' })
 
 const monthlyVisible = ref(false)
-const monthlyForm = ref({ month: '', content: '' })
+const monthlyEditingId = ref(null)
+const monthlyForm = ref({ month: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'pending' })
 
 const weeklyVisible = ref(false)
-const weeklyForm = ref({ week: '', content: '' })
+const weeklyEditingId = ref(null)
+const weeklyForm = ref({ week: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'pending' })
 
 const progressVisible = ref(false)
-const progressForm = ref({ progress_date: '', content: '' })
+const progressForm = ref({ record_date: '', content: '' })
 
 const taskVisible = ref(false)
 const taskForm = ref({ title: '', assignee: '', due_date: '', status: 'todo', link: 'none' })
@@ -771,16 +822,41 @@ async function removeMember(row) {
 }
 
 // ---------- 月计划 ----------
-function openMonthlyDialog() {
-  monthlyForm.value = { month: '', content: '' }
+function openMonthlyDialog(row) {
+  if (row) {
+    monthlyEditingId.value = row.id
+    monthlyForm.value = {
+      month: row.month || '',
+      task_date: row.task_date || '',
+      title: row.title || '',
+      content: row.content || '',
+      assignee: row.assignee || '',
+      due_date: row.due_date || '',
+      status: row.status || 'pending',
+    }
+  } else {
+    monthlyEditingId.value = null
+    monthlyForm.value = { month: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'pending' }
+  }
   monthlyVisible.value = true
 }
 
 async function submitMonthly() {
-  if (!monthlyForm.value.month || !monthlyForm.value.content) { ElMessage.warning('请填写月份与内容'); return }
-  await kwApi.addMonthlyPlan(currentId.value, monthlyForm.value)
-  ElMessage.success('已添加')
+  if (!monthlyForm.value.month) { ElMessage.warning('请填写月份'); return }
+  const payload = { ...monthlyForm.value }
+  if (monthlyEditingId.value) {
+    await kwApi.updateMonthlyPlan(currentId.value, monthlyEditingId.value, payload)
+    ElMessage.success('已更新月度计划')
+  } else {
+    await kwApi.addMonthlyPlan(currentId.value, payload)
+    ElMessage.success('已添加月度计划')
+  }
   monthlyVisible.value = false
+  await refreshDetail()
+}
+
+async function changeMonthlyStatus(row, v) {
+  await kwApi.updateMonthlyPlan(currentId.value, row.id, { status: v })
   await refreshDetail()
 }
 
@@ -791,16 +867,41 @@ async function removeMonthly(row) {
 }
 
 // ---------- 周计划 ----------
-function openWeeklyDialog() {
-  weeklyForm.value = { week: '', content: '' }
+function openWeeklyDialog(row) {
+  if (row) {
+    weeklyEditingId.value = row.id
+    weeklyForm.value = {
+      week: row.week || '',
+      task_date: row.task_date || '',
+      title: row.title || '',
+      content: row.content || '',
+      assignee: row.assignee || '',
+      due_date: row.due_date || '',
+      status: row.status || 'pending',
+    }
+  } else {
+    weeklyEditingId.value = null
+    weeklyForm.value = { week: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'pending' }
+  }
   weeklyVisible.value = true
 }
 
 async function submitWeekly() {
-  if (!weeklyForm.value.week || !weeklyForm.value.content) { ElMessage.warning('请填写周次与内容'); return }
-  await kwApi.addWeeklyPlan(currentId.value, weeklyForm.value)
-  ElMessage.success('已添加')
+  if (!weeklyForm.value.week) { ElMessage.warning('请填写周次'); return }
+  const payload = { ...weeklyForm.value }
+  if (weeklyEditingId.value) {
+    await kwApi.updateWeeklyPlan(currentId.value, weeklyEditingId.value, payload)
+    ElMessage.success('已更新周计划')
+  } else {
+    await kwApi.addWeeklyPlan(currentId.value, payload)
+    ElMessage.success('已添加周计划')
+  }
   weeklyVisible.value = false
+  await refreshDetail()
+}
+
+async function changeWeeklyStatus(row, v) {
+  await kwApi.updateWeeklyPlan(currentId.value, row.id, { status: v })
   await refreshDetail()
 }
 

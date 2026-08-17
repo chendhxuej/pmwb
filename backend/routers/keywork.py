@@ -4,6 +4,7 @@
 """
 import os
 import io
+from datetime import date
 from typing import Optional
 from urllib.parse import quote
 
@@ -15,6 +16,7 @@ from core.exceptions import NotFoundException
 from core.response import success
 from db.base import get_db
 from db.models import (
+    PmwbKeyWork,
     PmwbKeyWorkDeliverable,
     PmwbKeyWorkMember,
     PmwbKeyWorkMemberTask,
@@ -32,16 +34,46 @@ from schemas.keywork import (
     KeyWorkMilestoneCreate,
     KeyWorkMilestoneUpdate,
     KeyWorkMonthlyPlanCreate,
+    KeyWorkMonthlyPlanUpdate,
     KeyWorkOut,
     KeyWorkProgressCreate,
     KeyWorkUpdate,
     KeyWorkWeeklyPlanCreate,
+    KeyWorkWeeklyPlanUpdate,
 )
 from services import keywork_deliverable as deliverable_svc
 from services.keywork import keywork_service
 from services.keywork_excel import build_template_bytes, import_key_works_from_bytes
 
 router = APIRouter(prefix="/key-works", tags=["重点工作"])
+
+
+# ---------------------------------------------------------------------------
+# 计划 → 进展同步 helper
+# ---------------------------------------------------------------------------
+def _sync_plan_to_progress(
+    db: Session,
+    kw_id: int,
+    plan_type: str,
+    plan,
+) -> None:
+    """当计划状态变为 done 时，自动向工作进展追加一条记录。"""
+    kw = db.query(PmwbKeyWork).filter(PmwbKeyWork.id == kw_id).first()
+    reporter = plan.assignee or (kw.owner if kw else None)
+
+    title_text = plan.title or (plan.content or "")[:30]
+    plan_label = plan.month if plan_type == "monthly" else plan.week
+    content = f"【{'月计划' if plan_type == 'monthly' else '周计划'}】{plan_label} {title_text} 已完成"
+    if plan.content:
+        content += f"：{plan.content}"
+
+    progress = PmwbKeyWorkProgress(
+        key_work_id=kw_id,
+        record_date=date.today(),
+        reporter=reporter,
+        content=content,
+    )
+    db.add(progress)
 
 
 # ---------------------------------------------------------------------------
@@ -277,11 +309,33 @@ def delete_member(kw_id: int, mid: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 @router.post("/{kw_id}/monthly-plans")
 def add_monthly_plan(kw_id: int, payload: KeyWorkMonthlyPlanCreate, db: Session = Depends(get_db)):
-    """追加一条月度计划。"""
+    """追加一条月度计划；若状态为已完成则同步到工作进展。"""
     if not keywork_service.get(db, kw_id):
         raise NotFoundException(f"重点工作不存在：id={kw_id}")
     row = PmwbKeyWorkMonthlyPlan(key_work_id=kw_id, **payload.model_dump())
     db.add(row)
+    db.flush()
+    if row.status == "done":
+        _sync_plan_to_progress(db, kw_id, "monthly", row)
+    db.commit()
+    db.refresh(row)
+    return success(data=row)
+
+
+@router.put("/{kw_id}/monthly-plans/{pid}")
+def update_monthly_plan(kw_id: int, pid: int, payload: KeyWorkMonthlyPlanUpdate, db: Session = Depends(get_db)):
+    """更新一条月度计划；状态由非 done 变为 done 时同步到工作进展。"""
+    row = db.query(PmwbKeyWorkMonthlyPlan).filter(
+        PmwbKeyWorkMonthlyPlan.id == pid,
+        PmwbKeyWorkMonthlyPlan.key_work_id == kw_id,
+    ).first()
+    if not row:
+        raise NotFoundException("月度计划不存在")
+    was_done = row.status == "done"
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        setattr(row, k, v)
+    if not was_done and row.status == "done":
+        _sync_plan_to_progress(db, kw_id, "monthly", row)
     db.commit()
     db.refresh(row)
     return success(data=row)
@@ -306,11 +360,33 @@ def delete_monthly_plan(kw_id: int, pid: int, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 @router.post("/{kw_id}/weekly-plans")
 def add_weekly_plan(kw_id: int, payload: KeyWorkWeeklyPlanCreate, db: Session = Depends(get_db)):
-    """追加一条周计划。"""
+    """追加一条周计划；若状态为已完成则同步到工作进展。"""
     if not keywork_service.get(db, kw_id):
         raise NotFoundException(f"重点工作不存在：id={kw_id}")
     row = PmwbKeyWorkWeeklyPlan(key_work_id=kw_id, **payload.model_dump())
     db.add(row)
+    db.flush()
+    if row.status == "done":
+        _sync_plan_to_progress(db, kw_id, "weekly", row)
+    db.commit()
+    db.refresh(row)
+    return success(data=row)
+
+
+@router.put("/{kw_id}/weekly-plans/{pid}")
+def update_weekly_plan(kw_id: int, pid: int, payload: KeyWorkWeeklyPlanUpdate, db: Session = Depends(get_db)):
+    """更新一条周计划；状态由非 done 变为 done 时同步到工作进展。"""
+    row = db.query(PmwbKeyWorkWeeklyPlan).filter(
+        PmwbKeyWorkWeeklyPlan.id == pid,
+        PmwbKeyWorkWeeklyPlan.key_work_id == kw_id,
+    ).first()
+    if not row:
+        raise NotFoundException("周计划不存在")
+    was_done = row.status == "done"
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        setattr(row, k, v)
+    if not was_done and row.status == "done":
+        _sync_plan_to_progress(db, kw_id, "weekly", row)
     db.commit()
     db.refresh(row)
     return success(data=row)

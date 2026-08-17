@@ -116,13 +116,21 @@ SHEETS: Dict[str, List[Dict[str, Any]]] = {
     "月度计划": [
         {"h": "工作标识*", "k": "work_key", "req": True},
         {"h": "月份*(YYYY-MM)", "k": "month", "req": True},
-        {"h": "计划内容", "k": "content"},
+        {"h": "创建日期(YYYY-MM-DD)", "k": "task_date", "date": True},
+        {"h": "任务标题", "k": "title"},
+        {"h": "任务描述", "k": "content"},
+        {"h": "责任人", "k": "assignee"},
+        {"h": "计划完成日期(YYYY-MM-DD)", "k": "due_date", "date": True},
         {"h": "状态", "k": "status", "enum": "plan_status"},
     ],
     "周计划": [
         {"h": "工作标识*", "k": "work_key", "req": True},
         {"h": "周次*(YYYY-Www)", "k": "week", "req": True},
-        {"h": "计划内容", "k": "content"},
+        {"h": "创建日期(YYYY-MM-DD)", "k": "task_date", "date": True},
+        {"h": "任务标题", "k": "title"},
+        {"h": "任务描述", "k": "content"},
+        {"h": "责任人", "k": "assignee"},
+        {"h": "计划完成日期(YYYY-MM-DD)", "k": "due_date", "date": True},
         {"h": "状态", "k": "status", "enum": "plan_status"},
     ],
     "进展日志": [
@@ -146,8 +154,8 @@ CHILD_CONFIG = {
     "目标指标": (PmwbKeyWorkGoal, ["seq", "indicator", "target_value", "current_value", "unit", "description"]),
     "里程碑": (PmwbKeyWorkMilestone, ["seq", "name", "due_date", "status", "note"]),
     "团队成员": (PmwbKeyWorkMember, ["name", "role", "division_desc"]),
-    "月度计划": (PmwbKeyWorkMonthlyPlan, ["month", "content", "status"]),
-    "周计划": (PmwbKeyWorkWeeklyPlan, ["week", "content", "status"]),
+    "月度计划": (PmwbKeyWorkMonthlyPlan, ["month", "task_date", "title", "content", "assignee", "due_date", "status"]),
+    "周计划": (PmwbKeyWorkWeeklyPlan, ["week", "task_date", "title", "content", "assignee", "due_date", "status"]),
     "进展日志": (PmwbKeyWorkProgress, ["record_date", "reporter", "content"]),
     "成员待办": (PmwbKeyWorkMemberTask, ["title", "assignee", "due_date", "status", "note"]),
 }
@@ -170,8 +178,8 @@ _COL_WIDTHS = {
     "目标指标": [14, 8, 18, 16, 16, 10, 30],
     "里程碑": [14, 8, 28, 22, 12, 30],
     "团队成员": [14, 14, 18, 36],
-    "月度计划": [14, 16, 40, 12],
-    "周计划": [14, 16, 40, 12],
+    "月度计划": [14, 16, 18, 24, 40, 14, 18, 12],
+    "周计划": [14, 16, 18, 24, 40, 14, 18, 12],
     "进展日志": [14, 22, 14, 50],
     "成员待办": [14, 30, 14, 22, 12, 30],
 }
@@ -216,7 +224,7 @@ def _build_instruction_sheet(wb: Workbook) -> None:
         ("目标指标", "逐条填写量化目标（指标名称/目标值/当前值/单位）。"),
         ("里程碑", "里程碑名称* 必填；状态从下拉选择（未开始/进行中/已完成/已延期）。"),
         ("团队成员", "成员姓名* 必填；可填角色与分工说明。"),
-        ("月度计划 / 周计划", "月份填 YYYY-MM（如 2026-08），周次填 YYYY-Www（如 2026-W32）；内容必填其一。"),
+        ("月度计划 / 周计划", "月份填 YYYY-MM（如 2026-08），周次填 YYYY-Www（如 2026-W32）；创建日期、计划完成日期填 YYYY-MM-DD；任务标题/任务描述/责任人均可填；状态从下拉选择（pending/done）"),
         ("进展日志", "记录工作进展，进展日期填 YYYY-MM-DD，汇报人填姓名。"),
         ("成员待办", "待办标题* 必填；负责人填成员姓名；状态从下拉选择。"),
         ("四、日期格式", ""),
@@ -487,7 +495,7 @@ def import_key_works_from_bytes(db, raw: bytes) -> Dict[str, Any]:
                     child = {"key_work_id": kw.id}
                     for f in fields:
                         val = cvals.get(f)
-                        if f in ("due_date", "record_date"):
+                        if f in ("due_date", "record_date", "task_date"):
                             val = _parse_date(val) if val is not None else None
                         elif f == "seq":
                             val = _parse_int(val, "序号") if val is not None else None

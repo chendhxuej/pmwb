@@ -927,7 +927,11 @@ class PmwbKeyWorkMonthlyPlan(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
     month = Column(String(7), nullable=False, comment="月份 YYYY-MM")
-    content = Column(Text, comment="计划内容")
+    task_date = Column(Date, comment="创建日期")
+    title = Column(String(500), comment="任务标题")
+    content = Column(Text, comment="任务描述")
+    assignee = Column(String(64), comment="责任人")
+    due_date = Column(Date, comment="计划完成日期")
     status = Column(
         Enum("pending", "done", name="kw_plan_status"),
         default="pending",
@@ -956,7 +960,11 @@ class PmwbKeyWorkWeeklyPlan(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
     week = Column(String(10), nullable=False, comment="周次 YYYY-Www")
-    content = Column(Text, comment="计划内容")
+    task_date = Column(Date, comment="创建日期")
+    title = Column(String(500), comment="任务标题")
+    content = Column(Text, comment="任务描述")
+    assignee = Column(String(64), comment="责任人")
+    due_date = Column(Date, comment="计划完成日期")
     status = Column(
         Enum("pending", "done", name="kw_plan_status"),
         default="pending",
