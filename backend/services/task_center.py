@@ -5,6 +5,7 @@
 """
 
 import logging
+import re
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -543,6 +544,34 @@ class TaskCenterService:
                     result[n] = fallback[n]
         return result
 
+    def _resolve_recipients_for_send(self, raw: Optional[str]) -> tuple[list[str], list[str]]:
+        """把收件人串中的姓名解析为邮箱（已是邮箱的保持不变）。
+
+        返回 (resolved_emails, unresolved_names)。与 mail-dispatch/send 的
+        _resolve_recipients 对齐，保证任务中心催办也能接受姓名输入。
+        """
+        if not raw:
+            return [], []
+        parts = [p.strip() for p in re.split(r"[,;，；\s]+", raw) if p.strip()]
+        emails: list[str] = []
+        names: list[str] = []
+        for p in parts:
+            if "@" in p:
+                emails.append(p)
+            else:
+                names.append(p)
+        unresolved: list[str] = []
+        if names:
+            resolved = self.resolve_contacts(names)
+            for n in names:
+                e = resolved.get(n)
+                if e and "@" in e:
+                    emails.append(e)
+                else:
+                    emails.append(n)
+                    unresolved.append(n)
+        return emails, unresolved
+
     def build_email_body(self, db: Session, tasks: List[TaskRef], send_type: str) -> str:
         """按工单标题/内容/责任人/完成时间结构化拼装邮件正文（单一模板来源）。
 
@@ -607,12 +636,17 @@ class TaskCenterService:
             )
             return {"success": True, "preview": True, "body": rendered["rendered_body"], "subject": rendered["subject"]}
 
+        # 收件人支持「姓名/邮箱」混合输入：先解析姓名→邮箱，再校验格式
+        resolved_to, unresolved_to = self._resolve_recipients_for_send(obj_in.to or "")
+        resolved_cc, unresolved_cc = self._resolve_recipients_for_send(obj_in.cc or "")
+
         bad: List[str] = []
-        _, invalid_to = split_and_validate_emails(obj_in.to or "")
-        bad.extend(invalid_to)
-        if obj_in.cc:
-            _, invalid_cc = split_and_validate_emails(obj_in.cc)
-            bad.extend(invalid_cc)
+        for addr in resolved_to:
+            _, invalid = split_and_validate_emails(addr)
+            bad.extend(invalid)
+        for addr in resolved_cc:
+            _, invalid = split_and_validate_emails(addr)
+            bad.extend(invalid)
         if bad:
             raise ValidationException(
                 "收件人邮箱格式不正确：" + "、".join(bad)
@@ -631,8 +665,8 @@ class TaskCenterService:
 
         result = dispatch_email(
             db=db,
-            to=obj_in.to,
-            cc=obj_in.cc,
+            to=resolved_to,
+            cc=resolved_cc or None,
             subject=obj_in.subject,
             scene=scene,
             variables=variables,
