@@ -65,6 +65,7 @@ class TaskStats(BaseModel):
     due_soon: int = 0
     by_source: Dict[str, int] = Field(default_factory=dict)
     by_status: Dict[str, int] = Field(default_factory=dict)
+    by_issue_type: Dict[str, int] = Field(default_factory=dict, description="运营问题按问题类型汇聚统计")
 
 
 class TaskRef(BaseModel):

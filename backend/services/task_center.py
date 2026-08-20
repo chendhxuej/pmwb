@@ -44,6 +44,23 @@ logger = logging.getLogger("pmwb.task_center")
 
 DUE_SOON_DAYS = 3
 
+# 运营问题细分类型中文（issue_type 子类 / category 大类）
+_ISSUE_TYPE_LABEL = {
+    "bug": "BUG管理",
+    "data_abnormal": "数据异常",
+    "topic_analysis": "专题分析",
+    "spot_event": "热点投诉",
+    "temp_task": "临时交办",
+    "other": "其他",
+}
+_CATEGORY_LABEL = {
+    "bug": "BUG管理",
+    "data": "数据异常",
+    "prod": "主动运营",
+    "task": "临时交办",
+    "complaint": "热点投诉",
+}
+
 # 各来源原始状态 → 统一状态映射
 _STATUS_MAP: Dict[str, Dict[str, str]] = {
     "todo": {
@@ -56,7 +73,7 @@ _STATUS_MAP: Dict[str, Dict[str, str]] = {
         "pending": "pending",
         "processing": "in_progress",
         "verify": "in_progress",
-        "resolved": "in_progress",
+        "resolved": "done",   # 已解决视为完成，不再在默认待办列表中显示
         "closed": "done",
         "suspended": "blocked",
     },
@@ -154,12 +171,11 @@ class TaskCenterService:
         items: List[TaskItem] = []
         for r in rows:
             status = _STATUS_MAP["operation_issue"].get(r.status or "pending", "pending")
-            due = r.discovery_date.date() if r.discovery_date else None
-            # 运营问题无截止日期字段，超期以表内 is_overdue 为准
-            flags = {
-                "is_overdue": bool(r.is_overdue) and status not in ("done", "blocked"),
-                "is_due_soon": False,
-            }
+            # 计划完成时间优先取 go_live_date；为空时回退发现时间
+            due = r.go_live_date
+            if not due and r.discovery_date:
+                due = r.discovery_date.date()
+            flags = flag_due_date(due, status, due_soon_days=DUE_SOON_DAYS)
             items.append(TaskItem(
                 task_id=f"operation_issue:{r.id}",
                 source="operation_issue",
@@ -176,8 +192,8 @@ class TaskCenterService:
                 source_url=f"/operation?issueId={r.id}",
                 detail={
                     "工单编号": r.issue_no,
-                    "大类": r.category,
-                    "子类": r.issue_type,
+                    "问题大类": _CATEGORY_LABEL.get(r.category, r.category or "—"),
+                    "问题类型": _ISSUE_TYPE_LABEL.get(r.issue_type, r.issue_type or "—"),
                     "关联系统": r.related_system,
                     "关联需求": r.related_req_id,
                     "情况说明": (r.situation_desc or ""),
@@ -460,6 +476,7 @@ class TaskCenterService:
         only_overdue: bool = False,
         include_done: bool = False,
         keyword: Optional[str] = None,
+        issue_type: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
@@ -470,6 +487,11 @@ class TaskCenterService:
             items = [t for t in items if t.status not in ("done", "blocked")]
         if status:
             items = [t for t in items if t.status == status]
+        if issue_type:
+            items = [
+                t for t in items
+                if (t.detail or {}).get("问题类型") == issue_type
+            ]
         if only_overdue:
             items = [t for t in items if t.is_overdue]
         if keyword:
@@ -497,10 +519,14 @@ class TaskCenterService:
         items = [t for t in self._collect(db) if t.status not in ("done", "blocked")]
         by_source: Dict[str, int] = {s: 0 for s in TASK_SOURCES}
         by_status: Dict[str, int] = {}
+        by_issue_type: Dict[str, int] = {}
         overdue = due_soon = 0
         for t in items:
             by_source[t.source] = by_source.get(t.source, 0) + 1
             by_status[t.status] = by_status.get(t.status, 0) + 1
+            if t.source == "operation_issue":
+                it = (t.detail or {}).get("问题类型") or "其他"
+                by_issue_type[it] = by_issue_type.get(it, 0) + 1
             if t.is_overdue:
                 overdue += 1
             elif t.is_due_soon:
@@ -511,6 +537,7 @@ class TaskCenterService:
             due_soon=due_soon,
             by_source=by_source,
             by_status=by_status,
+            by_issue_type=by_issue_type,
         )
 
     def get_detail(self, db: Session, task_id: str) -> Optional[TaskItem]:

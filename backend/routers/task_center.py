@@ -32,11 +32,12 @@ def list_tasks(
     only_overdue: bool = False,
     include_done: bool = False,
     keyword: Optional[str] = None,
+    issue_type: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
     db=Depends(get_db),
 ):
-    """统一任务列表（来源/状态/超期/关键字筛选 + 分页）。"""
+    """统一任务列表（来源/状态/超期/关键字/运营问题类型筛选 + 分页）。"""
     data = task_center_service.get_tasks(
         db,
         source=source,
@@ -44,6 +45,7 @@ def list_tasks(
         only_overdue=only_overdue,
         include_done=include_done,
         keyword=keyword,
+        issue_type=issue_type,
         page=page,
         page_size=page_size,
     )

@@ -89,6 +89,20 @@
 
     <!-- 其余 Tab：统一任务表格 -->
     <template v-else>
+      <!-- 运营问题按问题类型汇聚 -->
+      <div v-if="activeTab === 'operation_issue' && issueTypeList.length" class="issue-type-bar">
+        <span class="issue-type-label">问题类型：</span>
+        <el-check-tag
+          v-for="it in issueTypeList"
+          :key="it.name"
+          :checked="filters.issueType === it.name"
+          size="small"
+          @change="filters.issueType = filters.issueType === it.name ? '' : it.name"
+        >
+          {{ it.name }} ({{ it.value }})
+        </el-check-tag>
+      </div>
+
       <div class="filter-bar">
         <el-select v-model="filters.status" placeholder="状态" clearable style="width: 130px">
           <el-option label="待处理" value="pending" />
@@ -130,10 +144,15 @@
             <el-tag size="small" :type="sourceTagType(row.source)">{{ row.source_label }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="title" label="任务标题" min-width="260" show-overflow-tooltip>
+        <el-table-column prop="title" label="任务标题" min-width="240" show-overflow-tooltip>
           <template #default="{ row }">
             <el-link type="primary" :underline="false" @click="openDetail(row)">{{ row.title || '(无标题)' }}</el-link>
             <el-tag v-if="row.synced_to_todo" size="small" type="success" style="margin-left: 6px">已转待办</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="问题类型" width="110" v-if="activeTab === 'operation_issue'">
+          <template #default="{ row }">
+            {{ row.detail?.['问题类型'] || '—' }}
           </template>
         </el-table-column>
         <el-table-column prop="owner" label="负责人" width="110" show-overflow-tooltip />
@@ -394,11 +413,19 @@ const sourceList = [
 
 const loading = ref(false)
 const activeTab = ref('all')
-const stats = ref({ total: 0, overdue: 0, due_soon: 0, by_source: {}, by_status: {} })
+const stats = ref({ total: 0, overdue: 0, due_soon: 0, by_source: {}, by_status: {}, by_issue_type: {} })
 const tasks = ref([])
 const selectedTasks = ref([])
-const filters = reactive({ status: '', onlyOverdue: false, includeDone: false, keyword: '' })
+const filters = reactive({ status: '', onlyOverdue: false, includeDone: false, keyword: '', issueType: '' })
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
+
+// 运营问题类型汇聚列表
+const issueTypeList = computed(() => {
+  const map = stats.value.by_issue_type || {}
+  return Object.entries(map)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+})
 
 // ------- 统一任务列表 -------
 async function loadStats() {
@@ -421,6 +448,7 @@ async function loadTasks() {
     }
     if (activeTab.value !== 'all') params.source = activeTab.value
     if (filters.status) params.status = filters.status
+    if (filters.issueType) params.issue_type = filters.issueType
     if (filters.keyword) params.keyword = filters.keyword
     const res = await getTasks(params)
     tasks.value = res?.items || []
@@ -441,8 +469,15 @@ function refreshAll() {
 watch(activeTab, () => {
   pager.page = 1
   selectedTasks.value = []
+  filters.issueType = ''
   if (activeTab.value === 'requirement_urge') loadUrgeGroups()
   else loadTasks()
+})
+
+watch(() => filters.issueType, () => {
+  pager.page = 1
+  selectedTasks.value = []
+  loadTasks()
 })
 
 function sourceTagType(source) {
@@ -823,6 +858,21 @@ onMounted(() => {
 }
 .sa-name {
   font-size: 16px;
+  font-weight: 600;
+}
+.issue-type-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+.issue-type-label {
+  font-size: 13px;
+  color: #606266;
   font-weight: 600;
 }
 </style>
