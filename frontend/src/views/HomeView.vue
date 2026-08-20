@@ -337,6 +337,7 @@ const ISSUE_TYPE_CN = {
   需求变更: '需求变更',
   spot_event: '热点投诉',
   temp_task: '临时交办',
+  topic_analysis: '专题分析',
   其他: '其他',
 }
 function pct(v, t) {
@@ -643,6 +644,7 @@ function mergeDashboard(res) {
       const o = (arr || []).find((x) => names.some((n) => (x.name || '').includes(n)))
       return o ? (o.value || 0) : 0
     }
+    const PRIORITY_LABEL = { P0: '紧急', P1: '高优', P2: '中等', P3: '低优' }
     taskCenter.value = {
       total: tcd.total || 0,
       overdue: tcd.overdue || 0,
@@ -650,7 +652,7 @@ function mergeDashboard(res) {
       processing: findStatus(tcd.by_status, ['进行中']),
       pending: findStatus(tcd.by_status, ['待处理', '待办']),
       by_source: tcd.by_source || [],
-      by_priority: tcd.by_priority || [],
+      by_priority: (tcd.by_priority || []).map((p) => ({ name: PRIORITY_LABEL[p.name] || p.name, value: p.value })),
       by_status: tcd.by_status || [],
     }
   }

@@ -663,16 +663,46 @@ class DashboardService:
         )
         items = []
         for kw in projects:
-            goal_count = len(kw.goals or [])
-            done_goals = sum(1 for g in (kw.goals or []) if g.status == "completed")
-            goal_pct = round(done_goals / goal_count * 100, 1) if goal_count > 0 else 0
-            # 优先使用重点工作自身维护的进度字段；为 0 时再按目标指标完成度计算
             stored_pct = kw.progress or 0
-            pct = stored_pct if stored_pct > 0 else goal_pct
+            current = 0
+            total = 0
+            if stored_pct > 0:
+                pct = stored_pct
+            else:
+                # 优先按里程碑完成度计算（里程碑表有 status 字段）
+                milestones = kw.milestones or []
+                if milestones:
+                    total = len(milestones)
+                    current = sum(
+                        1 for m in milestones if getattr(m, "status", None) == "done"
+                    )
+                    pct = round(current / total * 100, 1) if total > 0 else 0
+                else:
+                    # 无里程碑时，按目标指标 current_value/target_value 估算
+                    goals = kw.goals or []
+                    for g in goals:
+                        tv = getattr(g, "target_value", None)
+                        cv = getattr(g, "current_value", None)
+                        try:
+                            if tv not in (None, "") and cv not in (None, ""):
+                                t = float(tv)
+                                c = float(cv)
+                                if t > 0:
+                                    total += 1
+                                    if c >= t:
+                                        current += 1
+                                    continue
+                        except (ValueError, TypeError):
+                            pass
+                        # 非数值型指标：只要有当前值即视为有进展
+                        total += 1
+                        if cv not in (None, ""):
+                            current += 1
+                    pct = round(current / total * 100, 1) if total > 0 else 0
             items.append(ProgressItem(
                 name=kw.title,
-                current=done_goals,
-                total=goal_count,
+                current=current,
+                total=total,
                 percent=pct,
             ))
         return {"keyProjects": items}
