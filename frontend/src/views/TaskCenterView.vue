@@ -110,13 +110,21 @@
           <el-option label="已完成" value="done" />
           <el-option label="阻塞/挂起" value="blocked" />
         </el-select>
+        <StaffSelect
+          v-model="filters.owners"
+          :multiple="true"
+          placeholder="选择负责人"
+          collapse-tags
+          style="width: 220px"
+          class="staff-owner-select"
+        />
         <el-checkbox v-model="filters.onlyOverdue" label="只看超期" />
         <el-checkbox v-model="filters.includeDone" label="含已完成/挂起" />
         <el-input
           v-model="filters.keyword"
-          placeholder="搜索标题 / 负责人"
+          placeholder="搜索标题 / 关键字"
           clearable
-          style="width: 220px"
+          style="width: 200px"
           @keyup.enter="loadTasks"
         />
         <el-button type="primary" plain @click="loadTasks">查询</el-button>
@@ -416,7 +424,7 @@ const activeTab = ref('all')
 const stats = ref({ total: 0, overdue: 0, due_soon: 0, by_source: {}, by_status: {}, by_issue_type: {} })
 const tasks = ref([])
 const selectedTasks = ref([])
-const filters = reactive({ status: '', onlyOverdue: false, includeDone: false, keyword: '', issueType: '' })
+const filters = reactive({ status: '', onlyOverdue: false, includeDone: false, keyword: '', issueType: '', owners: [] })
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
 
 // 运营问题类型汇聚列表
@@ -450,6 +458,7 @@ async function loadTasks() {
     if (filters.status) params.status = filters.status
     if (filters.issueType) params.issue_type = filters.issueType
     if (filters.keyword) params.keyword = filters.keyword
+    if (filters.owners?.length) params.owners = filters.owners.join(',')
     const res = await getTasks(params)
     tasks.value = res?.items || []
     pager.total = res?.total || 0
@@ -479,6 +488,12 @@ watch(() => filters.issueType, () => {
   selectedTasks.value = []
   loadTasks()
 })
+
+watch(() => filters.owners, () => {
+  pager.page = 1
+  selectedTasks.value = []
+  loadTasks()
+}, { deep: true })
 
 function sourceTagType(source) {
   return {
@@ -818,6 +833,9 @@ onMounted(() => {
 }
 .filter-spacer {
   flex: 1;
+}
+.staff-owner-select {
+  width: 220px;
 }
 .pager-row {
   display: flex;

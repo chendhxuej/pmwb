@@ -477,6 +477,7 @@ class TaskCenterService:
         include_done: bool = False,
         keyword: Optional[str] = None,
         issue_type: Optional[str] = None,
+        owners: Optional[List[str]] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
@@ -492,6 +493,10 @@ class TaskCenterService:
                 t for t in items
                 if (t.detail or {}).get("问题类型") == issue_type
             ]
+        if owners:
+            owner_set = {str(o).strip() for o in owners if str(o).strip()}
+            if owner_set:
+                items = [t for t in items if (t.owner or "").strip() in owner_set]
         if only_overdue:
             items = [t for t in items if t.is_overdue]
         if keyword:

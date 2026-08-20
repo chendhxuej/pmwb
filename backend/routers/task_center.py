@@ -33,11 +33,13 @@ def list_tasks(
     include_done: bool = False,
     keyword: Optional[str] = None,
     issue_type: Optional[str] = None,
+    owners: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
     db=Depends(get_db),
 ):
-    """统一任务列表（来源/状态/超期/关键字/运营问题类型筛选 + 分页）。"""
+    """统一任务列表（来源/状态/超期/关键字/运营问题类型/负责人筛选 + 分页）。"""
+    owner_list = [o.strip() for o in owners.split(",") if o.strip()] if owners else None
     data = task_center_service.get_tasks(
         db,
         source=source,
@@ -46,6 +48,7 @@ def list_tasks(
         include_done=include_done,
         keyword=keyword,
         issue_type=issue_type,
+        owners=owner_list,
         page=page,
         page_size=page_size,
     )
