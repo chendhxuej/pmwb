@@ -453,3 +453,10 @@ body {
 .text-muted { color: var(--text-muted) }
 .text-secondary { color: var(--text-secondary) }
 .font-mono { font-family: var(--font-mono) }
+
+/* ── 宽度工具类（用于筛选栏 el-select / EnlargeInput 等控件限宽） ── */
+.w-xs { width: 100px; flex-shrink: 0 }
+.w-s  { width: 140px; flex-shrink: 0 }
+.w-m  { width: 260px; flex-shrink: 0 }
+.w-xl { width: 420px; flex-shrink: 0 }
+.w-full { width: 100% }

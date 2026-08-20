@@ -92,7 +92,7 @@
             placeholder="搜索工单号 / 标题 / 责任人"
             clearable
             size="small"
-            class="w-m"
+            style="width: 260px"
           />
         </div>
         <el-table :data="pagedList" v-loading="loading" class="ops-table" @row-click="onRowClick">

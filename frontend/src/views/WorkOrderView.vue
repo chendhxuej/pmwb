@@ -72,7 +72,7 @@
         placeholder="搜索工单号 / 标题 / 责任人"
         clearable
         size="small"
-        class="w-m"
+        style="width: 260px"
         @keyup.enter="handleSearch"
         @clear="handleSearch"
       />
@@ -473,8 +473,8 @@
           <EnlargeInput v-model="form.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
         </el-form-item>
         <el-form-item label="附件">
-          <div class="att-block">
-            <el-button size="small" :loading="attUploading" @click="pickAttachment">+ 添加附件</el-button>
+          <div ref="attachmentZone" class="att-block paste-attachment-zone" tabindex="0">
+            <el-button size="small" :loading="attUploading || isPasting" @click="pickAttachment">+ 添加附件</el-button>
             <input ref="attInput" type="file" style="display:none" @change="onAttachmentPicked" />
             <div class="att-list" v-if="form.attachments.length">
               <div class="att-item" v-for="a in form.attachments" :key="a.name">
@@ -484,7 +484,7 @@
                 <el-button link type="danger" size="small" :loading="attDeleting === a.name" @click="removeAttachment(a.name)">删除</el-button>
               </div>
             </div>
-            <div class="att-hint" v-else>暂无附件</div>
+            <div class="att-hint" v-else>暂无附件，点击此区域后按 Ctrl+V 可粘贴截图/文件</div>
           </div>
         </el-form-item>
       </el-form>
@@ -560,6 +560,7 @@ import { basicDataApi } from '@/api/basicData'
 import { formatDateTime } from '@/utils/format'
 import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
+import { usePasteUpload } from '@/composables/usePasteUpload.js'
 
 const route = useRoute()
 const category = computed(() => route.meta.category || 'prod')
@@ -1003,6 +1004,7 @@ const submitEntry = () => {
 
 // ---- 附件管理 ----
 const attInput = ref(null)
+const attachmentZone = ref(null)
 const attUploading = ref(false)
 const attDeleting = ref('')
 
@@ -1054,6 +1056,32 @@ const removeAttachment = async (name) => {
     attDeleting.value = ''
   }
 }
+
+const { isPasting } = usePasteUpload({
+  targetRef: attachmentZone,
+  enabled: computed(() => entryVisible.value),
+  onFiles: async (files) => {
+    if (!form.id) {
+      ElMessage.warning('请先保存工单后再上传附件')
+      return
+    }
+    attUploading.value = true
+    try {
+      for (const file of files) {
+        const fd = new FormData()
+        fd.append('file', file)
+        const res = await request.post(`/operation/issues/${form.id}/attachments/upload`, fd)
+        form.attachments = res.data || []
+      }
+      ElMessage.success(`已粘贴上传 ${files.length} 个附件`)
+    } catch (err) {
+      ElMessage.error('粘贴上传失败：' + (err?.response?.data?.message || err.message || '未知错误'))
+      throw err
+    } finally {
+      attUploading.value = false
+    }
+  },
+})
 
 // ---- 关联知识条目（路线B：对齐知识中心 KnowledgeItemLinker 数据模型） ----
 const LINK_TYPE_LABELS = { main: '主笔记', sub: '子笔记', deliverable: '交付物' }
@@ -1341,6 +1369,8 @@ onMounted(async () => {
 .att-link:hover { text-decoration: underline; }
 .att-size { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
 .att-hint { font-size: 12px; color: var(--text-muted); }
+.paste-attachment-zone { outline: none; border-radius: 4px; transition: box-shadow 0.2s, background-color 0.2s; padding: 8px; margin: -8px; }
+.paste-attachment-zone:focus-visible { box-shadow: 0 0 0 2px var(--el-color-primary-light-5); background-color: var(--el-fill-color-light) }
 
 /* 详情抽屉 */
 .drawer-body-inner { padding: 4px 4px 8px; }

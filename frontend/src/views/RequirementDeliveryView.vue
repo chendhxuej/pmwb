@@ -22,7 +22,7 @@
             <EnlargeInput
               v-model="reqKeyword"
               placeholder="搜索需求编号 / 名称 / 提出人"
-              class="w-m"
+              style="width: 260px"
               clearable
               @keyup.enter="handleReqSearch"
               @clear="handleReqSearch"
@@ -121,7 +121,7 @@
             <EnlargeInput
               v-model="usKeyword"
               placeholder="模糊搜索：标题 / 描述 / 场景 / 验收标准 / 业务规则 / 需求编号 / 需求名称（空格分词）"
-              class="w-xl"
+              style="width: 420px"
               clearable
             >
               <template #prefix><el-icon><Search /></el-icon></template>
@@ -197,7 +197,7 @@
       <el-tab-pane label="开发工单" name="ticket">
         <div class="pm-table-wrap">
           <div class="table-toolbar">
-            <EnlargeInput v-model="ticketKeyword" placeholder="搜索工单号 / 系统 / 开发团队" class="w-m" clearable @keyup.enter="handleTicketSearch" @clear="handleTicketSearch">
+            <EnlargeInput v-model="ticketKeyword" placeholder="搜索工单号 / 系统 / 开发团队" style="width: 260px" clearable @keyup.enter="handleTicketSearch" @clear="handleTicketSearch">
               <template #prefix><el-icon><Search /></el-icon></template>
             </EnlargeInput>
             <el-button @click="loadTickets"><el-icon><Refresh /></el-icon> 刷新</el-button>
@@ -358,7 +358,12 @@
               </div>
             </div>
 
-            <div class="card" style="grid-column: span 5">
+            <div
+              ref="attachmentZone"
+              class="card paste-attachment-zone"
+              style="grid-column: span 5"
+              tabindex="0"
+            >
               <div class="card-header"><span class="card-label">需求分析说明书文件夹</span></div>
               <div class="card-body">
                 <div class="folder-path">
@@ -379,7 +384,7 @@
                 <el-button class="mt-12" size="small" @click="triggerUpload">
                   <el-icon><Upload /></el-icon> 上传文件
                 </el-button>
-                <div class="hint-text mt-8">附件与生成文档统一归档在「需求分析说明书」文件夹。</div>
+                <div class="hint-text mt-8">附件与生成文档统一归档在「需求分析说明书」文件夹；点击上方区域后按 Ctrl+V 可粘贴截图/文件。</div>
               </div>
             </div>
 
@@ -882,6 +887,7 @@ import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { knowledgeApi } from '@/api/knowledge.js'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import {
   getRequirements, getRequirement, updateRequirement, deleteRequirement,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
@@ -1397,6 +1403,7 @@ async function saveDetail() {
 
 /* 附件（真实端点：上传 / 下载 / 删除） */
 const fileInput = ref(null)
+const attachmentZone = ref(null)
 function triggerUpload() {
   fileInput.value?.click()
 }
@@ -1414,6 +1421,24 @@ async function handleFileChange(e) {
     e.target.value = ''
   }
 }
+
+usePasteUpload({
+  targetRef: attachmentZone,
+  enabled: computed(() => wfVisible.value),
+  onFiles: async (files) => {
+    for (const file of files) {
+      try {
+        await uploadRequirementAttachment(current.value.req_id, file)
+      } catch (err) {
+        ElMessage.error(`${file.name} 上传失败`)
+        throw err
+      }
+    }
+    const list = await listRequirementAttachments(current.value.req_id)
+    attachments.value = list || []
+    ElMessage.success(`已粘贴上传 ${files.length} 个文件`)
+  },
+})
 function downloadAttachment(f) {
   const url = `/api/v1/requirements/${current.value.req_id}/delivery/attachments/download?filename=${encodeURIComponent(f.name)}`
   window.open(url, '_blank')
@@ -1673,6 +1698,8 @@ onBeforeUnmount(() => {
 .att-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .att-size { font-size: 11px }
 .hint-text { font-size: 11.5px; color: var(--text-muted) }
+.paste-attachment-zone { outline: none; transition: box-shadow 0.2s, background-color 0.2s }
+.paste-attachment-zone:focus-visible { box-shadow: 0 0 0 2px var(--el-color-primary-light-5); background-color: var(--el-fill-color-light) }
 
 .eval-summary { display: flex; gap: 28px; padding: 14px 18px; background: var(--bg-app); border-radius: 10px }
 .es-item { display: flex; flex-direction: column; gap: 2px }

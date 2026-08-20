@@ -1,5 +1,5 @@
 <template>
-  <div class="staff-select" :class="{ 'is-disabled': disabled }" @click="openDialog">
+  <div class="staff-select" v-bind="$attrs" :class="{ 'is-disabled': disabled }" @click="openDialog">
     <div class="staff-select-trigger">
       <template v-if="displayedSelected.length">
         <el-tag
@@ -181,6 +181,9 @@ const props = defineProps({
   placeholder: { type: String, default: '请选择人员' },
   valueKey: { type: String, default: 'value' }, // 'value' | 'email'
 })
+
+// 多根组件（trigger div + el-dialog），手动透传 $attrs 到 trigger div
+defineOptions({ inheritAttrs: false })
 const emit = defineEmits(['update:modelValue', 'change'])
 
 const { openStaffAdmin } = useStaffAdmin()
