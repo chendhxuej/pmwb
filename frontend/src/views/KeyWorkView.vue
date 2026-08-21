@@ -141,10 +141,25 @@
         <!-- 基本信息 -->
         <el-tab-pane label="基本信息" name="basic">
           <div v-if="detail" class="sec-body">
-            <div class="info-grid">
-              <div class="info-item"><span class="pm-field-label">工作背景</span>{{ detail.background || '—' }}</div>
-              <div class="info-item"><span class="pm-field-label">现状说明</span>{{ detail.current_status || '—' }}</div>
-              <div class="info-item"><span class="pm-field-label">工作内容</span>{{ detail.content || '—' }}</div>
+            <!-- 工作概述：大段文本字段，垂直串行独占整行 -->
+            <div class="pm-section-title">工作概述</div>
+            <div class="info-stack">
+              <div class="info-item info-block">
+                <span class="pm-field-label">工作背景</span>
+                <div class="info-text">{{ detail.background || '—' }}</div>
+              </div>
+              <div class="info-item info-block">
+                <span class="pm-field-label">现状说明</span>
+                <div class="info-text">{{ detail.current_status || '—' }}</div>
+              </div>
+              <div class="info-item info-block">
+                <span class="pm-field-label">工作内容</span>
+                <div class="info-text">{{ detail.content || '—' }}</div>
+              </div>
+            </div>
+            <!-- 执行属性：短字段两列并排 -->
+            <div class="pm-section-title" style="margin-top: 20px">执行属性</div>
+            <div class="info-grid-compact">
               <div class="info-item"><span class="pm-field-label">负责人</span>{{ detail.owner || '—' }}</div>
               <div class="info-item"><span class="pm-field-label">优先级</span>
                 <span class="pm-tag" :class="PRIORITY_MAP[detail.priority]?.tag">{{ PRIORITY_MAP[detail.priority]?.label }}</span>
@@ -153,7 +168,11 @@
                 <StatusBadge module="keywork" :value="detail.status" />
               </div>
               <div class="info-item"><span class="pm-field-label">计划完成时间</span>{{ detail.planned_finish_date || '—' }}</div>
-              <div class="info-item"><span class="pm-field-label">进度</span>{{ detail.progress || 0 }}%</div>
+            </div>
+            <!-- 进度可视化 -->
+            <div class="info-item info-progress">
+              <span class="pm-field-label">进度</span>
+              <el-progress :percentage="detail.progress || 0" :stroke-width="8" :show-text="true" style="max-width: 320px" />
             </div>
           </div>
         </el-tab-pane>
@@ -357,14 +376,21 @@
         <el-tab-pane label="交付物" name="deliverable">
           <div class="sec-head">
             <span class="pm-section-title">任务交付物管理</span>
-            <el-upload
-              :show-file-list="false"
-              :before-upload="handleDeliverableUpload"
-              accept="*"
+            <div
+              ref="deliverableZone"
+              class="paste-upload-inline"
+              tabindex="0"
             >
-              <el-button size="small" type="primary"><el-icon><Upload /></el-icon> 上传交付物</el-button>
-            </el-upload>
+              <el-upload
+                :show-file-list="false"
+                :before-upload="handleDeliverableUpload"
+                accept="*"
+              >
+                <el-button size="small" type="primary" :loading="isPasting"><el-icon><Upload /></el-icon> 上传交付物</el-button>
+              </el-upload>
+            </div>
           </div>
+          <div class="paste-hint">点击上方按钮上传，或点击按钮区域后按 Ctrl+V 粘贴截图/文件</div>
           <el-table :data="detail?.deliverables || []" border stripe size="small">
             <el-table-column prop="file_name" label="文件名" min-width="200" show-overflow-tooltip />
             <el-table-column prop="file_size" label="大小(字节)" width="110" />
@@ -566,6 +592,7 @@ import * as kwApi from '@/api/keywork.js'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import {
   CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP, PLAN_STATUS_MAP,
 } from '@/api/keywork.js'
@@ -957,12 +984,31 @@ async function removeTask(row) {
 }
 
 // ---------- 交付物 ----------
+const deliverableZone = ref(null)
+
 async function handleDeliverableUpload(file) {
   await kwApi.uploadDeliverable(currentId.value, file)
   ElMessage.success('上传成功')
   await refreshDetail()
   return false
 }
+
+const { isPasting } = usePasteUpload({
+  targetRef: deliverableZone,
+  enabled: computed(() => drawerVisible.value && activeSection.value === 'deliverable'),
+  onFiles: async (files) => {
+    for (const file of files) {
+      try {
+        await kwApi.uploadDeliverable(currentId.value, file)
+      } catch (err) {
+        ElMessage.error(`${file.name} 上传失败`)
+        throw err
+      }
+    }
+    ElMessage.success(`已粘贴上传 ${files.length} 个交付物`)
+    await refreshDetail()
+  },
+})
 
 async function downloadDeliverable(row) {
   const blob = await kwApi.downloadDeliverable(currentId.value, row.id)
@@ -1050,10 +1096,18 @@ onMounted(async () => {
 .table-footer { padding: 12px 20px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; }
 .drawer-tabs { padding: 0 8px; }
 .sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.paste-upload-inline { outline: none; border-radius: 4px; transition: box-shadow 0.2s, background-color 0.2s; padding: 4px; margin: -4px; }
+.paste-upload-inline:focus-visible { box-shadow: 0 0 0 2px var(--el-color-primary-light-5); background-color: var(--el-fill-color-light) }
+.paste-hint { font-size: 11.5px; color: var(--text-muted); margin-bottom: 10px; margin-top: -6px; }
 .sec-body { padding: 4px 2px; }
-.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
+/* 长文本字段：垂直串行，独占整行 */
+.info-stack { display: flex; flex-direction: column; gap: 18px; }
+.info-block .info-text { font-size: 13.5px; color: var(--text-primary); line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
+/* 短字段：两列并排网格 */
+.info-grid-compact { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; margin-bottom: 18px; }
 .info-item { font-size: 13.5px; color: var(--text-primary); line-height: 1.6; }
-.info-item .pm-field-label { margin-bottom: 2px; }
+.info-item .pm-field-label { margin-bottom: 4px; }
+.info-progress { margin-top: 4px; }
 .accept-list { display: flex; flex-direction: column; gap: 8px; }
 .accept-item { display: flex; align-items: center; gap: 10px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 9px; padding: 8px 12px; }
 .accept-idx { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
