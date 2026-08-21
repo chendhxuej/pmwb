@@ -31,22 +31,27 @@ class KeyWorkPriority(str, Enum):
 
 
 class MilestoneStatus(str, Enum):
-    pending = "pending"
+    not_started = "not_started"
     in_progress = "in_progress"
-    done = "done"
+    completed = "completed"
+    cancelled = "cancelled"
     delayed = "delayed"
 
 
 class PlanStatus(str, Enum):
-    pending = "pending"
-    done = "done"
+    not_started = "not_started"
+    in_progress = "in_progress"
+    completed = "completed"
+    cancelled = "cancelled"
+    delayed = "delayed"
 
 
 class MemberTaskStatus(str, Enum):
-    todo = "todo"
+    not_started = "not_started"
     in_progress = "in_progress"
-    done = "done"
+    completed = "completed"
     cancelled = "cancelled"
+    delayed = "delayed"
 
 
 class MemberTaskLink(str, Enum):
@@ -94,7 +99,7 @@ class KeyWorkMilestoneBase(BaseModel):
     seq: int = Field(1, description="序号")
     name: str = Field(..., max_length=255, description="里程碑名称")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: MilestoneStatus = Field(MilestoneStatus.pending, description="状态")
+    status: MilestoneStatus = Field(MilestoneStatus.not_started, description="状态")
     note: Optional[str] = Field(None, description="说明")
 
     @field_validator("due_date", mode="before")
@@ -159,7 +164,7 @@ class KeyWorkMonthlyPlanBase(BaseModel):
     content: Optional[str] = Field(None, description="任务描述")
     assignee: Optional[str] = Field(None, max_length=64, description="责任人")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: PlanStatus = Field(PlanStatus.pending, description="状态")
+    status: PlanStatus = Field(PlanStatus.not_started, description="状态")
 
     @field_validator("task_date", "due_date", mode="before")
     @classmethod
@@ -188,7 +193,7 @@ class KeyWorkWeeklyPlanBase(BaseModel):
     content: Optional[str] = Field(None, description="任务描述")
     assignee: Optional[str] = Field(None, max_length=64, description="责任人")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: PlanStatus = Field(PlanStatus.pending, description="状态")
+    status: PlanStatus = Field(PlanStatus.not_started, description="状态")
 
     @field_validator("task_date", "due_date", mode="before")
     @classmethod
@@ -273,7 +278,7 @@ class KeyWorkMemberTaskBase(BaseModel):
     title: str = Field(..., max_length=500, description="待办标题")
     assignee: Optional[str] = Field(None, max_length=64, description="负责人(成员姓名)")
     due_date: Optional[date] = Field(None, description="截止日期")
-    status: MemberTaskStatus = Field(MemberTaskStatus.todo, description="状态")
+    status: MemberTaskStatus = Field(MemberTaskStatus.not_started, description="状态")
     link_type: MemberTaskLink = Field(MemberTaskLink.none, description="关联对象类型")
     link_id: Optional[int] = Field(None, description="关联对象ID")
     note: Optional[str] = Field(None, description="备注")
@@ -348,10 +353,12 @@ class KeyWorkCreate(BaseModel):
     owner: Optional[str] = Field(None, max_length=128, description="牵头人/负责人")
     priority: KeyWorkPriority = Field(KeyWorkPriority.P2, description="优先级")
     status: KeyWorkStatus = Field(KeyWorkStatus.planning, description="生命周期状态")
+    progress: int = Field(0, ge=0, le=100, description="进度百分比 0-100")
     planned_finish_date: Optional[date] = Field(None, description="计划完成时间")
     background: Optional[str] = Field(None, description="工作背景")
     current_status: Optional[str] = Field(None, description="现状说明")
     content: Optional[str] = Field(None, description="工作内容")
+    work_value: Optional[str] = Field(None, description="工作价值/收益")
     acceptance_criteria: Optional[List[str]] = Field(None, description="验收标准(字符串数组)")
     goals: List[KeyWorkGoalCreate] = Field([], description="工作目标指标")
     milestones: List[KeyWorkMilestoneCreate] = Field([], description="里程碑")
@@ -375,9 +382,11 @@ class KeyWorkUpdate(BaseModel):
     priority: Optional[KeyWorkPriority] = None
     status: Optional[KeyWorkStatus] = None
     planned_finish_date: Optional[date] = None
+    progress: Optional[int] = Field(None, ge=0, le=100, description="进度百分比 0-100")
     background: Optional[str] = None
     current_status: Optional[str] = None
     content: Optional[str] = None
+    work_value: Optional[str] = Field(None, description="工作价值/收益")
     acceptance_criteria: Optional[List[str]] = Field(None, description="验收标准(字符串数组)")
     goals: Optional[List[KeyWorkGoalCreate]] = None
     milestones: Optional[List[KeyWorkMilestoneCreate]] = None
@@ -401,6 +410,7 @@ class KeyWorkOut(BaseModel):
     background: Optional[str] = None
     current_status: Optional[str] = None
     content: Optional[str] = None
+    work_value: Optional[str] = None
     owner: Optional[str] = None
     priority: KeyWorkPriority
     status: KeyWorkStatus

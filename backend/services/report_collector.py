@@ -449,13 +449,21 @@ class ReportDataCollector:
         this_week_label = _iso_week(start)
         next_week_label = _iso_week(start + timedelta(days=7))
 
+        PLAN_STATUS_LABELS = {
+            "not_started": "未开始",
+            "in_progress": "进行中",
+            "completed": "已完成",
+            "cancelled": "已作废",
+            "delayed": "已延期",
+        }
+
         def _fmt_weekly_plan(p):
-            p_status = _g(p, "status") or "pending"
+            p_status = _g(p, "status") or "not_started"
             return {
                 "title": _g(p, "title") or "",
                 "content": (_g(p, "content") or "")[:200],
                 "assignee": _g(p, "assignee") or "",
-                "status": "已完成" if p_status == "done" else "待完成",
+                "status": PLAN_STATUS_LABELS.get(p_status, p_status),
                 "due_date": _date_of(_g(p, "due_date")).isoformat() if _date_of(_g(p, "due_date")) else "",
             }
 
@@ -503,7 +511,7 @@ class ReportDataCollector:
             this_week_plan_summary = {
                 "week": this_week_label,
                 "total": len(this_week_plans),
-                "done": sum(1 for p in this_week_plans if (_g(p, "status") or "") == "done"),
+                "done": sum(1 for p in this_week_plans if (_g(p, "status") or "") == "completed"),
                 "items": [_fmt_weekly_plan(p) for p in this_week_plans],
             }
             next_week_plan_summary = {

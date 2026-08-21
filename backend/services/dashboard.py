@@ -674,7 +674,7 @@ class DashboardService:
                 if milestones:
                     total = len(milestones)
                     current = sum(
-                        1 for m in milestones if getattr(m, "status", None) == "done"
+                        1 for m in milestones if getattr(m, "status", None) == "completed"
                     )
                     pct = round(current / total * 100, 1) if total > 0 else 0
                 else:

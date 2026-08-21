@@ -755,6 +755,7 @@ class PmwbKeyWork(Base):
     background = Column(Text, comment="工作背景")
     current_status = Column(Text, comment="现状说明")
     content = Column(Text, comment="工作内容")
+    work_value = Column(Text, comment="工作价值/收益")
     owner = Column(String(128), comment="牵头人/负责人")
     priority = Column(
         Enum("P0", "P1", "P2", "P3", name="kw_priority"),
@@ -876,8 +877,8 @@ class PmwbKeyWorkMilestone(Base):
     name = Column(String(255), nullable=False, comment="里程碑名称")
     due_date = Column(Date, comment="计划完成日期")
     status = Column(
-        Enum("pending", "in_progress", "done", "delayed", name="kw_milestone_status"),
-        default="pending",
+        Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_milestone_status"),
+        default="not_started",
         comment="状态",
     )
     note = Column(Text, comment="说明")
@@ -933,8 +934,8 @@ class PmwbKeyWorkMonthlyPlan(Base):
     assignee = Column(String(64), comment="责任人")
     due_date = Column(Date, comment="计划完成日期")
     status = Column(
-        Enum("pending", "done", name="kw_plan_status"),
-        default="pending",
+        Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_plan_status"),
+        default="not_started",
         comment="状态",
     )
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
@@ -966,8 +967,8 @@ class PmwbKeyWorkWeeklyPlan(Base):
     assignee = Column(String(64), comment="责任人")
     due_date = Column(Date, comment="计划完成日期")
     status = Column(
-        Enum("pending", "done", name="kw_plan_status"),
-        default="pending",
+        Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_plan_status"),
+        default="not_started",
         comment="状态",
     )
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
@@ -1020,8 +1021,8 @@ class PmwbKeyWorkMemberTask(Base):
     assignee = Column(String(64), comment="负责人(成员姓名)")
     due_date = Column(Date, comment="截止日期")
     status = Column(
-        Enum("todo", "in_progress", "done", "cancelled", name="kw_task_status"),
-        default="todo",
+        Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_task_status"),
+        default="not_started",
         comment="状态",
     )
     link_type = Column(

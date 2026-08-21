@@ -86,15 +86,17 @@ _STATUS_MAP: Dict[str, Dict[str, str]] = {
         "archived": "done",
     },
     "key_work_task": {
-        "todo": "pending",
+        "not_started": "pending",
         "in_progress": "in_progress",
-        "done": "done",
+        "completed": "done",
         "cancelled": "blocked",
+        "delayed": "blocked",
     },
     "key_work_milestone": {
-        "pending": "pending",
+        "not_started": "pending",
         "in_progress": "in_progress",
-        "done": "done",
+        "completed": "done",
+        "cancelled": "blocked",
         "delayed": "blocked",
     },
     "key_work_main": {

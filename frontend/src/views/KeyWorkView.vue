@@ -156,6 +156,10 @@
                 <span class="pm-field-label">工作内容</span>
                 <div class="info-text">{{ detail.content || '—' }}</div>
               </div>
+              <div class="info-item info-block">
+                <span class="pm-field-label">工作价值</span>
+                <div class="info-text">{{ detail.work_value || '—' }}</div>
+              </div>
             </div>
             <!-- 执行属性：短字段两列并排 -->
             <div class="pm-section-title" style="margin-top: 20px">执行属性</div>
@@ -437,6 +441,12 @@
         <el-form-item label="计划完成">
           <el-date-picker v-model="basicForm.planned_finish_date" type="date" value-format="YYYY-MM-DD" placeholder="计划完成时间" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="工作进度">
+          <div style="display: flex; align-items: center; gap: 12px; width: 100%">
+            <el-slider v-model="basicForm.progress" :min="0" :max="100" :step="1" style="flex: 1" />
+            <span style="width: 42px; text-align: right; font-size: 13px; color: var(--text-primary)">{{ basicForm.progress || 0 }}%</span>
+          </div>
+        </el-form-item>
         <el-form-item label="工作背景">
           <el-input v-model="basicForm.background" type="textarea" :rows="2" />
         </el-form-item>
@@ -445,6 +455,9 @@
         </el-form-item>
         <el-form-item label="工作内容">
           <el-input v-model="basicForm.content" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="工作价值">
+          <el-input v-model="basicForm.work_value" type="textarea" :rows="3" placeholder="专题工作做完后的收获、收益或价值" />
         </el-form-item>
         <el-form-item label="验收标准">
           <el-input v-model="acceptText" type="textarea" :rows="3" placeholder="每行一条验收标准" />
@@ -630,7 +643,7 @@ const acceptText = ref('')
 function blankMain() {
   return {
     title: '', category: 'hq_pilot', domain_code: '', owner: '', priority: 'P2', status: 'planning',
-    planned_finish_date: '', background: '', current_status: '', content: '',
+    planned_finish_date: '', progress: 0, background: '', current_status: '', content: '', work_value: '',
   }
 }
 
@@ -728,9 +741,10 @@ function openBasicEdit() {
   basicIsEdit.value = true
   const d = detail.value
   basicForm.value = {
-    title: d.title, category: d.category, owner: d.owner || '', priority: d.priority,
-    status: d.status, planned_finish_date: d.planned_finish_date || '',
-    background: d.background || '', current_status: d.current_status || '', content: d.content || '',
+    ...blankMain(),
+    title: d.title, category: d.category, domain_code: d.domain_code || '', owner: d.owner || '', priority: d.priority,
+    status: d.status, planned_finish_date: d.planned_finish_date || '', progress: d.progress ?? 0,
+    background: d.background || '', current_status: d.current_status || '', content: d.content || '', work_value: d.work_value || '',
   }
   acceptText.value = (d.acceptance_criteria || []).join('\n')
   basicVisible.value = true

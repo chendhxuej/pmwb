@@ -24,23 +24,28 @@ export const PRIORITY_MAP = {
   P3: { label: 'P3', tag: 'gray' },
 }
 
-// 月/周计划状态
+// 月/周计划状态（统一五态）
 export const PLAN_STATUS_MAP = {
-  pending: { label: '未开始', tag: 'gray' },
-  done: { label: '已完成', tag: 'green' },
+  not_started: { label: '未开始', tag: 'gray' },
+  in_progress: { label: '进行中', tag: 'blue' },
+  completed: { label: '已完成', tag: 'green' },
+  cancelled: { label: '已作废', tag: 'neutral' },
+  delayed: { label: '已延期', tag: 'red' },
 }
 export const MS_STATUS_MAP = {
-  pending: { label: '未开始', tag: 'gray' },
+  not_started: { label: '未开始', tag: 'gray' },
   in_progress: { label: '进行中', tag: 'blue' },
-  done: { label: '已完成', tag: 'green' },
+  completed: { label: '已完成', tag: 'green' },
+  cancelled: { label: '已作废', tag: 'neutral' },
   delayed: { label: '已延期', tag: 'red' },
 }
 
 export const TASK_STATUS_MAP = {
-  todo: { label: '待办', tag: 'gray' },
+  not_started: { label: '未开始', tag: 'gray' },
   in_progress: { label: '进行中', tag: 'blue' },
-  done: { label: '已完成', tag: 'green' },
-  cancelled: { label: '已取消', tag: 'red' },
+  completed: { label: '已完成', tag: 'green' },
+  cancelled: { label: '已作废', tag: 'neutral' },
+  delayed: { label: '已延期', tag: 'red' },
 }
 
 // ── 主 CRUD ──

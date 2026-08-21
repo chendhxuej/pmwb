@@ -250,7 +250,7 @@ class KeyWorkService(BaseService[PmwbKeyWork]):
             .select_from(PmwbKeyWorkMemberTask)
             .filter(
                 PmwbKeyWorkMemberTask.due_date < today,
-                PmwbKeyWorkMemberTask.status != "done",
+                PmwbKeyWorkMemberTask.status.notin_(["completed", "cancelled", "delayed"]),
             )
             .scalar()
             or 0
@@ -261,7 +261,7 @@ class KeyWorkService(BaseService[PmwbKeyWork]):
             .filter(
                 PmwbKeyWorkMilestone.due_date >= today,
                 PmwbKeyWorkMilestone.due_date <= in_30,
-                PmwbKeyWorkMilestone.status == "pending",
+                PmwbKeyWorkMilestone.status == "not_started",
             )
             .scalar()
             or 0
@@ -272,7 +272,7 @@ class KeyWorkService(BaseService[PmwbKeyWork]):
         done_member_tasks = (
             db.query(func.count())
             .select_from(PmwbKeyWorkMemberTask)
-            .filter(PmwbKeyWorkMemberTask.status == "done")
+            .filter(PmwbKeyWorkMemberTask.status == "completed")
             .scalar()
             or 0
         )

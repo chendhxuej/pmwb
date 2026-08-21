@@ -117,19 +117,28 @@ export const MODULE_STATUS = {
   },
 }
 
-// 重点工作子状态（里程碑 / 成员待办）
+// 重点工作子状态（里程碑 / 月周计划 / 成员待办）统一五态
 export const MODULE_SUBSTATUS = {
   keywork_ms: {
-    pending: { label: '未开始', tone: 'neutral' },
+    not_started: { label: '未开始', tone: 'neutral' },
     in_progress: { label: '进行中', tone: 'primary' },
-    done: { label: '已完成', tone: 'success' },
+    completed: { label: '已完成', tone: 'success' },
+    cancelled: { label: '已作废', tone: 'neutral' },
+    delayed: { label: '已延期', tone: 'danger', sensitive: true },
+  },
+  keywork_plan: {
+    not_started: { label: '未开始', tone: 'neutral' },
+    in_progress: { label: '进行中', tone: 'primary' },
+    completed: { label: '已完成', tone: 'success' },
+    cancelled: { label: '已作废', tone: 'neutral' },
     delayed: { label: '已延期', tone: 'danger', sensitive: true },
   },
   keywork_task: {
-    todo: { label: '待办', tone: 'neutral' },
+    not_started: { label: '未开始', tone: 'neutral' },
     in_progress: { label: '进行中', tone: 'primary' },
-    done: { label: '已完成', tone: 'success' },
-    cancelled: { label: '已取消', tone: 'neutral' },
+    completed: { label: '已完成', tone: 'success' },
+    cancelled: { label: '已作废', tone: 'neutral' },
+    delayed: { label: '已延期', tone: 'danger', sensitive: true },
   },
 }
 

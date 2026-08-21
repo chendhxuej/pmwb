@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import Workbook, load_workbook
@@ -41,9 +41,9 @@ ENUM_OPTIONS: Dict[str, List[str]] = {
     "category": ["hq_pilot", "annual_task", "special_topic"],
     "priority": ["P0", "P1", "P2", "P3"],
     "status": ["planning", "in_progress", "completed", "paused", "cancelled"],
-    "milestone_status": ["pending", "in_progress", "done", "delayed"],
-    "plan_status": ["pending", "done"],
-    "task_status": ["todo", "in_progress", "done", "cancelled"],
+    "milestone_status": ["not_started", "in_progress", "completed", "cancelled", "delayed"],
+    "plan_status": ["not_started", "in_progress", "completed", "cancelled", "delayed"],
+    "task_status": ["not_started", "in_progress", "completed", "cancelled", "delayed"],
 }
 
 ENUM_LABELS: Dict[str, Dict[str, str]] = {
@@ -53,18 +53,27 @@ ENUM_LABELS: Dict[str, Dict[str, str]] = {
         "planning": "规划中", "in_progress": "进行中", "completed": "已完成",
         "paused": "已暂停", "cancelled": "已取消",
     },
-    "milestone_status": {"pending": "未开始", "in_progress": "进行中", "done": "已完成", "delayed": "已延期"},
-    "plan_status": {"pending": "未开始", "done": "已完成"},
-    "task_status": {"todo": "待办", "in_progress": "进行中", "done": "已完成", "cancelled": "已取消"},
+    "milestone_status": {
+        "not_started": "未开始", "in_progress": "进行中", "completed": "已完成",
+        "cancelled": "已作废", "delayed": "已延期",
+    },
+    "plan_status": {
+        "not_started": "未开始", "in_progress": "进行中", "completed": "已完成",
+        "cancelled": "已作废", "delayed": "已延期",
+    },
+    "task_status": {
+        "not_started": "未开始", "in_progress": "进行中", "completed": "已完成",
+        "cancelled": "已作废", "delayed": "已延期",
+    },
 }
 
 DEFAULTS = {
     "category": "annual_task",
     "priority": "P2",
     "status": "planning",
-    "milestone_status": "pending",
-    "plan_status": "pending",
-    "task_status": "todo",
+    "milestone_status": "not_started",
+    "plan_status": "not_started",
+    "task_status": "not_started",
 }
 
 # ---------------------------------------------------------------------------
@@ -220,15 +229,15 @@ def _build_instruction_sheet(wb: Workbook) -> None:
         ("二、工作标识（必填）", ""),
         ("", "在『重点工作』页签中由填写人自定义，例如 KW001、KW002。同一文件内必须唯一，仅用于关联，不会写入系统；系统入库时会自动生成 KW-YYYYMMDD-XXX 正式编号。"),
         ("三、各页签字段", ""),
-        ("重点工作", "工作标识*、工作标题* 必填；分类/优先级/状态 从下拉选择；进度填 0-100 整数；计划完成时间填 YYYY-MM-DD；验收标准每行一条。"),
+        ("重点工作", "工作标识*、工作标题* 必填；分类/优先级/状态 从下拉选择；进度可填 0-100 整数或 0-1 小数（0.5 表示 50%）；计划完成时间可填 YYYY-MM-DD 或 YYYYMMDD 整数（如 20261030）；验收标准每行一条。"),
         ("目标指标", "逐条填写量化目标（指标名称/目标值/当前值/单位）。"),
         ("里程碑", "里程碑名称* 必填；状态从下拉选择（未开始/进行中/已完成/已延期）。"),
         ("团队成员", "成员姓名* 必填；可填角色与分工说明。"),
-        ("月度计划 / 周计划", "月份填 YYYY-MM（如 2026-08），周次填 YYYY-Www（如 2026-W32）；创建日期、计划完成日期填 YYYY-MM-DD；任务标题/任务描述/责任人均可填；状态从下拉选择（pending/done）"),
-        ("进展日志", "记录工作进展，进展日期填 YYYY-MM-DD，汇报人填姓名。"),
+        ("月度计划 / 周计划", "月份填 YYYY-MM（如 2026-08），周次填 YYYY-Www（如 2026-W32）；创建日期、计划完成日期填 YYYY-MM-DD 或 YYYYMMDD；任务标题/任务描述/责任人均可填；状态从下拉选择（not_started/in_progress/completed/cancelled/delayed）"),
+        ("进展日志", "记录工作进展，进展日期填 YYYY-MM-DD 或 YYYYMMDD，汇报人填姓名。"),
         ("成员待办", "待办标题* 必填；负责人填成员姓名；状态从下拉选择。"),
         ("四、日期格式", ""),
-        ("", "所有日期统一填 YYYY-MM-DD（如 2026-08-31），可用 Excel 日期单元格，也可直接输入文本。"),
+        ("", "所有日期支持以下格式：① YYYY-MM-DD（如 2026-08-31）② YYYYMMDD 整数（如 20261030）③ Excel 标准日期单元格。推荐直接输入文本日期，避免不同电脑日期格式差异。"),
         ("五、枚举取值对照", ""),
     ]
     for title, body in lines:
@@ -290,6 +299,24 @@ def _build_data_sheet(wb: Workbook, name: str) -> None:
     ws.freeze_panes = "A2"
     ws.row_dimensions[1].height = 30
 
+    # 示例数据，降低填写门槛
+    examples = {
+        "重点工作": [
+            ["KW001", "示例重点工作", "special_topic", "", "张三", "P1", "in_progress", 0.5, "2026-10-30", "工作背景示例", "现状说明示例", "工作内容示例", "验收标准示例"],
+        ],
+        "目标指标": [["KW001", 1, "指标示例", "1", "0.5", "百分比", ""]],
+        "里程碑": [["KW001", 1, "里程碑示例", "2026-10-30", "in_progress", ""]],
+        "团队成员": [["KW001", "张三", "SA", "总负责人"]],
+        "月度计划": [["KW001", "2026-08", "2026-08-31", "月度任务示例", "任务描述", "张三", "2026-10-30", "not_started"]],
+        "周计划": [["KW001", "2026-W32", "2026-08-19", "周任务示例", "任务描述", "张三", "2026-08-23", "not_started"]],
+        "进展日志": [["KW001", "2026-08-19", "张三", "进展内容示例"]],
+        "成员待办": [["KW001", "待办示例", "张三", "2026-08-23", "not_started", ""]],
+    }
+    if name in examples:
+        for ri, row in enumerate(examples[name], start=2):
+            for ci, val in enumerate(row, start=1):
+                ws.cell(ri, ci, val)
+
     # 数据校验：枚举下拉 + 日期格式
     last_row = 1000
     enum_cols = [(ci + 1, col["enum"]) for ci, col in enumerate(cols) if col.get("enum")]
@@ -330,8 +357,21 @@ def _parse_date(v: Any) -> date:
         return v.date()
     if isinstance(v, date):
         return v
+
+    # Excel 可能把日期存为整数（如 20261030）或浮点数序列号
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        # 8 位整数视为 YYYYMMDD
+        if isinstance(v, int) and 19000101 <= v <= 21001231:
+            return datetime.strptime(str(v), "%Y%m%d").date()
+        # Excel 日期序列号（1 = 1900-01-01，2026-08-19 约 46253）
+        if 1 <= v <= 100000:
+            try:
+                return datetime(1899, 12, 30) + timedelta(days=int(v))
+            except (ValueError, OverflowError):
+                pass
+
     s = str(v).strip()
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y%m%d"):
         try:
             return datetime.strptime(s, fmt).date()
         except ValueError:
@@ -346,6 +386,26 @@ def _parse_int(v: Any, field: str) -> int:
         return int(float(v))
     except (ValueError, TypeError):
         raise ValueError(f"{field} 应为整数，收到：{v}")
+
+
+def _parse_progress(v: Any) -> int:
+    """解析进度百分比：支持 0-1 小数（Excel 存储的 50% = 0.5）、0-100 整数、含 % 字符串。"""
+    if v is None:
+        return None
+    s = str(v).strip()
+    if s.endswith("%"):
+        try:
+            return int(float(s[:-1]))
+        except (ValueError, TypeError):
+            raise ValueError(f"进度百分比格式错误，收到：{v}")
+    try:
+        f = float(s)
+    except (ValueError, TypeError):
+        raise ValueError(f"进度百分比应为数字，收到：{v}")
+    # Excel 中 0.5 表示 50%，1 表示 100%
+    if 0 <= f <= 1:
+        return int(round(f * 100))
+    return int(round(f))
 
 
 def _read_sheet(ws, cols: List[Dict[str, Any]]) -> List[Tuple[int, Dict[str, Any]]]:
@@ -412,7 +472,7 @@ def import_key_works_from_bytes(db, raw: bytes) -> Dict[str, Any]:
         # 进度
         if vals.get("progress") is not None:
             try:
-                p = _parse_int(vals["progress"], "进度百分比")
+                p = _parse_progress(vals["progress"])
                 if not (0 <= p <= 100):
                     errors.append({"sheet": MAIN_SHEET, "row": r, "message": "进度百分比需在 0-100 之间"})
             except ValueError as e:
@@ -475,7 +535,7 @@ def import_key_works_from_bytes(db, raw: bytes) -> Dict[str, Any]:
                 "owner": main.get("owner"),
                 "priority": main.get("priority") or DEFAULTS["priority"],
                 "status": main.get("status") or DEFAULTS["status"],
-                "progress": _parse_int(main.get("progress"), "进度百分比") if main.get("progress") is not None else 0,
+                "progress": _parse_progress(main.get("progress")) if main.get("progress") is not None else 0,
                 "planned_finish_date": _parse_date(main["planned_finish_date"]) if main.get("planned_finish_date") else None,
                 "background": main.get("background"),
                 "current_status": main.get("current_status"),
