@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from db.models import (
@@ -62,6 +62,36 @@ def _in_range(d: Optional[date], start: date, end: date) -> bool:
     if d is None:
         return False
     return start <= d <= end
+
+
+def _iso_week(d: Optional[date]) -> str:
+    """返回 ISO 周次标签，如 2026-W34。"""
+    if d is None:
+        return ""
+    return d.strftime("%G-W%V")
+
+
+def _is_in_scope(obj, start: date, end: date, date_fields=("updated_at", "created_at")) -> bool:
+    """判断对象是否在时间范围内发生过状态/数据更新。
+
+    以 updated_at 为主判定，辅以 created_at 等关键事件日期。
+    """
+    for f in date_fields:
+        d = _date_of(_g(obj, f))
+        if _in_range(d, start, end):
+            return True
+    return False
+
+
+def _latest_related_date(parent_obj, related_iter, fields=("updated_at", "created_at")) -> Optional[date]:
+    """从关联子对象中找出最近的日期（用于判定父对象是否因关联更新而纳入范围）。"""
+    latest: Optional[date] = None
+    for child in related_iter or []:
+        for f in fields:
+            d = _date_of(_g(child, f))
+            if d and (latest is None or d > latest):
+                latest = d
+    return latest
 
 
 class ReportDataCollector:
@@ -115,13 +145,22 @@ class ReportDataCollector:
             risk_notes = "; ".join(str(_g(t, "risk_note") or "") for t in tickets if _g(t, "risk_note"))
 
             # 权威上线日期：需求表 delivered_date（用户在「已上线」时手工填报的实际上线日期）优先，
-            # 回退开发工单 go_live_date（多工单取最晚）。delivered_date 是 AI 周报上线判断的事实依据，
-            # 仅依赖开发工单上线日会导致「已上线但工单未填上线日」的完结需求工单不被识别。
+            # 回退开发工单 go_live_date（多工单取最晚）。delivered_date 是 AI 周报上线判断的事实依据。
             req_delivered = _date_of(_g(r, "delivered_date"))
             go_live = req_delivered or ticket_go_live
 
-            # 先构造本行明细 dict（供 items / delivered_items / po_risk 复用，
-            # 修复此前在 delivered 分支引用未定义变量 item 的崩溃隐患）
+            # 范围判定：本期是否发生过状态/数据更新。
+            # 主表 updated_at/created_at、关键事件日期、关联评估/工单更新均纳入判定。
+            in_scope = (
+                _is_in_scope(r, start, end)
+                or _in_range(go_live, start, end)
+                or _in_range(req_delivered, start, end)
+                or any(_is_in_scope(e, start, end) for e in evals)
+                or any(_is_in_scope(t, start, end) for t in tickets)
+            )
+            if not in_scope:
+                continue
+
             item = {
                 "req_id": req_id,
                 "req_name": req_name,
@@ -194,6 +233,15 @@ class ReportDataCollector:
             resolve = _date_of(_g(r, "resolve_date"))
             is_overdue = _g(r, "is_overdue") or 0
 
+            # 范围判定：基于更新时间戳或发现/解决日期
+            in_scope = (
+                _is_in_scope(r, start, end, ("updated_at", "created_at"))
+                or _in_range(disc, start, end)
+                or _in_range(resolve, start, end)
+            )
+            if not in_scope:
+                continue
+
             by_category[cat] += 1
             by_status[st] += 1
             by_impact[impact] += 1
@@ -212,15 +260,14 @@ class ReportDataCollector:
                     "handler": handler,
                     "impact": tr(IMPACT_LEVEL, impact),
                 })
-            if _in_range(disc, start, end) or _in_range(resolve, start, end):
-                items.append({
-                    "issue_no": _g(r, "issue_no"),
-                    "title": _g(r, "title"),
-                    "category": tr(OP_ISSUE_CATEGORY, cat),
-                    "status": tr(OP_ISSUE_STATUS, st),
-                    "impact": tr(IMPACT_LEVEL, impact),
-                    "handler": handler,
-                })
+            items.append({
+                "issue_no": _g(r, "issue_no"),
+                "title": _g(r, "title"),
+                "category": tr(OP_ISSUE_CATEGORY, cat),
+                "status": tr(OP_ISSUE_STATUS, st),
+                "impact": tr(IMPACT_LEVEL, impact),
+                "handler": handler,
+            })
         return {
             "items": items,
             "by_category": tr_keys(OP_ISSUE_CATEGORY, by_category),
@@ -248,16 +295,21 @@ class ReportDataCollector:
         items: List[Dict[str, Any]] = []
         for t in rows:
             st = _g(t, "status") or "created"
-            by_status[st] += 1
             go_live = _date_of(_g(t, "go_live_date"))
-            if _in_range(go_live, start, end) or _in_range(_date_of(_g(t, "created_at")), start, end):
-                items.append({
-                    "ticket_no": _g(t, "ticket_no"),
-                    "system_name": _g(t, "system_name"),
-                    "status": tr(DEV_TICKET_STATUS, st),
-                    "go_live": go_live.isoformat() if go_live else "",
-                    "risk_note": _g(t, "risk_note") or "",
-                })
+            in_scope = (
+                _is_in_scope(t, start, end)
+                or _in_range(go_live, start, end)
+            )
+            if not in_scope:
+                continue
+            by_status[st] += 1
+            items.append({
+                "ticket_no": _g(t, "ticket_no"),
+                "system_name": _g(t, "system_name"),
+                "status": tr(DEV_TICKET_STATUS, st),
+                "go_live": go_live.isoformat() if go_live else "",
+                "risk_note": _g(t, "risk_note") or "",
+            })
         return {"items": items, "by_status": tr_keys(DEV_TICKET_STATUS, by_status)}
 
     # ---- 会议 ----
@@ -293,7 +345,12 @@ class ReportDataCollector:
         unfinished: List[Dict[str, Any]] = []
         for a in rows:
             due = _date_of(_g(a, "due_date"))
-            if not (_in_range(due, start, end) or _in_range(_date_of(_g(a, "created_at")), start, end)):
+            in_scope = (
+                _is_in_scope(a, start, end)
+                or _in_range(due, start, end)
+                or _in_range(_date_of(_g(a, "created_at")), start, end)
+            )
+            if not in_scope:
                 continue
             total += 1
             st = _g(a, "status") or "pending"
@@ -329,11 +386,12 @@ class ReportDataCollector:
             st = _g(t, "status") or "todo"
             due = _date_of(_g(t, "due_date"))
             completed = _date_of(_g(t, "completed_at"))
-            if not (
-                _in_range(_date_of(_g(t, "created_at")), start, end)
+            in_scope = (
+                _is_in_scope(t, start, end)
                 or _in_range(completed, start, end)
                 or _in_range(due, start, end)
-            ):
+            )
+            if not in_scope:
                 continue
             total += 1
             cat = _g(t, "category") or "other"
@@ -367,9 +425,10 @@ class ReportDataCollector:
         by_category = defaultdict(int)
         total = 0
         for k in rows:
-            if _in_range(_date_of(_g(k, "created_at")), start, end):
-                total += 1
-                by_category[_g(k, "category") or "other"] += 1
+            if not _in_range(_date_of(_g(k, "created_at")), start, end):
+                continue
+            total += 1
+            by_category[_g(k, "category") or "other"] += 1
         return {"total": total, "by_category": dict(by_category)}
 
     # ---- 重点工作 ----
@@ -386,20 +445,81 @@ class ReportDataCollector:
         active: List[Dict[str, Any]] = []
         completed_in_range: List[Dict[str, Any]] = []
         overdue: List[Dict[str, Any]] = []
+
+        this_week_label = _iso_week(start)
+        next_week_label = _iso_week(start + timedelta(days=7))
+
+        def _fmt_weekly_plan(p):
+            p_status = _g(p, "status") or "pending"
+            return {
+                "title": _g(p, "title") or "",
+                "content": (_g(p, "content") or "")[:200],
+                "assignee": _g(p, "assignee") or "",
+                "status": "已完成" if p_status == "done" else "待完成",
+                "due_date": _date_of(_g(p, "due_date")).isoformat() if _date_of(_g(p, "due_date")) else "",
+            }
+
         for w in rows:
             cat = _g(w, "category") or "annual_task"
             st = _g(w, "status") or "planning"
             pri = _g(w, "priority") or "P2"
-            by_category[cat] += 1
-            by_status[st] += 1
-            by_priority[pri] += 1
             title = _g(w, "title") or ""
             owner = _g(w, "owner") or ""
             progress = _g(w, "progress") or 0
             planned = _date_of(_g(w, "planned_finish_date"))
             updated = _date_of(_g(w, "updated_at"))
+            created = _date_of(_g(w, "created_at"))
             work_no = _g(w, "work_no") or ""
             current_status = (_g(w, "current_status") or "")[:200]
+
+            weekly_plans = _g(w, "weekly_plans") or []
+            progresses = _g(w, "progresses") or []
+            member_tasks = _g(w, "member_tasks") or []
+
+            # 范围判定：主表 updated_at/created_at，或关联周计划/进展/成员任务在范围内有更新
+            latest_related = _latest_related_date(w, list(weekly_plans) + list(progresses) + list(member_tasks))
+            is_overdue_risk = planned and planned < end and st not in ("completed", "cancelled")
+            in_scope = (
+                _in_range(updated, start, end)
+                or _in_range(created, start, end)
+                or _in_range(latest_related, start, end)
+                or _in_range(planned, start, end)
+            )
+            if not in_scope and not is_overdue_risk:
+                continue
+
+            by_category[cat] += 1
+            by_status[st] += 1
+            by_priority[pri] += 1
+
+            # 本周/下周计划与本周进展
+            this_week_plans = [p for p in weekly_plans if _g(p, "week") == this_week_label]
+            next_week_plans = [p for p in weekly_plans if _g(p, "week") == next_week_label]
+            this_week_progresses = [
+                p for p in progresses
+                if _in_range(_date_of(_g(p, "record_date")), start, end)
+            ]
+
+            this_week_plan_summary = {
+                "week": this_week_label,
+                "total": len(this_week_plans),
+                "done": sum(1 for p in this_week_plans if (_g(p, "status") or "") == "done"),
+                "items": [_fmt_weekly_plan(p) for p in this_week_plans],
+            }
+            next_week_plan_summary = {
+                "week": next_week_label,
+                "total": len(next_week_plans),
+                "items": [_fmt_weekly_plan(p) for p in next_week_plans],
+            }
+            this_week_progress_summary = [
+                {
+                    "record_date": _date_of(_g(p, "record_date")).isoformat() if _date_of(_g(p, "record_date")) else "",
+                    "content": (_g(p, "content") or "")[:300],
+                    "reporter": _g(p, "reporter") or "",
+                }
+                for p in this_week_progresses
+            ]
+
             # 本期完成（状态为已完成且更新落在区间内）
             if st == "completed" and _in_range(updated, start, end):
                 completed_in_range.append({
@@ -420,9 +540,12 @@ class ReportDataCollector:
                     "progress": progress,
                     "planned_finish_date": planned.isoformat() if planned else "",
                     "current_status": current_status,
+                    "this_week_plan": this_week_plan_summary,
+                    "next_week_plan": next_week_plan_summary,
+                    "this_week_progress": this_week_progress_summary,
                 })
             # 逾期风险：计划完成日已过且未完结（非已完成/已取消）
-            if planned and planned < end and st not in ("completed", "cancelled"):
+            if is_overdue_risk:
                 overdue.append({
                     "title": title,
                     "owner": owner,
@@ -430,7 +553,7 @@ class ReportDataCollector:
                     "status": tr(KW_STATUS, st),
                 })
         return {
-            "total": len(rows),
+            "total": len(by_category) and sum(by_category.values()),
             "by_category": tr_keys(KW_CATEGORY, by_category),
             "by_status": tr_keys(KW_STATUS, by_status),
             "by_priority": tr_keys(KW_PRIORITY, by_priority),

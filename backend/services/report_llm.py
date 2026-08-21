@@ -110,10 +110,34 @@ def build_next_period_section(data: Dict[str, Any], report_type: str) -> str:
                 due = w.get("planned_finish_date") or "未定"
                 lines.append(f"  - 【{w.get('title')}】（负责人：{w.get('owner') or '待指派'}，计划完成：{due}）")
         if kw_active:
-            lines.append(f"- 继续推进重点推进事项（{len(kw_active)} 项），按进度表完成关键里程碑：")
+            # 优先基于 next_week_plan 输出下周具体任务
+            has_next_plan = False
             for w in kw_active[:6]:
-                due = w.get("planned_finish_date") or "未定"
-                lines.append(f"  - 【{w.get('title')}】（负责人：{w.get('owner') or '待指派'}，计划完成：{due}）")
+                next_plan = w.get("next_week_plan") or {}
+                if next_plan.get("total"):
+                    has_next_plan = True
+                    break
+            if has_next_plan:
+                lines.append(f"- **推进下周关键任务**（基于重点工作的 next_week_plan，共 {len(kw_active)} 项）：")
+                for w in kw_active[:6]:
+                    next_plan = w.get("next_week_plan") or {}
+                    items = next_plan.get("items") or []
+                    title = w.get('title') or '未命名'
+                    owner = w.get('owner') or '待指派'
+                    if items:
+                        lines.append(f"  - 【{title}】（负责人：{owner}）")
+                        for it in items[:4]:
+                            due = it.get("due_date") or "未定"
+                            plan_title = it.get("title") or "（未命名任务）"
+                            lines.append(f"    - {plan_title}（截止：{due}）")
+                    else:
+                        due = w.get("planned_finish_date") or "未定"
+                        lines.append(f"  - 【{title}】（负责人：{owner}，计划完成：{due}）—— 下周具体任务待补充")
+            else:
+                lines.append(f"- 继续推进重点推进事项（{len(kw_active)} 项），按进度表完成关键里程碑：")
+                for w in kw_active[:6]:
+                    due = w.get("planned_finish_date") or "未定"
+                    lines.append(f"  - 【{w.get('title')}】（负责人：{w.get('owner') or '待指派'}，计划完成：{due}）")
     else:
         lines.append("- （本期无重点工作推进/逾期，维持既有节奏）")
     lines.append("")
@@ -321,9 +345,41 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         for w in kw_active_list[:12]:
             prog = w.get("progress") or 0
             due = w.get("planned_finish_date") or "未定"
-            lines.append(f"  - 【{w.get('title')}】（{w.get('category')}，负责人：{w.get('owner') or '待指派'}，"
+            lines.append(f"  - **【{w.get('title')}】**（{w.get('category')}，负责人：{w.get('owner') or '待指派'}，"
                          f"优先级：{w.get('priority')}，进度：{prog}%，计划完成：{due}）")
-        lines.append("- 推进判断：上述事项需按进度表推进，关注里程碑与卡点。")
+            # 本周计划完成情况
+            twp = w.get("this_week_plan") or {}
+            tw_items = twp.get("items") or []
+            if tw_items:
+                done = twp.get("done") or 0
+                total = twp.get("total") or len(tw_items)
+                lines.append(f"    - 本周计划（{twp.get('week') or ''}）完成情况：{done}/{total} 项完成")
+                for it in tw_items[:3]:
+                    st = it.get("status") or "待完成"
+                    pd = it.get("due_date") or "未定"
+                    lines.append(f"      - {it.get('title') or '（未命名）'}（{st}，截止：{pd}）")
+            else:
+                lines.append("    - 本周计划：暂无明确周计划，需补充。")
+            # 本周进展
+            twg = w.get("this_week_progress") or []
+            if twg:
+                lines.append(f"    - 本周关键进展：")
+                for p in twg[:2]:
+                    rd = p.get("record_date") or ""
+                    content = (p.get("content") or "").strip()
+                    if content:
+                        lines.append(f"      - {rd + ' ' if rd else ''}{content[:120]}")
+            # 下周计划
+            nwp = w.get("next_week_plan") or {}
+            nw_items = nwp.get("items") or []
+            if nw_items:
+                lines.append(f"    - 下周计划（{nwp.get('week') or ''}）：")
+                for it in nw_items[:3]:
+                    pd = it.get("due_date") or "未定"
+                    lines.append(f"      - {it.get('title') or '（未命名）'}（截止：{pd}）")
+            elif prog < 100:
+                lines.append(f"    - 下周计划：下周具体任务待补充，建议按 {due} 节点倒排。")
+        lines.append("- 推进判断：上述事项需按周计划推进，关注未完成项卡点和下周任务清晰度。")
     else:
         lines.append("- 本期无进行中的重点工作。")
     lines.append("")

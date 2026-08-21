@@ -27,29 +27,29 @@ _MD_EXTENSIONS = ["tables", "fenced_code", "sane_lists", "nl2br"]
 
 # 内联样式映射：邮件客户端剥离 <style>，必须用内联 style 才能生效
 _TAG_STYLES: dict[str, str] = {
-    "h1": "font-size:20px;margin:18px 0 10px;border-bottom:1px solid #e5e6eb;padding-bottom:6px;color:#1d2129;",
-    "h2": "font-size:17px;margin:16px 0 8px;color:#1d2129;",
-    "h3": "font-size:15px;margin:14px 0 6px;color:#1d2129;",
-    "p": "margin:8px 0;",
-    "ul": "margin:8px 0;padding-left:22px;",
-    "ol": "margin:8px 0;padding-left:22px;",
-    "li": "margin:4px 0;",
-    "table": "border-collapse:collapse;margin:10px 0;width:100%;font-size:13px;",
-    "th": "border:1px solid #e5e6eb;padding:6px 10px;text-align:left;background:#f2f3f5;font-weight:600;",
-    "td": "border:1px solid #e5e6eb;padding:6px 10px;text-align:left;",
+    "h1": "font-size:22px;margin:24px 0 12px;border-bottom:2px solid #165dff;padding-bottom:8px;color:#1d2129;",
+    "h2": "font-size:18px;margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid #e5e6eb;color:#165dff;",
+    "h3": "font-size:15px;margin:16px 0 8px;color:#1d2129;font-weight:600;",
+    "p": "margin:10px 0;",
+    "ul": "margin:10px 0;padding-left:26px;",
+    "ol": "margin:10px 0;padding-left:26px;",
+    "li": "margin:6px 0;",
+    "table": "border-collapse:collapse;margin:12px 0;width:100%;font-size:13px;",
+    "th": "border:1px solid #d9dbe2;padding:7px 10px;text-align:left;background:#f2f3f5;font-weight:600;color:#1d2129;",
+    "td": "border:1px solid #e5e6eb;padding:7px 10px;text-align:left;vertical-align:top;",
     "code": "background:#f2f3f5;padding:1px 5px;border-radius:3px;font-family:Consolas,Menlo,monospace;font-size:13px;",
     "pre": "background:#f7f8fa;border:1px solid #e5e6eb;border-radius:6px;padding:10px;overflow:auto;",
-    "blockquote": "margin:8px 0;padding:4px 12px;border-left:3px solid #c9cdd4;color:#4e5969;background:#f7f8fa;",
+    "blockquote": "margin:12px 0;padding:10px 14px;border-left:4px solid #165dff;color:#1d2129;background:#f0f5ff;border-radius:0 6px 6px 0;",
     "a": "color:#165dff;text-decoration:none;",
-    "strong": "font-weight:600;",
+    "strong": "font-weight:600;color:#1d2129;",
     "em": "font-style:italic;",
-    "hr": "border:none;border-top:1px solid #e5e6eb;margin:12px 0;",
+    "hr": "border:none;border-top:1px solid #e5e6eb;margin:16px 0;",
     "img": "max-width:100%;",
 }
 
 _BODY_STYLE = (
     "font-family:-apple-system,'Segoe UI','Microsoft YaHei',Arial,sans-serif;"
-    "font-size:14px;line-height:1.7;color:#1f2329;word-break:break-word;"
+    "font-size:14px;line-height:1.75;color:#1f2329;word-break:break-word;"
 )
 
 _ALLOWED_TAGS = [
