@@ -146,7 +146,7 @@
       :default-subject="mailDialogSubject"
       :default-body="mailDialogBody"
       value-key="email"
-      :custom-send="(payload) => sendWorkReport(current.value.id, payload)"
+      :custom-send="handleSendMail"
       @success="handleMailSuccess"
     />
   </div>
@@ -236,6 +236,11 @@ const mailDialogTo = ref([])
 const mailDialogCc = ref([])
 const mailDialogSubject = ref('')
 const mailDialogBody = ref('')
+
+async function handleSendMail(payload) {
+  const data = await sendWorkReport(current.value.id, payload)
+  return { success: true, data }
+}
 
 function statusTagType(status) {
   if (status === 'sent') return 'success'
