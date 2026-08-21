@@ -232,15 +232,23 @@ def _insert_key_work_milestone(db, id=1, key_work_id=1, name="MS1"):
     db.commit()
 
 
-def _insert_requirement_evaluation(db, req_id="REQ-001", sa_name="李明"):
+def _insert_requirement_evaluation(
+    db,
+    req_id="REQ-001",
+    sa_name="李明",
+    workload=None,
+    review_workload=None,
+    system_name="测试系统",
+):
     db.add(
         PmwbRequirementEvaluation(
             req_id=req_id,
             req_name="测试需求",
             proposer="王五",
             sa_name=sa_name,
-            system_name="测试系统",
-            workload=None,
+            system_name=system_name,
+            workload=workload,
+            review_workload=review_workload,
         )
     )
     db.commit()
@@ -295,6 +303,29 @@ class TestTaskCenterSourceUrl:
         items = task_service.collect_requirement_urge(db_session)
         assert len(items) >= 1
         assert items[0].source_url == "/requirement-delivery?req=REQ-100&sa=李明"
+
+    def test_collect_requirement_urge_excludes_reviewed_zero_workload(self, db_session, task_service):
+        """已复核（复核工作量非空，含 0=不需要开发）一律不催办，与前端状态列口径对齐。"""
+        # 场景1：workload=0 + review_workload=0（评估不需要开发）→ 不催办
+        _insert_requirement_evaluation(
+            db_session, req_id="REQ-RV-1", sa_name="吴雨霜", workload=0.0,
+            review_workload=0.0, system_name="CRM",
+        )
+        # 场景2：workload=None + review_workload=5（已复核但工作量漏填）→ 不催办
+        _insert_requirement_evaluation(
+            db_session, req_id="REQ-RV-2", sa_name="秦新", workload=None,
+            review_workload=5.0, system_name="电子协议",
+        )
+        # 场景3：workload=None + review_workload=None（真正评估未完成）→ 催办
+        _insert_requirement_evaluation(
+            db_session, req_id="REQ-RV-3", sa_name="陈山", workload=None,
+            review_workload=None, system_name="订单中心",
+        )
+        items = task_service.collect_requirement_urge(db_session)
+        task_ids = {it.task_id for it in items}
+        assert not any("REQ-RV-1" in t for t in task_ids), "已复核(复核=0)不应催办"
+        assert not any("REQ-RV-2" in t for t in task_ids), "已复核(工作量漏填)不应催办"
+        assert any("REQ-RV-3" in t for t in task_ids), "评估未完成应催办"
 
     def test_all_six_sources_have_query_params(self, db_session, task_service):
         """Verify all 6 collector methods return source_url with query parameters."""

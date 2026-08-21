@@ -51,7 +51,7 @@
     <!-- 需求催办 Tab：保留按 SA 分组批量催办交互 -->
     <template v-if="activeTab === 'requirement_urge'">
       <div class="table-hint">
-        按 SA 分组的待催办需求（团队评估中「工作量（人天）」未登记的行，按该行 SA 负责人归集）。「批量催办」向该 SA 群发汇总邮件，
+        按 SA 分组的待催办需求（团队评估中「工作量（人天）」未登记且未复核的行，按该行 SA 负责人归集；已复核/不需要开发不催办）。「批量催办」向该 SA 群发汇总邮件，
         单行「催办」单独发送；收件人邮箱按姓名从统一邮件中心通讯录自动解析。
       </div>
       <el-empty v-if="!urgeLoading && !urgeGroups.length" description="暂无待催办需求" />

@@ -545,9 +545,10 @@ class RequirementService:
     def pending_by_sa(self, db: Session) -> List[Dict[str, Any]]:
         """按 SA 分组的待催办列表（团队评估维度）。
 
-        判据（2026-07 修正）：只看团队评估行中「工作量（人天）」为空的记录，
-        每条空工作量行归属其自身的 SA 负责人（按 (req_id, sa_name) 去重）；
-        不再要求「复核工作量未填 + 无开发单号」同时成立。
+        判据（2026-08 修正）：团队评估行「工作量（人天）」为空 且「复核工作量（人天）」为空
+        才算评估未完成、进入待催办；「已复核」（review_workload 非空，含复核为 0
+        即"评估不需要开发"的情况）一律不催办，与前端「按系统/团队评估」状态列口径对齐。
+        每条未完成行按 (req_id, sa_name) 去重。
         需求已关闭/暂停（pmwb_requirement_ext.status 为 closed/paused）不催办。
         """
         closed_ids = set(
@@ -565,7 +566,10 @@ class RequirementService:
                 PmwbRequirementEvaluation.dev_ticket_no,
                 PmwbRequirementEvaluation.workload,
             )
-            .filter(func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0)
+            .filter(
+                func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0,
+                PmwbRequirementEvaluation.review_workload.is_(None),
+            )
             .order_by(
                 PmwbRequirementEvaluation.req_id,
                 PmwbRequirementEvaluation.sa_name,

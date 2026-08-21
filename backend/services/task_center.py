@@ -339,9 +339,10 @@ class TaskCenterService:
     def collect_requirement_urge(self, db: Session) -> List[TaskItem]:
         """待催办需求（团队评估维度）：以 pmwb_requirement_evaluation 为准。
 
-        判据（2026-07 修正）：只看团队评估行中「工作量（人天）」为空的记录，
-        每条空工作量行归属其自身的 SA 负责人（按 需求+SA 去重）；
-        不再要求「复核工作量未填 + 无开发单号」同时成立。
+        判据（2026-08 修正）：团队评估行「工作量（人天）」为空 且「复核工作量（人天）」为空
+        才算评估未完成、进入待催办；「已复核」（review_workload 非空，含复核为 0
+        即"评估不需要开发"的情况）一律不催办，与前端「按系统/团队评估」状态列口径对齐。
+        每条未完成行归属其自身的 SA 负责人（按 需求+SA 去重）。
         需求已关闭/暂停不催办。
         """
         from db.models import PmwbRequirementEvaluation, PmwbRequirementExt
@@ -372,7 +373,10 @@ class TaskCenterService:
                 PmwbRequirementEvaluation.system_name,
                 PmwbRequirementEvaluation.dev_ticket_no,
             )
-            .filter(func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0)
+            .filter(
+                func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0,
+                PmwbRequirementEvaluation.review_workload.is_(None),
+            )
             .order_by(
                 PmwbRequirementEvaluation.req_id,
                 PmwbRequirementEvaluation.sa_name,
@@ -434,7 +438,7 @@ class TaskCenterService:
                     "提出人": r.proposer,
                     "涉及系统": system,
                     "评估团队(SA)": owner,
-                    "团队评估状态": "工作量未登记",
+                    "团队评估状态": "评估未完成",
                     "需求描述": desc,
                 },
                 is_overdue=False,

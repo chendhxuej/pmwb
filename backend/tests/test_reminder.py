@@ -248,13 +248,17 @@ def _create_evaluation_for_pending(db: Session, req_id: str, sa_name: str, workl
 
 
 def test_list_pending_by_sa(client: TestClient, db: Session):
-    # 待催办：工作量未填 → 按 (需求+SA) 去重归集；已填工作量排除
+    # 待催办：工作量未填且未复核 → 按 (需求+SA) 去重归集；已填工作量排除
     _create_evaluation_for_pending(db, req_id="REQ-P-1", sa_name="陈山")
     _create_evaluation_for_pending(db, req_id="REQ-P-2", sa_name="陈山")
     # 已填工作量 → 排除
     _create_evaluation_for_pending(db, req_id="REQ-P-3", sa_name="赵明", workload=5.0)
-    # 工作量未填、但已建开发单 → 仍应催办（新口径只看工作量）
+    # 工作量未填、但已建开发单 → 仍应催办（只看工作量与复核状态，不看开发单号）
     _create_evaluation_for_pending(db, req_id="REQ-P-4", sa_name="钱七", dev_ticket_no="DEV-999")
+    # 已复核（复核工作量=0，评估不需要开发）→ 排除，不得催办
+    _create_evaluation_for_pending(db, req_id="REQ-P-5", sa_name="孙八", workload=0.0, review_workload=0.0)
+    # 已复核（复核工作量>0）→ 排除，不得催办
+    _create_evaluation_for_pending(db, req_id="REQ-P-6", sa_name="李九", workload=3.0, review_workload=3.5)
 
     response = client.get("/api/v1/reminders/pending")
     assert response.status_code == 200
@@ -265,6 +269,8 @@ def test_list_pending_by_sa(client: TestClient, db: Session):
     assert "赵明" not in groups
     assert "钱七" in groups
     assert groups["钱七"]["count"] == 1
+    assert "孙八" not in groups
+    assert "李九" not in groups
 
 
 def test_list_records(client: TestClient, db: Session):
