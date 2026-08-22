@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from sqlalchemy.orm import Session
 
 from core.exceptions import ValidationException
@@ -315,22 +316,67 @@ class BasicDataService:
         return stats
 
     def build_template_bytes(self) -> bytes:
-        """生成 Excel 导入模板字节流。"""
+        """生成 Excel 导入模板字节流（含填写说明 + 数据页签）。"""
         wb = Workbook()
-        ws = wb.active
-        ws.title = "团队信息导入"
+        wb.remove(wb.active)
 
+        # 填写说明
+        ws_help = wb.create_sheet("填写说明")
+        ws_help.sheet_view.showGridLines = False
+        ws_help.column_dimensions["A"].width = 18
+        ws_help.column_dimensions["B"].width = 80
+
+        header_fill = PatternFill("solid", fgColor="2F5496")
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        sub_font = Font(bold=True, size=11, color="2F5496")
+        wrap = Alignment(vertical="top", wrap_text=True)
+
+        r = 1
+        ws_help.cell(r, 1, "团队信息 Excel 导入模板 · 填写说明").font = Font(bold=True, size=14, color="2F5496")
+        r += 2
+
+        help_lines = [
+            ("一、总体说明", ""),
+            ("", "每一行 = 一名成员；相同组织+姓名的成员会被覆盖更新，不会重复创建。"),
+            ("", "去重规则：优先按邮箱匹配；邮箱为空时按 组织名称+成员姓名 匹配。"),
+            ("二、必填与选填", ""),
+            ("组织名称*", "必填。若不存在则自动创建新组织。"),
+            ("成员姓名*", "必填。"),
+            ("邮箱", "可选但强烈建议填写，用于邮件中心、会议通知等场景。"),
+            ("电话", "可选。"),
+            ("身份", "可选，如产品经理、SA、开发等，用于角色筛选。"),
+            ("排序号", "可选，数字越小排序越靠前，默认 0。"),
+            ("是否启用", "可选，填“是/启用/1/true”表示启用，填“否/停用/0/false”表示停用，默认启用。"),
+            ("三、注意事项", ""),
+            ("", "• 请勿修改页签名称与各列表头文字。"),
+            ("", "• 留空行会被自动忽略。"),
+            ("", "• 导入前建议在人员中台页面查看现有人员，避免误覆盖。"),
+        ]
+        for title, body in help_lines:
+            if title and not body:
+                ws_help.cell(r, 1, title).font = sub_font
+            elif title:
+                ws_help.cell(r, 1, title).font = Font(bold=True)
+                ws_help.cell(r, 2, body).alignment = wrap
+            else:
+                ws_help.cell(r, 2, body).alignment = wrap
+            r += 1
+
+        # 数据页签
+        ws = wb.create_sheet("团队信息导入")
         headers = [c[0] for c in TEMPLATE_COLUMNS]
         ws.append(headers)
+        for col_idx, (name, _required) in enumerate(TEMPLATE_COLUMNS, start=1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            ws.column_dimensions[cell.column_letter].width = max(14, len(name) + 4)
 
         # 示例数据
         ws.append(["政企业务部", "张三", "zhangsan@example.com", "13800138000", "产品经理", 0, "是"])
         ws.append(["CRM维护", "李四", "lisi@example.com", "", "系统维护", 1, "是"])
         ws.append(["BOSS维护", "", "", "", "", "", ""])
-
-        for col_idx, (name, _required) in enumerate(TEMPLATE_COLUMNS, start=1):
-            cell = ws.cell(row=1, column=col_idx)
-            ws.column_dimensions[cell.column_letter].width = max(14, len(name) + 4)
 
         bio = io.BytesIO()
         wb.save(bio)
