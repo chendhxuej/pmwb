@@ -961,7 +961,12 @@
             :loading="reqSearchLoading"
             style="width: 100%"
           >
-            <el-option v-for="r in linkedReqOptions" :key="r.req_id" :label="r.req_id" :value="r.req_id" />
+            <el-option
+              v-for="r in linkedReqOptions"
+              :key="r.req_id"
+              :label="`${r.req_name || '未命名需求'}（${r.req_id}）`"
+              :value="r.req_id"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="备注说明"><EnlargeInput v-model="activeOptForm.note" type="textarea" :rows="2" /></el-form-item>
@@ -1798,10 +1803,17 @@ function openActiveOptDialog(row) {
     })
   }
   activeOptDialog.value = true
-  // 预载关联需求可选项（确保当前已选值可显示）
-  searchLinkedReq(activeOptForm.req_id || '').then(() => {
+  // 预载关联需求可选项（确保当前已选值可显示，并带需求名称）
+  searchLinkedReq(activeOptForm.req_id || '').then(async () => {
     if (activeOptForm.req_id && !linkedReqOptions.value.some((r) => r.req_id === activeOptForm.req_id)) {
-      linkedReqOptions.value.unshift({ req_id: activeOptForm.req_id })
+      let name = ''
+      try {
+        const res = await getRequirement(activeOptForm.req_id)
+        name = (res && res.req_name) || ''
+      } catch (e) {
+        /* 忽略，仅展示文号 */
+      }
+      linkedReqOptions.value.unshift({ req_id: activeOptForm.req_id, req_name: name })
     }
   })
 }
