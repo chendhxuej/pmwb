@@ -277,21 +277,26 @@
                 <el-tag size="small" :type="priorityType(row.priority)" effect="dark">{{ row.priority || 'P2' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="工单标题" min-width="200" show-overflow-tooltip>
+            <el-table-column label="工单标题" min-width="150" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="link-text" @click.stop="openActiveOptDetail(row)">{{ row.title || '（未命名）' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="现状描述" width="160" show-overflow-tooltip>
+            <el-table-column label="现状描述" width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="text-muted" style="font-size: 12.5px">{{ row.current_situation || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="优化建议" width="200" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="text-muted" style="font-size: 12.5px">{{ row.suggestion || '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="admin_name" label="业务管理员" width="90" align="center" />
             <el-table-column label="评估状态" width="88" align="center">
               <template #default="{ row }"><StatusBadge module="active_optimization" :value="row.status" /></template>
             </el-table-column>
-            <el-table-column label="关联需求" width="120" show-overflow-tooltip align="center">
+            <el-table-column label="关联需求" width="150" show-overflow-tooltip align="center">
               <template #default="{ row }">
                 <span class="text-muted">{{ row.req_id || '—' }}</span>
               </template>
@@ -944,7 +949,21 @@
             <el-option label="不采纳" value="rejected" />
           </el-select>
         </el-form-item>
-        <el-form-item label="关联需求"><EnlargeInput v-model="activeOptForm.req_id" placeholder="需求文号，可选" /></el-form-item>
+        <el-form-item label="关联需求">
+          <el-select
+            v-model="activeOptForm.req_id"
+            filterable
+            remote
+            reserve-keyword
+            clearable
+            placeholder="输入需求文号/名称搜索并选择"
+            :remote-method="searchLinkedReq"
+            :loading="reqSearchLoading"
+            style="width: 100%"
+          >
+            <el-option v-for="r in linkedReqOptions" :key="r.req_id" :label="r.req_id" :value="r.req_id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="备注说明"><EnlargeInput v-model="activeOptForm.note" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
@@ -993,6 +1012,14 @@
           <div class="us-value">{{ formatDateTime(activeOptDetail.created_at) }}</div>
         </div>
       </div>
+      <template #footer>
+        <div class="flex justify-end gap-10">
+          <el-button @click="activeOptDetailVisible = false">关闭</el-button>
+          <el-button type="primary" @click="openActiveOptDialog(activeOptDetail)">编辑</el-button>
+          <el-button type="warning" @click="openActiveOptMail(activeOptDetail, 'urge')">催办</el-button>
+          <el-button type="info" @click="openActiveOptMail(activeOptDetail, 'sync')">同步</el-button>
+        </div>
+      </template>
     </el-drawer>
   </div>
 </template>
@@ -1771,6 +1798,27 @@ function openActiveOptDialog(row) {
     })
   }
   activeOptDialog.value = true
+  // 预载关联需求可选项（确保当前已选值可显示）
+  searchLinkedReq(activeOptForm.req_id || '').then(() => {
+    if (activeOptForm.req_id && !linkedReqOptions.value.some((r) => r.req_id === activeOptForm.req_id)) {
+      linkedReqOptions.value.unshift({ req_id: activeOptForm.req_id })
+    }
+  })
+}
+
+/* 关联需求：远端搜索需求工单 */
+const linkedReqOptions = ref([])
+const reqSearchLoading = ref(false)
+async function searchLinkedReq(keyword) {
+  reqSearchLoading.value = true
+  try {
+    const res = await getRequirements({ keyword: keyword || undefined, page: 1, page_size: 50 })
+    linkedReqOptions.value = res.items || []
+  } catch (e) {
+    linkedReqOptions.value = []
+  } finally {
+    reqSearchLoading.value = false
+  }
 }
 
 /* 主动优化详情抽屉 */
@@ -1795,6 +1843,10 @@ async function saveActiveOpt() {
   }
   activeOptDialog.value = false
   await loadActiveOpts()
+  // 若抽屉正展示同一工单，同步刷新其详情
+  if (activeOptDetailVisible.value && activeOptDetail.value?.id && activeOptForm.id === activeOptDetail.value.id) {
+    activeOptDetail.value = { ...activeOptForm }
+  }
 }
 async function removeActiveOpt(row) {
   await ElMessageBox.confirm(`确认删除主动优化「${row.title}」？`, '提示', { type: 'warning' })
