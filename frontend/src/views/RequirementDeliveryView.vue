@@ -271,28 +271,37 @@
             </el-select>
             <el-button @click="loadActiveOpts"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
-          <el-table v-loading="activeOptLoading" :data="activeOpts" stripe scrollbar-always-on>
-            <el-table-column label="优先级" width="76" align="center">
+          <el-table v-loading="activeOptLoading" :data="activeOpts" stripe scrollbar-always-on row-class-name="req-table">
+            <el-table-column label="优先级" width="70" align="center">
               <template #default="{ row }">
-                <el-tag size="small" :type="priorityType(row.priority)">{{ row.priority || 'P2' }}</el-tag>
+                <el-tag size="small" :type="priorityType(row.priority)" effect="dark">{{ row.priority || 'P2' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="工单标题" min-width="240" show-overflow-tooltip>
+            <el-table-column label="工单标题" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="link-text" @click.stop="openActiveOptDetail(row)">{{ row.title || '（未命名）' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="admin_name" label="业务管理员" width="100" />
-            <el-table-column label="评估状态" width="90" align="center">
+            <el-table-column label="现状描述" width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="text-muted" style="font-size: 12.5px">{{ row.current_situation || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="admin_name" label="业务管理员" width="90" align="center" />
+            <el-table-column label="评估状态" width="88" align="center">
               <template #default="{ row }"><StatusBadge module="active_optimization" :value="row.status" /></template>
             </el-table-column>
-            <el-table-column prop="req_id" label="关联需求" width="130" show-overflow-tooltip />
-            <el-table-column label="创建时间" width="105" align="center">
+            <el-table-column label="关联需求" width="120" show-overflow-tooltip align="center">
+              <template #default="{ row }">
+                <span class="text-muted">{{ row.req_id || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="创建时间" width="100" align="center">
               <template #default="{ row }">
                 <span class="text-muted">{{ formatDate(row.created_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="190" align="center" fixed="right">
+            <el-table-column label="操作" width="200" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openActiveOptDialog(row)">编辑</el-button>
                 <el-button link type="warning" size="small" @click.stop="openActiveOptMail(row, 'urge')">催办</el-button>
@@ -1010,7 +1019,7 @@ import {
   generateRequirementDoc, searchUserStories, getLlmStatus, getUserStoryStats,
 } from '@/api/requirement'
 import {
-  getActiveOptimizations, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
+  getActiveOptimizations, getActiveOptimizationStats, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
 } from '@/api/active_optimization'
 
 /* ─────────────── 需求标签 ─────────────── */
@@ -1300,6 +1309,8 @@ async function loadActiveOpts() {
     activeOpts.value = listRes.items || []
     activeOptTotal.value = listRes.total || 0
     activeOptStats.value = statsRes || {}
+  } catch (e) {
+    console.error('[主动优化] 加载失败:', e)
   } finally {
     activeOptLoading.value = false
   }
