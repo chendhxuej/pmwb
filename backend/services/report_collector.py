@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from db.models import (
+    PmwbActiveOptimization,
     PmwbDevTicket,
     PmwbKeyWork,
     PmwbKnowledgeItem,
@@ -110,6 +111,7 @@ class ReportDataCollector:
             "todo": self._collect_todo(date_start, date_end),
             "knowledge": self._collect_knowledge(date_start, date_end),
             "key_work": self._collect_key_work(date_start, date_end),
+            "active_optimization": self._collect_active_optimization(date_start, date_end),
         }
 
     # ---- 需求与交付 ----
@@ -568,4 +570,55 @@ class ReportDataCollector:
             "active": active,
             "completed_in_range": completed_in_range,
             "overdue": overdue,
+        }
+
+    # ---- 主动优化 ----
+    def _collect_active_optimization(self, start, end):
+        try:
+            rows = self.db.query(PmwbActiveOptimization).all()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("采集主动优化失败: %s", e)
+            return {"items": [], "buckets": {}, "stats": {}}
+
+        buckets = {"added": [], "adopted": [], "rejected": [], "pending": []}
+        items = []
+        for r in rows:
+            created = _date_of(_g(r, "created_at"))
+            updated = _date_of(_g(r, "updated_at"))
+            in_scope = (
+                _is_in_scope(r, start, end)
+                or _in_range(created, start, end)
+            )
+            if not in_scope:
+                continue
+
+            status = _g(r, "status") or "pending"
+            item = {
+                "title": _g(r, "title") or "",
+                "status": status,
+                "admin_name": _g(r, "admin_name") or "",
+                "req_id": _g(r, "req_id") or "",
+                "current_situation": (_g(r, "current_situation") or "")[:200],
+                "suggestion": (_g(r, "suggestion") or "")[:200],
+            }
+
+            if _in_range(created, start, end):
+                buckets["added"].append(item["title"])
+            if status == "adopted":
+                buckets["adopted"].append(item["title"])
+            elif status == "rejected":
+                buckets["rejected"].append(item["title"])
+            else:
+                buckets["pending"].append(item["title"])
+            items.append(item)
+
+        return {
+            "items": items,
+            "buckets": buckets,
+            "stats": {
+                "total": len(items),
+                "adopted": len(buckets["adopted"]),
+                "rejected": len(buckets["rejected"]),
+                "pending": len(buckets["pending"]),
+            },
         }

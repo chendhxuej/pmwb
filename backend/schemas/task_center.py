@@ -5,14 +5,15 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-# 任务来源枚举（六大来源）
+# 任务来源枚举（七大来源）
 TASK_SOURCES = [
-    "todo",              # 个人待办 pmwb_todo
-    "operation_issue",   # 运营问题 pmwb_operation_issue
-    "dev_ticket",        # 开发工单 pmwb_dev_ticket
-    "meeting_action",    # 会议行动项 pmwb_meeting_action
-    "key_work",          # 重点工作（成员任务/里程碑/主项）
-    "requirement_urge",  # 待催办需求（sent_emails 派生）
+    "todo",                # 个人待办 pmwb_todo
+    "operation_issue",     # 运营问题 pmwb_operation_issue
+    "dev_ticket",          # 开发工单 pmwb_dev_ticket
+    "meeting_action",      # 会议行动项 pmwb_meeting_action
+    "key_work",            # 重点工作（成员任务/里程碑/主项）
+    "requirement_urge",    # 待催办需求（sent_emails 派生）
+    "active_optimization", # 主动优化建议
 ]
 
 SOURCE_LABELS = {
@@ -22,6 +23,7 @@ SOURCE_LABELS = {
     "meeting_action": "会议行动项",
     "key_work": "重点工作",
     "requirement_urge": "需求催办",
+    "active_optimization": "主动优化",
 }
 
 # 统一状态枚举

@@ -118,6 +118,15 @@
             </div>
             <div v-if="!reqStatusDist.length" class="tc-empty">暂无需求状态分布</div>
           </div>
+          <div class="rq-opt">
+            <div class="rq-dist-h">主动优化</div>
+            <div class="rq-opt-row">
+              <div class="rq-opt-stat"><b>{{ activeOpts.total }}</b><span>总数</span></div>
+              <div class="rq-opt-stat"><b>{{ activeOpts.pending }}</b><span>待评估</span></div>
+              <div class="rq-opt-stat"><b>{{ activeOpts.adopted }}</b><span>已采纳</span></div>
+              <div class="rq-opt-stat"><b>{{ activeOpts.rejected }}</b><span>不采纳</span></div>
+            </div>
+          </div>
         </div>
       </BentoCard>
 
@@ -438,6 +447,7 @@ const taskCenter = ref({ total: 0, overdue: 0, due_soon: 0, processing: 0, pendi
 const reqs = ref({ total: 0, thisWeek: 0, inReview: 0, completed: 0, overdueDev: 0 })
 const issues = ref({ total: 0, pending: 0, processing: 0, resolved: 0, overdue: 0 })
 const meetingStats = ref({ totalThisWeek: 0, today: 0, upcoming: 0, pendingMinutes: 0 })
+const activeOpts = ref({ total: 0, pending: 0, adopted: 0, rejected: 0, thisWeek: 0 })
 const reqStatusDist = ref([])
 const issueTypeDist = ref([])
 
@@ -615,6 +625,13 @@ function mergeDashboard(res) {
       today: ms.meetings.today || 0,
       upcoming: ms.meetings.upcoming || 0,
       pendingMinutes: ms.meetings.pendingMinutes || 0,
+    }
+    if (ms.activeOptimization) activeOpts.value = {
+      total: ms.activeOptimization.total || 0,
+      pending: ms.activeOptimization.pending || 0,
+      adopted: ms.activeOptimization.adopted || 0,
+      rejected: ms.activeOptimization.rejected || 0,
+      thisWeek: ms.activeOptimization.thisWeek || 0,
     }
   }
   if (res.distribution_charts && typeof res.distribution_charts === 'object') {
@@ -1070,6 +1087,11 @@ onUnmounted(() => {
   .rq-bar-fill.st-review { background: var(--accent); }
   .rq-bar-fill.st-live { background: var(--success); }
   .rq-bar-val, .op-bar-val { text-align: right; font-family: var(--font-mono); color: var(--text-primary); font-weight: 600; }
+  .rq-opt { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+  .rq-opt-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .rq-opt-stat { display: flex; flex-direction: column; gap: 2px; }
+  .rq-opt-stat b { font-size: 18px; font-weight: 700; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; }
+  .rq-opt-stat span { font-size: 11px; color: var(--text-muted); }
 
   /* ── 会议日程（增强）── */
   .mt-list { list-style: none; margin-top: 14px; padding: 0; }

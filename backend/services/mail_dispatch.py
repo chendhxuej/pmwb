@@ -106,6 +106,14 @@ SCENES: dict[str, MailScene] = {
         template_key="supervise_urge", raw=False,
         fallback_template="## 催办通知\n\n工单详情请查看系统运营监控，请尽快处理。",
     ),
+    "active_optimization_urge": MailScene(
+        "active_optimization_urge", email_type="active_optimization_urge", source="pmwb_active_optimization",
+        fallback_template="## 主动优化建议催办\n\n请尽快评估以下优化建议。",
+    ),
+    "active_optimization_sync": MailScene(
+        "active_optimization_sync", email_type="active_optimization_sync", source="pmwb_active_optimization",
+        fallback_template="## 主动优化建议同步\n\n请知悉以下优化建议的最新状态。",
+    ),
 }
 
 

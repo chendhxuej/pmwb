@@ -108,6 +108,13 @@ export const MODULE_STATUS = {
     archived: { label: '已归档', tone: 'neutral' },
   },
 
+  // 主动优化（RequirementDeliveryView active_opt.status）
+  active_optimization: {
+    pending: { label: '待评估', tone: 'warning' },
+    adopted: { label: '已采纳', tone: 'success' },
+    rejected: { label: '不采纳', tone: 'neutral' },
+  },
+
   // 任务中心（TaskCenterView）
   task_center: {
     pending: { label: '待处理', tone: 'danger', sensitive: true },

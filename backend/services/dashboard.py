@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from db.models import (
     EmailRecord,
+    PmwbActiveOptimization,
     PmwbDevTicket,
     PmwbKeyWork,
     PmwbKnowledgeItem,
@@ -25,6 +26,7 @@ from schemas.dashboard import (
     KpiItem,
     LiveItem,
     ModuleStats,
+    ModuleStatsActiveOptimization,
     ModuleStatsEmails,
     ModuleStatsIssues,
     ModuleStatsKnowledge,
@@ -571,6 +573,22 @@ class DashboardService:
         ).scalar() or 0
         email_sr = round(email_7d_ok / email_7d_total * 100, 1) if email_7d_total > 0 else 0.0
 
+        # 主动优化
+        ao_total = self.db.query(func.count(PmwbActiveOptimization.id)).scalar() or 0
+        ao_pending = self.db.query(func.count(PmwbActiveOptimization.id)).filter(
+            PmwbActiveOptimization.status == "pending"
+        ).scalar() or 0
+        ao_adopted = self.db.query(func.count(PmwbActiveOptimization.id)).filter(
+            PmwbActiveOptimization.status == "adopted"
+        ).scalar() or 0
+        ao_rejected = self.db.query(func.count(PmwbActiveOptimization.id)).filter(
+            PmwbActiveOptimization.status == "rejected"
+        ).scalar() or 0
+        ao_this_week = self.db.query(func.count(PmwbActiveOptimization.id)).filter(
+            PmwbActiveOptimization.created_at >= ws_utc,
+            PmwbActiveOptimization.created_at < we_utc,
+        ).scalar() or 0
+
         return ModuleStats(
             requirements=ModuleStatsRequirements(
                 total=req_total, thisWeek=req_this_week, inReview=req_in_review, completed=req_completed,
@@ -591,6 +609,10 @@ class DashboardService:
             ),
             knowledge=ModuleStatsKnowledge(total=kn_total, thisWeek=kn_this_week),
             emails=ModuleStatsEmails(todaySent=email_today, weekSent=email_week, successRate=email_sr),
+            activeOptimization=ModuleStatsActiveOptimization(
+                total=ao_total, pending=ao_pending, adopted=ao_adopted, rejected=ao_rejected,
+                thisWeek=ao_this_week,
+            ),
         )
 
     def get_trend_charts(self) -> dict:
@@ -612,6 +634,7 @@ class DashboardService:
             "requirementsTrend": _daily_count(PmwbRequirementExt, PmwbRequirementExt.created_at),
             "issuesTrend": _daily_count(PmwbOperationIssue, PmwbOperationIssue.created_at),
             "ticketsTrend": _daily_count(PmwbDevTicket, PmwbDevTicket.go_live_date),
+            "activeOptimizationTrend": _daily_count(PmwbActiveOptimization, PmwbActiveOptimization.created_at),
         }
 
     def get_distribution_charts(self) -> dict:

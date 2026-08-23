@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from core.exceptions import ValidationException
 from db.models import (
     EmailRecord,
+    PmwbActiveOptimization,
     PmwbDevTicket,
     PmwbKeyWork,
     PmwbKeyWorkMemberTask,
@@ -338,6 +339,38 @@ class TaskCenterService:
             ))
         return items
 
+    def collect_active_optimization(self, db: Session) -> List[TaskItem]:
+        """主动优化建议：待评估视为待处理，已采纳视为完成，不采纳视为阻塞/挂起。"""
+        rows = db.query(PmwbActiveOptimization).all()
+        items: List[TaskItem] = []
+        status_map = {"pending": "pending", "adopted": "done", "rejected": "blocked"}
+        for r in rows:
+            status = status_map.get(r.status or "pending", "pending")
+            items.append(TaskItem(
+                task_id=f"active_optimization:{r.id}",
+                source="active_optimization",
+                source_label=SOURCE_LABELS["active_optimization"],
+                source_id=str(r.id),
+                title=r.title or "未命名优化建议",
+                status=status,
+                status_label=STATUS_LABELS[status],
+                raw_status=r.status or "pending",
+                owner=r.admin_name or "",
+                priority="P2",
+                due_date=None,
+                created_at=r.created_at.date() if r.created_at else None,
+                source_url=f"/requirement-delivery?activeOpt={r.id}",
+                detail={
+                    "现状描述": r.current_situation or "",
+                    "优化建议": r.suggestion or "",
+                    "关联需求": r.req_id or "",
+                    "备注": r.note or "",
+                },
+                is_overdue=False,
+                is_due_soon=False,
+            ))
+        return items
+
     def collect_requirement_urge(self, db: Session) -> List[TaskItem]:
         """待催办需求（团队评估维度）：以 pmwb_requirement_evaluation 为准。
 
@@ -459,6 +492,7 @@ class TaskCenterService:
         "meeting_action": "collect_meeting_action",
         "key_work": "collect_key_work",
         "requirement_urge": "collect_requirement_urge",
+        "active_optimization": "collect_active_optimization",
     }
 
     def _collect(self, db: Session, sources: Optional[List[str]] = None) -> List[TaskItem]:

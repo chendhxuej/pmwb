@@ -114,6 +114,14 @@ class ModuleStatsEmails(BaseModel):
     successRate: float = 0.0
 
 
+class ModuleStatsActiveOptimization(BaseModel):
+    total: int = 0
+    pending: int = 0
+    adopted: int = 0
+    rejected: int = 0
+    thisWeek: int = 0
+
+
 class ModuleStats(BaseModel):
     requirements: ModuleStatsRequirements = ModuleStatsRequirements()
     tickets: ModuleStatsTickets = ModuleStatsTickets()
@@ -121,6 +129,7 @@ class ModuleStats(BaseModel):
     meetings: ModuleStatsMeetings = ModuleStatsMeetings()
     knowledge: ModuleStatsKnowledge = ModuleStatsKnowledge()
     emails: ModuleStatsEmails = ModuleStatsEmails()
+    activeOptimization: ModuleStatsActiveOptimization = ModuleStatsActiveOptimization()
 
 
 class TrendPoint(BaseModel):

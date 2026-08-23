@@ -222,6 +222,44 @@ class PmwbDevTicketLog(Base):
     )
 
 
+class PmwbActiveOptimization(Base):
+    """主动优化建议工单表。
+
+    用于录入团队通过主动运营分析识别的业务优化建议，支持邮件催办/同步。
+    状态：pending(待评估) / adopted(已采纳) / rejected(不采纳)。
+    """
+
+    __tablename__ = "pmwb_active_optimization"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    title = Column(String(256), nullable=False, comment="工单标题")
+    current_situation = Column(Text, comment="现状描述")
+    suggestion = Column(Text, comment="优化建议")
+    admin_name = Column(String(64), comment="业务管理员")
+    status = Column(
+        Enum("pending", "adopted", "rejected"),
+        default="pending",
+        comment="评估状态：pending(待评估)/adopted(已采纳)/rejected(不采纳)",
+    )
+    req_id = Column(String(64), comment="关联需求文号")
+    note = Column(Text, comment="备注说明")
+    created_by = Column(String(64), comment="创建人")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_active_opt_status", "status"),
+        Index("idx_active_opt_req_id", "req_id"),
+        Index("idx_active_opt_admin_name", "admin_name"),
+        {"comment": "主动优化建议工单表"},
+    )
+
+
 class PmwbTodo(Base):
     """待办任务表。"""
 

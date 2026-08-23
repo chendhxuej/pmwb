@@ -7,8 +7,8 @@
         <div class="page-sub">需求采集 → 团队评估 → 用户故事 → 分析说明书，一条主线闭环</div>
       </div>
       <div class="page-actions">
-        <el-button type="primary" @click="openTicketDialog()">
-          <el-icon><Plus /></el-icon> 新增开发工单
+        <el-button type="primary" @click="openActiveOptDialog()">
+          <el-icon><Plus /></el-icon> 新增主动优化
         </el-button>
       </div>
     </div>
@@ -193,56 +193,53 @@
         </div>
       </el-tab-pane>
 
-      <!-- ════════ 开发工单标签 ════════ -->
-      <el-tab-pane label="开发工单" name="ticket">
+      <!-- ════════ 主动优化标签 ════════ -->
+      <el-tab-pane label="主动优化" name="active_opt">
         <div class="pm-table-wrap">
           <div class="table-toolbar">
-            <EnlargeInput v-model="ticketKeyword" placeholder="搜索工单号 / 系统 / 开发团队" style="width: 260px" clearable @keyup.enter="handleTicketSearch" @clear="handleTicketSearch">
+            <EnlargeInput v-model="activeOptKeyword" placeholder="搜索标题 / 现状 / 建议 / 管理员 / 需求文号" style="width: 320px" clearable @keyup.enter="handleActiveOptSearch" @clear="handleActiveOptSearch">
               <template #prefix><el-icon><Search /></el-icon></template>
             </EnlargeInput>
-            <el-button @click="loadTickets"><el-icon><Refresh /></el-icon> 刷新</el-button>
+            <el-select v-model="activeOptStatus" placeholder="评估状态" clearable class="w-s" @change="handleActiveOptSearch">
+              <el-option label="待评估" value="pending" />
+              <el-option label="已采纳" value="adopted" />
+              <el-option label="不采纳" value="rejected" />
+            </el-select>
+            <el-button @click="loadActiveOpts"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
-          <el-table v-loading="ticketLoading" :data="tickets" stripe scrollbar-always-on>
-            <el-table-column prop="ticket_no" label="工单号" width="150" show-overflow-tooltip />
+          <el-table v-loading="activeOptLoading" :data="activeOpts" stripe scrollbar-always-on>
+            <el-table-column prop="title" label="工单标题" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="admin_name" label="业务管理员" width="100" />
+            <el-table-column label="评估状态" width="90" align="center">
+              <template #default="{ row }"><StatusBadge module="active_optimization" :value="row.status" /></template>
+            </el-table-column>
             <el-table-column prop="req_id" label="关联需求" width="140" show-overflow-tooltip />
-            <el-table-column prop="system_name" label="涉及系统" width="110" show-overflow-tooltip />
-            <el-table-column prop="dev_team" label="开发团队" width="100" show-overflow-tooltip />
-            <el-table-column prop="developer" label="开发负责人" width="100" />
-            <el-table-column label="优先级" width="70" align="center">
-              <template #default="{ row }"><span class="pm-tag" :class="priorityClass(row.priority)">{{ row.priority }}</span></template>
-            </el-table-column>
-            <el-table-column label="状态" width="90" align="center">
-              <template #default="{ row }"><StatusBadge module="requirement_version" :value="row.status" /></template>
-            </el-table-column>
-            <el-table-column label="进度" width="140">
-              <template #default="{ row }">
-                <el-progress :percentage="row.progress || 0" :stroke-width="8" />
-              </template>
-            </el-table-column>
             <el-table-column label="创建时间" width="105" align="center">
               <template #default="{ row }">
-                <span class="text-muted">{{ formatDate(row.created_at || row.send_datetime) }}</span>
+                <span class="text-muted">{{ formatDate(row.created_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120" align="center" fixed="right">
+            <el-table-column label="操作" width="180" align="center" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click.stop="openTicketDialog(row)">编辑</el-button>
-                <el-button link type="danger" size="small" @click.stop="removeTicket(row)">删除</el-button>
+                <el-button link type="primary" size="small" @click.stop="openActiveOptDialog(row)">编辑</el-button>
+                <el-button link type="warning" size="small" @click.stop="openActiveOptMail(row, 'urge')">催办</el-button>
+                <el-button link type="info" size="small" @click.stop="openActiveOptMail(row, 'sync')">同步</el-button>
+                <el-button link type="danger" size="small" @click.stop="removeActiveOpt(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
           <div class="table-footer">
-            <span class="text-muted">共 {{ ticketTotal }} 条</span>
+            <span class="text-muted">共 {{ activeOptTotal }} 条</span>
             <el-pagination
-              v-model:current-page="ticketPage"
-              v-model:page-size="ticketPageSize"
-              :total="ticketTotal"
+              v-model:current-page="activeOptPage"
+              v-model:page-size="activeOptPageSize"
+              :total="activeOptTotal"
               :page-sizes="[10, 20, 50, 100]"
               layout="total, sizes, prev, pager, next, jumper"
               small
               background
-              @size-change="loadTickets"
-              @current-change="loadTickets"
+              @size-change="loadActiveOpts"
+              @current-change="loadActiveOpts"
             />
           </div>
         </div>
@@ -843,33 +840,26 @@
       </template>
     </el-dialog>
 
-    <!-- 开发工单弹层 -->
-    <el-dialog v-model="ticketDialog" :title="ticketForm.id ? '编辑开发工单' : '新增开发工单'" width="560px">
-      <el-form :model="ticketForm" label-width="110px">
-        <el-form-item label="工单号"><EnlargeInput v-model="ticketForm.ticket_no" :disabled="!!ticketForm.id" placeholder="如：DEV-2026-0718" /></el-form-item>
-        <el-form-item label="关联需求"><EnlargeInput v-model="ticketForm.req_id" placeholder="需求编号" /></el-form-item>
-        <el-form-item label="涉及系统"><EnlargeInput v-model="ticketForm.system_name" /></el-form-item>
-        <el-form-item label="开发团队"><EnlargeInput v-model="ticketForm.dev_team" /></el-form-item>
-        <el-form-item label="开发负责人"><StaffSelect v-model="ticketForm.developer" /></el-form-item>
-        <el-form-item label="优先级">
-          <el-select v-model="ticketForm.priority" style="width:100%">
-            <el-option label="P0" value="P0" /><el-option label="P1" value="P1" /><el-option label="P2" value="P2" /><el-option label="P3" value="P3" />
+    <!-- 主动优化弹层 -->
+    <el-dialog v-model="activeOptDialog" :title="activeOptForm.id ? '编辑主动优化' : '新增主动优化'" width="600px">
+      <el-form :model="activeOptForm" label-width="110px">
+        <el-form-item label="工单标题"><EnlargeInput v-model="activeOptForm.title" placeholder="简洁描述优化方向" /></el-form-item>
+        <el-form-item label="现状描述"><EnlargeInput v-model="activeOptForm.current_situation" type="textarea" :rows="3" placeholder="当前业务痛点或低效环节" /></el-form-item>
+        <el-form-item label="优化建议"><EnlargeInput v-model="activeOptForm.suggestion" type="textarea" :rows="3" placeholder="具体优化思路或措施" /></el-form-item>
+        <el-form-item label="业务管理员"><StaffSelect v-model="activeOptForm.admin_name" /></el-form-item>
+        <el-form-item label="评估状态">
+          <el-select v-model="activeOptForm.status" style="width:100%">
+            <el-option label="待评估" value="pending" />
+            <el-option label="已采纳" value="adopted" />
+            <el-option label="不采纳" value="rejected" />
           </el-select>
         </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="ticketForm.status" style="width:100%">
-            <el-option label="已创建" value="created" /><el-option label="设计已评审" value="design_reviewed" />
-            <el-option label="开发完成" value="dev_completed" /><el-option label="测试完成" value="test_completed" />
-            <el-option label="已上线" value="live" /><el-option label="已归档" value="archived" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="上线时间"><el-date-picker v-model="ticketForm.go_live_date" type="date" value-format="YYYY-MM-DD" placeholder="实际上线/计划上线日期" style="width:100%" /></el-form-item>
-        <el-form-item label="进度"><el-slider v-model="ticketForm.progress" :step="5" show-input /></el-form-item>
-        <el-form-item label="描述"><EnlargeInput v-model="ticketForm.description" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="关联需求"><EnlargeInput v-model="activeOptForm.req_id" placeholder="需求文号，可选" /></el-form-item>
+        <el-form-item label="备注说明"><EnlargeInput v-model="activeOptForm.note" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="ticketDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveTicket">保存</el-button>
+        <el-button @click="activeOptDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveActiveOpt">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -896,8 +886,8 @@ import {
   generateRequirementDoc, searchUserStories, getLlmStatus,
 } from '@/api/requirement'
 import {
-  getDevTickets, createDevTicket, updateDevTicket, deleteDevTicket,
-} from '@/api/dev_ticket'
+  getActiveOptimizations, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
+} from '@/api/active_optimization'
 
 /* ─────────────── 需求标签 ─────────────── */
 const activeTab = ref('requirement')
@@ -1099,10 +1089,13 @@ watch(usKeyword, () => {
   }, 300)
 })
 
-// 首次进入用户故事标签时懒加载
+// 首次进入用户故事 / 主动优化标签时懒加载
 watch(activeTab, (v) => {
   if (v === 'story' && !usList.value.length && !usLoading.value) {
     loadStorySearch()
+  }
+  if (v === 'active_opt' && !activeOpts.value.length && !activeOptLoading.value) {
+    loadActiveOpts()
   }
 })
 
@@ -1146,32 +1139,34 @@ async function openSourceRequirement(row) {
   }
 }
 
-/* ─────────────── 工单标签 ─────────────── */
-const ticketKeyword = ref('')
-const ticketLoading = ref(false)
-const tickets = ref([])
-const ticketTotal = ref(0)
-const ticketPage = ref(1)
-const ticketPageSize = ref(20)
+/* ─────────────── 主动优化标签 ─────────────── */
+const activeOptKeyword = ref('')
+const activeOptStatus = ref('')
+const activeOptLoading = ref(false)
+const activeOpts = ref([])
+const activeOptTotal = ref(0)
+const activeOptPage = ref(1)
+const activeOptPageSize = ref(20)
 
-async function loadTickets() {
-  ticketLoading.value = true
+async function loadActiveOpts() {
+  activeOptLoading.value = true
   try {
-    const res = await getDevTickets({
-      keyword: ticketKeyword.value || undefined,
-      page: ticketPage.value,
-      page_size: ticketPageSize.value,
+    const res = await getActiveOptimizations({
+      keyword: activeOptKeyword.value || undefined,
+      status: activeOptStatus.value || undefined,
+      page: activeOptPage.value,
+      page_size: activeOptPageSize.value,
     })
-    tickets.value = res.items || []
-    ticketTotal.value = res.total || 0
+    activeOpts.value = res.items || []
+    activeOptTotal.value = res.total || 0
   } finally {
-    ticketLoading.value = false
+    activeOptLoading.value = false
   }
 }
 
-function handleTicketSearch() {
-  ticketPage.value = 1
-  loadTickets()
+function handleActiveOptSearch() {
+  activeOptPage.value = 1
+  loadActiveOpts()
 }
 
 /* ─────────────── 4步工作流抽屉 ─────────────── */
@@ -1594,30 +1589,108 @@ async function generateDoc() {
   }
 }
 
-/* 工单弹层 */
-const ticketDialog = ref(false)
-const ticketForm = reactive({ id: null, ticket_no: '', req_id: '', system_name: '', dev_team: '', developer: '', priority: 'P2', status: 'created', progress: 0, go_live_date: '', description: '' })
-function openTicketDialog(row) {
-  if (row) Object.assign(ticketForm, { ...row, go_live_date: row.go_live_date || '' })
-  else Object.assign(ticketForm, { id: null, ticket_no: '', req_id: current.value.req_id || '', system_name: '', dev_team: '', developer: '', priority: 'P2', status: 'created', progress: 0, go_live_date: '', description: '' })
-  ticketDialog.value = true
-}
-async function saveTicket() {
-  if (ticketForm.id) {
-    await updateDevTicket(ticketForm.id, { ...ticketForm })
-    ElMessage.success('工单已更新')
+/* 主动优化弹层 */
+const activeOptDialog = ref(false)
+const activeOptForm = reactive({
+  id: null,
+  title: '',
+  current_situation: '',
+  suggestion: '',
+  admin_name: '',
+  status: 'pending',
+  req_id: '',
+  note: '',
+})
+function openActiveOptDialog(row) {
+  if (row) {
+    Object.assign(activeOptForm, { ...row })
   } else {
-    await createDevTicket({ ...ticketForm })
-    ElMessage.success('工单已创建')
+    Object.assign(activeOptForm, {
+      id: null,
+      title: '',
+      current_situation: '',
+      suggestion: '',
+      admin_name: '',
+      status: 'pending',
+      req_id: current.value.req_id || '',
+      note: '',
+    })
   }
-  ticketDialog.value = false
-  await loadTickets()
+  activeOptDialog.value = true
 }
-async function removeTicket(row) {
-  await ElMessageBox.confirm(`确认删除工单 ${row.ticket_no}？`, '提示', { type: 'warning' })
-  await deleteDevTicket(row.id)
+async function saveActiveOpt() {
+  if (!activeOptForm.title.trim()) {
+    ElMessage.warning('请填写工单标题')
+    return
+  }
+  const payload = { ...activeOptForm }
+  if (activeOptForm.id) {
+    await updateActiveOptimization(activeOptForm.id, payload)
+    ElMessage.success('主动优化已更新')
+  } else {
+    await createActiveOptimization(payload)
+    ElMessage.success('主动优化已创建')
+  }
+  activeOptDialog.value = false
+  await loadActiveOpts()
+}
+async function removeActiveOpt(row) {
+  await ElMessageBox.confirm(`确认删除主动优化「${row.title}」？`, '提示', { type: 'warning' })
+  await deleteActiveOptimization(row.id)
   ElMessage.success('已删除')
-  await loadTickets()
+  await loadActiveOpts()
+}
+
+/* 主动优化邮件：催办 / 同步 */
+function openActiveOptMail(row, scene) {
+  if (!row) return
+  mailDialogTitle.value = scene === 'urge' ? '催办：主动优化建议' : '同步：主动优化建议'
+  mailDialogTo.value = String(row.admin_name || '').split(',').filter(Boolean)
+  mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.req_id || '主动优化建议')
+  mailDialogVariables.value = {
+    title: row.title || '',
+    status: row.status || 'pending',
+    status_label: activeOptStatusLabel(row.status),
+    admin_name: row.admin_name || '',
+    req_id: row.req_id || '',
+    current_situation: row.current_situation || '（无）',
+    suggestion: row.suggestion || '（无）',
+    note: row.note || '（无）',
+    scene_label: scene === 'urge' ? '催办' : '同步',
+    body: '',
+  }
+  mailDialogBody.value = buildActiveOptMailBody(row, scene)
+  mailDialogScene.value = scene === 'urge' ? 'active_optimization_urge' : 'active_optimization_sync'
+  mailDialogVisible.value = true
+}
+function buildActiveOptMailBody(row, scene) {
+  const lines = [
+    scene === 'urge' ? '## 主动优化建议催办' : '## 主动优化建议同步',
+    '',
+    '| 字段 | 内容 |',
+    '|------|------|',
+    `| 工单标题 | ${row.title || ''} |`,
+    `| 评估状态 | ${activeOptStatusLabel(row.status)} |`,
+    `| 业务管理员 | ${row.admin_name || ''} |`,
+    `| 关联需求 | ${row.req_id || ''} |`,
+    '',
+    '### 现状描述',
+    row.current_situation || '（无）',
+    '',
+    '### 优化建议',
+    row.suggestion || '（无）',
+    '',
+  ]
+  if (row.note) {
+    lines.push('### 备注说明')
+    lines.push(row.note)
+    lines.push('')
+  }
+  lines.push(scene === 'urge' ? '请尽快评估并反馈处理意见，谢谢。' : '请知悉以上优化建议的最新状态。')
+  return lines.join('\n')
+}
+function activeOptStatusLabel(s) {
+  return { pending: '待评估', adopted: '已采纳', rejected: '不采纳' }[s] || s || '待评估'
 }
 
 /* ─────────────── 工具 ─────────────── */
@@ -1633,30 +1706,25 @@ function statusLabel(s) {
 function priorityType(p) {
   return { P0: 'danger', P1: 'warning', P2: '', P3: 'info' }[p] || ''
 }
-function ticketStatusType(s) {
-  return { created: 'info', design_reviewed: 'warning', dev_completed: 'primary', test_completed: 'primary', live: 'success', archived: 'info' }[s] || 'info'
-}
-function ticketStatusLabel(s) {
-  return { created: '已创建', design_reviewed: '设计已评审', dev_completed: '开发完成', test_completed: '测试完成', live: '已上线', archived: '已归档' }[s] || s
-}
-
 const route = useRoute()
 
 /* 深链定位 */
 function applyDeepLink() {
   const q = route.query
-  if (q.ticket) {
-    const row = tickets.value.find((t) => t.ticket_no === q.ticket)
-    if (row) { openTicketDialog(row); }
-  } else if (q.req) {
+  if (q.req) {
     const row = requirements.value.find((t) => t.req_id === q.req)
     if (row) { openReqDialog(row); }
+  } else if (q.activeOpt) {
+    activeTab.value = 'active_opt'
+    loadActiveOpts().then(() => {
+      const row = activeOpts.value.find((t) => String(t.id) === String(q.activeOpt))
+      if (row) { openActiveOptDialog(row); }
+    })
   }
 }
 
 onMounted(async () => {
   await loadRequirements()
-  await loadTickets()
   applyDeepLink()
   checkLlmStatus()  // 后台检测 Kimi/LLM 状态，不阻塞主流程
 })

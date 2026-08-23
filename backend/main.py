@@ -11,6 +11,7 @@ from core.exceptions import PMWBException
 from db.base import engine
 from db.models import Base  # noqa: F401
 from routers import (
+    active_optimization,
     basic_data,
     dashboard,
     dev_ticket,
@@ -112,6 +113,7 @@ app.include_router(todo.router, prefix="/api/v1", tags=["待办中心"])
 app.include_router(requirement.router, prefix="/api/v1", tags=["需求管理"])
 app.include_router(requirement_delivery.router, prefix="/api/v1", tags=["需求交付"])
 app.include_router(user_story.router, prefix="/api/v1", tags=["用户故事"])
+app.include_router(active_optimization.router, prefix="/api/v1", tags=["主动优化"])
 app.include_router(dev_ticket.router, prefix="/api/v1", tags=["开发工单"])
 app.include_router(reminder.router, prefix="/api/v1", tags=["邮件催办"])
 app.include_router(supervise.router, prefix="/api/v1", tags=["邮件督办"])
