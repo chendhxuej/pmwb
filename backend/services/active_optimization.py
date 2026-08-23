@@ -28,6 +28,7 @@ class ActiveOptimizationService:
         db: Session,
         keyword: Optional[str] = None,
         status: Optional[str] = None,
+        priority: Optional[str] = None,
         admin_name: Optional[str] = None,
         req_id: Optional[str] = None,
         page: int = 1,
@@ -45,6 +46,8 @@ class ActiveOptimizationService:
             )
         if status:
             query = query.filter(PmwbActiveOptimization.status == status)
+        if priority:
+            query = query.filter(PmwbActiveOptimization.priority == priority)
         if admin_name:
             query = query.filter(PmwbActiveOptimization.admin_name.ilike(f"%{admin_name}%"))
         if req_id:
@@ -99,7 +102,7 @@ class ActiveOptimizationService:
         return True
 
     def get_summary_stats(self, db: Session) -> Dict[str, int]:
-        """首页看板用：总数、各状态数、本周新增。"""
+        """首页看板/页面统计用：总数、各状态数、各优先级数、本周新增。"""
         today = datetime.now(_CST).date()
         week_start = today - timedelta(days=today.weekday())
         week_end = week_start + timedelta(days=7)
@@ -116,6 +119,18 @@ class ActiveOptimizationService:
         rejected = db.query(func.count(PmwbActiveOptimization.id)).filter(
             PmwbActiveOptimization.status == "rejected"
         ).scalar() or 0
+        p0 = db.query(func.count(PmwbActiveOptimization.id)).filter(
+            PmwbActiveOptimization.priority == "P0"
+        ).scalar() or 0
+        p1 = db.query(func.count(PmwbActiveOptimization.id)).filter(
+            PmwbActiveOptimization.priority == "P1"
+        ).scalar() or 0
+        p2 = db.query(func.count(PmwbActiveOptimization.id)).filter(
+            PmwbActiveOptimization.priority == "P2"
+        ).scalar() or 0
+        p3 = db.query(func.count(PmwbActiveOptimization.id)).filter(
+            PmwbActiveOptimization.priority == "P3"
+        ).scalar() or 0
         this_week = db.query(func.count(PmwbActiveOptimization.id)).filter(
             PmwbActiveOptimization.created_at >= week_start_dt,
             PmwbActiveOptimization.created_at < week_end_dt,
@@ -126,6 +141,10 @@ class ActiveOptimizationService:
             "pending": pending,
             "adopted": adopted,
             "rejected": rejected,
+            "p0": p0,
+            "p1": p1,
+            "p2": p2,
+            "p3": p3,
             "this_week": this_week,
         }
 
@@ -135,6 +154,7 @@ class ActiveOptimizationService:
             "title": obj.title or "",
             "status": obj.status or "pending",
             "status_label": _STATUS_LABELS.get(obj.status or "pending", obj.status or "待评估"),
+            "priority": obj.priority or "P2",
             "admin_name": obj.admin_name or "",
             "req_id": obj.req_id or "",
             "current_situation": obj.current_situation or "（无）",

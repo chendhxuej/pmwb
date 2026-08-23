@@ -20,6 +20,7 @@ router = APIRouter(prefix="/active-optimizations", tags=["主动优化"])
 def list_active_optimizations(
     keyword: Optional[str] = Query(None, description="关键字搜索"),
     status: Optional[str] = Query(None, description="状态：pending/adopted/rejected"),
+    priority: Optional[str] = Query(None, description="优先级：P0/P1/P2/P3"),
     admin_name: Optional[str] = Query(None, description="业务管理员"),
     req_id: Optional[str] = Query(None, description="关联需求文号"),
     page: int = Query(1, ge=1, description="页码"),
@@ -31,6 +32,7 @@ def list_active_optimizations(
         db=db,
         keyword=keyword,
         status=status,
+        priority=priority,
         admin_name=admin_name,
         req_id=req_id,
         page=page,

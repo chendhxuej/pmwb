@@ -11,6 +11,8 @@ import re
 import shutil
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
+
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -371,6 +373,18 @@ def search_user_stories(
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def get_user_story_stats(db) -> Dict[str, int]:
+    """用户故事全局统计：总数、已定稿、草稿。"""
+    total = db.query(func.count(PmwbUserStory.id)).scalar() or 0
+    finalized = (
+        db.query(func.count(PmwbUserStory.id)).filter(PmwbUserStory.finalized == 1).scalar() or 0
+    )
+    draft = (
+        db.query(func.count(PmwbUserStory.id)).filter(PmwbUserStory.finalized == 0).scalar() or 0
+    )
+    return {"total": total, "finalized": finalized, "draft": draft}
 
 
 def save_user_stories(db, req_id: str, stories: List[Dict[str, Any]]) -> Dict[str, Any]:

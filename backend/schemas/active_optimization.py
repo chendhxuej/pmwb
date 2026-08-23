@@ -10,6 +10,7 @@ class ActiveOptimizationBase(BaseModel):
     suggestion: Optional[str] = Field(None, description="优化建议")
     admin_name: Optional[str] = Field(None, max_length=64, description="业务管理员")
     status: str = Field("pending", description="评估状态：pending/adopted/rejected")
+    priority: Optional[str] = Field("P2", max_length=16, description="优先级：P0/P1/P2/P3")
     req_id: Optional[str] = Field(None, max_length=64, description="关联需求文号")
     note: Optional[str] = Field(None, description="备注说明")
 
@@ -24,6 +25,7 @@ class ActiveOptimizationUpdate(BaseModel):
     suggestion: Optional[str] = None
     admin_name: Optional[str] = Field(None, max_length=64)
     status: Optional[str] = None
+    priority: Optional[str] = Field(None, max_length=16)
     req_id: Optional[str] = Field(None, max_length=64)
     note: Optional[str] = None
 

@@ -241,6 +241,7 @@ class PmwbActiveOptimization(Base):
         default="pending",
         comment="评估状态：pending(待评估)/adopted(已采纳)/rejected(不采纳)",
     )
+    priority = Column(String(16), default="P2", comment="优先级：P0/P1/P2/P3")
     req_id = Column(String(64), comment="关联需求文号")
     note = Column(Text, comment="备注说明")
     created_by = Column(String(64), comment="创建人")

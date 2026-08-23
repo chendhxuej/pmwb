@@ -16,6 +16,13 @@ from services import requirement_delivery as svc
 router = APIRouter(prefix="/user-stories", tags=["用户故事"])
 
 
+@router.get("/stats")
+def get_user_story_stats(db: Session = Depends(get_db)):
+    """用户故事全局统计。"""
+    data = svc.get_user_story_stats(db)
+    return success(data=data)
+
+
 @router.get("/search")
 def search_user_stories(
     keyword: Optional[str] = Query(None, description="模糊关键字，空格分词多词 AND"),

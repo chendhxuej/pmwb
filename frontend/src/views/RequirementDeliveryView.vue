@@ -18,6 +18,28 @@
       <!-- ════════ 需求标签 ════════ -->
       <el-tab-pane label="需求" name="requirement">
         <div class="pm-table-wrap">
+          <div class="stat-cards">
+            <div class="stat-card">
+              <div class="stat-label">需求总数</div>
+              <div class="stat-num">{{ reqStats.total || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">建议中</div>
+              <div class="stat-num">{{ reqStats.proposed || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">已采纳</div>
+              <div class="stat-num warning">{{ reqStats.accepted || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">开发中</div>
+              <div class="stat-num primary">{{ reqStats.dev || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">已上线</div>
+              <div class="stat-num success">{{ reqStats.closed || 0 }}</div>
+            </div>
+          </div>
           <div class="table-toolbar">
             <EnlargeInput
               v-model="reqKeyword"
@@ -117,6 +139,20 @@
       <!-- ════════ 用户故事标签（全局检索） ════════ -->
       <el-tab-pane label="用户故事" name="story">
         <div class="pm-table-wrap">
+          <div class="stat-cards">
+            <div class="stat-card">
+              <div class="stat-label">故事总数</div>
+              <div class="stat-num">{{ usStats.total || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">已定稿</div>
+              <div class="stat-num success">{{ usStats.finalized || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">草稿</div>
+              <div class="stat-num">{{ usStats.draft || 0 }}</div>
+            </div>
+          </div>
           <div class="table-toolbar">
             <EnlargeInput
               v-model="usKeyword"
@@ -196,6 +232,28 @@
       <!-- ════════ 主动优化标签 ════════ -->
       <el-tab-pane label="主动优化" name="active_opt">
         <div class="pm-table-wrap">
+          <div class="stat-cards">
+            <div class="stat-card">
+              <div class="stat-label">工单总数</div>
+              <div class="stat-num">{{ activeOptStats.total || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">待评估</div>
+              <div class="stat-num" :class="{ warn: (activeOptStats.pending || 0) > 0 }">{{ activeOptStats.pending || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">已采纳</div>
+              <div class="stat-num success">{{ activeOptStats.adopted || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">不采纳</div>
+              <div class="stat-num muted">{{ activeOptStats.rejected || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">高优先级(P0/P1)</div>
+              <div class="stat-num danger">{{ (activeOptStats.p0 || 0) + (activeOptStats.p1 || 0) }}</div>
+            </div>
+          </div>
           <div class="table-toolbar">
             <EnlargeInput v-model="activeOptKeyword" placeholder="搜索标题 / 现状 / 建议 / 管理员 / 需求文号" style="width: 320px" clearable @keyup.enter="handleActiveOptSearch" @clear="handleActiveOptSearch">
               <template #prefix><el-icon><Search /></el-icon></template>
@@ -205,21 +263,36 @@
               <el-option label="已采纳" value="adopted" />
               <el-option label="不采纳" value="rejected" />
             </el-select>
+            <el-select v-model="activeOptPriority" placeholder="优先级" clearable class="w-xs" @change="handleActiveOptSearch">
+              <el-option label="P0" value="P0" />
+              <el-option label="P1" value="P1" />
+              <el-option label="P2" value="P2" />
+              <el-option label="P3" value="P3" />
+            </el-select>
             <el-button @click="loadActiveOpts"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
           <el-table v-loading="activeOptLoading" :data="activeOpts" stripe scrollbar-always-on>
-            <el-table-column prop="title" label="工单标题" min-width="200" show-overflow-tooltip />
+            <el-table-column label="优先级" width="76" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" :type="priorityType(row.priority)">{{ row.priority || 'P2' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="工单标题" min-width="240" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="link-text" @click.stop="openActiveOptDetail(row)">{{ row.title || '（未命名）' }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="admin_name" label="业务管理员" width="100" />
             <el-table-column label="评估状态" width="90" align="center">
               <template #default="{ row }"><StatusBadge module="active_optimization" :value="row.status" /></template>
             </el-table-column>
-            <el-table-column prop="req_id" label="关联需求" width="140" show-overflow-tooltip />
+            <el-table-column prop="req_id" label="关联需求" width="130" show-overflow-tooltip />
             <el-table-column label="创建时间" width="105" align="center">
               <template #default="{ row }">
                 <span class="text-muted">{{ formatDate(row.created_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="180" align="center" fixed="right">
+            <el-table-column label="操作" width="190" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openActiveOptDialog(row)">编辑</el-button>
                 <el-button link type="warning" size="small" @click.stop="openActiveOptMail(row, 'urge')">催办</el-button>
@@ -844,6 +917,14 @@
     <el-dialog v-model="activeOptDialog" :title="activeOptForm.id ? '编辑主动优化' : '新增主动优化'" width="600px">
       <el-form :model="activeOptForm" label-width="110px">
         <el-form-item label="工单标题"><EnlargeInput v-model="activeOptForm.title" placeholder="简洁描述优化方向" /></el-form-item>
+        <el-form-item label="优先级">
+          <el-select v-model="activeOptForm.priority" style="width:100%">
+            <el-option label="P0" value="P0" />
+            <el-option label="P1" value="P1" />
+            <el-option label="P2" value="P2" />
+            <el-option label="P3" value="P3" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="现状描述"><EnlargeInput v-model="activeOptForm.current_situation" type="textarea" :rows="3" placeholder="当前业务痛点或低效环节" /></el-form-item>
         <el-form-item label="优化建议"><EnlargeInput v-model="activeOptForm.suggestion" type="textarea" :rows="3" placeholder="具体优化思路或措施" /></el-form-item>
         <el-form-item label="业务管理员"><StaffSelect v-model="activeOptForm.admin_name" /></el-form-item>
@@ -862,6 +943,48 @@
         <el-button type="primary" @click="saveActiveOpt">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- ════════ 主动优化详情抽屉 ════════ -->
+    <el-drawer v-model="activeOptDetailVisible" size="70%" :title="null" destroy-on-close>
+      <template #header>
+        <div class="wf-head">
+          <div>
+            <div class="wf-req-id font-mono">#{{ activeOptDetail.id }}</div>
+            <div class="wf-req-name">{{ activeOptDetail.title || '（未命名）' }}</div>
+          </div>
+          <div class="flex gap-8">
+            <StatusBadge module="active_optimization" :value="activeOptDetail.status" />
+            <el-tag size="small" :type="priorityType(activeOptDetail.priority)">{{ activeOptDetail.priority || 'P2' }}</el-tag>
+          </div>
+        </div>
+      </template>
+      <div class="us-detail">
+        <div class="us-block">
+          <div class="us-label">现状描述</div>
+          <div class="us-value pre">{{ activeOptDetail.current_situation || '—' }}</div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">优化建议</div>
+          <div class="us-value pre">{{ activeOptDetail.suggestion || '—' }}</div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">业务管理员</div>
+          <div class="us-value">{{ activeOptDetail.admin_name || '—' }}</div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">关联需求</div>
+          <div class="us-value font-mono">{{ activeOptDetail.req_id || '—' }}</div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">备注说明</div>
+          <div class="us-value pre">{{ activeOptDetail.note || '—' }}</div>
+        </div>
+        <div class="us-block">
+          <div class="us-label">创建时间</div>
+          <div class="us-value">{{ formatDateTime(activeOptDetail.created_at) }}</div>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -880,10 +1003,11 @@ import StatusBadge from '@/components/Common/StatusBadge.vue'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import {
   getRequirements, getRequirement, updateRequirement, deleteRequirement,
+  getRequirementStats,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
   deleteRequirementAttachment, generateUserStories, getUserStories, saveUserStories,
-  generateRequirementDoc, searchUserStories, getLlmStatus,
+  generateRequirementDoc, searchUserStories, getLlmStatus, getUserStoryStats,
 } from '@/api/requirement'
 import {
   getActiveOptimizations, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
@@ -899,19 +1023,24 @@ const requirements = ref([])
 const reqTotal = ref(0)
 const reqPage = ref(1)
 const reqPageSize = ref(20)
+const reqStats = ref({})
 
 async function loadRequirements() {
   reqLoading.value = true
   try {
-    const res = await getRequirements({
-      keyword: reqKeyword.value || undefined,
-      status: reqStatus.value || undefined,
-      priority: reqPriority.value || undefined,
-      page: reqPage.value,
-      page_size: reqPageSize.value,
-    })
-    requirements.value = res.items || []
-    reqTotal.value = res.total || 0
+    const [listRes, statsRes] = await Promise.all([
+      getRequirements({
+        keyword: reqKeyword.value || undefined,
+        status: reqStatus.value || undefined,
+        priority: reqPriority.value || undefined,
+        page: reqPage.value,
+        page_size: reqPageSize.value,
+      }),
+      getRequirementStats(),
+    ])
+    requirements.value = listRes.items || []
+    reqTotal.value = listRes.total || 0
+    reqStats.value = statsRes || {}
   } finally {
     reqLoading.value = false
   }
@@ -1057,19 +1186,24 @@ const usList = ref([])
 const usTotal = ref(0)
 const usPage = ref(1)
 const usPageSize = ref(20)
+const usStats = ref({})
 let usDebounce = null
 
 async function loadStorySearch() {
   usLoading.value = true
   try {
-    const res = await searchUserStories({
-      keyword: usKeyword.value.trim(),
-      finalized: usFinalized.value,
-      page: usPage.value,
-      pageSize: usPageSize.value,
-    })
-    usList.value = res.items || []
-    usTotal.value = res.total || 0
+    const [listRes, statsRes] = await Promise.all([
+      searchUserStories({
+        keyword: usKeyword.value.trim(),
+        finalized: usFinalized.value,
+        page: usPage.value,
+        pageSize: usPageSize.value,
+      }),
+      getUserStoryStats(),
+    ])
+    usList.value = listRes.items || []
+    usTotal.value = listRes.total || 0
+    usStats.value = statsRes || {}
   } finally {
     usLoading.value = false
   }
@@ -1142,23 +1276,30 @@ async function openSourceRequirement(row) {
 /* ─────────────── 主动优化标签 ─────────────── */
 const activeOptKeyword = ref('')
 const activeOptStatus = ref('')
+const activeOptPriority = ref('')
 const activeOptLoading = ref(false)
 const activeOpts = ref([])
 const activeOptTotal = ref(0)
 const activeOptPage = ref(1)
 const activeOptPageSize = ref(20)
+const activeOptStats = ref({})
 
 async function loadActiveOpts() {
   activeOptLoading.value = true
   try {
-    const res = await getActiveOptimizations({
-      keyword: activeOptKeyword.value || undefined,
-      status: activeOptStatus.value || undefined,
-      page: activeOptPage.value,
-      page_size: activeOptPageSize.value,
-    })
-    activeOpts.value = res.items || []
-    activeOptTotal.value = res.total || 0
+    const [listRes, statsRes] = await Promise.all([
+      getActiveOptimizations({
+        keyword: activeOptKeyword.value || undefined,
+        status: activeOptStatus.value || undefined,
+        priority: activeOptPriority.value || undefined,
+        page: activeOptPage.value,
+        page_size: activeOptPageSize.value,
+      }),
+      getActiveOptimizationStats(),
+    ])
+    activeOpts.value = listRes.items || []
+    activeOptTotal.value = listRes.total || 0
+    activeOptStats.value = statsRes || {}
   } finally {
     activeOptLoading.value = false
   }
@@ -1594,6 +1735,7 @@ const activeOptDialog = ref(false)
 const activeOptForm = reactive({
   id: null,
   title: '',
+  priority: 'P2',
   current_situation: '',
   suggestion: '',
   admin_name: '',
@@ -1603,11 +1745,12 @@ const activeOptForm = reactive({
 })
 function openActiveOptDialog(row) {
   if (row) {
-    Object.assign(activeOptForm, { ...row })
+    Object.assign(activeOptForm, { priority: 'P2', ...row })
   } else {
     Object.assign(activeOptForm, {
       id: null,
       title: '',
+      priority: 'P2',
       current_situation: '',
       suggestion: '',
       admin_name: '',
@@ -1617,6 +1760,14 @@ function openActiveOptDialog(row) {
     })
   }
   activeOptDialog.value = true
+}
+
+/* 主动优化详情抽屉 */
+const activeOptDetailVisible = ref(false)
+const activeOptDetail = ref({})
+function openActiveOptDetail(row) {
+  activeOptDetail.value = { ...row }
+  activeOptDetailVisible.value = true
 }
 async function saveActiveOpt() {
   if (!activeOptForm.title.trim()) {
@@ -1670,6 +1821,7 @@ function buildActiveOptMailBody(row, scene) {
     '| 字段 | 内容 |',
     '|------|------|',
     `| 工单标题 | ${row.title || ''} |`,
+    `| 优先级 | ${row.priority || 'P2'} |`,
     `| 评估状态 | ${activeOptStatusLabel(row.status)} |`,
     `| 业务管理员 | ${row.admin_name || ''} |`,
     `| 关联需求 | ${row.req_id || ''} |`,
@@ -1737,6 +1889,17 @@ onBeforeUnmount(() => {
 <style scoped>
 .page-sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 4px }
 .pm-tabs { margin-top: 4px }
+.stat-cards { display: flex; gap: 12px; padding: 16px 20px 0; flex-wrap: wrap }
+.stat-card { background: var(--bg-card, var(--el-bg-color)); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 18px; min-width: 110px; flex: 1; display: flex; flex-direction: column; gap: 6px; transition: box-shadow .2s }
+.stat-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.04) }
+.stat-label { font-size: 12px; color: var(--text-muted); font-weight: 500 }
+.stat-num { font-size: 22px; font-weight: 700; color: var(--text-primary); line-height: 1 }
+.stat-num.success { color: var(--success, #67c23a) }
+.stat-num.warning { color: var(--warning, #e6a23c) }
+.stat-num.primary { color: var(--accent, #409eff) }
+.stat-num.danger { color: var(--danger, #f56c6c) }
+.stat-num.muted { color: var(--text-muted) }
+.stat-num.warn { color: var(--warning, #e6a23c) }
 .table-toolbar { display: flex; gap: 10px; align-items: center; padding: 16px 20px; flex-wrap: wrap }
 .table-footer { padding: 12px 20px; border-top: 1px solid var(--border-subtle) }
 .link-text { color: var(--accent); cursor: pointer; font-weight: 500 }

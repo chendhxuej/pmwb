@@ -79,6 +79,10 @@ export function saveUserStories(reqId, stories) {
   return request.put(`/requirements/${reqId}/delivery/stories`, stories)
 }
 
+export function getUserStoryStats() {
+  return request.get('/user-stories/stats')
+}
+
 // 全局用户故事模糊查询（跨需求，默认全量、按创建时间倒序、分页）
 export function searchUserStories(params = {}) {
   const { keyword = '', finalized = null, page = 1, pageSize = 20 } = params
