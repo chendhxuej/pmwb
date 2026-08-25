@@ -11,6 +11,7 @@
 本模块是 spec 要求的标准实现，routers 新增端点调用本模块。
 """
 import json
+import os
 import re
 from datetime import date, datetime
 from typing import Dict, List, Optional
@@ -593,7 +594,7 @@ def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
             change_lines.append(f"- {ver} · {kind} · [{r.req_id}] {r.req_name or ''}")
     change_body = "\n".join(change_lines) if change_lines else "_暂无变更轨迹_"
 
-    # 交付物：已关闭需求的 deliverables JSON
+    # 交付物：已关闭需求的 deliverables JSON，优先渲染为 Obsidian 内链
     deliv_lines = []
     for r in reqs:
         if r.status == "closed":
@@ -603,10 +604,19 @@ def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
                 ds = []
             if isinstance(ds, list):
                 for d in ds:
-                    if isinstance(d, dict):
+                    if not isinstance(d, dict):
+                        continue
+                    note = d.get("note", "")
+                    file_name = d.get("file_name", "")
+                    # 优先取 deliverables 里的 obsidian_path，回退 manual_obsidian_path
+                    obsidian_path = d.get("obsidian_path") or (r.manual_obsidian_path if r.manual_obsidian_path else None)
+                    if obsidian_path:
+                        link_text = os.path.basename(obsidian_path)
                         deliv_lines.append(
-                            f"- [{r.req_id}] {d.get('file_name', '')}（{d.get('note', '')}）"
+                            f"- [[{obsidian_path}|{link_text}]]（{note}） · [{r.req_id}]"
                         )
+                    else:
+                        deliv_lines.append(f"- [{r.req_id}] {file_name}（{note}）")
     deliv_body = "\n".join(deliv_lines) if deliv_lines else "_暂无交付物_"
 
     # 场景规则：用户故事 rules 非空（不依赖需求状态）

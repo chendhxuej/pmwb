@@ -61,6 +61,15 @@ export function deleteRequirementAttachment(reqId, filename) {
   return request.post(`/requirements/${reqId}/delivery/attachments/delete`, { filename })
 }
 
+export function uploadRequirementManual(reqId, file, note = '操作手册') {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('note', note)
+  return request.post(`/requirements/${reqId}/delivery/upload-manual`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
 export function generateUserStories(reqId, content, strategy = 'rules_v2') {
   // LLM 策略（kimi-k2.6 带 reasoning）响应较慢，单独放宽到 120s
   const timeout = strategy === 'llm' ? 120000 : 30000

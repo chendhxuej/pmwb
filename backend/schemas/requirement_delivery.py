@@ -102,3 +102,13 @@ class GenerateDocOut(BaseModel):
     file: str
     path: str
     url: str
+
+
+class ManualUploadOut(BaseModel):
+    req_id: str
+    file_name: str
+    local_path: str          # 相对 vault 的需求分析说明书文件夹路径
+    obsidian_path: str       # 归档到业务知识交付物目录的相对路径
+    archived: bool
+    main_note: Optional[str] = None
+    main_note_synced: bool = False  # 是否触发并更新了 §6

@@ -15,6 +15,7 @@ from schemas.requirement_delivery import (
     DocGenIn,
     FolderInitOut,
     GenerateDocOut,
+    ManualUploadOut,
     UserStoryGenIn,
     UserStoryGenOut,
     UserStoryItem,
@@ -64,6 +65,30 @@ def delete_attachment(
         # 某些受保护环境（如沙箱）禁止程序化删除，给出明确提示而非 500
         raise HTTPException(status_code=409, detail=f"删除被环境拒绝：{e}")
     return success(data={"deleted": ok}, message="删除成功" if ok else "文件不存在")
+
+
+@router.post("/{req_id}/delivery/upload-manual")
+def upload_manual(
+    req_id: str,
+    file: UploadFile = File(...),
+    note: str = Form("操作手册"),
+    db: Session = Depends(get_db),
+):
+    """上传操作手册并自动归档到业务知识交付物目录，同步主笔记 §6 内链。
+
+    仅 status=closed 且已设置业务领域的需求可调用。
+    """
+    content = file.file.read()
+    try:
+        data = svc.upload_requirement_manual(
+            db, req_id, file.filename or "未命名文件", content, note=note
+        )
+    except Exception as e:
+        # 统一把业务异常消息抛给前端
+        status = getattr(e, "status_code", 500)
+        detail = getattr(e, "message", str(e))
+        raise HTTPException(status_code=status, detail=detail)
+    return success(data=ManualUploadOut(**data).model_dump(), message="操作手册已上传并关联主笔记")
 
 
 @router.get("/{req_id}/delivery/attachments/download")

@@ -11,6 +11,7 @@
 import os
 import json
 import shutil
+import hashlib
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -894,6 +895,41 @@ def sediment_operation_rules(db, issue_id: int) -> Dict:
     }
 
 
+def _file_hash(path: str) -> str:
+    """计算文件 MD5，用于比较内容是否相同。"""
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _unique_target_path(vault: str, attachments_dir: str, src_path: str, file_name: str) -> str:
+    """返回业务知识交付物目录下的唯一相对路径。
+
+    - 目标不存在：直接返回原路径。
+    - 目标已存在且内容相同：返回空字符串，表示跳过（避免覆盖）。
+    - 目标已存在但内容不同：追加 _1/_2/... 生成唯一文件名。
+    """
+    base_name, ext = os.path.splitext(file_name)
+    dst_rel = f"{attachments_dir}/{sanitize_filename(file_name)}"
+    dst_path = os.path.join(vault, dst_rel)
+    if not os.path.exists(dst_path):
+        return dst_rel
+    if _file_hash(src_path) == _file_hash(dst_path):
+        return ""
+    n = 1
+    while True:
+        new_name = f"{base_name}_{n}{ext}"
+        dst_rel = f"{attachments_dir}/{sanitize_filename(new_name)}"
+        dst_path = os.path.join(vault, dst_rel)
+        if not os.path.exists(dst_path):
+            return dst_rel
+        if _file_hash(src_path) == _file_hash(dst_path):
+            return ""
+        n += 1
+
+
 def archive_requirement_manual(db, req_id: str) -> Dict:
     """把需求关联开发工单中的操作手册交付物归档到业务知识交付物目录并登记主笔记。
 
@@ -934,7 +970,10 @@ def archive_requirement_manual(db, req_id: str) -> Dict:
             if not os.path.exists(src_path):
                 skipped.append({"file_name": d.file_name, "reason": "源文件不存在"})
                 continue
-            dst_rel = f"{attachments_dir}/{sanitize_filename(d.file_name)}"
+            dst_rel = _unique_target_path(vault, attachments_dir, src_path, d.file_name)
+            if not dst_rel:
+                skipped.append({"file_name": d.file_name, "reason": "目标已存在且内容相同"})
+                continue
             dst_path = os.path.join(vault, dst_rel)
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
             shutil.copy2(src_path, dst_path)
@@ -971,7 +1010,14 @@ def archive_requirement_manual(db, req_id: str) -> Dict:
             if not os.path.exists(src_path):
                 skipped.append({"file_name": d.get("file_name"), "reason": "源文件不存在"})
                 continue
-            dst_rel = f"{attachments_dir}/{sanitize_filename(d.get('file_name', 'file'))}"
+            file_name = d.get('file_name', 'file')
+            dst_rel = _unique_target_path(settings.OBSIDIAN_VAULT_PATH, attachments_dir, src_path, file_name)
+            if not dst_rel:
+                d["archived_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                d["obsidian_path"] = f"{attachments_dir}/{sanitize_filename(file_name)}"
+                json_changed = True
+                archived.append({"file_name": d.get("file_name"), "obsidian_path": d["obsidian_path"]})
+                continue
             dst_path = os.path.join(settings.OBSIDIAN_VAULT_PATH, dst_rel)
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
             shutil.copy2(src_path, dst_path)

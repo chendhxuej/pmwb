@@ -796,6 +796,22 @@
               <div class="card-header flex-between">
                 <span class="card-label">知识沉淀与业务知识关联</span>
                 <div class="flex gap-8">
+                  <input
+                    ref="manualFileInput"
+                    type="file"
+                    style="display:none"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.pptx,.zip"
+                    @change="handleManualFileChange"
+                  />
+                  <el-button
+                    v-if="isRequirementClosed(current)"
+                    size="small"
+                    type="success"
+                    :loading="uploadingManual"
+                    @click="triggerManualUpload"
+                  >
+                    <el-icon><Upload /></el-icon> 上传操作手册
+                  </el-button>
                   <el-button
                     v-if="isRequirementClosed(current)"
                     size="small"
@@ -814,6 +830,20 @@
                     <BusinessDomainSelect v-model="domainCode" @change="saveDomainCode" />
                   </el-form-item>
                 </el-form>
+
+                <!-- 已归档操作手册 -->
+                <div v-if="manualList.length" class="mb-12">
+                  <div class="us-label" style="margin-bottom:8px">已归档操作手册</div>
+                  <div v-for="(m, i) in manualList" :key="i" class="gen-item">
+                    <el-icon><DocumentChecked /></el-icon>
+                    <div class="gen-meta">
+                      <b>{{ m.file_name }}</b>
+                      <div class="text-muted" style="font-size:11px">{{ m.obsidian_path || m.local_path }}</div>
+                    </div>
+                    <el-tag v-if="m.archived_at" size="small" type="success">已归档</el-tag>
+                  </div>
+                </div>
+
                 <KnowledgeLinker
                   source-type="requirement"
                   :source-id="current.req_id"
@@ -1047,8 +1077,8 @@ import {
   getRequirementStats,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
-  deleteRequirementAttachment, generateUserStories, getUserStories, saveUserStories,
-  generateRequirementDoc, searchUserStories, getLlmStatus, getUserStoryStats,
+  deleteRequirementAttachment, uploadRequirementManual, generateUserStories, getUserStories,
+  saveUserStories, generateRequirementDoc, searchUserStories, getLlmStatus, getUserStoryStats,
 } from '@/api/requirement'
 import {
   getActiveOptimizations, getActiveOptimizationStats, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
@@ -1530,6 +1560,33 @@ async function archiveManual(req) {
     ElMessage.error('归档失败：' + (e?.response?.data?.message || e.message || '未知错误'))
   } finally {
     archiving.value = false
+  }
+}
+
+
+/* 上传操作手册并自动归档到业务知识 */
+const uploadingManual = ref(false)
+const manualFileInput = ref(null)
+const manualList = computed(() => {
+  const arr = current.value?.ext?.deliverables || []
+  return Array.isArray(arr) ? arr.filter((d) => d && (d.obsidian_path || d.note?.includes('操作手册'))) : []
+})
+function triggerManualUpload() {
+  manualFileInput.value?.click()
+}
+async function handleManualFileChange(e) {
+  const file = e.target.files?.[0]
+  if (!file || !current.value?.req_id) return
+  uploadingManual.value = true
+  try {
+    await uploadRequirementManual(current.value.req_id, file)
+    ElMessage.success('操作手册已上传并关联主笔记')
+    await refreshCurrent(current.value.req_id)
+  } catch (e) {
+    ElMessage.error('上传失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    uploadingManual.value = false
+    if (manualFileInput.value) manualFileInput.value.value = ''
   }
 }
 

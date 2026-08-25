@@ -57,17 +57,42 @@ def _req(db, req_id="REQ-D4", status="closed"):
     return req
 
 
-def _main_note(db, code="ftto"):
+def _main_note(db, code="ftto", vault_tmp=None):
+    obsidian_path = f"01-业务知识/政企/{code.upper()}/{code.upper()}.md"
     item = PmwbKnowledgeItem(
         item_id=f"KNOW-D4-{code}",
         title=code.upper(),
         category="业务知识",
         domain_code=code,
         note_type="main",
-        obsidian_path=f"01-业务知识/政企/{code.upper()}/{code.upper()}.md",
+        obsidian_path=obsidian_path,
     )
     db.add(item)
     db.commit()
+    if vault_tmp:
+        # 创建最小主笔记模板，包含自动区标记，便于 sync_main_note_from_links 写入
+        full_path = os.path.join(str(vault_tmp), obsidian_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        content = f"""---
+title: {code.upper()} 业务知识主笔记
+tags: [业务知识, 政企, {code.upper()}, 主笔记]
+related_sub_notes: []
+related_reqs: []
+related_tickets: []
+related_meetings: []
+related_issues: []
+related_deliverables: []
+---
+
+## 6. 关联交付物（自动区）
+
+<!-- PMWB:AUTO:BEGIN key=deliverables -->
+<!-- PMWB:AUTO:END key=deliverables -->
+"""
+        print("DEBUG _main_note writing to", full_path)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("DEBUG _main_note exists after write", os.path.exists(full_path))
     return item
 
 
@@ -116,7 +141,7 @@ def test_archive_writes_back_archived_at(db, vault_tmp):
     """归档后 deliverables JSON 的 archived_at 被回写，文件复制到 06-交付物/。"""
     _create_domain(db)
     _req(db)
-    _main_note(db)
+    _main_note(db, vault_tmp=vault_tmp)
 
     # 创建一个假文件在 uploads/
     fake_file = os.path.join(str(vault_tmp), "uploads", "manual.pdf")
@@ -188,3 +213,90 @@ def test_endpoint_crud(client, db, vault_tmp):
     # 确认已删
     res = client.get("/api/v1/requirements/REQ-D4/deliverables")
     assert len(res.json()["data"]) == 0
+
+
+def test_upload_requirement_manual_service_closed_only(db, vault_tmp):
+    """upload_requirement_manual 仅允许 closed 状态需求上传操作手册。"""
+    _create_domain(db)
+    _req(db, status="dev")
+    from services.requirement_delivery import upload_requirement_manual
+    from core.exceptions import ValidationException
+    with pytest.raises(ValidationException):
+        upload_requirement_manual(db, "REQ-D4", "manual.pdf", b"content")
+
+
+def test_upload_requirement_manual_service_no_domain(db, vault_tmp):
+    """未设置 domain_code 的需求上传操作手册报错。"""
+    req = PmwbRequirementExt(req_id="REQ-NODOMAIN", status="closed", deliverables="[]")
+    db.add(req)
+    db.commit()
+    from services.requirement_delivery import upload_requirement_manual
+    from core.exceptions import ValidationException
+    with pytest.raises(ValidationException):
+        upload_requirement_manual(db, "REQ-NODOMAIN", "manual.pdf", b"content")
+
+
+def test_upload_requirement_manual_service_ok(db, vault_tmp):
+    """正常上传操作手册：文件落盘、归档、deliverables 回写 obsidian_path。"""
+    _create_domain(db)
+    _req(db)
+    _main_note(db, vault_tmp=vault_tmp)
+
+    from services.requirement_delivery import upload_requirement_manual
+    from services.knowledge_link_service import sync_main_note_from_links
+    from utils.obsidian import read_markdown
+    result = upload_requirement_manual(db, "REQ-D4", "manual.pdf", b"manual content", note="上线操作手册")
+    print("DEBUG main_note_path", result.get("main_note"))
+    print("DEBUG main_note_synced", result["main_note_synced"])
+
+    ext_after = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == "REQ-D4").first()
+    print("DEBUG ext deliverables", ext_after.deliverables)
+
+    full = os.path.join(str(vault_tmp), "01-业务知识/政企/FTTO/FTTO.md")
+    print("DEBUG full path", full)
+    print("DEBUG dir exists", os.path.isdir(os.path.dirname(full)))
+    if os.path.isdir(os.path.dirname(full)):
+        print("DEBUG dir list", os.listdir(os.path.dirname(full)))
+
+    from db.models import PmwbKnowledgeItem
+    item = db.query(PmwbKnowledgeItem).filter(PmwbKnowledgeItem.domain_code == "ftto", PmwbKnowledgeItem.note_type == "main").first()
+    print("DEBUG item path", item.obsidian_path if item else None)
+    print("DEBUG file exists", os.path.exists(os.path.join(str(vault_tmp), item.obsidian_path)) if item else False)
+    print("DEBUG content preview", (read_markdown(item.obsidian_path) or "")[:200] if item else "")
+    sync_result = sync_main_note_from_links(db, "ftto")
+    print("DEBUG sync changed", sync_result.get("changed"))
+
+    assert result["req_id"] == "REQ-D4"
+    assert result["file_name"] == "manual.pdf"
+    assert result["archived"] is True
+    assert result["obsidian_path"].endswith("manual.pdf")
+    assert result["main_note_synced"] is True
+
+    dst = os.path.join(str(vault_tmp), result["obsidian_path"])
+    assert os.path.exists(dst)
+
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == "REQ-D4").first()
+    items = json.loads(ext.deliverables or "[]")
+    assert len(items) == 1
+    assert items[0]["obsidian_path"] == result["obsidian_path"]
+
+
+def test_upload_manual_endpoint(client, db, vault_tmp):
+    """POST /requirements/{req_id}/delivery/upload-manual 端点上传文件。"""
+    _create_domain(db)
+    _req(db)
+    _main_note(db, vault_tmp=vault_tmp)
+
+    from io import BytesIO
+    res = client.post(
+        "/api/v1/requirements/REQ-D4/delivery/upload-manual",
+        files={"file": ("manual.pdf", BytesIO(b"manual content"), "application/pdf")},
+        data={"note": "上线操作手册"},
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]
+    assert data["req_id"] == "REQ-D4"
+    assert data["file_name"] == "manual.pdf"
+    assert data["archived"] is True
+    assert data["obsidian_path"].endswith("manual.pdf")
+    assert data["main_note_synced"] is True

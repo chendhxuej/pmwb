@@ -18,8 +18,9 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
-from db.models import PmwbUserStory, PmwbRequirementEvaluation, SentEmail
+from db.models import PmwbUserStory, PmwbRequirementEvaluation, PmwbRequirementExt, SentEmail
 from core.config import settings
+from core.exceptions import NotFoundException, ValidationException
 from services.storygen_rules import split_into_user_stories
 
 
@@ -183,7 +184,63 @@ def upload_attachment(db, req_id: str, filename: str, content: bytes) -> Dict[st
     fp = os.path.join(paths["folder"], safe_fn)
     with open(fp, "wb") as f:
         f.write(content)
-    return {"name": safe_fn, "bytes": len(content), "size": _human_size(len(content))}
+    rel_local = os.path.relpath(fp, settings.OBSIDIAN_VAULT_PATH).replace("\\", "/")
+    return {"name": safe_fn, "bytes": len(content), "size": _human_size(len(content)), "path": rel_local}
+
+
+def upload_requirement_manual(
+    db,
+    req_id: str,
+    filename: str,
+    content: bytes,
+    note: str = "操作手册",
+) -> Dict[str, Any]:
+    """上传操作手册并自动归档到业务知识交付物目录、同步主笔记。
+
+    流程：
+    1. 校验需求状态为 closed 且已设置 domain_code。
+    2. 文件先落到需求分析说明书文件夹（作为源文件）。
+    3. 登记到 ext.deliverables JSON。
+    4. 调用 archive_requirement_manual 复制到 05-交付物/attachments/。
+    5. 触发 sync_main_note_from_links 刷新主笔记 §6 内链。
+    """
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if not ext:
+        raise NotFoundException(f"需求不存在：{req_id}")
+    if ext.status != "closed":
+        raise ValidationException("仅已上线需求可上传操作手册")
+    if not ext.domain_code:
+        raise ValidationException("需求未设置业务领域，无法归档操作手册")
+
+    # 1. 落盘到需求分析说明书文件夹
+    upload_info = upload_attachment(db, req_id, filename, content)
+    rel_local = upload_info["path"]
+
+    # 2. 登记到 deliverables JSON
+    from services.obsidian_link import add_requirement_deliverable, archive_requirement_manual
+    entry = add_requirement_deliverable(db, req_id, upload_info["name"], rel_local, note or "操作手册")
+
+    # 3. 归档到业务知识交付物目录（会更新 entry.archived_at / obsidian_path）
+    archive_result = archive_requirement_manual(db, req_id)
+
+    # 4. 触发主笔记 §6 同步，生成 Obsidian 内链
+    from services.knowledge_link_service import sync_main_note_from_links
+    sync_result = sync_main_note_from_links(db, ext.domain_code)
+
+    # 取归档后的 obsidian_path（archive_requirement_manual 会回填 deliverables 数组）
+    obsidian_path = entry.get("obsidian_path")
+    if not obsidian_path and archive_result.get("archived"):
+        obsidian_path = archive_result["archived"][-1].get("obsidian_path")
+
+    return {
+        "req_id": req_id,
+        "file_name": upload_info["name"],
+        "local_path": rel_local,
+        "obsidian_path": obsidian_path or "",
+        "archived": bool(archive_result.get("archived")),
+        "main_note": archive_result.get("main_note"),
+        "main_note_synced": sync_result.get("changed", False),
+    }
 
 
 def delete_attachment(db, req_id: str, filename: str) -> bool:

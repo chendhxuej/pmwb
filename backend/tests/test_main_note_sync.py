@@ -239,3 +239,34 @@ def test_sync_empty_domain_no_error(client, db, vault_tmp):
     assert result["main_note_path"]
     content = _read(vault_tmp, item["obsidian_path"])
     assert "_暂无关联事件_" in content
+
+
+def test_sync_deliverables_renders_obsidian_link(client, db, vault_tmp):
+    """已关闭需求的 deliverables 含 obsidian_path 时，§6 渲染为 Obsidian 内链。"""
+    import json
+
+    _create_domain(client)
+    item = _main_note(client)
+    req = _add_req(db, "REQ-DELIV", "closed", name="带交付物需求")
+    req.deliverables = json.dumps(
+        [
+            {
+                "file_name": "操作手册.pdf",
+                "local_path": "uploads/操作手册.pdf",
+                "note": "上线操作手册",
+                "obsidian_path": "01-业务知识/政企/FTTO/05-交付物/attachments/操作手册.pdf",
+                "archived_at": "2026-08-25 10:00:00",
+            }
+        ],
+        ensure_ascii=False,
+    )
+    db.commit()
+
+    sync_main_note_from_links(db, "ftto")
+    content = _read(vault_tmp, item["obsidian_path"])
+    deliv_block = content.split("key=deliverables -->")[1].split(
+        "<!-- PMWB:AUTO:END key=deliverables"
+    )[0]
+    assert "[[01-业务知识/政企/FTTO/05-交付物/attachments/操作手册.pdf|操作手册.pdf]]" in deliv_block
+    assert "上线操作手册" in deliv_block
+    assert "REQ-DELIV" in deliv_block
