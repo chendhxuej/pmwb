@@ -1,4 +1,5 @@
 import request from './request.js'
+import { bus, EVT_DOMAINS_CHANGED } from '@/utils/bus'
 
 // 基础数据：组织 + 人员主数据（全站选人组件统一数据源）
 
@@ -183,6 +184,10 @@ export function refreshBusinessDomains() {
       _domainBc.postMessage({ type: 'refresh', ts: Date.now() })
     } catch {}
   }
+  // mitt bus 广播：通知 HubPanel 等直接调 API（不走缓存层）的组件刷新
+  try {
+    bus.emit(EVT_DOMAINS_CHANGED)
+  } catch {}
   return _refreshDomainCaches(true)
 }
 

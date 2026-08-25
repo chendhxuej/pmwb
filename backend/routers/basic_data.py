@@ -55,7 +55,7 @@ router = APIRouter(prefix="/basic-data", tags=["团队信息"])
 @router.get("/business-domains")
 def list_business_domains(
     tree: bool = Query(False, description="true=返回树形结构，false=扁平列表"),
-    group: Optional[str] = Query(None, description="按业务大类过滤：商客业务/政企业务/系统平台/通用"),
+    group: Optional[str] = Query(None, description="按业务大类过滤：商客业务/政企业务/系统平台/公共能力/通用"),
     all: bool = Query(False, description="是否包含未启用的领域（管理页专用）"),
     db: Session = Depends(get_db),
 ):

@@ -551,7 +551,7 @@ class PmwbBusinessDomain(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     domain_code = Column(String(64), nullable=False, unique=True, comment="业务线编码，如 ftto, group-sms")
     domain_name = Column(String(128), nullable=False, comment="业务线中文名")
-    domain_group = Column(String(64), nullable=False, default="政企业务", comment="业务大类：商客业务/政企业务/系统平台/通用")
+    domain_group = Column(String(64), nullable=False, default="政企业务", comment="业务大类：商客业务/政企业务/系统平台/公共能力/通用")
     vault_path = Column(String(512), comment="对应 Obsidian vault 内相对目录路径")
     match_keywords = Column(String(512), comment="分类关键词（逗号分隔）；用于将扁平笔记按文件名/标题归入该细分业务，vault 反向同步时匹配")
     parent_id = Column(Integer, ForeignKey("pmwb_business_domain.id"), nullable=True, comment="父领域ID（NULL=一级大类）")

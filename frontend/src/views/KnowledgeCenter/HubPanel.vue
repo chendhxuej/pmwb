@@ -6,10 +6,16 @@
         <h3 class="hub-title">业务领域</h3>
         <span class="hub-subtitle">选择领域查看其知识全景（标准结构 + 全过程时间线）</span>
       </div>
-      <el-button type="primary" :loading="syncLoading" @click="syncAll">
-        <el-icon><Refresh /></el-icon>
-        <span>一键同步全部主笔记</span>
-      </el-button>
+      <div class="hub-header-actions">
+        <el-button plain @click="goManage">
+          <el-icon><SetUp /></el-icon>
+          <span>业务领域管理</span>
+        </el-button>
+        <el-button type="primary" :loading="syncLoading" @click="syncAll">
+          <el-icon><Refresh /></el-icon>
+          <span>一键同步全部主笔记</span>
+        </el-button>
+      </div>
     </div>
 
     <div v-loading="loading" class="hub-cards">
@@ -109,7 +115,8 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, Notebook, FolderOpened, DataBoard, Clock } from '@element-plus/icons-vue'
+import { Refresh, Notebook, FolderOpened, DataBoard, Clock, SetUp } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import { basicDataApi } from '@/api/basicData.js'
 import { knowledgeApi } from '@/api/knowledge.js'
 import BusinessTimeline from '@/components/Common/BusinessTimeline.vue'
@@ -118,6 +125,11 @@ import { productBibleApi } from '@/api/productBible.js'
 import { bus, EVT_DOMAINS_CHANGED } from '@/utils/bus'
 
 const emit = defineEmits(['open-note'])
+
+const router = useRouter()
+const goManage = () => {
+  router.push('/knowledge-center/business-domains')
+}
 
 const loading = ref(false)
 const domains = ref([])
@@ -236,6 +248,11 @@ defineExpose({ reload: loadDomains })
 .hub-subtitle {
   font-size: var(--fs-sm);
   color: var(--text-muted);
+}
+.hub-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .hub-cards {
   display: grid;

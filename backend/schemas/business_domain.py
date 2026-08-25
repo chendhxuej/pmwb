@@ -11,7 +11,7 @@ class BusinessDomainCreate(BaseModel):
 
     domain_code: str = Field(..., max_length=64, description="业务编码，如 ftto")
     domain_name: str = Field(..., max_length=128, description="中文名称，如 FTTO")
-    domain_group: str = Field(default="政企业务", max_length=64, description="业务大类")
+    domain_group: str = Field(default="政企业务", max_length=64, description="业务大类：商客业务/政企业务/系统平台/公共能力/通用")
     vault_path: Optional[str] = Field(None, max_length=512, description="Obsidian vault 路径")
     match_keywords: Optional[str] = Field(None, max_length=512, description="分类关键词（逗号分隔），用于 vault 同步时归类扁平笔记")
     parent_domain_code: Optional[str] = Field(None, max_length=64, description="父领域编码（NULL=一级大类）")

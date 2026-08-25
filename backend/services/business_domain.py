@@ -356,26 +356,50 @@ def get_related(db: Session, domain_code: str) -> DomainRelatedOut:
 
 
 def list_tree(db: Session, enabled_only: bool = True) -> List[BusinessDomainTreeNode]:
-    """返回树形结构（一级大类 + 二级细分领域）。"""
+    """返回树形结构（一级大类 + 二级细分领域）。
+
+    孤儿领域兜底：parent_domain_code 为空但 domain_group 指向已有大类的记录
+    （历史数据或旧入口创建时未选父领域），自动挂到 domain_group 对应大类下，
+    保证所有选择点位（BusinessDomainSelect / HubPanel 等）都能看到并选到。
+    """
     all_domains = list_all(db, enabled_only=enabled_only)
 
     # 按 domain_code 索引
     by_code = {d.domain_code: d for d in all_domains}
 
-    # 构建树：先收集根节点（parent_domain_code 为 None）
-    roots = []
-    for d in all_domains:
-        if d.parent_domain_code is None:
-            node = BusinessDomainTreeNode(**d.model_dump(), children=[])
-            roots.append(node)
-            # 挂载子节点
-            for child in all_domains:
-                if child.parent_domain_code == d.domain_code:
-                    node.children.append(
-                        BusinessDomainTreeNode(**child.model_dump(), children=[])
-                    )
+    # 正式根节点：作为 parent 被其他领域引用的节点
+    parent_codes = {d.parent_domain_code for d in all_domains if d.parent_domain_code}
+    real_roots = [d for d in all_domains if d.parent_domain_code is None and d.domain_code in parent_codes]
+    orphans = [
+        d for d in all_domains
+        if d.parent_domain_code is None and d.domain_code not in parent_codes
+    ]
 
-    # 兜底：如果有子节点但没找到父节点（数据异常），挂到「其他」根节点
+    # 构建树：根节点 + 直接子节点
+    roots = []
+    for d in real_roots:
+        node = BusinessDomainTreeNode(**d.model_dump(), children=[])
+        roots.append(node)
+        for child in all_domains:
+            if child.parent_domain_code == d.domain_code:
+                node.children.append(
+                    BusinessDomainTreeNode(**child.model_dump(), children=[])
+                )
+
+    # 孤儿领域 → 按 domain_group 归入对应大类（匹配 root 的 domain_group 或 domain_name）
+    root_by_group = {}
+    for r in roots:
+        root_by_group.setdefault(r.domain_group, r)
+        root_by_group.setdefault(r.domain_name, r)
+    for o in orphans:
+        target = root_by_group.get(o.domain_group)
+        if target:
+            target.children.append(BusinessDomainTreeNode(**o.model_dump(), children=[]))
+        else:
+            # 找不到归属大类 → 作为独立根展示（不留丢）
+            roots.append(BusinessDomainTreeNode(**o.model_dump(), children=[]))
+
+    # 兜底：子节点父领域被停用（enabled_only 过滤掉）时，挂到「其他」根节点
     orphaned = [
         d for d in all_domains
         if d.parent_domain_code and d.parent_domain_code not in by_code
