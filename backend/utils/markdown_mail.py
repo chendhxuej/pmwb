@@ -17,6 +17,7 @@ import re
 
 import bleach
 import markdown
+from bleach.css_sanitizer import CSSSanitizer
 
 from core.config import settings
 
@@ -62,7 +63,72 @@ _ALLOWED_ATTRS = {
     "*": ["style"],
     "a": ["href", "title", "target"],
     "img": ["src", "alt", "width", "height"],
+    # 邮件表格兼容性属性（Outlook 等客户端更认 HTML 属性而非 CSS）
+    "table": ["cellpadding", "cellspacing", "border", "width", "role"],
+    "td": ["width", "valign", "colspan", "rowspan"],
+    "th": ["width", "valign", "colspan", "rowspan"],
 }
+
+# 邮件正文允许的内联 CSS 属性白名单（邮件客户端剥离 <style>，必须依赖内联样式）
+_ALLOWED_CSS_PROPERTIES: frozenset[str] = frozenset({
+    "color",
+    "background",
+    "background-color",
+    "background-image",
+    "background-size",
+    "background-position",
+    "background-repeat",
+    "background-clip",
+    "font",
+    "font-family",
+    "font-size",
+    "font-weight",
+    "font-style",
+    "font-variant",
+    "line-height",
+    "text-align",
+    "text-decoration",
+    "text-indent",
+    "vertical-align",
+    "white-space",
+    "word-break",
+    "margin",
+    "margin-top",
+    "margin-bottom",
+    "margin-left",
+    "margin-right",
+    "padding",
+    "padding-top",
+    "padding-bottom",
+    "padding-left",
+    "padding-right",
+    "border",
+    "border-top",
+    "border-bottom",
+    "border-left",
+    "border-right",
+    "border-collapse",
+    "border-radius",
+    "border-color",
+    "border-top-color",
+    "border-bottom-color",
+    "border-left-color",
+    "border-right-color",
+    "border-spacing",
+    "width",
+    "max-width",
+    "min-width",
+    "height",
+    "min-height",
+    "box-shadow",
+    "overflow",
+    "display",
+    "list-style",
+    "list-style-type",
+    "opacity",
+})
+
+_CSS_SANITIZER = CSSSanitizer(allowed_css_properties=_ALLOWED_CSS_PROPERTIES)
 
 
 def _apply_inline_styles(html_str: str) -> str:
@@ -81,8 +147,18 @@ def _apply_inline_styles(html_str: str) -> str:
 
 
 def _sanitize(html_str: str) -> str:
-    """白名单净化，剥离脚本/危险标签与属性（对齐 3210 的 DOMPurify 思路）。"""
-    return bleach.clean(html_str, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
+    """白名单净化，剥离脚本/危险标签与属性（对齐 3210 的 DOMPurify 思路）。
+
+    注意：bleach 6+ 必须显式传入 css_sanitizer 才能保留 style 属性值，
+    否则 style 会被清空为空字符串，导致邮件排版错乱。
+    """
+    return bleach.clean(
+        html_str,
+        tags=_ALLOWED_TAGS,
+        attributes=_ALLOWED_ATTRS,
+        css_sanitizer=_CSS_SANITIZER,
+        strip=True,
+    )
 
 
 _SYSTEM_NOTE = "备注：此邮件由产品经理个人工作台（PMWB）触发"

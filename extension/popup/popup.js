@@ -809,8 +809,6 @@ let _emailHtml = '';
 
 async function updateEmailPreview(data) {
   const clarify = document.getElementById('requirement-clarify')?.value?.trim();
-  const { smtpConfig } = await chrome.storage.local.get('smtpConfig');
-  const sig = smtpConfig?.signature || '';
 
   // ---- 纯文本版本 ----
   const t = [];
@@ -823,15 +821,20 @@ async function updateEmailPreview(data) {
   if (data.background) t.push(`\n需求背景及目标：\n${data.background}`);
   if (data.description) t.push(`\n需求描述：\n${data.description}`);
   if (clarify) t.push(`\n需求澄清：\n${clarify}`);
-  if (sig) t.push(`\n---\n${sig.replace(/<br\s*\/?>/gi, '\n')}`);
+  // 插件不再自带签名：统一由 PMWB 后端注入项目公共签名（settings.EMAIL_SIGNATURE），避免双签名
   _emailPlainText = t.join('\n');
 
   // ---- 美观 HTML 版本 ----
-  const row = (label, value) => `
+  // 注意：邮件正文最终由 PMWB 后端统一注入签名与系统说明，
+  // 插件不再自行插入签名，避免双签名；样式走内联 style，同时保留 HTML 属性作为邮件客户端 fallback。
+  const row = (label, value) => {
+    const v = escHtml(value).replace(/\n/g, '<br>');
+    return `
     <tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top;width:90px;color:#888;font-size:13px;white-space:nowrap;">${escHtml(label)}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top;color:#333;font-size:14px;line-height:1.6;">${escHtml(value).replace(/\n/g, '<br>')}</td>
+      <td width="90" valign="top" style="padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top;width:90px;color:#888;font-size:13px;white-space:nowrap;">${escHtml(label)}</td>
+      <td width="100%" valign="top" style="padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top;width:100%;color:#333;font-size:14px;line-height:1.6;">${v}</td>
     </tr>`;
+  };
 
   const rows = [];
   if (data.reqId) rows.push(row('需求编号', data.reqId));
@@ -844,18 +847,17 @@ async function updateEmailPreview(data) {
 
   _emailHtml = [
     '<div style="font-family:Segoe UI,Microsoft YaHei,Arial,sans-serif;font-size:14px;color:#333;max-width:640px;margin:0 auto;padding:0;">',
-    '  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fff;border:1px solid #d0d7de;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">',
+    '  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fff;border:1px solid #d0d7de;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">',
     '    <tr>',
     '      <td style="background:linear-gradient(135deg,#1a73e8 0%,#4285f4 100%);color:#fff;padding:16px 20px;font-size:15px;font-weight:600;">需求评估信息</td>',
     '    </tr>',
     '    <tr>',
     '      <td style="padding:16px 20px;">',
-    '        <table cellpadding="0" cellspacing="0" border="0" width="100%">',
+    '        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">',
                   rows.join('\n'),
     '        </table>',
     '      </td>',
     '    </tr>',
-    sig ? `    <tr><td style="padding:0 20px 16px 20px;"><div style="padding-top:12px;border-top:1px solid #e8eaed;color:#666;font-size:13px;line-height:1.6;">${sig}</div></td></tr>` : '',
     '  </table>',
     '</div>',
   ].join('\n');

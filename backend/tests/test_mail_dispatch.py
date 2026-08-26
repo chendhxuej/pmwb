@@ -281,6 +281,54 @@ def test_plugin_html_passthrough(monkeypatch):
     assert captured["email_type"] == "xqemail_plugin"
 
 
+def test_plugin_html_passthrough_preserves_inline_styles(monkeypatch):
+    """插件传入带内联样式的 HTML 表格时，样式与表格兼容性属性应被保留，避免邮件排版错乱。"""
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    from services.plugin import plugin_service
+
+    html_body = (
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" '
+        'style="background:#fff;border:1px solid #d0d7de;border-radius:8px;">'
+        '<tr><td width="90" valign="top" style="padding:10px;color:#888;width:90px;">需求编号</td>'
+        '<td width="100%" style="padding:10px;color:#333;width:100%;">0700137</td></tr>'
+        '</table>'
+    )
+    plugin_service.send_email(
+        to=["a@b.com"],
+        subject="插件表格测试",
+        body=html_body,
+        body_format="html",
+    )
+    body = captured["body"]
+    # 关键样式必须保留
+    assert 'background:#fff' in body
+    assert 'border:1px solid #d0d7de' in body
+    assert 'border-radius:8px' in body
+    assert 'padding:10px' in body
+    assert 'color:#888' in body
+    assert 'color:#333' in body
+    assert 'width:90px' in body
+    assert 'width:100%' in body
+    # 邮件客户端兼容性 HTML 属性必须保留
+    assert 'cellpadding="0"' in body
+    assert 'cellspacing="0"' in body
+    assert 'border="0"' in body
+    assert 'width="100%"' in body
+    assert 'width="90"' in body
+    assert 'valign="top"' in body
+    assert 'role="presentation"' in body
+    # 危险内容仍应被净化
+    assert '<script>' not in body
+    # 统一签名注入
+    assert "陈大海" in body
+
+
 def test_plugin_text_body_markdown_rendered(monkeypatch):
     """插件传入 text 时应按 Markdown 渲染为 HTML 并加签名。"""
     captured = {}
