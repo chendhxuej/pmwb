@@ -3,7 +3,8 @@ import { ElMessage } from 'element-plus'
 
 const request = axios.create({
   baseURL: '/api/v1',
-  timeout: 30000,
+  // 全局默认 120s：大模型（AI 生成/问查比算/AI总结）等请求较慢，避免被 30s 过早截断
+  timeout: 120000,
 })
 
 request.interceptors.request.use(
