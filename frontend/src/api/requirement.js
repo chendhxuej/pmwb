@@ -52,9 +52,7 @@ export function listRequirementAttachments(reqId) {
 export function uploadRequirementAttachment(reqId, file) {
   const form = new FormData()
   form.append('file', file)
-  return request.post(`/requirements/${reqId}/delivery/attachments/upload`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return request.post(`/requirements/${reqId}/delivery/attachments/upload`, form)
 }
 
 export function deleteRequirementAttachment(reqId, filename) {
@@ -65,9 +63,7 @@ export function uploadRequirementManual(reqId, file, note = '操作手册') {
   const form = new FormData()
   form.append('file', file)
   form.append('note', note)
-  return request.post(`/requirements/${reqId}/delivery/upload-manual`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return request.post(`/requirements/${reqId}/delivery/upload-manual`, form)
 }
 
 export function generateUserStories(reqId, content, strategy = 'rules_v2') {
