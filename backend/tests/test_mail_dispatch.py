@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from services import mail_dispatch
 from utils import markdown_mail
+from utils.attachment_compress import compress_attachments_for_mail_center
 
 
 def test_markdown_to_email_html_includes_signature_and_inline_styles():
@@ -349,3 +350,31 @@ def test_plugin_text_body_markdown_rendered(monkeypatch):
     assert captured["body_format"] == "html"
     assert "<strong>加粗</strong>" in captured["body"] or "加粗" in captured["body"]
     assert "陈大海" in captured["body"]
+
+
+def test_compress_falls_back_to_byte_probe_when_mime_missing():
+    """根因回归：插件截图 file.type 为空时被标成 application/octet-stream，
+    压缩兜底此前因 mime 判断跳过，导致大图原样转发 3210 触发 413（无附件成功、有附件就 413）。
+    改为字节探测后，真实图片无论 mime 声明如何都应被压缩。
+    """
+    from PIL import Image, ImageDraw
+    import io, base64, random
+
+    img = Image.new("RGB", (3600, 2400), (245, 246, 248))
+    d = ImageDraw.Draw(img)
+    random.seed(11)
+    for _ in range(700):
+        x, y = random.randint(0, 3600), random.randint(0, 2400)
+        w, h = random.randint(60, 500), random.randint(20, 140)
+        d.rectangle([x, y, x + w, y + h], fill=(random.randint(180, 255),) * 3,
+                    outline=(random.randint(80, 160),) * 3)
+        d.line([x, y, x + w, y + random.randint(0, h)], fill=(random.randint(40, 120),) * 3, width=2)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    assert len(b64) > 70 * 1024  # 超过压缩触发阈值
+
+    atts = [{"filename": "shot.png", "contentBase64": b64, "mimeType": "application/octet-stream"}]
+    out = compress_attachments_for_mail_center(atts)
+    assert out[0]["mimeType"] == "image/jpeg"  # 识别为图片并转 JPEG
+    assert len(out[0]["contentBase64"]) < len(b64)  # 体积被压缩，不会原样转发

@@ -66,6 +66,33 @@ def _compress_image(raw: bytes, max_bytes: int) -> bytes:
     return last
 
 
+def _looks_like_image(a: dict) -> bool:
+    """判断附件是否为图片：优先看 mime，mime 不可信时（如 octet-stream）用字节头探测。
+
+    插件截图在 file.type 为空时会被默认成 application/octet-stream，但字节仍是 PNG/JPG，
+    必须用字节探测才能正确识别并压缩，否则大图原样转发 3210 触发 413。
+    """
+    mime = (a.get("mimeType") or "").lower()
+    if mime.startswith("image/"):
+        return True
+    raw = base64.b64decode(a.get("contentBase64", "") or "")
+    if not raw:
+        return False
+    if HAS_PILLOW:
+        try:
+            with Image.open(io.BytesIO(raw)) as im:
+                im.verify()  # 验证像素数据完整性（不改原字节）
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+    # 无 Pillow 时退化为扩展名/常见图片头兜底
+    head = raw[:12].lower()
+    if head.startswith(b"\x89png") or head.startswith(b"\xff\xd8\xff"):
+        return True
+    fn = (a.get("filename") or "").lower()
+    return fn.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
+
+
 def compress_attachments_for_mail_center(
     attachments: list | None,
     safe_bytes: int = _MAIL_CENTER_SAFE_BYTES,
@@ -74,18 +101,22 @@ def compress_attachments_for_mail_center(
 
     仅当附件总 base64 超过 safe_bytes 才处理，避免无谓压缩；
     非图片附件（或 Pillow 不可用时）原样返回。
+    图片识别不依赖 mime：mime 缺失/错误时改用字节探测，确保插件截图
+    （常被标成 application/octet-stream）也能被压缩，避免 413。
     """
     if not attachments:
         return attachments
     total_b64 = sum(len(a.get("contentBase64", "")) for a in attachments)
     if total_b64 <= safe_bytes:
         return attachments
-    images = [a for a in attachments if (a.get("mimeType") or "").startswith("image/")]
+    images = [a for a in attachments if _looks_like_image(a)]
     if not images:
         return attachments
     per = max(40 * 1024, safe_bytes // len(images))
     for a in images:
         raw = base64.b64decode(a.get("contentBase64", "") or "")
+        if not raw:
+            continue
         comp = _compress_image(raw, per)
         if len(comp) < len(raw):
             a["contentBase64"] = base64.b64encode(comp).decode()
