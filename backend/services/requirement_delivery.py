@@ -473,7 +473,7 @@ def generate_user_stories(
     strategy 支持：
     - "rules_v2"（默认）：合并优先的规则引擎 v2，符合公司最新管理规范
     - "rules_v1"：旧版按行/人天拆分（兼容模式，不推荐）
-    - "llm"：LLM 智能拆分（需配置 US_STORY_LLM_ENABLED=true）
+    - "llm"：AI 智能生成（复用 AI 中心统一大模型注册表，见 services.llm_provider）
 
     旧版兼容：不传 strategy 走 v2。
     """
@@ -568,12 +568,14 @@ def _generate_v1(source: str, ddd: Dict[str, str], db, req_id: str) -> List[Dict
 def _generate_with_llm_fallback(
     source: str, ddd: Dict[str, str], db, req_id: str
 ) -> tuple:
-    """LLM 生成，失败回退 rules_v2。"""
+    """AI 智能生成（复用 AI 中心统一大模型注册表），失败回退 rules_v2。
+
+    不再单独依赖 US_STORY_LLM_* 配置；可用性以前端 llm-status 探测的
+    AI 中心统一状态为准（有任一 enabled 提供方即可用）。
+    """
     try:
-        if not settings.US_STORY_LLM_ENABLED:
-            raise RuntimeError("LLM 未启用（US_STORY_LLM_ENABLED=false）")
-        from services.storygen_llm import generate_with_llm
-        stories = generate_with_llm(source, ddd)
+        from services.storygen_llm import generate_via_unified
+        stories = generate_via_unified(db, source, ddd)
         return stories, "llm"
     except Exception:
         # 降级到 v2

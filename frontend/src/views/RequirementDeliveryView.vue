@@ -581,26 +581,26 @@
                     class="strategy-card"
                     :class="{
                       active: selectedStrategy === 'llm',
-                      disabled: !llmStatus.reachable,
+                      disabled: !llmStatus.available,
                     }"
-                    @click="llmStatus.reachable && (selectedStrategy = 'llm')"
+                    @click="llmStatus.available && (selectedStrategy = 'llm')"
                   >
                     <div class="sc-icon sc-icon-ai">🤖</div>
                     <div class="sc-body">
                       <div class="sc-title">
-                        Kimi 智能拆分
+                        AI智能生成
                         <span v-if="llmChecking" class="sc-badge sc-badge-info">检测中</span>
-                        <span v-else-if="!llmStatus.enabled" class="sc-badge sc-badge-off">未配置</span>
-                        <span v-else-if="llmStatus.reachable" class="sc-badge sc-badge-on">已连接</span>
-                        <span v-else class="sc-badge sc-badge-off">API 不可用</span>
+                        <span v-else-if="!llmStatus.available" class="sc-badge sc-badge-off">未启用</span>
+                        <span v-else-if="llmStatus.available" class="sc-badge sc-badge-on">已连接</span>
+                        <span v-else class="sc-badge sc-badge-off">未连接</span>
                       </div>
                       <div class="sc-desc">
                         AI 理解角色/场景/闭环，约 30 秒
                       </div>
                       <div
-                        v-if="!llmChecking && llmStatus.enabled && !llmStatus.reachable && llmStatus.error"
+                        v-if="!llmChecking && !llmStatus.available && llmStatus.notice"
                         class="sc-error"
-                        :title="llmStatus.error"
+                        :title="llmStatus.notice"
                       >⚠ {{ llmErrorHint }}</div>
                     </div>
                     <div class="sc-check" v-if="selectedStrategy === 'llm'">✓</div>
@@ -621,11 +621,11 @@
                 </div>
 
                 <div
-                  v-if="!llmChecking && llmStatus.enabled && !llmStatus.reachable"
+                  v-if="!llmChecking && !llmStatus.available"
                   class="strategy-warn"
                 >
                   <span class="sw-icon">⚠️</span>
-                  <span>Kimi 暂时不可用{{ llmStatus.error ? '：' + llmErrorHint : '' }}。可改用「合并生成」秒级出结果，或前往「大模型管理」配置可用的 API Key。</span>
+                  <span>AI 中心暂无可用的统一大模型{{ llmStatus.notice ? '：' + llmErrorHint : '' }}。可改用「合并生成」秒级出结果，或前往「大模型管理」配置并启用一个。</span>
                 </div>
 
                 <el-button
@@ -637,11 +637,11 @@
                 >
                   <template v-if="storyGenLoading">
                     <el-icon class="is-loading"><Loading /></el-icon>
-                    {{ selectedStrategy === 'llm' ? `Kimi 正在分析需求… ${storyGenElapsed}s` : `正在生成… ${storyGenElapsed}s` }}
+                    {{ selectedStrategy === 'llm' ? `AI 正在分析需求… ${storyGenElapsed}s` : `正在生成… ${storyGenElapsed}s` }}
                   </template>
                   <template v-else>
                     <el-icon><MagicStick /></el-icon>
-                    {{ selectedStrategy === 'llm' ? 'Kimi 智能生成用户故事' : selectedStrategy === 'rules_v1' ? '按工作量生成用户故事' : '生成用户故事' }}
+                    {{ selectedStrategy === 'llm' ? 'AI智能生成用户故事' : selectedStrategy === 'rules_v1' ? '按工作量生成用户故事' : '生成用户故事' }}
                   </template>
                 </el-button>
               </div>
@@ -680,8 +680,8 @@
                 <!-- 生成中遮罩 -->
                 <div v-if="storyGenLoading" class="story-loading-overlay">
                   <el-icon class="is-loading" :size="28"><Loading /></el-icon>
-                  <p>{{ selectedStrategy === 'llm' ? 'Kimi 正在分析需求内容，识别角色/场景/闭环…' : '正在生成用户故事…' }}</p>
-                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? 'Kimi 带推理能力，通常需要 20-40 秒，请耐心等待' : '预计 1-3 秒完成' }}</p>
+                  <p>{{ selectedStrategy === 'llm' ? 'AI 正在分析需求内容，识别角色/场景/闭环…' : '正在生成用户故事…' }}</p>
+                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? 'AI 带推理能力，通常需要 20-40 秒，请耐心等待' : '预计 1-3 秒完成' }}</p>
                 </div>
 
                 <!-- 未生成提示 -->
@@ -1412,7 +1412,7 @@ const evalLoading = ref(false)
 const stories = ref([])
 const strategyLabel = ref('')
 const storiesConfirmed = ref(false)
-const llmStatus = ref({ enabled: false, provider: '', model: '', reachable: false, error: null })
+const llmStatus = ref({ available: false, provider_name: '', provider_count: 0, notice: '' })
 const llmChecking = ref(false)
 const docTemplate = ref('std')
 const docFileName = ref('')
@@ -1726,9 +1726,8 @@ const storyGenElapsed = ref(0)                    // 已耗时（秒）
 let _storyGenTimer = null                         // 耗时计时器
 
 const llmProviderLabel = computed(() => {
-  const p = llmStatus.value.provider
-  const map = { kimi: 'Kimi', ollama: 'Ollama', openai: 'OpenAI', deepseek: 'DeepSeek' }
-  return map[p] || p || 'AI'
+  const p = llmStatus.value.provider_name
+  return p || 'AI'
 })
 async function checkLlmStatus() {
   llmChecking.value = true
@@ -1736,13 +1735,13 @@ async function checkLlmStatus() {
     const res = await getLlmStatus()
     llmStatus.value = res
   } catch {
-    llmStatus.value = { enabled: false, provider: '', model: '', reachable: false, error: null }
+    llmStatus.value = { available: false, provider_name: '', provider_count: 0, notice: '' }
   } finally {
     llmChecking.value = false
   }
 }
 const llmErrorHint = computed(() => {
-  const e = llmStatus.value.error || ''
+  const e = llmStatus.value.notice || ''
   if (!e) return ''
   // 去掉超长英文 URL，保留中文关键信息，过长截断
   const zh = e.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim()
@@ -1781,7 +1780,7 @@ async function generateStories(strategy = 'rules_v2') {
       finalized: false,
     }))
     storiesConfirmed.value = false
-    const labelMap = { rules_v2: '合并优先', rules_v1: '按工作量拆分', rules_v2_fallback: '合并优先', llm: 'Kimi 智能拆分' }
+    const labelMap = { rules_v2: '合并优先', rules_v1: '按工作量拆分', rules_v2_fallback: '合并优先', llm: 'AI智能生成' }
     strategyLabel.value = labelMap[res.strategy_used] || res.strategy_used || ''
     ElMessage.success(`已生成 ${stories.value.length} 条用户故事（${strategyLabel.value}），请预览后点击「确认落库」保存`)
   } catch (err) {

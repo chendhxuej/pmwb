@@ -140,21 +140,24 @@ def generate_user_stories(
     strategy 可选值：
     - rules_v2（默认/推荐）：合并优先策略，符合公司最新管理规范
     - rules_v1：旧版按行/人天拆分
-    - llm：LLM 智能拆分（需先配置 US_STORY_LLM_ENABLED=true）
+    - llm：AI 智能生成（复用 AI 中心统一大模型注册表，无需单独配置）
     """
     data = svc.generate_user_stories(db, req_id, payload.content, strategy=payload.strategy)
     return success(data=UserStoryGenOut(**data).model_dump())
 
 
 @router.get("/delivery/llm-status")
-def get_llm_status():
-    """查询 LLM 用户故事生成服务的状态。
+def get_llm_status(db: Session = Depends(get_db)):
+    """查询 AI 中心统一大模型状态（用户故事 AI 生成可用性的前端提示）。
+
+    复用 services.llm_provider.get_status，与「大模型管理」配置同源，
+    不再依赖独立的 US_STORY_LLM_* 配置。
 
     Returns:
-        { enabled, provider, model, reachable, error }
+        { available, provider_name, provider_count, notice }
     """
-    from services.storygen_llm import check_llm_available
-    return success(data=check_llm_available())
+    from services.llm_provider import get_status
+    return success(data=get_status(db))
 
 
 @router.post("/{req_id}/delivery/generate-doc")
