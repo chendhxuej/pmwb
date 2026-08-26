@@ -88,12 +88,12 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Position, FolderOpened } from '@element-plus/icons-vue'
 import { knowledgeApi } from '@/api/knowledge.js'
+import { openObsidianNote } from '@/utils/obsidian.js'
 
 const props = defineProps({
   domainCode: { type: String, default: '' },
   limit: { type: Number, default: 200 },
 })
-const emit = defineEmits(['open-note'])
 
 const router = useRouter()
 const loading = ref(false)
@@ -177,7 +177,7 @@ const goSource = (e) => {
 
 const openNote = (e) => {
   if (!e.obsidian_path) return
-  emit('open-note', e.obsidian_path)
+  openObsidianNote(e.obsidian_path)
 }
 
 watch(() => props.domainCode, () => {

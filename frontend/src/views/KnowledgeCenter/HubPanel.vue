@@ -19,21 +19,31 @@
     </div>
 
     <div v-loading="loading" class="hub-cards">
-      <button
-        v-for="d in domains"
-        :key="d.domain_code"
-        class="dk-card"
-        :class="{ active: selectedDomain?.domain_code === d.domain_code }"
-        @click="selectDomain(d)"
-      >
-        <span class="dk-avatar">{{ d.domain_name.slice(0, 1) }}</span>
-        <span class="dk-card-body">
-          <span class="dk-card-name">{{ d.domain_name }}</span>
-          <span class="dk-card-code">{{ d.domain_code }}</span>
-        </span>
-        <span v-if="d.domain_group" class="dk-card-tag">{{ d.domain_group }}</span>
-      </button>
-      <el-empty v-if="!loading && !domains.length" description="暂无业务领域" />
+      <div v-for="grp in domainTree" :key="grp.domain_code" class="hub-group">
+        <div class="hub-group-head" @click="toggleGroup(grp.domain_code)">
+          <span class="hub-group-caret">{{ expandedGroups.has(grp.domain_code) ? '▾' : '▸' }}</span>
+          <span class="hub-group-name">{{ grp.domain_name }}</span>
+          <span class="hub-group-tag">{{ grp.domain_code }}</span>
+          <span class="hub-group-count">{{ (grp.children || []).length }} 个领域</span>
+        </div>
+        <div v-show="expandedGroups.has(grp.domain_code)" class="hub-group-grid">
+          <button
+            v-for="d in (grp.children || [])"
+            :key="d.domain_code"
+            class="dk-card"
+            :class="{ active: selectedDomain?.domain_code === d.domain_code }"
+            @click="selectDomain(d)"
+          >
+            <span class="dk-avatar">{{ d.domain_name.slice(0, 1) }}</span>
+            <span class="dk-card-body">
+              <span class="dk-card-name">{{ d.domain_name }}</span>
+              <span class="dk-card-code">{{ d.domain_code }}</span>
+            </span>
+          </button>
+          <el-empty v-if="!(grp.children || []).length" description="该大类暂无子领域" :image-size="60" />
+        </div>
+      </div>
+      <el-empty v-if="!loading && !domainTree.length" description="暂无业务领域" />
     </div>
 
     <!-- 选中领域详情：左知识标准化管理 / 右时间线 -->
@@ -52,7 +62,7 @@
             v-if="mainNotePath"
             plain
             type="primary"
-            @click="$emit('open-note', mainNotePath)"
+            @click="openObsidianNote(mainNotePath)"
           >
             <el-icon><FolderOpened /></el-icon>
             <span>打开主笔记</span>
@@ -92,6 +102,16 @@
             </template>
             <el-empty v-else-if="!bibleLoading" description="暂无主笔记内容（同步后自动生成）" :image-size="80" />
           </div>
+          <div v-if="fullMarkdown" class="hub-full-note">
+            <div class="hub-full-head" @click="showFull = !showFull">
+              <span class="hub-caret">{{ showFull ? '▾' : '▸' }}</span>
+              <span class="hub-full-title">完整主笔记原文</span>
+              <span class="hub-full-hint">含结构化视图未涵盖的章节</span>
+            </div>
+            <div v-show="showFull" class="hub-full-body">
+              <MarkdownRender :content="fullMarkdown" />
+            </div>
+          </div>
         </section>
 
         <!-- 右：时间线 -->
@@ -103,7 +123,6 @@
           <div class="hub-timeline-wrap">
             <BusinessTimeline
               :domain-code="selectedDomain.domain_code"
-              @open-note="$emit('open-note', $event)"
             />
           </div>
         </section>
@@ -117,14 +136,14 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Notebook, FolderOpened, DataBoard, Clock, SetUp } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { basicDataApi } from '@/api/basicData.js'
+import { basicDataApi, loadBusinessDomains } from '@/api/basicData.js'
 import { knowledgeApi } from '@/api/knowledge.js'
+import { obsidianApi } from '@/api/obsidian.js'
 import BusinessTimeline from '@/components/Common/BusinessTimeline.vue'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import { productBibleApi } from '@/api/productBible.js'
 import { bus, EVT_DOMAINS_CHANGED } from '@/utils/bus'
-
-const emit = defineEmits(['open-note'])
+import { openObsidianNote } from '@/utils/obsidian.js'
 
 const router = useRouter()
 const goManage = () => {
@@ -132,7 +151,8 @@ const goManage = () => {
 }
 
 const loading = ref(false)
-const domains = ref([])
+const domainTree = ref([])
+const expandedGroups = ref(new Set())
 const selectedDomain = ref(null)
 const syncLoading = ref(false)
 const syncOneLoading = ref(false)
@@ -140,19 +160,31 @@ const mainNoteTitle = ref('')
 const mainNotePath = ref('')
 const bibleSections = ref([])
 const bibleLoading = ref(false)
+const fullMarkdown = ref('')
+const showFull = ref(false)
 
 const loadDomains = async () => {
   loading.value = true
   try {
-    const res = await basicDataApi.getBusinessDomains()
-    domains.value = (res || []).map((d) => ({ ...d }))
-    // 自动选第一个有数据的领域
-    if (domains.value.length && !selectedDomain.value) {
-      selectDomain(domains.value[0])
+    const tree = await loadBusinessDomains({ tree: true }, true)
+    domainTree.value = tree || []
+    // 默认展开全部大类
+    expandedGroups.value = new Set(domainTree.value.map((g) => g.domain_code))
+    // 自动选中第一个子领域
+    const firstChild = domainTree.value[0]?.children?.[0]
+    if (firstChild && !selectedDomain.value) {
+      selectDomain(firstChild)
     }
   } finally {
     loading.value = false
   }
+}
+
+const toggleGroup = (code) => {
+  const s = new Set(expandedGroups.value)
+  if (s.has(code)) s.delete(code)
+  else s.add(code)
+  expandedGroups.value = s
 }
 
 const selectDomain = async (d) => {
@@ -160,6 +192,7 @@ const selectDomain = async (d) => {
   selectedDomain.value = d
   mainNoteTitle.value = ''
   mainNotePath.value = ''
+  fullMarkdown.value = ''
   // 预取知识标准化管理标准结构（切到主笔记 Tab 时直接渲染）
   loadBible(d.domain_code)
 
@@ -168,6 +201,14 @@ const selectDomain = async (d) => {
     if (res?.main_note) {
       mainNoteTitle.value = res.main_note.title || ''
       mainNotePath.value = res.main_note.obsidian_path || ''
+      if (mainNotePath.value) {
+        try {
+          const noteRes = await obsidianApi.getNoteContent(mainNotePath.value)
+          fullMarkdown.value = noteRes?.content || ''
+        } catch {
+          fullMarkdown.value = ''
+        }
+      }
     }
   } catch {
     // 静默
@@ -255,9 +296,97 @@ defineExpose({ reload: loadDomains })
   gap: 10px;
 }
 .hub-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.hub-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+.hub-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.hub-group-head:hover {
+  background: var(--accent-soft);
+}
+.hub-group-caret {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 14px;
+  flex-shrink: 0;
+}
+.hub-group-name {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.hub-group-tag {
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-subtle);
+}
+.hub-group-count {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.hub-group-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
+  padding: 12px 14px;
+}
+.hub-full-note {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+.hub-full-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.hub-full-head:hover {
+  background: var(--accent-soft);
+}
+.hub-caret {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.hub-full-title {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.hub-full-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.hub-full-body {
+  padding: 6px 16px 14px;
+  max-height: 520px;
+  overflow: auto;
 }
 .dk-card {
   display: flex;

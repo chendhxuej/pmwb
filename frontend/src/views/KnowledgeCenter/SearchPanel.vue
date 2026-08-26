@@ -35,7 +35,7 @@
 
       <el-tab-pane label="知识笔记" name="knowledge">
         <div v-loading="loading">
-          <div v-for="item in knowledgeResults" :key="item.id" class="sp-item" @click="$emit('open-note', item.obsidian_path)">
+          <div v-for="item in knowledgeResults" :key="item.id" class="sp-item" @click="openObsidianNote(item.obsidian_path)">
             <span class="sp-type-tag type-knowledge">笔记</span>
             <span class="sp-title">{{ item.title }}</span>
             <span v-if="item.category" class="sp-cat">{{ item.category }}</span>
@@ -64,8 +64,8 @@ import { Search } from '@element-plus/icons-vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import { knowledgeApi } from '@/api/knowledge.js'
 import { sqlScriptApi } from '@/api/sqlScript.js'
+import { openObsidianNote } from '@/utils/obsidian.js'
 
-const emit = defineEmits(['open-note'])
 const keyword = ref('')
 const filterDomain = ref('')
 const loading = ref(false)
@@ -107,7 +107,7 @@ const doSearch = async () => {
 
 const openItem = (item) => {
   if (item._type === 'knowledge' && item.obsidian_path) {
-    emit('open-note', item.obsidian_path)
+    openObsidianNote(item.obsidian_path)
   }
 }
 
