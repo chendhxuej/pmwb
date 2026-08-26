@@ -61,7 +61,7 @@ git reset --mixed main 2>/dev/null || git reset --mixed HEAD
 git add "${FILES[@]}"
 
 # 4) 误加检查：任何不在已知目录前缀下的文件被暂存都视为异常
-STRAY="$(git diff --cached --name-only | grep -vE '^(backend/|frontend/|services/|scripts/|docs/|.workbuddy/)' || true)"
+STRAY="$(git diff --cached --name-only | grep -vE '^(backend/|frontend/|services/|scripts/|docs/|extension/|.workbuddy/)' || true)"
 if [[ -n "$STRAY" ]]; then
   echo "[git-safe] 发现非预期文件被暂存，已中止：" >&2
   echo "$STRAY" >&2
