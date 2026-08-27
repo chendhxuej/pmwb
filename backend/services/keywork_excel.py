@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -75,6 +76,71 @@ DEFAULTS = {
     "plan_status": "not_started",
     "task_status": "not_started",
 }
+
+# ---------------------------------------------------------------------------
+# 枚举同义词归一化
+# 导入时不再硬拒未知取值，而是把常见写法（英文别名 / 中文）映射到规范枚举值；
+# 完全无法识别的取值回落到默认值，避免因状态用词差异导致整文件导入失败。
+# ---------------------------------------------------------------------------
+ENUM_ALIASES: Dict[str, Dict[str, str]] = {
+    "category": {
+        "专题": "special_topic", "专题工作": "special_topic", "专题任务": "special_topic",
+        "试点": "hq_pilot", "总部试点": "hq_pilot",
+        "年度": "annual_task", "年度任务": "annual_task", "年任务": "annual_task",
+    },
+    "priority": {
+        "p0": "P0", "p1": "P1", "p2": "P2", "p3": "P3",
+        "最高": "P0", "紧急": "P0", "高": "P1", "中": "P2", "低": "P3",
+    },
+    "status": {
+        "规划": "planning", "规划中": "planning",
+        "进行": "in_progress", "进行中": "in_progress", "执行中": "in_progress",
+        "完成": "completed", "已完成": "completed", "结项": "completed",
+        "暂停": "paused", "挂起": "paused",
+        "取消": "cancelled", "已取消": "cancelled", "作废": "cancelled",
+    },
+    # 里程碑 / 计划 / 待办 三类状态共用同一组同义词
+    "milestone_status": {
+        "未开始": "not_started", "待开始": "not_started", "新建": "not_started",
+        "pending": "not_started", "todo": "not_started", "待办": "not_started",
+        "进行中": "in_progress", "进行": "in_progress", "doing": "in_progress", "执行中": "in_progress",
+        "已完成": "completed", "完成": "completed", "done": "completed",
+        "已取消": "cancelled", "取消": "cancelled", "作废": "cancelled",
+        "已延期": "delayed", "延期": "delayed", "delay": "delayed",
+    },
+    "plan_status": {
+        "未开始": "not_started", "待开始": "not_started", "新建": "not_started",
+        "pending": "not_started", "todo": "not_started", "待办": "not_started",
+        "进行中": "in_progress", "进行": "in_progress", "doing": "in_progress", "执行中": "in_progress",
+        "已完成": "completed", "完成": "completed", "done": "completed",
+        "已取消": "cancelled", "取消": "cancelled", "作废": "cancelled",
+        "已延期": "delayed", "延期": "delayed", "delay": "delayed",
+    },
+    "task_status": {
+        "未开始": "not_started", "待开始": "not_started", "新建": "not_started",
+        "pending": "not_started", "todo": "not_started", "待办": "not_started",
+        "进行中": "in_progress", "进行": "in_progress", "doing": "in_progress", "执行中": "in_progress",
+        "已完成": "completed", "完成": "completed", "done": "completed",
+        "已取消": "cancelled", "取消": "cancelled", "作废": "cancelled",
+        "已延期": "delayed", "延期": "delayed", "delay": "delayed",
+    },
+}
+
+
+def _norm_enum(enum_name: str, value: Any) -> Optional[str]:
+    """将导入取值归一化为规范枚举值；无法识别时回落默认值（不报错）。"""
+    if value is None:
+        return DEFAULTS.get(enum_name)
+    s = str(value).strip()
+    if s in ENUM_OPTIONS.get(enum_name, []):
+        return s
+    # 大小写不敏感匹配同义词
+    aliases = {k.lower(): v for k, v in ENUM_ALIASES.get(enum_name, {}).items()}
+    hit = aliases.get(s.lower())
+    if hit:
+        return hit
+    return DEFAULTS.get(enum_name)
+
 
 # ---------------------------------------------------------------------------
 # 页签与列定义
@@ -351,6 +417,17 @@ def _clean(v: Any) -> Any:
 
 
 def _parse_date(v: Any) -> date:
+    """高适配度日期解析。
+
+    支持格式：
+    - Excel 原生日期/时间单元格、日期序列号
+    - 8 位整数 YYYYMMDD（如 20261030）
+    - 2026-08-31 / 2026/08/31 / 2026.08.31（含单数字月日 2026-8-9）
+    - 中文日期 2026年8月31日（含全角数字与全角标点）
+    - 带时间部分 2026-08-31 00:00:00 / ISO T 分隔 / 时区尾缀(Z/+08:00)
+    - 年月 2026-08（取当月 1 日）
+    - 纯数字年月 202608
+    """
     if v is None:
         return None
     if isinstance(v, datetime):
@@ -363,6 +440,8 @@ def _parse_date(v: Any) -> date:
         # 8 位整数视为 YYYYMMDD
         if isinstance(v, int) and 19000101 <= v <= 21001231:
             return datetime.strptime(str(v), "%Y%m%d").date()
+        if isinstance(v, int) and 190001 <= v <= 210012:
+            return datetime.strptime(str(v), "%Y%m").date()
         # Excel 日期序列号（1 = 1900-01-01，2026-08-19 约 46253）
         if 1 <= v <= 100000:
             try:
@@ -370,13 +449,59 @@ def _parse_date(v: Any) -> date:
             except (ValueError, OverflowError):
                 pass
 
+    # 统一转半角、去空白
     s = str(v).strip()
+    if not s:
+        return None
+    s = _to_halfwidth(s)
+
+    # 年月：2026-08 / 2026/08 / 2026年8月 -> 当月 1 日
+    m = re.match(r"^(\d{4})[-/.年\s]*(\d{1,2})月?$", s)
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), 1)
+
+    # 中文日期：2026年8月31日
+    m = re.match(r"^(\d{4})年(\d{1,2})月(\d{1,2})日?$", s)
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+    # 数字分隔日期：2026-08-31 / 2026/8/9 / 2026.08.31（可带时间与秒的小数）
+    m = re.match(
+        r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})"
+        r"(?:[T\s]+(\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.\d+)?)?"
+        r"\s*(?:Z|[+-]\d{1,2}(?::?\d{2})?)?)?$",
+        s,
+    )
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+    # 8 位 / 6 位数字串
+    if re.fullmatch(r"\d{8}", s):
+        return datetime.strptime(s, "%Y%m%d").date()
+    if re.fullmatch(r"\d{6}", s):
+        return datetime.strptime(s, "%Y%m").date()
+
+    # 标准库兜底
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y%m%d"):
         try:
             return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
-    raise ValueError(f"日期格式应为 YYYY-MM-DD，收到：{s}")
+    raise ValueError(f"无法识别的日期格式：{s}（推荐 YYYY-MM-DD）")
+
+
+def _to_halfwidth(s: str) -> str:
+    """全角字符转半角（含全角数字、标点、空格）。"""
+    out = []
+    for ch in s:
+        code = ord(ch)
+        if code == 0x3000:
+            out.append(" ")
+        elif 0xFF01 <= code <= 0xFF5E:
+            out.append(chr(code - 0xFEE0))
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def _parse_int(v: Any, field: str) -> int:
@@ -462,13 +587,11 @@ def import_key_works_from_bytes(db, raw: bytes) -> Dict[str, Any]:
         # 必填
         if not vals.get("title"):
             errors.append({"sheet": MAIN_SHEET, "row": r, "message": "工作标题 必填"})
-        # 枚举
+        # 枚举：归一化同义词，不再硬拒（未知取值回落默认）
         for col in SHEETS[MAIN_SHEET]:
             ek = col.get("enum")
             if ek and vals.get(col["k"]) is not None:
-                if vals[col["k"]] not in ENUM_OPTIONS[ek]:
-                    errors.append({"sheet": MAIN_SHEET, "row": r,
-                                   "message": f"{col['h']} 取值非法：{vals[col['k']]}"})
+                vals[col["k"]] = _norm_enum(ek, vals[col["k"]])
         # 进度
         if vals.get("progress") is not None:
             try:
@@ -503,13 +626,11 @@ def import_key_works_from_bytes(db, raw: bytes) -> Dict[str, Any]:
             for col in SHEETS[sheet]:
                 if col.get("req") and not vals.get(col["k"]):
                     errors.append({"sheet": sheet, "row": r, "message": f"{col['h']} 必填"})
-            # 枚举
+            # 枚举：归一化同义词，不再硬拒（未知取值回落默认）
             for col in SHEETS[sheet]:
                 ek = col.get("enum")
                 if ek and vals.get(col["k"]) is not None:
-                    if vals[col["k"]] not in ENUM_OPTIONS[ek]:
-                        errors.append({"sheet": sheet, "row": r,
-                                       "message": f"{col['h']} 取值非法：{vals[col['k']]}"})
+                    vals[col["k"]] = _norm_enum(ek, vals[col["k"]])
             # 日期
             for col in SHEETS[sheet]:
                 if col.get("date") and vals.get(col["k"]) is not None:
