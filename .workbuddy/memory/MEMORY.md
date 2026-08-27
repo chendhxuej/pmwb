@@ -49,4 +49,6 @@
 - AI总结/WorkReport：routers/work_report.py(/api/v1/work-reports)，模型 PmwbWorkReport(含 cc)，前端 WorkReportView.vue；归档 Obsidian 15-工作总结/{类型}/{日期}.md。
 - 大模型管理：pmwb_llm_provider 多模型注册表；routers/llm_provider.py；API Key 用 utils/secret.py XOR+Base64；call_best_available 全不可用时落规则模板。
 - 知识标准化（产品圣经）：MAIN_NOTE_SECTIONS 14 章节；GET/PUT /knowledge/main-note/{domain_code}/section；ProductBibleView.vue+HubPanel.vue；§2.1 人工基线、AUTO 下沉 §2.3；旧 product_bible.py 已弃用。
+- Obsidian 打开统一入口：所有"打开笔记/主笔记"动作走 `frontend/src/utils/obsidian.js` 的 `openObsidianNote(relPath)`，协议 `obsidian://open?vault=知识图谱&file=${encodeURIComponent(relPath)}` 后 `window.open(_blank)`；vault 名固定「知识图谱」。禁止再 `emit('open-note')` 让父壳中转——`KnowledgeCenterView.vue` 仅包 `<router-view/>` 不监听该事件，曾是死事件导致按钮失效；DomainKnowledgeView.vue 的 `window.open` 写法即权威参照。
+- 主笔记内容完整：结构化视图 `get_main_note_structured` 只返 14 标准节，非标准章节（如 `## 关联对象`/`## 相关子笔记 MOC`）会被丢弃；需展示全文时调 `obsidianApi.getNoteContent(path)` 拉 raw markdown 用 MarkdownRender 渲染。
 - 主动运营分析（prod 工单）：PmwbOperationAnalysis 1:1 关联 issue；GET /analysis-template/download、POST /analysis/import、GET /issues/{id}/analysis；导入遗留任务只建运营工单不建 PmwbTodo。
