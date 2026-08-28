@@ -4,7 +4,7 @@
     <div class="page-header">
       <div>
         <div class="page-title">需求与交付</div>
-        <div class="page-sub">需求采集 → 团队评估 → 用户故事 → 分析说明书，一条主线闭环</div>
+        <div class="page-sub">需求采集 → 团队评估 → 用户故事 → 分析说明书 → 启动开发 → 生产部署，全流程闭环</div>
       </div>
       <div class="page-actions">
         <el-button type="primary" @click="openActiveOptDialog()">
@@ -345,7 +345,7 @@
       value-key="email"
     />
 
-    <!-- ════════ 4步工作流抽屉 ════════ -->
+    <!-- ════════ 6步工作流抽屉 ════════ -->
     <el-drawer v-model="wfVisible" size="70%" :title="null" destroy-on-close>
       <template #header>
         <div class="wf-head">
@@ -360,7 +360,7 @@
         </div>
       </template>
 
-      <!-- 步骤指示 -->
+      <!-- 步骤指示（双击步骤时间可修正） -->
       <div class="wf-steps">
         <div
           v-for="(s, i) in steps"
@@ -368,9 +368,16 @@
           class="pm-step"
           :class="{ active: step === s.key, done: isStepDone(i) }"
           @click="step = s.key"
+          @dblclick="openStageTimeEdit(s)"
+          :title="'双击修正「' + s.label + '」环节时间'"
         >
           <div class="pm-step-dot">{{ isStepDone(i) ? '✓' : i + 1 }}</div>
-          <div class="pm-step-label">{{ s.label }}</div>
+          <div class="pm-step-meta">
+            <div class="pm-step-label">{{ s.label }}</div>
+            <div class="pm-step-time">
+              <div v-for="(ln, li) in stageTimeLines(s.key)" :key="li" class="pm-step-time-line">{{ ln }}</div>
+            </div>
+          </div>
           <div v-if="i < steps.length - 1" class="pm-step-line" :class="{ done: isStepDone(i) }"></div>
         </div>
       </div>
@@ -789,13 +796,55 @@
           </div>
         </div>
 
-        <!-- ───── 知识沉淀 ───── -->
-        <div class="wf-step-panel" v-if="current.req_id">
+        <!-- ───── 步骤5：启动开发 ───── -->
+        <div v-show="step === 'dev'" class="wf-step-panel">
           <div class="bento-grid">
             <div class="card" style="grid-column: span 12">
               <div class="card-header flex-between">
-                <span class="card-label">知识沉淀与业务知识关联</span>
+                <span class="card-label">开发事件记录（时间线倒序）</span>
+                <el-button size="small" type="primary" @click="openDevEventDialog()">
+                  <el-icon><Plus /></el-icon> 新增开发事件
+                </el-button>
+              </div>
+              <div class="card-body">
+                <div v-if="devEvents.length" class="dev-event-timeline">
+                  <div v-for="ev in devEvents" :key="ev.id" class="dev-event-item">
+                    <div class="dev-event-axis">
+                      <div class="dev-event-dot" :class="devEventTypeClass(ev.event_type)"></div>
+                      <div v-if="ev !== devEvents[devEvents.length - 1]" class="dev-event-line"></div>
+                    </div>
+                    <div class="dev-event-content">
+                      <div class="dev-event-head">
+                        <el-tag size="small" :type="devEventTypeTag(ev.event_type)">{{ ev.event_type_label }}</el-tag>
+                        <b class="dev-event-title">{{ ev.title }}</b>
+                        <span class="dev-event-time text-muted">{{ ev.event_time }}</span>
+                        <div class="flex gap-4" style="margin-left:auto">
+                          <el-button link type="primary" size="small" @click="openDevEventDialog(ev)">编辑</el-button>
+                          <el-button link type="danger" size="small" @click="removeDevEvent(ev)">删除</el-button>
+                        </div>
+                      </div>
+                      <div v-if="ev.content" class="dev-event-detail pre">{{ ev.content }}</div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="empty-hint">
+                  暂无开发事件。跟踪状态切为「开发中」时会自动记录一条「启动开发」事件；也可点击右上角手动新增。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───── 步骤6：生产部署 ───── -->
+        <div v-show="step === 'deploy'" class="wf-step-panel">
+          <div class="bento-grid">
+            <div class="card" style="grid-column: span 12">
+              <div class="card-header flex-between">
+                <span class="card-label">操作手册（按系统区分 · 在线浏览 / 下载）</span>
                 <div class="flex gap-8">
+                  <el-select v-model="manualUploadSystem" placeholder="选择系统" style="width: 220px" size="small">
+                    <el-option v-for="sys in manualSystems" :key="sys.system_name" :label="sys.system_name" :value="sys.system_name" />
+                  </el-select>
                   <input
                     ref="manualFileInput"
                     type="file"
@@ -803,26 +852,56 @@
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.pptx,.zip"
                     @change="handleManualFileChange"
                   />
-                  <el-button
-                    v-if="isRequirementClosed(current)"
-                    size="small"
-                    type="success"
-                    :loading="uploadingManual"
-                    @click="triggerManualUpload"
-                  >
+                  <el-button size="small" type="success" :loading="uploadingManual" @click="triggerManualUpload">
                     <el-icon><Upload /></el-icon> 上传操作手册
                   </el-button>
                   <el-button
-                    v-if="isRequirementClosed(current)"
                     size="small"
-                    :type="current.ext?.manual_archived ? 'info' : 'success'"
+                    :type="current.ext?.manual_archived ? 'info' : 'primary'"
                     :loading="archiving"
                     @click="archiveManual(current)"
-                  >{{ current.ext?.manual_archived ? '已归档操作手册' : '归档操作手册到业务知识' }}</el-button>
-                  <el-button size="small" type="primary" :loading="sedimenting" @click="sedimentRequirement">
-                    沉淀需求为知识笔记
-                  </el-button>
+                  >{{ current.ext?.manual_archived ? '重新归档操作手册' : '归档操作手册到业务知识' }}</el-button>
                 </div>
+              </div>
+              <div class="card-body">
+                <div class="hint-text mb-12">手册按「系统 + 团队」归属：系统选项来自本需求团队评估记录，同一系统一份手册，重复上传将替换；无手册的系统显示「暂无操作手册」。</div>
+                <div v-for="sys in manualSystems" :key="sys.system_name" class="manual-system-block">
+                  <div class="manual-system-head">
+                    <el-icon><Monitor /></el-icon>
+                    <b>{{ sys.system_name }}</b>
+                    <span class="text-muted" style="font-size:12px">SA：{{ sys.sa_name || '—' }}</span>
+                    <el-tag v-if="sys.manual" size="small" type="success" style="margin-left:8px">有手册</el-tag>
+                    <el-tag v-else size="small" type="info" style="margin-left:8px">暂无操作手册</el-tag>
+                  </div>
+                  <div v-if="sys.manual" class="manual-item">
+                    <el-icon><Document /></el-icon>
+                    <div class="gen-meta">
+                      <b>{{ sys.manual.file_name }}</b>
+                      <div class="text-muted" style="font-size:11px">{{ sys.manual.created_at }} · {{ fmtSize(sys.manual.size) }}</div>
+                    </div>
+                    <el-button v-if="canPreview(sys.manual.file_name)" link type="primary" size="small" @click="openManualPreview(sys)">在线浏览</el-button>
+                    <el-button link type="primary" size="small" @click="downloadManual(sys)">下载</el-button>
+                    <el-button link type="danger" size="small" @click="removeManual(sys)">删除</el-button>
+                  </div>
+                  <div v-else class="manual-item empty">
+                    <span class="text-muted">该团队暂无「{{ sys.system_name }}」操作手册</span>
+                    <el-button link type="primary" size="small" @click="manualUploadSystem = sys.system_name; triggerManualUpload()">去上传</el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───── 知识沉淀 ───── -->
+        <div class="wf-step-panel" v-if="current.req_id">
+          <div class="bento-grid">
+            <div class="card" style="grid-column: span 12">
+              <div class="card-header flex-between">
+                <span class="card-label">知识沉淀与业务知识关联</span>
+                <el-button size="small" type="primary" :loading="sedimenting" @click="sedimentRequirement">
+                  沉淀需求为知识笔记
+                </el-button>
               </div>
               <div class="card-body">
                 <el-form label-width="84px" label-position="left" class="mb-12">
@@ -831,18 +910,7 @@
                   </el-form-item>
                 </el-form>
 
-                <!-- 已归档操作手册 -->
-                <div v-if="manualList.length" class="mb-12">
-                  <div class="us-label" style="margin-bottom:8px">已归档操作手册</div>
-                  <div v-for="(m, i) in manualList" :key="i" class="gen-item">
-                    <el-icon><DocumentChecked /></el-icon>
-                    <div class="gen-meta">
-                      <b>{{ m.file_name }}</b>
-                      <div class="text-muted" style="font-size:11px">{{ m.obsidian_path || m.local_path }}</div>
-                    </div>
-                    <el-tag v-if="m.archived_at" size="small" type="success">已归档</el-tag>
-                  </div>
-                </div>
+                <div class="hint-text mb-12">操作手册在「生产部署」环节上传后自动归档到业务知识；此处负责沉淀需求为知识笔记并与业务领域关联。</div>
 
                 <KnowledgeLinker
                   source-type="requirement"
@@ -855,6 +923,54 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- 环节时间修正弹窗 -->
+    <el-dialog v-model="stageTimeDialog" :title="'修正「' + stageTimeForm.label + '」环节时间'" width="420px">
+      <el-form :model="stageTimeForm" label-width="90px">
+        <el-form-item label="进入时间">
+          <el-date-picker v-model="stageTimeForm.entered_at" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm" style="width:100%" placeholder="该环节进入时间" />
+        </el-form-item>
+        <el-form-item label="完成时间">
+          <el-date-picker v-model="stageTimeForm.left_at" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm" style="width:100%" placeholder="该环节完成时间（当前环节留空）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="stageTimeDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveStageTime">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 开发事件弹窗 -->
+    <el-dialog v-model="devEventDialog" :title="devEventForm.id ? '编辑开发事件' : '新增开发事件'" width="520px">
+      <el-form :model="devEventForm" label-width="90px">
+        <el-form-item label="事件类型">
+          <el-select v-model="devEventForm.event_type" style="width:100%">
+            <el-option v-for="(label, key) in devEventTypes" :key="key" :label="label" :value="key" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="发生时间">
+          <el-date-picker v-model="devEventForm.event_time" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm" style="width:100%" placeholder="默认当前时间" />
+        </el-form-item>
+        <el-form-item label="事件标题"><EnlargeInput v-model="devEventForm.title" placeholder="如：完成联调提测、版本发布到测试环境" /></el-form-item>
+        <el-form-item label="事件详情"><EnlargeInput v-model="devEventForm.content" type="textarea" :rows="3" placeholder="补充说明（可选）" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="devEventDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveDevEvent">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 操作手册在线预览弹窗 -->
+    <el-dialog v-model="manualPreviewVisible" title="操作手册预览" width="80%" top="4vh">
+      <div v-loading="manualPreviewLoading" class="manual-preview-box">
+        <iframe v-if="manualPreviewUrl" :src="manualPreviewUrl" class="manual-preview-frame"></iframe>
+        <div v-else class="empty-hint">该格式暂不支持在线预览，请下载后查看</div>
+      </div>
+      <template #footer>
+        <el-button @click="manualPreviewVisible = false">关闭</el-button>
+        <el-button type="primary" @click="downloadManual(manualPreviewSys)">下载</el-button>
+      </template>
+    </el-dialog>
 
     <!-- ════════ 用户故事只读详情抽屉 ════════ -->
     <el-drawer v-model="usDetailVisible" size="70%" :title="null" destroy-on-close>
@@ -1077,8 +1193,10 @@ import {
   getRequirementStats,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
-  deleteRequirementAttachment, uploadRequirementManual, generateUserStories, getUserStories,
+  deleteRequirementAttachment, generateUserStories, getUserStories,
   saveUserStories, generateRequirementDoc, searchUserStories, getLlmStatus, getUserStoryStats,
+  getStageLogs, updateStageLog, listDevEvents, createDevEvent, updateDevEvent, deleteDevEvent,
+  listManuals, uploadManual, deleteManual, downloadManualUrl, previewManualUrl,
 } from '@/api/requirement'
 import {
   getActiveOptimizations, getActiveOptimizationStats, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
@@ -1383,16 +1501,258 @@ function handleActiveOptSearch() {
   loadActiveOpts()
 }
 
-/* ─────────────── 4步工作流抽屉 ─────────────── */
+/* ─────────────── 6步工作流抽屉 ─────────────── */
 const steps = [
   { key: 'collect', label: '需求采集' },
   { key: 'evaluate', label: '团队评估' },
   { key: 'story', label: '用户故事' },
   { key: 'doc', label: '生成文档' },
+  { key: 'dev', label: '启动开发' },
+  { key: 'deploy', label: '生产部署' },
 ]
 const wfVisible = ref(false)
 const step = ref('collect')
 const current = ref({})
+
+/* ── 环节时间日志 ── */
+const stageLogs = ref([])
+const stageTimeDialog = ref(false)
+const stageTimeForm = reactive({ stage: '', label: '', entered_at: '', left_at: '' })
+async function loadStageLogs(reqId) {
+  try {
+    const res = await getStageLogs(reqId)
+    stageLogs.value = res?.stages || []
+  } catch (e) {
+    stageLogs.value = []
+  }
+}
+function fmtMiniDt(v) {
+  if (!v) return ''
+  const s = String(v).slice(0, 16).replace('T', ' ')
+  return s.length >= 10 ? s.slice(5) : s
+}
+function stageTimeLines(stageKey) {
+  const s = stageLogs.value.find((x) => x.stage === stageKey)
+  if (!s) return []
+  const lines = []
+  if (s.entered_at) lines.push(fmtMiniDt(s.entered_at) + ' 进入')
+  if (s.left_at) lines.push(fmtMiniDt(s.left_at) + ' 完成')
+  else if (s.entered_at) {
+    const days = calcStayDays(s.entered_at)
+    lines.push('已停留 ' + (days > 0 ? days + ' 天' : '今天'))
+  }
+  return lines
+}
+function calcStayDays(v) {
+  if (!v) return 0
+  const t = new Date(String(v).replace('T', ' ').replace(/-/g, '/'))
+  if (isNaN(t.getTime())) return 0
+  return Math.max(0, Math.floor((Date.now() - t.getTime()) / 86400000))
+}
+function openStageTimeEdit(s) {
+  const rec = stageLogs.value.find((x) => x.stage === s.key)
+  stageTimeForm.stage = s.key
+  stageTimeForm.label = s.label
+  stageTimeForm.entered_at = rec?.entered_at || ''
+  stageTimeForm.left_at = rec?.left_at || ''
+  stageTimeDialog.value = true
+}
+async function saveStageTime() {
+  try {
+    await updateStageLog(current.value.req_id, stageTimeForm.stage, {
+      entered_at: stageTimeForm.entered_at || null,
+      left_at: stageTimeForm.left_at || null,
+    })
+    ElMessage.success('环节时间已修正')
+    stageTimeDialog.value = false
+    await loadStageLogs(current.value.req_id)
+  } catch (e) {
+    ElMessage.error('修正失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  }
+}
+
+/* ── 开发事件 ── */
+const devEventTypes = {
+  dev_start: '开发启动',
+  joint_test: '联调提测',
+  test: '测试',
+  bugfix: '缺陷修复',
+  release_ready: '上线准备',
+  other: '其他',
+}
+const devEvents = ref([])
+const devEventDialog = ref(false)
+const devEventForm = reactive({ id: 0, event_type: 'dev_start', event_time: '', title: '', content: '' })
+async function loadDevEvents(reqId) {
+  try {
+    devEvents.value = (await listDevEvents(reqId)) || []
+  } catch (e) {
+    devEvents.value = []
+  }
+}
+function openDevEventDialog(ev) {
+  if (ev?.id) {
+    devEventForm.id = ev.id
+    devEventForm.event_type = ev.event_type || 'other'
+    devEventForm.event_time = ev.event_time || ''
+    devEventForm.title = ev.title || ''
+    devEventForm.content = ev.content || ''
+  } else {
+    devEventForm.id = 0
+    devEventForm.event_type = 'dev_start'
+    devEventForm.event_time = ''
+    devEventForm.title = ''
+    devEventForm.content = ''
+  }
+  devEventDialog.value = true
+}
+async function saveDevEvent() {
+  if (!devEventForm.title.trim()) {
+    ElMessage.warning('请填写事件标题')
+    return
+  }
+  const payload = {
+    event_type: devEventForm.event_type,
+    event_time: devEventForm.event_time || null,
+    title: devEventForm.title.trim(),
+    content: devEventForm.content || '',
+  }
+  try {
+    if (devEventForm.id) {
+      await updateDevEvent(current.value.req_id, devEventForm.id, payload)
+      ElMessage.success('开发事件已更新')
+    } else {
+      await createDevEvent(current.value.req_id, payload)
+      ElMessage.success('开发事件已记录')
+    }
+    devEventDialog.value = false
+    await loadDevEvents(current.value.req_id)
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  }
+}
+async function removeDevEvent(ev) {
+  try {
+    await ElMessageBox.confirm(`确认删除开发事件「${ev.title}」？`, '删除确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await deleteDevEvent(current.value.req_id, ev.id)
+    ElMessage.success('已删除')
+    await loadDevEvents(current.value.req_id)
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  }
+}
+function devEventTypeClass(type) {
+  const map = { dev_start: 'ev-dev', joint_test: 'ev-test', test: 'ev-test', bugfix: 'ev-bug', release_ready: 'ev-rel', other: 'ev-other' }
+  return map[type] || 'ev-other'
+}
+function devEventTypeTag(type) {
+  const map = { dev_start: 'primary', joint_test: 'warning', test: 'warning', bugfix: 'danger', release_ready: 'success', other: 'info' }
+  return map[type] || 'info'
+}
+
+/* ── 操作手册（按系统） ── */
+const manualSystems = ref([])
+const manualUploadSystem = ref('')
+const uploadingManual = ref(false)
+const manualFileInput = ref(null)
+const manualPreviewVisible = ref(false)
+const manualPreviewLoading = ref(false)
+const manualPreviewUrl = ref('')
+const manualPreviewSys = ref(null)
+async function loadManuals(reqId) {
+  try {
+    const res = await listManuals(reqId)
+    manualSystems.value = res?.systems || []
+    if (!manualUploadSystem.value && manualSystems.value.length) {
+      manualUploadSystem.value = manualSystems.value[0].system_name
+    }
+  } catch (e) {
+    manualSystems.value = []
+  }
+}
+function triggerManualUpload() {
+  if (!manualUploadSystem.value) {
+    ElMessage.warning('请先选择系统')
+    return
+  }
+  manualFileInput.value?.click()
+}
+async function handleManualFileChange(e) {
+  const file = e.target.files?.[0]
+  if (!file || !current.value?.req_id) return
+  if (!manualUploadSystem.value) {
+    ElMessage.warning('请先选择系统')
+    if (manualFileInput.value) manualFileInput.value.value = ''
+    return
+  }
+  uploadingManual.value = true
+  try {
+    await uploadManual(current.value.req_id, file, manualUploadSystem.value)
+    ElMessage.success(`「${manualUploadSystem.value}」操作手册已上传`)
+    await loadManuals(current.value.req_id)
+    // 合二为一：上传即归档（业务上不会出现"只上传不归档"）。未设业务领域时温和提示。
+    if (!current.value.ext?.domain_code) {
+      ElMessage.warning('已上传。该需求尚未设置业务领域，无法自动归档；请先在下方选择业务领域，再点击「归档操作手册到业务知识」')
+    } else {
+      await archiveManual(current.value)
+    }
+  } catch (err) {
+    ElMessage.error('上传失败：' + (err?.response?.data?.message || err.message || '未知错误'))
+  } finally {
+    uploadingManual.value = false
+    if (manualFileInput.value) manualFileInput.value.value = ''
+  }
+}
+async function removeManual(sys) {
+  const m = sys?.manual
+  if (!m?.id) return
+  try {
+    await ElMessageBox.confirm(`确认删除「${sys.system_name}」的操作手册「${m.file_name}」？`, '删除确认', { type: 'warning' })
+  } catch { return }
+  try {
+    await deleteManual(current.value.req_id, m.id)
+    ElMessage.success('已删除')
+    await loadManuals(current.value.req_id)
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  }
+}
+function canPreview(fileName) {
+  const ext = String(fileName || '').split('.').pop().toLowerCase()
+  return ['pdf', 'docx'].includes(ext)
+}
+function openManualPreview(sys) {
+  const m = sys?.manual
+  if (!m?.id) return
+  manualPreviewSys.value = sys
+  manualPreviewLoading.value = true
+  manualPreviewVisible.value = true
+  manualPreviewUrl.value = ''
+  // 预取预览 HTML（docx 转 html 耗时，先加载提示）
+  setTimeout(() => {
+    manualPreviewUrl.value = previewManualUrl(current.value.req_id, m.id)
+    manualPreviewLoading.value = false
+  }, 50)
+}
+function downloadManual(sys) {
+  const m = sys?.manual
+  if (!m?.id) return
+  const a = document.createElement('a')
+  a.href = downloadManualUrl(current.value.req_id, m.id)
+  a.download = m.file_name
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+function fmtSize(v) {
+  if (!v) return ''
+  const n = Number(v)
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB'
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB'
+  return n + ' B'
+}
 const domainCode = ref('')
 watch(current, (c) => { domainCode.value = c?.ext?.domain_code || '' }, { immediate: true })
 async function saveDomainCode() {
@@ -1432,10 +1792,13 @@ const totalWorkload = computed(() => evaluations.value.reduce((s, e) => s + (Num
 const totalReview = computed(() => evaluations.value.reduce((s, e) => s + (Number(e.review_workload) || 0), 0).toFixed(1))
 
 function isStepDone(i) {
-  if (i === 0) return !!current.value.req_id
-  if (i === 1) return evaluations.value.length > 0
-  if (i === 2) return stories.value.length > 0
-  if (i === 3) return genHistory.value.length > 0
+  const key = steps[i]?.key
+  if (key === 'collect') return !!current.value.req_id
+  if (key === 'evaluate') return evaluations.value.length > 0
+  if (key === 'story') return stories.value.length > 0
+  if (key === 'doc') return genHistory.value.length > 0
+  if (key === 'dev') return devEvents.value.length > 0
+  if (key === 'deploy') return !!current.value.delivered_date
   return false
 }
 
@@ -1468,6 +1831,7 @@ async function openWorkflow(row) {
   }
   await loadEvaluations(key)
   await loadStories(key)
+  await Promise.all([loadStageLogs(key), loadDevEvents(key), loadManuals(key)])
 }
 
 async function loadEvaluations(reqId) {
@@ -1542,11 +1906,8 @@ async function sedimentRequirement() {
   }
 }
 
-/* kc-2-3：操作手册归档 + 规则沉淀状态判定 */
+/* kc-2-3：操作手册归档到业务知识 */
 const archiving = ref(false)
-function isRequirementClosed(req) {
-  return (req?.ext?.status || req?.status) === 'closed'
-}
 async function archiveManual(req) {
   if (!req?.req_id) return
   archiving.value = true
@@ -1560,33 +1921,6 @@ async function archiveManual(req) {
     ElMessage.error('归档失败：' + (e?.response?.data?.message || e.message || '未知错误'))
   } finally {
     archiving.value = false
-  }
-}
-
-
-/* 上传操作手册并自动归档到业务知识 */
-const uploadingManual = ref(false)
-const manualFileInput = ref(null)
-const manualList = computed(() => {
-  const arr = current.value?.ext?.deliverables || []
-  return Array.isArray(arr) ? arr.filter((d) => d && (d.obsidian_path || d.note?.includes('操作手册'))) : []
-})
-function triggerManualUpload() {
-  manualFileInput.value?.click()
-}
-async function handleManualFileChange(e) {
-  const file = e.target.files?.[0]
-  if (!file || !current.value?.req_id) return
-  uploadingManual.value = true
-  try {
-    await uploadRequirementManual(current.value.req_id, file)
-    ElMessage.success('操作手册已上传并关联主笔记')
-    await refreshCurrent(current.value.req_id)
-  } catch (e) {
-    ElMessage.error('上传失败：' + (e?.response?.data?.message || e.message || '未知错误'))
-  } finally {
-    uploadingManual.value = false
-    if (manualFileInput.value) manualFileInput.value.value = ''
   }
 }
 
@@ -2046,11 +2380,41 @@ onBeforeUnmount(() => {
 .pm-step.done .pm-step-dot { background: var(--success); border-color: var(--success); color: #fff }
 .pm-step-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); white-space: nowrap }
 .pm-step.active .pm-step-label { color: var(--accent) }
+.pm-step-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; align-items: flex-start }
+.pm-step-time { font-size: 10px; color: var(--text-muted); line-height: 1.45; white-space: normal; word-break: break-all; min-height: 29px; display: flex; flex-direction: column; justify-content: center }
+.pm-step-time-line { line-height: 1.45 }
+.pm-step.active .pm-step-time { color: var(--accent); opacity: .85 }
 .pm-step-line { flex: 1; height: 2px; background: var(--border-subtle); margin: 0 10px; min-width: 20px }
 .pm-step-line.done { background: var(--success) }
 .wf-body { padding: 22px 24px 40px }
 .wf-step-panel { animation: fadeIn .25s ease }
 @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+
+/* 开发事件时间线 */
+.dev-event-timeline { display: flex; flex-direction: column; gap: 0 }
+.dev-event-item { display: flex; gap: 14px }
+.dev-event-axis { display: flex; flex-direction: column; align-items: center; width: 14px; flex-shrink: 0 }
+.dev-event-dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 6px; border: 2px solid var(--border) }
+.dev-event-dot.ev-dev { background: var(--accent); border-color: var(--accent) }
+.dev-event-dot.ev-test { background: var(--warning); border-color: var(--warning) }
+.dev-event-dot.ev-bug { background: var(--danger); border-color: var(--danger) }
+.dev-event-dot.ev-rel { background: var(--success); border-color: var(--success) }
+.dev-event-dot.ev-other { background: var(--text-muted); border-color: var(--text-muted) }
+.dev-event-line { flex: 1; width: 2px; background: var(--border-subtle); min-height: 18px; margin: 4px 0 }
+.dev-event-content { flex: 1; min-width: 0; padding-bottom: 18px }
+.dev-event-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
+.dev-event-title { font-size: 13.5px; color: var(--text-primary) }
+.dev-event-time { font-size: 11.5px }
+.dev-event-detail { margin-top: 6px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; background: var(--bg-app); border-radius: 8px; padding: 8px 12px }
+
+/* 操作手册（按系统） */
+.manual-system-block { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 12px }
+.manual-system-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px }
+.manual-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg-app); border-radius: 8px; font-size: 13px }
+.manual-item.empty { color: var(--text-muted); font-size: 12.5px }
+.manual-preview-box { height: 68vh; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; background: #fff }
+.manual-preview-frame { width: 100%; height: 100%; border: none }
+.empty-hint { padding: 18px 0; text-align: center; color: var(--text-muted); font-size: 12.5px }
 
 .readonly-text { font-size: 13.5px; line-height: 1.7; color: var(--text-secondary); white-space: pre-wrap; margin: 0 }
 .folder-path { display: flex; align-items: center; gap: 8px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px; font-size: 12px }

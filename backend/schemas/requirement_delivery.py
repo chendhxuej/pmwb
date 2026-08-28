@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DDDView(BaseModel):
@@ -112,3 +112,71 @@ class ManualUploadOut(BaseModel):
     archived: bool
     main_note: Optional[str] = None
     main_note_synced: bool = False  # 是否触发并更新了 §6
+
+
+# ---------------------------------------------------------------------------
+# 环节时间日志 / 开发事件 / 操作手册（按系统）
+# ---------------------------------------------------------------------------
+class StageLogItem(BaseModel):
+    stage: str
+    label: str
+    entered_at: Optional[str] = None
+    left_at: Optional[str] = None
+    source: Optional[str] = None
+
+
+class StageLogOut(BaseModel):
+    req_id: str
+    current_stage: Optional[str] = None
+    stages: List[StageLogItem]
+
+
+class StageLogUpdate(BaseModel):
+    """手工修正环节时间（进入/完成时间，格式 YYYY-MM-DD[ HH:MM]）。"""
+
+    entered_at: Optional[str] = None
+    left_at: Optional[str] = None
+
+
+class DevEventIn(BaseModel):
+    event_time: Optional[str] = Field(None, description="事件发生时间 YYYY-MM-DD[ HH:MM]，缺省为当前时间")
+    event_type: str = Field("other", description="事件类型: dev_start/joint_test/test/bugfix/release_ready/other")
+    title: str = Field(..., description="事件标题")
+    content: str = Field("", description="事件详情")
+
+
+class DevEventOut(DevEventIn):
+    id: int
+    req_id: str
+    event_type_label: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ManualOut(BaseModel):
+    id: int
+    req_id: str
+    system_name: str
+    file_name: Optional[str] = None
+    local_path: Optional[str] = None
+    obsidian_path: Optional[str] = None
+    note: Optional[str] = None
+    uploaded_by: Optional[str] = None
+    archived_at: Optional[str] = None
+    previewable: bool = False
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ManualSystemItem(BaseModel):
+    system_name: str
+    sa_name: str = ""
+    manual: Optional[ManualOut] = None
+
+
+class ManualSystemsOut(BaseModel):
+    req_id: str
+    systems: List[ManualSystemItem]

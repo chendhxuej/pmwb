@@ -87,6 +87,8 @@ class RequirementService:
                 "version_required_date": ext.version_required_date,
                 "delivered_date": ext.delivered_date,
                 "domain_code": ext.domain_code,
+                "manual_archived": ext.manual_archived,
+                "manual_obsidian_path": ext.manual_obsidian_path,
                 "req_name": ext.req_name,
                 "background": ext.background,
                 "description": ext.description,
@@ -332,6 +334,7 @@ class RequirementService:
         if not item:
             return None
         ext = self._get_or_create_ext(db, req_id)
+        old_status = ext.status
         for key, value in obj_in.items():
             if key == "dev_ticket_no":
                 # 需求级开发单号保存在 sent_emails 源表
@@ -344,6 +347,13 @@ class RequirementService:
                 setattr(ext, key, None if value in (None, "") else value)
             elif value is not None:
                 setattr(ext, key, value)
+        # 环节时间日志：跟踪状态变更 → 记录「启动开发/生产部署」环节进入时间 + 自动开发事件
+        try:
+            from services.requirement_stage import on_status_changed
+
+            on_status_changed(db, req_id, old_status, ext.status)
+        except Exception:  # noqa: BLE001 日志记录失败不影响主流程
+            pass
         db.commit()
         db.refresh(ext)
         return self._merge_ext(item, ext)
@@ -440,6 +450,13 @@ class RequirementService:
                     db.add(ext)
                 ext.eval_seeded = 1
                 db.commit()
+                # 环节时间日志：首次播种团队评估 → 记录「团队评估」环节进入时间
+                try:
+                    from services.requirement_stage import record_stage_entered
+
+                    record_stage_entered(db, req_id, "evaluate")
+                except Exception:  # noqa: BLE001
+                    pass
                 existing = (
                     db.query(PmwbRequirementEvaluation)
                     .filter(PmwbRequirementEvaluation.req_id == req_id)
@@ -505,6 +522,13 @@ class RequirementService:
             db.add(ext)
         ext.eval_seeded = 1
         db.commit()
+        # 环节时间日志：首条团队评估创建 → 记录「团队评估」环节进入时间
+        try:
+            from services.requirement_stage import record_stage_entered
+
+            record_stage_entered(db, req_id, "evaluate")
+        except Exception:  # noqa: BLE001
+            pass
         db.refresh(ev)
         return self._eval_to_dict(ev)
 

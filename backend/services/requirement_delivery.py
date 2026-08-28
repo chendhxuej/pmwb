@@ -143,6 +143,19 @@ def init_folder(db, req_id: str) -> Dict[str, Any]:
             if os.path.isfile(src) and not os.path.exists(dst):
                 shutil.move(src, dst)
     attachments = _list_attachments_from(folder)
+    # 环节时间日志：打开需求工作流 → 记录「需求采集」环节进入时间（取最早邮件创建时间）
+    try:
+        from services.requirement_stage import record_stage_entered
+
+        earliest = (
+            db.query(SentEmail.created_at)
+            .filter(SentEmail.req_id == req_id)
+            .order_by(SentEmail.id.asc())
+            .first()
+        )
+        record_stage_entered(db, req_id, "collect", at=earliest[0] if earliest else None)
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "req_id": req_id,
         "folder": folder,
@@ -207,8 +220,8 @@ def upload_requirement_manual(
     ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
     if not ext:
         raise NotFoundException(f"需求不存在：{req_id}")
-    if ext.status != "closed":
-        raise ValidationException("仅已上线需求可上传操作手册")
+    if (ext.status or "proposed") not in ("accepted", "dev", "closed"):
+        raise ValidationException("操作手册在需求「已采纳/开发中/已上线」阶段可上传")
     if not ext.domain_code:
         raise ValidationException("需求未设置业务领域，无法归档操作手册")
 
@@ -462,6 +475,14 @@ def save_user_stories(db, req_id: str, stories: List[Dict[str, Any]]) -> Dict[st
         )
         db.add(st)
     db.commit()
+    # 环节时间日志：用户故事首次落库 → 记录「用户故事」环节进入时间
+    if stories:
+        try:
+            from services.requirement_stage import record_stage_entered
+
+            record_stage_entered(db, req_id, "story")
+        except Exception:  # noqa: BLE001
+            pass
     return get_user_stories(db, req_id)
 
 
@@ -756,6 +777,13 @@ def generate_doc(db, req_id: str, stories: List[Dict[str, Any]], clarification: 
     doc.save(out_path)
 
     rel = os.path.relpath(out_path, settings.OBSIDIAN_VAULT_PATH)
+    # 环节时间日志：首次成功生成需求分析说明书 → 记录「生成文档」环节进入时间
+    try:
+        from services.requirement_stage import record_stage_entered
+
+        record_stage_entered(db, req_id, "doc")
+    except Exception:  # noqa: BLE001
+        pass
     url = "obsidian://open?path=" + out_path
     return {
         "req_id": req_id,

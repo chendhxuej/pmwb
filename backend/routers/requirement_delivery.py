@@ -13,15 +13,21 @@ from core.response import success
 from db.base import get_db
 from schemas.requirement_delivery import (
     DocGenIn,
+    DevEventIn,
+    DevEventOut,
     FolderInitOut,
     GenerateDocOut,
+    ManualSystemsOut,
     ManualUploadOut,
+    StageLogOut,
+    StageLogUpdate,
     UserStoryGenIn,
     UserStoryGenOut,
     UserStoryItem,
     UserStoryListOut,
 )
 from services import requirement_delivery as svc
+from services import requirement_stage as stage_svc
 
 router = APIRouter(prefix="/requirements", tags=["需求交付"])
 
@@ -169,3 +175,132 @@ def generate_doc(
     """基于固定模板生成《需求分析说明书》，仅填充第1/2/3章，其余复用模板。"""
     data = svc.generate_doc(db, req_id, payload.stories, payload.clarification)
     return success(data=GenerateDocOut(**data).model_dump())
+
+
+# ---------------------------------------------------------------------------
+# 环节状态时间日志（6 环节进入/完成时间）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{req_id}/stage-logs")
+def get_stage_logs(req_id: str, db: Session = Depends(get_db)):
+    """获取需求 6 环节的时间日志（含存量数据推导回填）。"""
+    data = stage_svc.get_stage_logs(db, req_id)
+    return success(data=StageLogOut(**data).model_dump())
+
+
+@router.put("/{req_id}/stage-logs/{stage}")
+def update_stage_log(
+    req_id: str,
+    stage: str,
+    payload: StageLogUpdate,
+    db: Session = Depends(get_db),
+):
+    """手工修正某环节的进入/完成时间。"""
+    data = stage_svc.update_stage_log(db, req_id, stage, payload.entered_at, payload.left_at)
+    return success(data=data, message="环节时间已修正")
+
+
+# ---------------------------------------------------------------------------
+# 开发事件（启动开发环节）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{req_id}/dev-events")
+def list_dev_events(req_id: str, db: Session = Depends(get_db)):
+    """开发事件列表（按发生时间倒序）。"""
+    return success(data=stage_svc.list_dev_events(db, req_id))
+
+
+@router.post("/{req_id}/dev-events")
+def create_dev_event(
+    req_id: str,
+    payload: DevEventIn,
+    db: Session = Depends(get_db),
+):
+    """新增一条开发事件。"""
+    data = stage_svc.create_dev_event(db, req_id, payload.model_dump())
+    return success(data=DevEventOut(**data).model_dump(), message="开发事件已记录")
+
+
+@router.put("/{req_id}/dev-events/{event_id}")
+def update_dev_event(
+    req_id: str,
+    event_id: int,
+    payload: DevEventIn,
+    db: Session = Depends(get_db),
+):
+    """编辑一条开发事件。"""
+    data = stage_svc.update_dev_event(db, req_id, event_id, payload.model_dump())
+    return success(data=DevEventOut(**data).model_dump(), message="开发事件已更新")
+
+
+@router.delete("/{req_id}/dev-events/{event_id}")
+def delete_dev_event(req_id: str, event_id: int, db: Session = Depends(get_db)):
+    """删除一条开发事件。"""
+    ok = stage_svc.delete_dev_event(db, req_id, event_id)
+    return success(data={"deleted": ok}, message="已删除" if ok else "事件不存在")
+
+
+# ---------------------------------------------------------------------------
+# 操作手册（生产部署环节，按系统/团队）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{req_id}/manuals")
+def list_manuals(req_id: str, db: Session = Depends(get_db)):
+    """按当前需求的团队（评估记录系统）列出操作手册；无手册的系统也返回（manual=None）。"""
+    data = stage_svc.list_manual_systems(db, req_id)
+    return success(data=ManualSystemsOut(**data).model_dump())
+
+
+@router.post("/{req_id}/manuals/upload")
+def upload_manual(
+    req_id: str,
+    file: UploadFile = File(...),
+    system_name: str = Form(...),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """上传/替换某系统的操作手册（一系统一份；已采纳/开发中/已上线均可）。"""
+    content = file.file.read()
+    try:
+        data = stage_svc.upload_manual(
+            db, req_id, system_name, file.filename or "操作手册", content, note=note
+        )
+    except Exception as e:
+        status = getattr(e, "status_code", 500)
+        detail = getattr(e, "message", str(e))
+        raise HTTPException(status_code=status, detail=detail)
+    msg = "操作手册已更新（替换旧版本）" if data.get("replaced") else "操作手册已上传"
+    return success(data=data, message=msg)
+
+
+@router.delete("/{req_id}/manuals/{manual_id}")
+def delete_manual(req_id: str, manual_id: int, db: Session = Depends(get_db)):
+    """删除某系统的操作手册（同时删除文件与交付物登记）。"""
+    ok = stage_svc.delete_manual(db, req_id, manual_id)
+    return success(data={"deleted": ok}, message="已删除" if ok else "手册不存在")
+
+
+@router.get("/{req_id}/manuals/{manual_id}/download")
+def download_manual(req_id: str, manual_id: int, db: Session = Depends(get_db)):
+    """下载操作手册文件。"""
+    m = stage_svc.get_manual(db, req_id, manual_id)
+    fp = stage_svc.manual_abs_path(m)
+    return FileResponse(fp, filename=m.file_name or os.path.basename(fp))
+
+
+@router.get("/{req_id}/manuals/{manual_id}/preview")
+def preview_manual(req_id: str, manual_id: int, db: Session = Depends(get_db)):
+    """在线预览：docx 转 HTML；pdf 由前端直接以文件流打开。"""
+    m = stage_svc.get_manual(db, req_id, manual_id)
+    fp = stage_svc.manual_abs_path(m)
+    ext = os.path.splitext(fp)[1].lower()
+    if ext == ".docx":
+        from fastapi.responses import HTMLResponse
+
+        return HTMLResponse(stage_svc.manual_preview_html(m))
+    if ext == ".pdf":
+        return FileResponse(fp, media_type="application/pdf")
+    raise HTTPException(status_code=400, detail="该格式不支持在线预览，请下载后查看")

@@ -215,10 +215,10 @@ def test_endpoint_crud(client, db, vault_tmp):
     assert len(res.json()["data"]) == 0
 
 
-def test_upload_requirement_manual_service_closed_only(db, vault_tmp):
-    """upload_requirement_manual 仅允许 closed 状态需求上传操作手册。"""
+def test_upload_requirement_manual_service_accepted_stages_only(db, vault_tmp):
+    """upload_requirement_manual 仅允许 accepted/dev/closed 三阶段上传，proposed 拒绝。"""
     _create_domain(db)
-    _req(db, status="dev")
+    _req(db, status="proposed")
     from services.requirement_delivery import upload_requirement_manual
     from core.exceptions import ValidationException
     with pytest.raises(ValidationException):

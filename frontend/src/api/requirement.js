@@ -102,3 +102,53 @@ export function searchUserStories(params = {}) {
 export function generateRequirementDoc(reqId, stories, clarification) {
   return request.post(`/requirements/${reqId}/delivery/generate-doc`, { stories, clarification })
 }
+
+// ---- 环节时间日志（6 步工作流） ----
+export function getStageLogs(reqId) {
+  return request.get(`/requirements/${reqId}/stage-logs`)
+}
+
+export function updateStageLog(reqId, stage, data) {
+  return request.put(`/requirements/${reqId}/stage-logs/${stage}`, data)
+}
+
+// ---- 开发事件记录（启动开发子页） ----
+export function listDevEvents(reqId) {
+  return request.get(`/requirements/${reqId}/dev-events`)
+}
+
+export function createDevEvent(reqId, data) {
+  return request.post(`/requirements/${reqId}/dev-events`, data)
+}
+
+export function updateDevEvent(reqId, eventId, data) {
+  return request.put(`/requirements/${reqId}/dev-events/${eventId}`, data)
+}
+
+export function deleteDevEvent(reqId, eventId) {
+  return request.delete(`/requirements/${reqId}/dev-events/${eventId}`)
+}
+
+// ---- 操作手册（生产部署子页，按系统区分） ----
+export function listManuals(reqId) {
+  return request.get(`/requirements/${reqId}/manuals`)
+}
+
+export function uploadManual(reqId, file, systemName) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('system_name', systemName)
+  return request.post(`/requirements/${reqId}/manuals/upload`, form)
+}
+
+export function deleteManual(reqId, manualId) {
+  return request.delete(`/requirements/${reqId}/manuals/${manualId}`)
+}
+
+export function downloadManualUrl(reqId, manualId) {
+  return `/api/v1/requirements/${encodeURIComponent(reqId)}/manuals/${manualId}/download`
+}
+
+export function previewManualUrl(reqId, manualId) {
+  return `/api/v1/requirements/${encodeURIComponent(reqId)}/manuals/${manualId}/preview`
+}
