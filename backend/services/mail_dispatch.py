@@ -115,6 +115,10 @@ SCENES: dict[str, MailScene] = {
         "active_optimization_sync", email_type="active_optimization_sync", source="pmwb_active_optimization",
         fallback_template="## 主动优化建议同步\n\n请知悉以下优化建议的最新状态。",
     ),
+    "keywork_feedback": MailScene(
+        "keywork_feedback", email_type="keywork_feedback", source="pmwb_keywork",
+        fallback_template="## 周反馈请求\n\n请按邮件正文要求反馈本周工作进展。",
+    ),
 }
 
 

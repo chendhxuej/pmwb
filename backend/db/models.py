@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -116,6 +116,90 @@ class PmwbUserStory(Base):
         UniqueConstraint("req_id", "seq", name="uk_user_story_req_seq"),
         Index("idx_user_story_req_id", "req_id"),
         {"comment": "需求用户故事表"},
+    )
+
+
+class PmwbRequirementStageLog(Base):
+    """需求环节状态时间日志（需求与交付 6 环节：collect/evaluate/story/doc/dev/deploy）。
+
+    进入时间自动采集（状态变更/首条评估/故事落库/生成文档/打开工作流），
+    完成时间 = 下一环节进入时间；支持手工修正（source=manual）与存量回填（backfill）。
+    """
+
+    __tablename__ = "pmwb_requirement_stage_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号，对应 sent_emails.req_id")
+    stage = Column(String(32), nullable=False, comment="环节: collect/evaluate/story/doc/dev/deploy")
+    entered_at = Column(DateTime, comment="进入时间")
+    left_at = Column(DateTime, comment="完成/离开时间（下一环节进入时间）")
+    source = Column(String(16), default="auto", comment="时间来源: auto/manual/backfill")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("req_id", "stage", name="uk_req_stage"),
+        Index("idx_req_stage_req_id", "req_id"),
+        {"comment": "需求环节状态时间日志"},
+    )
+
+
+class PmwbReqDevEvent(Base):
+    """需求开发事件记录（启动开发环节）。"""
+
+    __tablename__ = "pmwb_req_dev_event"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号")
+    event_time = Column(DateTime, comment="事件发生时间")
+    event_type = Column(String(32), default="other", comment="事件类型: dev_start/joint_test/test/bugfix/release_ready/other")
+    title = Column(String(255), comment="事件标题")
+    content = Column(Text, comment="事件详情")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_dev_event_req_id", "req_id"),
+        {"comment": "需求开发事件记录"},
+    )
+
+
+class PmwbReqManual(Base):
+    """需求操作手册（生产部署环节，按系统/团队区分，一系统一份）。"""
+
+    __tablename__ = "pmwb_req_manual"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号")
+    system_name = Column(String(255), nullable=False, comment="所属系统（来自团队评估，一系统一份手册）")
+    file_name = Column(String(500), comment="原始文件名")
+    local_path = Column(String(1024), comment="相对 vault 的文件路径")
+    obsidian_path = Column(String(512), comment="归档到业务知识后的 Obsidian 路径")
+    note = Column(String(500), comment="备注")
+    uploaded_by = Column(String(64), comment="上传人")
+    archived_at = Column(DateTime, comment="归档到业务知识时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("req_id", "system_name", name="uk_req_manual_system"),
+        Index("idx_req_manual_req_id", "req_id"),
+        {"comment": "需求操作手册（按系统）"},
     )
 
 
@@ -1114,6 +1198,44 @@ class PmwbKeyWorkDeliverable(Base):
     __table_args__ = (
         Index("idx_kwd_kw_id", "key_work_id"),
         {"comment": "重点工作交付物表"},
+    )
+
+
+class PmwbKeyWorkWeeklyFeedback(Base):
+    """重点工作周反馈表（责任人每周增量反馈台账）。
+
+    source 区分采集通道：manual（手动录入）/ email（邮件回复解析）/ link（内网提交页）。
+    item_updates 记录本次反馈对月/周计划、成员待办的状态更新明细（JSON 字符串）：
+    [{"type": "monthly|weekly|task", "id": 3, "status": "completed"}, ...]
+    """
+
+    __tablename__ = "pmwb_key_work_weekly_feedback"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
+    week = Column(String(10), nullable=False, comment="周次 YYYY-Www")
+    assignee = Column(String(64), nullable=False, comment="责任人")
+    source = Column(String(16), default="manual", comment="来源: manual/email/link")
+    feedback_date = Column(Date, default=date.today, comment="反馈日期")
+    done_summary = Column(Text, comment="本周完成")
+    next_summary = Column(Text, comment="下周计划")
+    risk_note = Column(Text, comment="风险/求助")
+    progress = Column(Integer, default=None, comment="该责任人进度% 0-100")
+    item_updates = Column(Text, comment="子项状态更新明细 JSON")
+    status = Column(String(16), default="submitted", comment="状态: submitted/confirmed")
+    raw_text = Column(Text, comment="原始反馈全文（邮件原文等）")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_kwwf_kw_week", "key_work_id", "week"),
+        Index("idx_kwwf_assignee", "assignee"),
+        {"comment": "重点工作周反馈表"},
     )
 
 

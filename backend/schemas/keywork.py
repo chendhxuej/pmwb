@@ -448,12 +448,35 @@ class KeyWorkOut(BaseModel):
         from_attributes = True
 
 
+class KeyWorkListItemOut(BaseModel):
+    """列表项：仅主表字段，不携带子表（避免列表页触发 8 子表 selectin 全量加载）。
+
+    列表页只展示主表列（编号/标题/分类/状态/优先级/负责人/进度等），
+    子表数据由详情接口按需提供。
+    """
+
+    id: int
+    work_no: str
+    category: KeyWorkCategory
+    title: str
+    owner: Optional[str] = None
+    priority: KeyWorkPriority
+    status: KeyWorkStatus
+    progress: int = 0
+    planned_finish_date: Optional[date] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class KeyWorkListResponse(BaseModel):
     total: int
     page: int
     page_size: int
     pages: int
-    items: List[KeyWorkOut]
+    items: List[KeyWorkListItemOut]
 
 
 class KeyWorkStatsOut(BaseModel):
@@ -463,3 +486,73 @@ class KeyWorkStatsOut(BaseModel):
     upcoming_milestones: int = 0
     total_member_tasks: int = 0
     done_member_tasks: int = 0
+
+
+# ---------------------------------------------------------------------------
+# 周反馈（在途工单增量更新）
+# ---------------------------------------------------------------------------
+class WeeklyFeedbackItemUpdate(BaseModel):
+    """周反馈中的子项状态更新（月/周计划、成员待办）。"""
+
+    type: str = Field(..., description="monthly/weekly/task")
+    id: int = Field(..., description="子表记录ID")
+    status: str = Field(..., description="新状态")
+
+
+class KeyWorkWeeklyFeedbackCreate(BaseModel):
+    week: str = Field(..., max_length=10, description="周次 YYYY-Www")
+    assignee: str = Field(..., max_length=64, description="责任人")
+    source: str = Field("manual", max_length=16, description="来源 manual/email/link")
+    feedback_date: Optional[date] = Field(None, description="反馈日期")
+    done_summary: Optional[str] = Field(None, description="本周完成")
+    next_summary: Optional[str] = Field(None, description="下周计划")
+    risk_note: Optional[str] = Field(None, description="风险/求助")
+    progress: Optional[int] = Field(None, ge=0, le=100, description="该责任人进度%")
+    item_updates: Optional[List[WeeklyFeedbackItemUpdate]] = Field(None, description="子项状态更新明细")
+    raw_text: Optional[str] = Field(None, description="原始反馈全文")
+
+    @field_validator("feedback_date", mode="before")
+    @classmethod
+    def _empty_feedback_date_to_none(cls, v):
+        return None if v in ("", None) else v
+
+
+class KeyWorkWeeklyFeedbackOut(BaseModel):
+    id: int
+    key_work_id: int
+    week: str
+    assignee: str
+    source: str = "manual"
+    feedback_date: Optional[date] = None
+    done_summary: Optional[str] = None
+    next_summary: Optional[str] = None
+    risk_note: Optional[str] = None
+    progress: Optional[int] = None
+    item_updates: List[dict] = []
+    status: str = "submitted"
+    raw_text: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("item_updates", mode="before")
+    @classmethod
+    def _parse_item_updates(cls, v):
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, list) else [parsed]
+            except Exception:
+                return []
+        return v or []
+
+    class Config:
+        from_attributes = True
+
+
+class KeyWorkFeedbackMailRequest(BaseModel):
+    """周反馈请求邮件发送请求。"""
+
+    week: str = Field(..., max_length=10, description="周次 YYYY-Www")
+    assignees: Optional[List[str]] = Field(None, description="指定责任人（缺省=全部责任人）")

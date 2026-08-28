@@ -27,6 +27,7 @@ from db.models import (
 )
 from schemas.keywork import (
     KeyWorkCreate,
+    KeyWorkFeedbackMailRequest,
     KeyWorkListResponse,
     KeyWorkMemberCreate,
     KeyWorkMemberTaskCreate,
@@ -38,12 +39,16 @@ from schemas.keywork import (
     KeyWorkOut,
     KeyWorkProgressCreate,
     KeyWorkUpdate,
+    KeyWorkWeeklyFeedbackCreate,
+    KeyWorkWeeklyFeedbackOut,
     KeyWorkWeeklyPlanCreate,
     KeyWorkWeeklyPlanUpdate,
 )
 from services import keywork_deliverable as deliverable_svc
 from services.keywork import keywork_service
 from services.keywork_excel import build_template_bytes, import_key_works_from_bytes
+from services.mail_dispatch import dispatch_email
+from utils.master_service import MasterServiceClient
 
 router = APIRouter(prefix="/key-works", tags=["重点工作"])
 
@@ -122,6 +127,124 @@ def find_key_work_by_child(
     else:
         return success(data={"key_work_id": None, "found": False})
     return success(data={"key_work_id": kw_id, "found": kw_id is not None})
+
+
+@router.get("/feedback-overview")
+def keywork_feedback_overview(
+    week: str = Query(..., description="周次 YYYY-Www"),
+    db: Session = Depends(get_db),
+):
+    """全部在途工单周反馈总览：各工单/责任人 已反馈/未反馈 徽标。
+
+    注意：本路由必须声明在 /{kw_id} 之前（kw_id 为 int，避免路径解析冲突）。
+    """
+    return success(data=keywork_service.feedback_overview(db, week))
+
+
+# ---------------------------------------------------------------------------
+# 周反馈（在途工单增量更新：月/周计划、进展、成员待办）
+# ---------------------------------------------------------------------------
+@router.get("/{kw_id}/weekly-feedbacks")
+def list_weekly_feedbacks(
+    kw_id: int,
+    week: str = Query(..., description="周次 YYYY-Www"),
+    db: Session = Depends(get_db),
+):
+    """周反馈台账：该周已反馈记录 + 未反馈责任人清单。"""
+    if not keywork_service.get(db, kw_id):
+        raise NotFoundException(f"重点工作不存在：id={kw_id}")
+    result = keywork_service.list_weekly_feedbacks(db, kw_id, week)
+    result["items"] = [
+        KeyWorkWeeklyFeedbackOut.model_validate(i).model_dump()
+        for i in result["items"]
+    ]
+    return success(data=result)
+
+
+@router.get("/{kw_id}/weekly-feedback-form")
+def get_weekly_feedback_form(
+    kw_id: int,
+    week: str = Query(..., description="周次 YYYY-Www"),
+    db: Session = Depends(get_db),
+):
+    """本周反馈工作单：责任人 → 在途子项清单 + 已反馈内容（编辑回显）。"""
+    if not keywork_service.get(db, kw_id):
+        raise NotFoundException(f"重点工作不存在：id={kw_id}")
+    return success(data=keywork_service.weekly_feedback_form(db, kw_id, week))
+
+
+@router.post("/{kw_id}/weekly-feedbacks")
+def submit_weekly_feedback(
+    kw_id: int,
+    payload: KeyWorkWeeklyFeedbackCreate,
+    db: Session = Depends(get_db),
+):
+    """提交一条周反馈（幂等 upsert；自动追加进展日志 + 批量更新子项状态）。"""
+    if not keywork_service.get(db, kw_id):
+        raise NotFoundException(f"重点工作不存在：id={kw_id}")
+    row = keywork_service.submit_weekly_feedback(db, kw_id, payload.model_dump())
+    return success(data=KeyWorkWeeklyFeedbackOut.model_validate(row))
+
+
+@router.post("/{kw_id}/feedback-mails")
+def send_feedback_mail(
+    kw_id: int,
+    payload: KeyWorkFeedbackMailRequest,
+    db: Session = Depends(get_db),
+):
+    """发送周反馈请求邮件给责任人（统一发信 + 人员中台邮箱解析）。
+
+    指定 assignees 时只发给指定责任人；缺省发给该工单全部责任人。
+    无邮箱的责任人跳过并随结果返回，可转手动转录兜底。
+    """
+    kw = keywork_service.get(db, kw_id)
+    if not kw:
+        raise NotFoundException(f"重点工作不存在：id={kw_id}")
+
+    if payload.assignees:
+        names = [n.strip() for n in payload.assignees if n and n.strip()]
+    else:
+        names = keywork_service._week_assignees(db, kw_id)
+    if not names:
+        return success(data={"week": payload.week, "sent": [], "skipped": [], "failed": [], "message": "该工单暂无责任人"})
+
+    emails = MasterServiceClient().resolve_staff_emails(names)
+    week = payload.week
+    body_md = (
+        f"【重点工作周反馈】{kw.title}（{kw.work_no}）- {week} 周\n\n"
+        f"请于本周五前完成以下三块内容反馈：\n\n"
+        f"## 本周完成\n（填写本周已完成的进展）\n\n"
+        f"## 下周计划\n（填写下周计划开展的工作）\n\n"
+        f"## 风险/求助\n（如有风险或需协调事项请填写）\n\n"
+        f"反馈方式：在 PMWB「重点工作」详情页的周反馈页签提交，或直接回复本邮件。"
+    )
+    sent, skipped, failed = [], [], []
+    for name in names:
+        email = emails.get(name)
+        if not email:
+            skipped.append({"assignee": name, "reason": "无邮箱"})
+            continue
+        res = dispatch_email(
+            db=db,
+            to=[email],
+            subject=f"【周反馈请求】{kw.title} - {week} 周",
+            scene="keywork_feedback",
+            body=body_md,
+            variables={
+                "body": body_md,
+                "week": week,
+                "work_no": kw.work_no,
+                "title": kw.title,
+                "assignee": name,
+            },
+            req_id=f"kw{kw_id}-{week}",
+            req_name=name,
+        )
+        if res.get("success"):
+            sent.append({"assignee": name, "email": email, "record_id": res.get("record_id")})
+        else:
+            failed.append({"assignee": name, "email": email, "message": res.get("message")})
+    return success(data={"week": week, "sent": sent, "skipped": skipped, "failed": failed})
 
 
 @router.get("/{kw_id}")

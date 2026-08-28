@@ -182,3 +182,24 @@ export function importKeyWorks(file) {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
+
+// ── 周反馈（在途工单增量更新） ──
+export function getFeedbackOverview(week) {
+  return request.get('/key-works/feedback-overview', { params: { week } })
+}
+
+export function listWeeklyFeedbacks(id, week) {
+  return request.get(`/key-works/${id}/weekly-feedbacks`, { params: { week } })
+}
+
+export function getWeeklyFeedbackForm(id, week) {
+  return request.get(`/key-works/${id}/weekly-feedback-form`, { params: { week } })
+}
+
+export function submitWeeklyFeedback(id, data) {
+  return request.post(`/key-works/${id}/weekly-feedbacks`, data)
+}
+
+export function sendFeedbackMail(id, data) {
+  return request.post(`/key-works/${id}/feedback-mails`, data)
+}

@@ -1,4 +1,6 @@
 import { createApp } from 'vue'
+import dayjs from 'dayjs'
+import isoWeek from 'dayjs/plugin/isoWeek'
 import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
@@ -13,6 +15,9 @@ import EnlargeInput from './components/Common/EnlargeInput.vue'
 import { countup } from './composables/countup.js'
 import './styles/main.css'
 import './styles/design.css'
+
+// Element Plus week picker 依赖 dayjs isoWeek 插件
+dayjs.extend(isoWeek)
 
 const app = createApp(App)
 

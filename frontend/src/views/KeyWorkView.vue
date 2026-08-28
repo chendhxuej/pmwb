@@ -137,7 +137,7 @@
         </div>
       </template>
 
-      <el-tabs v-model="activeSection" class="drawer-tabs">
+      <el-tabs v-model="activeSection" class="drawer-tabs" @tab-change="handleSectionChange">
         <!-- 基本信息 -->
         <el-tab-pane label="基本信息" name="basic">
           <div v-if="detail" class="sec-body">
@@ -254,7 +254,7 @@
           <el-table :data="detail?.members || []" border stripe size="small">
             <el-table-column prop="name" label="姓名" width="120" />
             <el-table-column prop="role" label="角色" width="140" />
-            <el-table-column prop="division" label="分工说明" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="division_desc" label="分工说明" min-width="180" show-overflow-tooltip />
             <el-table-column label="操作" width="80" fixed="right">
               <template #default="{ row }">
                 <el-button link type="danger" @click="removeMember(row)">删除</el-button>
@@ -408,6 +408,87 @@
             </el-table-column>
           </el-table>
         </el-tab-pane>
+
+        <!-- 周反馈 -->
+        <el-tab-pane label="周反馈" name="feedback">
+          <div class="sec-head" style="flex-wrap: wrap; gap: 8px">
+            <span class="pm-section-title">在途工单周反馈（责任人增量更新）</span>
+            <div style="display: flex; align-items: center; gap: 8px; margin-left: auto">
+              <el-date-picker
+                v-model="feedbackWeek"
+                type="week"
+                format="YYYY-Www"
+                value-format="YYYY-Www"
+                :clearable="false"
+                style="width: 140px"
+                @change="loadWeeklyFeedback"
+              />
+              <el-button size="small" :loading="mailSending" @click="sendFeedbackMails">
+                <el-icon><Message /></el-icon> 发送反馈请求
+              </el-button>
+            </div>
+          </div>
+
+          <div v-if="feedbackGroups.length" class="feedback-list">
+            <div v-for="g in feedbackGroups" :key="g.assignee" class="feedback-card">
+              <div class="feedback-card-head" @click="toggleFeedbackCard(g)">
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span class="feedback-assignee">{{ g.assignee }}</span>
+                  <span v-if="g.feedback" class="pm-tag" style="background: var(--success-bg, #f0f9eb); color: var(--success, #67c23a)">
+                    已反馈 {{ (g.feedback.feedback_date || '').slice(0, 10) }}
+                  </span>
+                  <span v-else class="pm-tag gray">未反馈</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px">
+                  <span v-if="g.feedback" class="text-muted" style="font-size: 12px">进度 {{ g.feedback.progress || 0 }}%</span>
+                  <el-button link type="primary" size="small" @click.stop="toggleFeedbackCard(g)">
+                    {{ isExpanded(g) ? '收起' : (g.feedback ? '查看/编辑' : '填写反馈') }}
+                  </el-button>
+                </div>
+              </div>
+
+              <div v-if="isExpanded(g)" class="feedback-card-body">
+                <el-form label-position="top" size="small">
+                  <el-form-item label="本周完成">
+                    <el-input v-model="g._form.done_summary" type="textarea" :rows="2" placeholder="本周已完成的工作" />
+                  </el-form-item>
+                  <el-form-item label="下周计划">
+                    <el-input v-model="g._form.next_summary" type="textarea" :rows="2" placeholder="下周计划开展的工作" />
+                  </el-form-item>
+                  <el-form-item label="风险/求助">
+                    <el-input v-model="g._form.risk_note" type="textarea" :rows="2" placeholder="风险、阻塞或需协调事项" />
+                  </el-form-item>
+                  <el-form-item label="进度">
+                    <div style="display: flex; align-items: center; gap: 12px; width: 100%">
+                      <el-slider v-model="g._form.progress" :min="0" :max="100" style="flex: 1" />
+                      <span style="width: 42px; text-align: right; font-size: 13px">{{ g._form.progress || 0 }}%</span>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="子项状态更新（勾选 = 标记为已完成）">
+                    <div v-if="g.items.length" class="feedback-items">
+                      <el-checkbox
+                        v-for="it in g.items"
+                        :key="it.type + '-' + it.id"
+                        :model-value="isItemChecked(g, it)"
+                        @change="(v) => toggleItemChecked(g, it, v)"
+                      >
+                        <span style="margin-right: 6px">{{ itemLabel(it) }}</span>
+                        <span class="pm-tag" :class="(PLAN_STATUS_MAP[it.status] || {}).tag">{{ (PLAN_STATUS_MAP[it.status] || { label: it.status }).label }}</span>
+                      </el-checkbox>
+                    </div>
+                    <div v-else class="text-muted">该责任人本周无在途子项</div>
+                  </el-form-item>
+                  <div class="feedback-card-actions">
+                    <el-button type="primary" size="small" :loading="submittingAssignees.includes(g.assignee)" @click="submitFeedback(g)">
+                      提交反馈
+                    </el-button>
+                  </div>
+                </el-form>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-muted" style="padding: 16px 0">该周暂无责任人可反馈</div>
+        </el-tab-pane>
       </el-tabs>
     </el-drawer>
 
@@ -507,7 +588,7 @@
       <el-form :model="memberForm" label-width="80px">
         <el-form-item label="姓名" required><StaffSelect v-model="memberForm.name" /></el-form-item>
         <el-form-item label="角色"><el-input v-model="memberForm.role" /></el-form-item>
-        <el-form-item label="分工"><el-input v-model="memberForm.division" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="分工"><el-input v-model="memberForm.division_desc" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="memberVisible = false">取消</el-button>
@@ -581,11 +662,16 @@
           </el-select>
         </el-form-item>
         <el-form-item label="关联">
-          <el-select v-model="taskForm.link" style="width:100%">
+          <el-select v-model="taskForm.link_type" style="width:100%">
             <el-option label="不关联" value="none" />
             <el-option label="关联里程碑" value="milestone" />
             <el-option label="关联月计划" value="monthly_plan" />
             <el-option label="关联周计划" value="weekly_plan" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="taskForm.link_type !== 'none'" label="关联对象">
+          <el-select v-model="taskForm.link_id" style="width:100%" placeholder="选择关联对象">
+            <el-option v-for="opt in taskLinkOptions" :key="opt.id" :label="opt.label" :value="opt.id" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -653,24 +739,160 @@ const goalEditingId = ref(null)
 const goalForm = ref({ indicator: '', target_value: '', current_value: '', unit: '', description: '' })
 
 const milestoneVisible = ref(false)
-const milestoneForm = ref({ name: '', due_date: '', status: 'pending', note: '' })
+const milestoneForm = ref({ name: '', due_date: '', status: 'not_started', note: '' })
 
 const memberVisible = ref(false)
-const memberForm = ref({ name: '', role: '', division: '' })
+const memberForm = ref({ name: '', role: '', division_desc: '' })
 
 const monthlyVisible = ref(false)
 const monthlyEditingId = ref(null)
-const monthlyForm = ref({ month: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'pending' })
+const monthlyForm = ref({ month: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'not_started' })
 
 const weeklyVisible = ref(false)
 const weeklyEditingId = ref(null)
-const weeklyForm = ref({ week: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'pending' })
+const weeklyForm = ref({ week: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'not_started' })
 
 const progressVisible = ref(false)
 const progressForm = ref({ record_date: '', content: '' })
 
 const taskVisible = ref(false)
-const taskForm = ref({ title: '', assignee: '', due_date: '', status: 'todo', link: 'none' })
+const taskForm = ref({ title: '', assignee: '', due_date: '', status: 'not_started', link_type: 'none', link_id: null })
+
+// 待办关联对象候选：按关联类型从当前工单子表取
+const taskLinkOptions = computed(() => {
+  const t = taskForm.value.link_type
+  const d = detail.value
+  if (!d) return []
+  if (t === 'milestone') return (d.milestones || []).map((m) => ({ id: m.id, label: m.name || `里程碑#${m.id}` }))
+  if (t === 'monthly_plan') {
+    return (d.monthly_plans || []).map((p) => ({
+      id: p.id, label: `${p.month} ${p.title || (p.content || '').slice(0, 20) || ''}`.trim(),
+    }))
+  }
+  if (t === 'weekly_plan') {
+    return (d.weekly_plans || []).map((p) => ({
+      id: p.id, label: `${p.week} ${p.title || (p.content || '').slice(0, 20) || ''}`.trim(),
+    }))
+  }
+  return []
+})
+
+// ---------- 周反馈（在途工单增量更新） ----------
+const feedbackWeek = ref(currentIsoWeek())
+const feedbackGroups = ref([])
+const expandedAssignees = ref([])
+const submittingAssignees = ref([])
+const mailSending = ref(false)
+
+/** 当前 ISO 周次 YYYY-Www（周一为一周起点） */
+function currentIsoWeek() {
+  const now = new Date()
+  const day = (now.getDay() + 6) % 7
+  // 挪到本周周四（ISO 年份以周四所在年为准）
+  const thursday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day + 3)
+  const jan4 = new Date(thursday.getFullYear(), 0, 4)
+  const jan4Iso = (jan4.getDay() + 6) % 7 + 1 // 1=周一 ... 7=周日
+  const diffDays = Math.round((thursday - jan4) / 86400000)
+  const week = Math.ceil((diffDays + jan4Iso) / 7)
+  return `${thursday.getFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+function isExpanded(g) {
+  return expandedAssignees.value.includes(g.assignee)
+}
+
+function toggleFeedbackCard(g) {
+  const i = expandedAssignees.value.indexOf(g.assignee)
+  if (i >= 0) expandedAssignees.value.splice(i, 1)
+  else expandedAssignees.value.push(g.assignee)
+}
+
+/** 加载周反馈：台账（已反馈/未反馈）+ 工作单（子项清单+编辑回显）合并成卡片流 */
+async function loadWeeklyFeedback() {
+  if (!currentId.value || !feedbackWeek.value) return
+  try {
+    const [ledger, form] = await Promise.all([
+      kwApi.listWeeklyFeedbacks(currentId.value, feedbackWeek.value),
+      kwApi.getWeeklyFeedbackForm(currentId.value, feedbackWeek.value),
+    ])
+    feedbackGroups.value = (form.groups || []).map((g) => {
+      const fb = g.feedback || (ledger.items || []).find((i) => i.assignee === g.assignee) || null
+      return {
+        assignee: g.assignee,
+        items: g.items || [],
+        feedback: fb,
+        _form: {
+          week: feedbackWeek.value,
+          assignee: g.assignee,
+          source: fb ? fb.source : 'manual',
+          feedback_date: fb ? (fb.feedback_date || '') : new Date().toISOString().slice(0, 10),
+          done_summary: fb ? (fb.done_summary || '') : '',
+          next_summary: fb ? (fb.next_summary || '') : '',
+          risk_note: fb ? (fb.risk_note || '') : '',
+          progress: fb ? (fb.progress ?? 0) : 0,
+          item_updates: (fb && fb.item_updates) ? fb.item_updates : [],
+        },
+      }
+    })
+  } catch (e) {
+    ElMessage.error('加载周反馈失败：' + (e?.message || e))
+  }
+}
+
+function isItemChecked(g, it) {
+  return (g._form.item_updates || []).some((u) => u.type === it.type && u.id === it.id)
+}
+
+function toggleItemChecked(g, it, checked) {
+  const updates = g._form.item_updates || []
+  const i = updates.findIndex((u) => u.type === it.type && u.id === it.id)
+  if (checked) {
+    if (i < 0) updates.push({ type: it.type, id: it.id, status: 'completed' })
+  } else if (i >= 0) {
+    updates.splice(i, 1)
+  }
+}
+
+function itemLabel(it) {
+  const title = it.title || it.content || ''
+  const typeName = { monthly: '月计划', weekly: '周计划', task: '成员待办' }[it.type] || it.type
+  return `【${typeName}】${(title || '').slice(0, 40)}`
+}
+
+/** 提交单个责任人的周反馈（幂等 upsert） */
+async function submitFeedback(g) {
+  if (!g._form.assignee) return
+  submittingAssignees.value.push(g.assignee)
+  try {
+    await kwApi.submitWeeklyFeedback(currentId.value, { ...g._form })
+    ElMessage.success(`「${g.assignee}」周反馈已提交`)
+    await loadWeeklyFeedback()
+    refreshDetail({ silent: true }) // 子项状态被批量更新，静默兜底保持一致
+  } catch (e) {
+    ElMessage.error('提交失败：' + (e?.message || e))
+  } finally {
+    const i = submittingAssignees.value.indexOf(g.assignee)
+    if (i >= 0) submittingAssignees.value.splice(i, 1)
+  }
+}
+
+/** 发送周反馈请求邮件（缺省发给全部责任人，无邮箱自动跳过） */
+async function sendFeedbackMails() {
+  if (!currentId.value) return
+  mailSending.value = true
+  try {
+    const res = await kwApi.sendFeedbackMail(currentId.value, { week: feedbackWeek.value })
+    const parts = []
+    if (res.sent?.length) parts.push(`已发送 ${res.sent.length} 封`)
+    if (res.skipped?.length) parts.push(`无邮箱跳过：${res.skipped.map((s) => s.assignee).join('、')}`)
+    if (res.failed?.length) parts.push(`发送失败：${res.failed.map((s) => s.assignee).join('、')}`)
+    ElMessage[res.sent?.length ? 'success' : 'warning'](parts.join('；') || '无发送结果')
+  } catch (e) {
+    ElMessage.error('发送失败：' + (e?.message || e))
+  } finally {
+    mailSending.value = false
+  }
+}
 
 // ---------- 数据获取 ----------
 async function fetchList() {
@@ -699,16 +921,65 @@ function handleCategoryChange() {
   fetchList()
 }
 
+/** 抽屉页签切换：进入「周反馈」时按当前周加载卡片流 */
+function handleSectionChange(name) {
+  if (name === 'feedback') loadWeeklyFeedback()
+}
+
 // ---------- 详情 ----------
+let detailSeq = 0 // 竞态保护：连续操作时仅应用最后一次详情响应
+
 async function openDetail(row) {
   currentId.value = row.id
   drawerVisible.value = true
   await refreshDetail()
 }
 
-async function refreshDetail() {
+/**
+ * 刷新详情。
+ * @param {object} opts
+ *   - silent: true 表示静默兜底（本地已即时更新，失败不打扰用户）
+ * 竞态保护：多次并发请求时仅最后一次结果生效，避免旧响应覆盖新数据。
+ */
+async function refreshDetail(opts = {}) {
   if (!currentId.value) return
-  detail.value = await kwApi.getKeyWork(currentId.value)
+  const { silent = false } = opts
+  const seq = ++detailSeq
+  try {
+    const data = await kwApi.getKeyWork(currentId.value)
+    if (seq === detailSeq) detail.value = data
+  } catch (e) {
+    if (!silent) ElMessage.error('刷新详情失败：' + (e?.message || e))
+  }
+}
+
+/** 子表操作成功后：本地即时更新（秒级可见）+ 后台静默兜底保持一致 */
+function localPatch(mutator) {
+  if (!detail.value) return
+  mutator(detail.value)
+}
+
+function patchAppend(listKey, row) {
+  localPatch((d) => {
+    if (!d[listKey]) d[listKey] = []
+    d[listKey].push(row)
+  })
+}
+
+function patchReplace(listKey, row) {
+  localPatch((d) => {
+    const arr = d[listKey] || []
+    const i = arr.findIndex((x) => x.id === row.id)
+    if (i >= 0) arr.splice(i, 1, row)
+  })
+}
+
+function patchRemove(listKey, id) {
+  localPatch((d) => {
+    const arr = d[listKey] || []
+    const i = arr.findIndex((x) => x.id === id)
+    if (i >= 0) arr.splice(i, 1)
+  })
 }
 
 function closeDrawer(done) {
@@ -785,17 +1056,19 @@ function openGoalDialog(row) {
 async function submitGoal() {
   const goals = [...(detail.value.goals || []).filter(g => g.id !== goalEditingId.value)]
   goals.push({ ...goalForm.value })
-  await kwApi.updateKeyWork(currentId.value, { goals })
+  const res = await kwApi.updateKeyWork(currentId.value, { goals })
   ElMessage.success('已保存目标')
   goalVisible.value = false
-  await refreshDetail()
+  detailSeq++ // 使进行中的旧详情响应失效
+  detail.value = res
 }
 
 async function removeGoal(row) {
   const goals = (detail.value.goals || []).filter(g => g.id !== row.id)
-  await kwApi.updateKeyWork(currentId.value, { goals })
+  const res = await kwApi.updateKeyWork(currentId.value, { goals })
   ElMessage.success('已删除')
-  await refreshDetail()
+  detailSeq++
+  detail.value = res
 }
 
 // ---------- 验收标准 ----------
@@ -803,9 +1076,10 @@ function openAcceptDialog() {
   ElMessageBox.prompt('输入一条验收标准', '新增验收标准', { inputType: 'textarea' })
     .then(async ({ value }) => {
       const acc = [...(detail.value.acceptance_criteria || []), value.trim()].filter(Boolean)
-      await kwApi.updateKeyWork(currentId.value, { acceptance_criteria: acc })
+      const res = await kwApi.updateKeyWork(currentId.value, { acceptance_criteria: acc })
       ElMessage.success('已添加')
-      await refreshDetail()
+      detailSeq++
+      detail.value = res
     })
     .catch(() => {})
 }
@@ -813,53 +1087,59 @@ function openAcceptDialog() {
 async function removeAccept(i) {
   const acc = [...(detail.value.acceptance_criteria || [])]
   acc.splice(i, 1)
-  await kwApi.updateKeyWork(currentId.value, { acceptance_criteria: acc })
-  await refreshDetail()
+  const res = await kwApi.updateKeyWork(currentId.value, { acceptance_criteria: acc })
+  detailSeq++
+  detail.value = res
 }
 
 // ---------- 里程碑 ----------
 function openMilestoneDialog() {
-  milestoneForm.value = { name: '', due_date: '', status: 'pending', note: '' }
+  milestoneForm.value = { name: '', due_date: '', status: 'not_started', note: '' }
   milestoneVisible.value = true
 }
 
 async function submitMilestone() {
   if (!milestoneForm.value.name) { ElMessage.warning('请填写里程碑名称'); return }
-  await kwApi.addMilestone(currentId.value, milestoneForm.value)
+  const row = await kwApi.addMilestone(currentId.value, milestoneForm.value)
   ElMessage.success('已添加')
   milestoneVisible.value = false
-  await refreshDetail()
+  patchAppend('milestones', row)
+  await refreshDetail({ silent: true })
 }
 
 async function changeMilestoneStatus(row, v) {
-  await kwApi.updateMilestone(currentId.value, row.id, { status: v })
-  await refreshDetail()
+  const updated = await kwApi.updateMilestone(currentId.value, row.id, { status: v })
+  patchReplace('milestones', updated)
+  await refreshDetail({ silent: true })
 }
 
 async function removeMilestone(row) {
   await kwApi.deleteMilestone(currentId.value, row.id)
   ElMessage.success('已删除')
-  await refreshDetail()
+  patchRemove('milestones', row.id)
+  await refreshDetail({ silent: true })
 }
 
 // ---------- 成员 ----------
 function openMemberDialog() {
-  memberForm.value = { name: '', role: '', division: '' }
+  memberForm.value = { name: '', role: '', division_desc: '' }
   memberVisible.value = true
 }
 
 async function submitMember() {
   if (!memberForm.value.name) { ElMessage.warning('请填写姓名'); return }
-  await kwApi.addMember(currentId.value, memberForm.value)
+  const row = await kwApi.addMember(currentId.value, memberForm.value)
   ElMessage.success('已添加')
   memberVisible.value = false
-  await refreshDetail()
+  patchAppend('members', row)
+  await refreshDetail({ silent: true })
 }
 
 async function removeMember(row) {
   await kwApi.deleteMember(currentId.value, row.id)
   ElMessage.success('已删除')
-  await refreshDetail()
+  patchRemove('members', row.id)
+  await refreshDetail({ silent: true })
 }
 
 // ---------- 月计划 ----------
@@ -873,11 +1153,11 @@ function openMonthlyDialog(row) {
       content: row.content || '',
       assignee: row.assignee || '',
       due_date: row.due_date || '',
-      status: row.status || 'pending',
+      status: row.status || 'not_started',
     }
   } else {
     monthlyEditingId.value = null
-    monthlyForm.value = { month: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'pending' }
+    monthlyForm.value = { month: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'not_started' }
   }
   monthlyVisible.value = true
 }
@@ -886,25 +1166,29 @@ async function submitMonthly() {
   if (!monthlyForm.value.month) { ElMessage.warning('请填写月份'); return }
   const payload = { ...monthlyForm.value }
   if (monthlyEditingId.value) {
-    await kwApi.updateMonthlyPlan(currentId.value, monthlyEditingId.value, payload)
+    const updated = await kwApi.updateMonthlyPlan(currentId.value, monthlyEditingId.value, payload)
     ElMessage.success('已更新月度计划')
+    patchReplace('monthly_plans', updated)
   } else {
-    await kwApi.addMonthlyPlan(currentId.value, payload)
+    const row = await kwApi.addMonthlyPlan(currentId.value, payload)
     ElMessage.success('已添加月度计划')
+    patchAppend('monthly_plans', row)
   }
   monthlyVisible.value = false
-  await refreshDetail()
+  await refreshDetail({ silent: true })
 }
 
 async function changeMonthlyStatus(row, v) {
-  await kwApi.updateMonthlyPlan(currentId.value, row.id, { status: v })
-  await refreshDetail()
+  const updated = await kwApi.updateMonthlyPlan(currentId.value, row.id, { status: v })
+  patchReplace('monthly_plans', updated)
+  await refreshDetail({ silent: true })
 }
 
 async function removeMonthly(row) {
   await kwApi.deleteMonthlyPlan(currentId.value, row.id)
   ElMessage.success('已删除')
-  await refreshDetail()
+  patchRemove('monthly_plans', row.id)
+  await refreshDetail({ silent: true })
 }
 
 // ---------- 周计划 ----------
@@ -918,11 +1202,11 @@ function openWeeklyDialog(row) {
       content: row.content || '',
       assignee: row.assignee || '',
       due_date: row.due_date || '',
-      status: row.status || 'pending',
+      status: row.status || 'not_started',
     }
   } else {
     weeklyEditingId.value = null
-    weeklyForm.value = { week: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'pending' }
+    weeklyForm.value = { week: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'not_started' }
   }
   weeklyVisible.value = true
 }
@@ -931,25 +1215,29 @@ async function submitWeekly() {
   if (!weeklyForm.value.week) { ElMessage.warning('请填写周次'); return }
   const payload = { ...weeklyForm.value }
   if (weeklyEditingId.value) {
-    await kwApi.updateWeeklyPlan(currentId.value, weeklyEditingId.value, payload)
+    const updated = await kwApi.updateWeeklyPlan(currentId.value, weeklyEditingId.value, payload)
     ElMessage.success('已更新周计划')
+    patchReplace('weekly_plans', updated)
   } else {
-    await kwApi.addWeeklyPlan(currentId.value, payload)
+    const row = await kwApi.addWeeklyPlan(currentId.value, payload)
     ElMessage.success('已添加周计划')
+    patchAppend('weekly_plans', row)
   }
   weeklyVisible.value = false
-  await refreshDetail()
+  await refreshDetail({ silent: true })
 }
 
 async function changeWeeklyStatus(row, v) {
-  await kwApi.updateWeeklyPlan(currentId.value, row.id, { status: v })
-  await refreshDetail()
+  const updated = await kwApi.updateWeeklyPlan(currentId.value, row.id, { status: v })
+  patchReplace('weekly_plans', updated)
+  await refreshDetail({ silent: true })
 }
 
 async function removeWeekly(row) {
   await kwApi.deleteWeeklyPlan(currentId.value, row.id)
   ElMessage.success('已删除')
-  await refreshDetail()
+  patchRemove('weekly_plans', row.id)
+  await refreshDetail({ silent: true })
 }
 
 // ---------- 进展 ----------
@@ -960,50 +1248,56 @@ function openProgressDialog() {
 
 async function submitProgress() {
   if (!progressForm.value.content) { ElMessage.warning('请填写进展内容'); return }
-  await kwApi.addProgress(currentId.value, progressForm.value)
+  const row = await kwApi.addProgress(currentId.value, progressForm.value)
   ElMessage.success('已记录')
   progressVisible.value = false
-  await refreshDetail()
+  patchAppend('progresses', row)
+  await refreshDetail({ silent: true })
 }
 
 async function removeProgress(row) {
   await kwApi.deleteProgress(currentId.value, row.id)
   ElMessage.success('已删除')
-  await refreshDetail()
+  patchRemove('progresses', row.id)
+  await refreshDetail({ silent: true })
 }
 
 // ---------- 成员待办 ----------
 function openTaskDialog() {
-  taskForm.value = { title: '', assignee: '', due_date: '', status: 'todo', link: 'none' }
+  taskForm.value = { title: '', assignee: '', due_date: '', status: 'not_started', link_type: 'none', link_id: null }
   taskVisible.value = true
 }
 
 async function submitTask() {
   if (!taskForm.value.title) { ElMessage.warning('请填写任务'); return }
-  await kwApi.addMemberTask(currentId.value, taskForm.value)
+  const row = await kwApi.addMemberTask(currentId.value, taskForm.value)
   ElMessage.success('已添加')
   taskVisible.value = false
-  await refreshDetail()
+  patchAppend('member_tasks', row)
+  await refreshDetail({ silent: true })
 }
 
 async function changeTaskStatus(row, v) {
-  await kwApi.updateMemberTask(currentId.value, row.id, { status: v })
-  await refreshDetail()
+  const updated = await kwApi.updateMemberTask(currentId.value, row.id, { status: v })
+  patchReplace('member_tasks', updated)
+  await refreshDetail({ silent: true })
 }
 
 async function removeTask(row) {
   await kwApi.deleteMemberTask(currentId.value, row.id)
   ElMessage.success('已删除')
-  await refreshDetail()
+  patchRemove('member_tasks', row.id)
+  await refreshDetail({ silent: true })
 }
 
 // ---------- 交付物 ----------
 const deliverableZone = ref(null)
 
 async function handleDeliverableUpload(file) {
-  await kwApi.uploadDeliverable(currentId.value, file)
+  const data = await kwApi.uploadDeliverable(currentId.value, file)
   ElMessage.success('上传成功')
-  await refreshDetail()
+  patchAppend('deliverables', data)
+  await refreshDetail({ silent: true })
   return false
 }
 
@@ -1020,7 +1314,7 @@ const { isPasting } = usePasteUpload({
       }
     }
     ElMessage.success(`已粘贴上传 ${files.length} 个交付物`)
-    await refreshDetail()
+    await refreshDetail({ silent: true })
   },
 })
 
@@ -1037,7 +1331,8 @@ async function downloadDeliverable(row) {
 async function removeDeliverable(row) {
   await kwApi.deleteDeliverable(currentId.value, row.id)
   ElMessage.success('已删除')
-  await refreshDetail()
+  patchRemove('deliverables', row.id)
+  await refreshDetail({ silent: true })
 }
 
 // ── 模版下载 / Excel 导入 ──
@@ -1129,4 +1424,14 @@ onMounted(async () => {
 .progress-timeline { padding: 8px 4px; }
 .progress-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13.5px; }
 .drawer-head-custom { display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 24px; }
+/* 周反馈卡片流 */
+.feedback-list { display: flex; flex-direction: column; gap: 10px; }
+.feedback-card { border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-app); overflow: hidden; }
+.feedback-card-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; cursor: pointer; transition: background-color 0.2s; }
+.feedback-card-head:hover { background: var(--el-fill-color-light); }
+.feedback-assignee { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.feedback-card-body { border-top: 1px dashed var(--border-subtle); padding: 12px 14px 4px; }
+.feedback-card-actions { display: flex; justify-content: flex-end; padding-bottom: 10px; }
+.feedback-items { display: flex; flex-direction: column; gap: 6px; }
+.feedback-items .el-checkbox { margin-right: 0; height: auto; white-space: normal; }
 </style>

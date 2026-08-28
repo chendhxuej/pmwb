@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 
 from core.exceptions import NotFoundException
 from db.models import (
@@ -22,6 +22,7 @@ from db.models import (
     PmwbKeyWorkMilestone,
     PmwbKeyWorkMonthlyPlan,
     PmwbKeyWorkProgress,
+    PmwbKeyWorkWeeklyFeedback,
     PmwbKeyWorkWeeklyPlan,
 )
 from services.base import BaseService
@@ -47,17 +48,23 @@ class KeyWorkService(BaseService[PmwbKeyWork]):
     # 详情（一次性加载全部 children）
     # ------------------------------------------------------------------
     def get(self, db: Session, id: int) -> PmwbKeyWork | None:
+        """加载重点工作详情。
+
+        8 张子表用 selectinload（而非 joinedload）：多 collection 用 joinedload
+        会产生 LEFT JOIN 笛卡尔积（各子表行数相乘），数据量小也慢（实测 1.5s）；
+        selectinload 是 1 条主查询 + 每子表 1 条 IN 查询，消除膨胀。
+        """
         return (
             db.query(self.model)
             .options(
-                joinedload(self.model.goals),
-                joinedload(self.model.milestones),
-                joinedload(self.model.members),
-                joinedload(self.model.monthly_plans),
-                joinedload(self.model.weekly_plans),
-                joinedload(self.model.progresses),
-                joinedload(self.model.member_tasks),
-                joinedload(self.model.deliverables),
+                selectinload(self.model.goals),
+                selectinload(self.model.milestones),
+                selectinload(self.model.members),
+                selectinload(self.model.monthly_plans),
+                selectinload(self.model.weekly_plans),
+                selectinload(self.model.progresses),
+                selectinload(self.model.member_tasks),
+                selectinload(self.model.deliverables),
             )
             .filter(self.model.id == id)
             .first()
@@ -285,6 +292,253 @@ class KeyWorkService(BaseService[PmwbKeyWork]):
             "total_member_tasks": int(total_member_tasks),
             "done_member_tasks": int(done_member_tasks),
         }
+
+
+    # ------------------------------------------------------------------
+    # 周反馈（在途工单增量更新，mc-3）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _week_assignees(db: Session, kw_id: int) -> List[str]:
+        """聚合某工单的责任人清单：月/周计划、成员待办 assignee 去重（非空）。"""
+        names: set = set()
+        for model in (PmwbKeyWorkMonthlyPlan, PmwbKeyWorkWeeklyPlan, PmwbKeyWorkMemberTask):
+            rows = (
+                db.query(model.assignee)
+                .filter(model.key_work_id == kw_id)
+                .distinct()
+                .all()
+            )
+            for (n,) in rows:
+                if n and str(n).strip():
+                    names.add(str(n).strip())
+        return sorted(names)
+
+    def list_weekly_feedbacks(self, db: Session, kw_id: int, week: str) -> Dict[str, Any]:
+        """某周反馈台账：已反馈记录 + 未反馈责任人清单。"""
+        items = (
+            db.query(PmwbKeyWorkWeeklyFeedback)
+            .filter(
+                PmwbKeyWorkWeeklyFeedback.key_work_id == kw_id,
+                PmwbKeyWorkWeeklyFeedback.week == week,
+            )
+            .order_by(
+                PmwbKeyWorkWeeklyFeedback.feedback_date.desc(),
+                PmwbKeyWorkWeeklyFeedback.id.desc(),
+            )
+            .all()
+        )
+        assignees = self._week_assignees(db, kw_id)
+        done = {f.assignee for f in items}
+        pending = [a for a in assignees if a not in done]
+        return {"week": week, "assignees": assignees, "items": items, "pending": pending}
+
+    def weekly_feedback_form(self, db: Session, kw_id: int, week: str) -> Dict[str, Any]:
+        """本周反馈工作单：责任人 → 在途子项清单 + 已反馈内容（编辑回显）。"""
+        assignees = self._week_assignees(db, kw_id)
+        fb_rows = (
+            db.query(PmwbKeyWorkWeeklyFeedback)
+            .filter(
+                PmwbKeyWorkWeeklyFeedback.key_work_id == kw_id,
+                PmwbKeyWorkWeeklyFeedback.week == week,
+            )
+            .all()
+        )
+        feedback_map = {f.assignee: f for f in fb_rows}
+
+        def _parse_updates(fb) -> List[dict]:
+            if not fb or not fb.item_updates:
+                return []
+            try:
+                parsed = json.loads(fb.item_updates)
+                return parsed if isinstance(parsed, list) else []
+            except Exception:
+                return []
+
+        groups = []
+        for name in assignees:
+            items = []
+            for p in (
+                db.query(PmwbKeyWorkMonthlyPlan)
+                .filter(
+                    PmwbKeyWorkMonthlyPlan.key_work_id == kw_id,
+                    PmwbKeyWorkMonthlyPlan.assignee == name,
+                )
+                .order_by(PmwbKeyWorkMonthlyPlan.month)
+                .all()
+            ):
+                items.append({
+                    "type": "monthly", "id": p.id,
+                    "label": p.title or (p.content or "")[:30] or f"月计划{p.month}",
+                    "plan_label": p.month, "due_date": p.due_date, "status": p.status,
+                })
+            for p in (
+                db.query(PmwbKeyWorkWeeklyPlan)
+                .filter(
+                    PmwbKeyWorkWeeklyPlan.key_work_id == kw_id,
+                    PmwbKeyWorkWeeklyPlan.assignee == name,
+                )
+                .order_by(PmwbKeyWorkWeeklyPlan.week)
+                .all()
+            ):
+                items.append({
+                    "type": "weekly", "id": p.id,
+                    "label": p.title or (p.content or "")[:30] or f"周计划{p.week}",
+                    "plan_label": p.week, "due_date": p.due_date, "status": p.status,
+                })
+            for t in (
+                db.query(PmwbKeyWorkMemberTask)
+                .filter(
+                    PmwbKeyWorkMemberTask.key_work_id == kw_id,
+                    PmwbKeyWorkMemberTask.assignee == name,
+                )
+                .order_by(PmwbKeyWorkMemberTask.id)
+                .all()
+            ):
+                items.append({
+                    "type": "task", "id": t.id,
+                    "label": t.title or f"待办#{t.id}",
+                    "plan_label": "", "due_date": t.due_date, "status": t.status,
+                })
+            fb = feedback_map.get(name)
+            groups.append({
+                "assignee": name,
+                "items": items,
+                "feedback": {
+                    "id": fb.id,
+                    "done_summary": fb.done_summary or "",
+                    "next_summary": fb.next_summary or "",
+                    "risk_note": fb.risk_note or "",
+                    "progress": fb.progress,
+                    "item_updates": _parse_updates(fb),
+                    "feedback_date": fb.feedback_date,
+                    "source": fb.source,
+                    "updated_at": fb.updated_at,
+                } if fb else None,
+            })
+        return {"week": week, "groups": groups}
+
+    def submit_weekly_feedback(self, db: Session, kw_id: int, payload: dict) -> PmwbKeyWorkWeeklyFeedback:
+        """提交一条周反馈（幂等 upsert）：
+
+        1. 同周同责任人已存在 → 更新（重复提交视为编辑）
+        2. 自动追加一条 progress 进展日志（reporter=责任人，周反馈汇总）
+        3. 按 item_updates 批量更新月/周计划、成员待办状态
+        """
+        week = payload["week"]
+        assignee = payload["assignee"]
+        item_updates = payload.get("item_updates") or []
+
+        row = (
+            db.query(PmwbKeyWorkWeeklyFeedback)
+            .filter(
+                PmwbKeyWorkWeeklyFeedback.key_work_id == kw_id,
+                PmwbKeyWorkWeeklyFeedback.week == week,
+                PmwbKeyWorkWeeklyFeedback.assignee == assignee,
+            )
+            .first()
+        )
+        if row:
+            for k, v in payload.items():
+                if k == "item_updates":
+                    setattr(row, "item_updates", json.dumps(v, ensure_ascii=False) if v else None)
+                elif hasattr(row, k):
+                    setattr(row, k, v)
+        else:
+            data = dict(payload)
+            data["item_updates"] = json.dumps(data.pop("item_updates", None) or [], ensure_ascii=False)
+            row = PmwbKeyWorkWeeklyFeedback(key_work_id=kw_id, **data)
+            db.add(row)
+        db.flush()
+
+        # 2. 追加进展日志（周反馈汇总）
+        parts = []
+        if payload.get("done_summary"):
+            parts.append("本周完成：" + payload["done_summary"])
+        if payload.get("next_summary"):
+            parts.append("下周计划：" + payload["next_summary"])
+        if payload.get("risk_note"):
+            parts.append("风险/求助：" + payload["risk_note"])
+        content = "；".join(parts) or "（无内容）"
+        progress = PmwbKeyWorkProgress(
+            key_work_id=kw_id,
+            record_date=payload.get("feedback_date") or date.today(),
+            reporter=assignee,
+            content=f"【周反馈 {week}】{content}",
+        )
+        db.add(progress)
+
+        # 3. 批量更新子项状态
+        for up in item_updates:
+            utype, uid, ustatus = up.get("type"), up.get("id"), up.get("status")
+            if not ustatus:
+                continue
+            target = None
+            if utype == "monthly":
+                target = (
+                    db.query(PmwbKeyWorkMonthlyPlan)
+                    .filter(
+                        PmwbKeyWorkMonthlyPlan.id == uid,
+                        PmwbKeyWorkMonthlyPlan.key_work_id == kw_id,
+                    )
+                    .first()
+                )
+            elif utype == "weekly":
+                target = (
+                    db.query(PmwbKeyWorkWeeklyPlan)
+                    .filter(
+                        PmwbKeyWorkWeeklyPlan.id == uid,
+                        PmwbKeyWorkWeeklyPlan.key_work_id == kw_id,
+                    )
+                    .first()
+                )
+            elif utype == "task":
+                target = (
+                    db.query(PmwbKeyWorkMemberTask)
+                    .filter(
+                        PmwbKeyWorkMemberTask.id == uid,
+                        PmwbKeyWorkMemberTask.key_work_id == kw_id,
+                    )
+                    .first()
+                )
+            if target is not None:
+                target.status = ustatus
+
+        db.commit()
+        db.refresh(row)
+        return row
+
+    def feedback_overview(self, db: Session, week: str) -> Dict[str, Any]:
+        """全部在途工单周反馈总览（列表页/看板消费）。"""
+        in_progress = (
+            db.query(PmwbKeyWork)
+            .filter(PmwbKeyWork.status.in_(["planning", "in_progress", "paused"]))
+            .order_by(PmwbKeyWork.updated_at.desc())
+            .all()
+        )
+        rows = []
+        for kw in in_progress:
+            fb_rows = (
+                db.query(PmwbKeyWorkWeeklyFeedback)
+                .filter(
+                    PmwbKeyWorkWeeklyFeedback.key_work_id == kw.id,
+                    PmwbKeyWorkWeeklyFeedback.week == week,
+                )
+                .all()
+            )
+            done = {f.assignee for f in fb_rows}
+            assignees = self._week_assignees(db, kw.id)
+            pending = [a for a in assignees if a not in done]
+            rows.append({
+                "key_work_id": kw.id,
+                "work_no": kw.work_no,
+                "title": kw.title,
+                "status": kw.status,
+                "assignees": assignees,
+                "feedback_count": len(fb_rows),
+                "pending": pending,
+                "all_done": len(assignees) > 0 and not pending,
+            })
+        return {"week": week, "rows": rows}
 
 
 keywork_service = KeyWorkService()
