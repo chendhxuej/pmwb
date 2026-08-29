@@ -14,7 +14,6 @@ from services.report_llm import generate_report_markdown, render_rule_template, 
 from services.report_prompt import build_system_prompt, build_user_message
 from services.mail_dispatch import dispatch_email
 from utils.master_service import master_service_client
-from utils.markdown_mail import render_work_report_html
 from utils.obsidian import sanitize_filename, write_markdown
 from utils.validators import validate_email_strict
 
@@ -181,8 +180,17 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
     out = _re.sub(r'\n### ④.*?周期外在途跟踪.*?(?=\n###|\n## |\Z)', '\n', out, flags=_re.DOTALL)
     out = _re.sub(r'\n*周期外在途跟踪.*?(?=\n|$)', '', out)
 
-    # 检查缺失章节并补充（仅检查 H2 级别标题）
+    # 检查缺失章节并补充
     for title, marker in required:
+        # 对于"一、本期概述"，不仅检查H2标题，还检查H1下方是否有概述内容
+        # （LLM可能将概述作为H1正文，不单独输出 ## 一、本期概述 这个H2标题）
+        if title == "一、本期概述":
+            has_h2 = bool(_re.search(r'^##\s+一、本期概述$', out, _re.MULTILINE))
+            has_content = bool(_re.search(r'Part\s+A\s+工作成效', out)) or \
+                          bool(_re.search(r'>\s*\*\*本期整体判断', out))
+            if has_h2 or has_content:
+                continue  # 已有概述内容，跳过
+
         # 检查是否已有 H2 级别的章节标题
         pattern = r'^## ' + _re.escape(title) + r'$'
         if not _re.search(pattern, out, _re.MULTILINE):
@@ -325,18 +333,16 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
         raise ValidationException("没有可用的收件人邮箱（姓名需能在人员中台解析）")
     subject = req.get("subject") or r.title or "工作总结"
     raw_body = req.get("body") or r.content or ""
-    # 结构化 HTML 邮件正文：按报告类型分派方案A（日报/周报）或方案B（月报）
-    person_name = req.get("person_name") or ""
-    html_body = render_work_report_html(raw_body, r.report_type, person_name)
-    # 统一走邮件治理门面：HTML 正文、统一签名、落库、发信
+    # 统一走邮件治理门面：scene=work_report 由 _render_mail 统一调用 render_work_report_html，
+    # 保证预览与实发渲染路径一致；签名、落库、发信也由门面统一处理。
     result = dispatch_email(
         db=db,
         to=to_emails,
         cc=cc_emails or None,
         subject=subject,
         scene="work_report",
-        raw_content=html_body,
-        html_passthrough=True,
+        variables={"body": raw_body, "report_type": r.report_type},
+        add_signature=True,
         raise_on_error=False,
     )
     if not result.get("success"):

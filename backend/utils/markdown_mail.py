@@ -173,8 +173,11 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
         m = _re.search(r"统计区间[：:]\s*(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})", title_part)
         if m:
             period = f"{m.group(1)} ~ {m.group(2)}"
-            # 标题取区间之前的部分
-            title = title_part[: m.start()].strip() or "工作汇报"
+            # 标题取区间之前的部分，并去掉可能残留的左括号
+            title = title_part[: m.start()].strip()
+            title = _re.sub(r"[\(（]\s*$", "", title).strip()
+            if not title:
+                title = "工作汇报"
         else:
             title = title_part or "工作汇报"
     if not title:
@@ -242,7 +245,7 @@ def _extract_kpi(md: str) -> dict:
 
 
 def _render_scheme_a(title: str, subtitle: str, type_tag: str, period: str, kpi: dict, inner: str) -> str:
-    """方案A：蓝调商务风（日报/周报）"""
+    """方案A：蓝调商务风（日报/周报）。使用 table 布局保证 Outlook 等邮件客户端兼容。"""
     blue = "#165dff"
     kpi_items = [
         ("本周交付", kpi.get("delivered", "0"), "target", ""),
@@ -252,36 +255,54 @@ def _render_scheme_a(title: str, subtitle: str, type_tag: str, period: str, kpi:
         ("待办完成率", kpi.get("todo_rate", "0%"), "rate", ""),
     ]
     kpi_cells = "".join(
-        f'<div class="kpi-item"><div class="kpi-num{kpi_cell_class(v)}">{v}</div>'
-        f'<div class="kpi-label">{l}</div><div class="kpi-sub">{s}</div></div>'
-        for l, v, _, s in kpi_items
+        f'<td width="20%" align="center" valign="top" style="padding:18px 4px;'
+        f'border-left:{"0" if i == 0 else "1px solid #f0f2f5"};'  # noqa: B005
+        f'font-family:-apple-system,\'Microsoft YaHei\',Arial,sans-serif;">'
+        f'<div style="font-size:26px;font-weight:800;line-height:1;color:#1d2129;margin-bottom:6px;">{v}</div>'
+        f'<div style="font-size:12px;color:#86909c;font-weight:600;">{l}</div>'
+        f'<div style="font-size:11px;color:#c0c4cc;margin-top:2px;">{s}</div></td>'
+        for i, (l, v, _, s) in enumerate(kpi_items)
     )
-    return f'''<div style="max-width:820px;width:100%;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
+    return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;">
+<tr><td align="center" style="padding:0;">
+<div style="max-width:820px;width:100%;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
 <div style="background:linear-gradient(135deg,{blue} 0%,#308ffd 100%);padding:24px 20px 20px;color:#fff;">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
-<div><div style="font-size:15px;font-weight:700;opacity:0.9;">📋 PMWB 个人工作台</div>
-<div style="font-size:11px;opacity:0.7;margin-top:2px;">产品经理工作总结 · 自动生成</div></div>
-<div style="display:flex;gap:5px;align-items:center;">
-<span style="background:rgba(255,255,255,0.2);color:#fff;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:600;">{type_tag}</span>
-<span style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:3px 8px;border-radius:5px;font-size:10px;">{period}</span>
-</div>
-</div>
-<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px;text-align:center;">{title}</div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="left" valign="top">
+<div style="font-size:15px;font-weight:700;opacity:0.9;">📋 PMWB 个人工作台</div>
+<div style="font-size:11px;opacity:0.7;margin-top:2px;">产品经理工作总结 · 自动生成</div>
+</td>
+<td align="right" valign="top">
+<table cellpadding="0" cellspacing="0" border="0"><tr>
+<td style="background:rgba(255,255,255,0.2);color:#fff;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:600;">{type_tag}</td>
+<td width="5"></td>
+<td style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:3px 8px;border-radius:5px;font-size:10px;">{period}</td>
+</tr></table>
+</td>
+</tr>
+</table>
+<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin:16px 0 4px;text-align:center;">{title}</div>
 <div style="font-size:12px;opacity:0.85;text-align:center;">{subtitle}</div>
 </div>
-<div style="display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid #f0f2f5;">{kpi_cells}</div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid #f0f2f5;background:#fff;">
+<tr>{kpi_cells}</tr>
+</table>
 <div style="background:#fff;border-radius:0 0 12px 12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
 {inner}
-<div style="padding:14px 28px;background:#fafbfc;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;display:flex;justify-content:space-between;">
-<span>🏢 PMWB · 产品经理个人工作台</span>
-<span>本邮件由系统自动生成，请勿直接回复</span>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fafbfc;border-top:1px solid #f0f2f5;">
+<tr>
+<td style="padding:14px 28px;font-size:11px;color:#c0c4cc;" align="left">🏢 PMWB · 产品经理个人工作台</td>
+<td style="padding:14px 28px;font-size:11px;color:#c0c4cc;" align="right">本邮件由系统自动生成，请勿直接回复</td>
+</tr>
+</table>
 </div>
 </div>
-</div>'''
+</td></tr></table>'''
 
 
 def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi: dict, progress: list, inner: str) -> str:
-    """方案B：紫调仪表盘风（月报）"""
+    """方案B：紫调仪表盘风（月报）。使用 table 布局保证 Outlook 等邮件客户端兼容。"""
     purple = "#722ed1"
     kpi_items = [
         ("需求交付", kpi.get("delivered", "0"), "#165dff", "目标25项"),
@@ -291,49 +312,76 @@ def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi:
         ("会议场次", kpi.get("meeting", "0"), "#165dff", ""),
         ("知识沉淀", kpi.get("added", "0"), "#00b42a", "较上月"),
     ]
-    kpi_cells = "".join(
-        f'<div class="dash-cell"><div class="dash-num" style="color:{c};font-size:28px;font-weight:800;line-height:1;">{v}</div>'
-        f'<div class="dash-label" style="font-size:12px;color:#86909c;margin-top:6px;">{l}</div>'
-        f'<div class="dash-sub" style="font-size:11px;color:#c0c4cc;margin-top:2px;">{s}</div>'
-        f'<div class="mini-bar" style="height:4px;background:#f0f0f0;border-radius:2px;margin-top:8px;overflow:hidden;">'
-        f'<div class="fill" style="height:100%;width:72%;background:{c};border-radius:2px;"></div></div></div>'
-        for l, v, c, s in kpi_items
-    )
+    # 6 个 KPI 分两行，每行 3 列
+    kpi_rows = []
+    for row_idx in range(2):
+        cells = []
+        for col_idx in range(3):
+            i = row_idx * 3 + col_idx
+            l, v, c, s = kpi_items[i]
+            border_top = "0" if row_idx == 0 else "1px solid #f0f0f0"
+            border_left = "0" if col_idx == 0 else "1px solid #f0f0f0"
+            cells.append(
+                f'<td width="33.33%" align="center" valign="top" '
+                f'style="padding:18px 6px;border-top:{border_top};border-left:{border_left};'
+                f'font-family:-apple-system,\'Microsoft YaHei\',Arial,sans-serif;">'
+                f'<div style="font-size:28px;font-weight:800;line-height:1;color:{c};margin-bottom:6px;">{v}</div>'
+                f'<div style="font-size:12px;color:#86909c;margin-top:6px;">{l}</div>'
+                f'<div style="font-size:11px;color:#c0c4cc;margin-top:2px;">{s}</div>'
+                f'<table width="80%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;background:#f0f0f0;border-radius:2px;">'
+                f'<tr><td style="height:4px;font-size:0;line-height:0;background:{c};border-radius:2px;width:72%;">&nbsp;</td>'
+                f'<td style="height:4px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td>'
+            )
+        kpi_rows.append("<tr>" + "".join(cells) + "</tr>")
+    kpi_table = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid #f0f0f0;background:#fff;">' + "".join(kpi_rows) + "</table>"
+
     prog_html = ""
     if progress:
-        prog_html = '<div class="progress-section" style="padding:14px 28px;background:#fafbff;border-bottom:1px solid #f0f0f0;">'
-        prog_html += '<div class="prog-title" style="font-size:13px;color:#4e5969;font-weight:600;margin-bottom:10px;">📈 本月各模块目标达成进度</div>'
+        prog_html = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 28px;background:#fafbff;border-bottom:1px solid #f0f0f0;">'
+        prog_html += '<tr><td colspan="3" style="font-size:13px;color:#4e5969;font-weight:600;padding-bottom:10px;">📈 本月各模块目标达成进度</td></tr>'
         for p in progress:
-            prog_html += f'<div class="prog-row" style="display:flex;align-items:center;gap:10px;margin-bottom:7px;">'
-            prog_html += f'<span class="prog-name" style="font-size:12px;color:#86909c;width:80px;">{p["name"]}</span>'
-            prog_html += f'<div class="prog-bar" style="flex:1;height:8px;background:#e8e9ef;border-radius:4px;overflow:hidden;">'
-            prog_html += f'<div class="prog-fill" style="height:100%;width:{p["pct"]}%;background:{p["color"]};border-radius:4px;"></div></div>'
-            prog_html += f'<span class="prog-pct" style="font-size:12px;font-weight:700;width:36px;text-align:right;color:{p["color"]};">{p["pct"]}%</span></div>'
-        prog_html += '</div>'
+            prog_html += f'<tr><td width="80" style="font-size:12px;color:#86909c;padding:3px 0;">{p["name"]}</td>'
+            prog_html += f'<td style="padding:3px 10px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e8e9ef;border-radius:4px;"><tr>'
+            prog_html += f'<td width="{p["pct"]}%" style="height:8px;font-size:0;line-height:0;background:{p["color"]};border-radius:4px;">&nbsp;</td>'
+            prog_html += f'<td style="height:8px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td>'
+            prog_html += f'<td width="45" align="right" style="font-size:12px;font-weight:700;color:{p["color"]};padding:3px 0;">{p["pct"]}%</td></tr>'
+        prog_html += '</table>'
 
-    return f'''<div style="max-width:820px;width:100%;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
+    return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;">
+<tr><td align="center" style="padding:0;">
+<div style="max-width:820px;width:100%;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
 <div style="background:linear-gradient(135deg,{purple} 0%,#9064d9 100%);padding:24px 20px 20px;color:#fff;">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
-<div><div style="font-size:15px;font-weight:700;opacity:0.9;">📊 PMWB 个人工作台</div>
-<div style="font-size:11px;opacity:0.7;margin-top:2px;">产品经理工作总结 · 自动生成</div></div>
-<div style="display:flex;gap:5px;align-items:center;">
-<span style="background:rgba(255,255,255,0.2);color:#fff;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:600;">{type_tag}</span>
-<span style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:3px 8px;border-radius:5px;font-size:10px;">{period}</span>
-</div>
-</div>
-<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px;text-align:center;">{title}</div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="left" valign="top">
+<div style="font-size:15px;font-weight:700;opacity:0.9;">📊 PMWB 个人工作台</div>
+<div style="font-size:11px;opacity:0.7;margin-top:2px;">产品经理工作总结 · 自动生成</div>
+</td>
+<td align="right" valign="top">
+<table cellpadding="0" cellspacing="0" border="0"><tr>
+<td style="background:rgba(255,255,255,0.2);color:#fff;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:600;">{type_tag}</td>
+<td width="5"></td>
+<td style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:3px 8px;border-radius:5px;font-size:10px;">{period}</td>
+</tr></table>
+</td>
+</tr>
+</table>
+<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin:16px 0 4px;text-align:center;">{title}</div>
 <div style="font-size:12px;opacity:0.85;text-align:center;">{subtitle}</div>
 </div>
-<div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid #f0f0f0;">{kpi_cells}</div>
+{kpi_table}
 {prog_html}
 <div style="background:#fff;border-radius:0 0 12px 12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
 {inner}
-<div style="padding:14px 28px;background:#fafbfc;border-top:1px solid #f0f0f0;font-size:11px;color:#c0c4cc;display:flex;justify-content:space-between;">
-<span>🏢 PMWB · 产品经理个人工作台</span>
-<span>本邮件由系统自动生成，请勿直接回复</span>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fafbfc;border-top:1px solid #f0f0f0;">
+<tr>
+<td style="padding:14px 28px;font-size:11px;color:#c0c4cc;" align="left">🏢 PMWB · 产品经理个人工作台</td>
+<td style="padding:14px 28px;font-size:11px;color:#c0c4cc;" align="right">本邮件由系统自动生成，请勿直接回复</td>
+</tr>
+</table>
 </div>
 </div>
-</div>'''
+</td></tr></table>'''
 
 
 def _kpi_cell_class(v: str) -> str:
@@ -358,33 +406,38 @@ def _render_dual_overview(html_str: str) -> str:
         return html_str
     col_a_content = m.group(1).strip()
     col_b_content = m.group(2).strip()
-    dual_div = (
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;'
-        'padding:20px 28px;border-bottom:1px solid #f0f2f5;">'
+    dual_table = (
+        '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="padding:20px 28px;border-bottom:1px solid #f0f2f5;">'
+        '<tr>'
+        '<td width="50%" valign="top" style="padding-right:7px;">'
         '<div style="background:linear-gradient(135deg,#f0f7ff 0%,#e8f3ff 100%);'
         'border:1px solid #c7ddff;border-radius:10px;padding:16px;">'
-        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
-        '<div style="width:28px;height:28px;border-radius:8px;'
-        'background:#165dff;color:#fff;display:flex;align-items:center;'
-        'justify-content:center;font-size:14px;font-weight:700;">✓</div>'
-        '<div style="font-size:14px;font-weight:700;color:#165dff;">工作成效</div>'
-        '</div>'
+        '<table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">'
+        '<tr><td style="width:28px;height:28px;border-radius:8px;'
+        'background:#165dff;color:#fff;text-align:center;vertical-align:middle;'
+        'font-size:14px;font-weight:700;">✓</td>'
+        '<td style="padding-left:8px;font-size:14px;font-weight:700;color:#165dff;">工作成效</td></tr>'
+        '</table>'
         f'{col_a_content}'
         '</div>'
+        '</td>'
+        '<td width="50%" valign="top" style="padding-left:7px;">'
         '<div style="background:linear-gradient(135deg,#fff7f0 0%,#fff0e8 100%);'
         'border:1px solid #ffccc7;border-radius:10px;padding:16px;">'
-        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
-        '<div style="width:28px;height:28px;border-radius:8px;'
-        'background:#f53f3f;color:#fff;display:flex;align-items:center;'
-        'justify-content:center;font-size:14px;font-weight:700;">!</div>'
-        '<div style="font-size:14px;font-weight:700;color:#f53f3f;">待改进问题</div>'
-        '</div>'
+        '<table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">'
+        '<tr><td style="width:28px;height:28px;border-radius:8px;'
+        'background:#f53f3f;color:#fff;text-align:center;vertical-align:middle;'
+        'font-size:14px;font-weight:700;">!</td>'
+        '<td style="padding-left:8px;font-size:14px;font-weight:700;color:#f53f3f;">待改进问题</td></tr>'
+        '</table>'
         f'{col_b_content}'
         '</div>'
-        '</div>'
+        '</td>'
+        '</tr>'
+        '</table>'
     )
-    replacement = dual_div
-    html_str = _re.sub(pattern, replacement, html_str, flags=_re.DOTALL)
+    html_str = _re.sub(pattern, dual_table, html_str, flags=_re.DOTALL)
     return html_str
 
 

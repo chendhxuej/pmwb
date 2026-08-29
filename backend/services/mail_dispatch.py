@@ -28,6 +28,7 @@ from utils.markdown_mail import (
     _sanitize,
     inject_signature_inline,
     markdown_to_email_html,
+    render_work_report_html,
 )
 
 logger = logging.getLogger("pmwb.mail_dispatch")
@@ -204,7 +205,18 @@ def _render_mail(
     rendered_subject = None
     body_format = "html"
 
-    if use_templated:
+    # work_report 场景：统一使用结构化 HTML 渲染，保证预览=实发
+    if scene == "work_report" and raw_content:
+        report_type = (variables.get("report_type") if variables else None) or "weekly"
+        person_name = (
+            (variables.get("person_name") if variables else None)
+            or getattr(settings, "SELF_NAME", "")
+            or ""
+        )
+        body_html = render_work_report_html(raw_content, report_type, person_name)
+        body_html = _sanitize(body_html)
+        body_format = "html"
+    elif use_templated:
         try:
             body_html, rendered_subject, body_format = _render_templated(
                 sc, variables, template_id, template_data

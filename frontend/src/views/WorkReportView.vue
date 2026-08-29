@@ -146,6 +146,7 @@
       :default-cc="mailDialogCc"
       :default-subject="mailDialogSubject"
       :default-body="mailDialogBody"
+      :variables="mailDialogVariables"
       value-key="email"
       :custom-send="handleSendMail"
       @success="handleMailSuccess"
@@ -237,9 +238,12 @@ const mailDialogTo = ref([])
 const mailDialogCc = ref([])
 const mailDialogSubject = ref('')
 const mailDialogBody = ref('')
+const mailDialogVariables = ref({})
 
 async function handleSendMail(payload) {
-  // payload 可能包含 scene/variables 等额外字段，后端 SendRequest 只接受 to/cc/subject/body
+  // payload 可能包含 scene/variables 等额外字段；
+  // 后端 SendRequest 接受 to/cc/subject/body，并把 body+report_type 交给统一邮件门面渲染，
+  // 保证预览与实发完全一致。
   const data = await sendWorkReport(current.value.id, {
     to: payload.to || [],
     cc: payload.cc || [],
@@ -361,6 +365,9 @@ function openEmail() {
   mailDialogCc.value = (current.value.cc || '').split(',').map(s => s.trim()).filter(Boolean)
   mailDialogSubject.value = current.value.title || ''
   mailDialogBody.value = current.value.content || ''
+  // 把 report_type 透传给 MailComposeDialog，预览时由 _render_mail 统一调用
+  // render_work_report_html 生成与实发完全一致的结构化 HTML。
+  mailDialogVariables.value = { report_type: current.value.report_type }
   mailDialogVisible.value = true
 }
 
