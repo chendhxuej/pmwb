@@ -157,9 +157,11 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
     out = _re.sub(r'^### (一、本期概述|二、重点工作|三、需求与交付|四、运营支撑|五、会议与协同|六、个人待办|七、知识中心)$',
                   r'## \1', out, flags=_re.MULTILINE)
 
-    # 检查缺失章节并补充
+    # 检查缺失章节并补充（仅检查 H2 级别标题）
     for title, marker in required:
-        if marker not in out:
+        # 检查是否已有 H2 级别的章节标题
+        pattern = r'^## ' + _re.escape(title) + r'$'
+        if not _re.search(pattern, out, _re.MULTILINE):
             out = out.rstrip() + f"\n\n## {title}\n（本期暂无相关数据与进展，建议补充）\n"
     return out
 
