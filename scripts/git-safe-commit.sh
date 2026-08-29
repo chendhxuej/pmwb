@@ -61,10 +61,13 @@ git reset --mixed main 2>/dev/null || git reset --mixed HEAD
 git add "${FILES[@]}"
 
 # 4) 误加检查：任何不在已知目录前缀下的文件被暂存都视为异常
-STRAY="$(git diff --cached --name-only | grep -vE '^(backend/|frontend/|services/|scripts/|docs/|extension/|.workbuddy/)' || true)"
+#    注：-c core.quotepath=false 必要 —— 否则含中文的路径会被 git 转义成
+#    "\351\202\256..." 八进制序列，grep 前缀匹配不上，中文文件被误判为 stray。
+STRAY="$(git -c core.quotepath=false diff --cached --name-only | grep -vE '^(backend/|frontend/|services/|scripts/|docs/|extension/|prototype/|skills/|.workbuddy/)' || true)"
 if [[ -n "$STRAY" ]]; then
   echo "[git-safe] 发现非预期文件被暂存，已中止：" >&2
   echo "$STRAY" >&2
+  echo "[git-safe] 提示：若确需提交该目录，请把前缀加入本脚本的白名单正则" >&2
   git reset --mixed HEAD >/dev/null 2>&1 || true
   exit 3
 fi
