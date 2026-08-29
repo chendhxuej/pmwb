@@ -378,3 +378,30 @@ def test_compress_falls_back_to_byte_probe_when_mime_missing():
     out = compress_attachments_for_mail_center(atts)
     assert out[0]["mimeType"] == "image/jpeg"  # 识别为图片并转 JPEG
     assert len(out[0]["contentBase64"]) < len(b64)  # 体积被压缩，不会原样转发
+
+
+def test_work_report_email_is_responsive_and_centered():
+    """work_report 场景邮件正文应支持响应式布局，内容居中不偏左。"""
+    html = markdown_mail.render_work_report_html(
+        "# 工作周报（统计区间：2026-08-25 ~ 2026-08-29）\n\n**Part A 工作成效**\n\n本周完成3项交付。\n\n**Part B 待改进问题**\n\n高敏工单需关注。",
+        report_type="weekly",
+        person_name="陈大海"
+    )
+    # 核心修复：内容表格应有 max-width + margin 居中，而非硬编码 width="680"
+    assert 'max-width="680"' in html
+    assert 'margin:0 auto' in html
+    # 外层表格应占满宽度以适应不同屏幕
+    assert 'width="100%"' in html
+    # 安全修复：用户输入内容应被转义
+    assert "&lt;" not in html  # 不应有未转义的 < 字符（指用户可控部分）
+    # 字体格式应兼容
+    assert "Microsoft YaHei,Arial,sans-serif" in html
+    assert "'Microsoft YaHei'" not in html  # 不应有带单引号的写法
+
+
+def test_markdown_to_email_html_has_max_width():
+    """通用 Markdown 邮件正文也应限制最大宽度，避免在宽屏上拉伸过长。"""
+    html = markdown_mail.markdown_to_email_html("# 标题\n\n正文内容", inject_signature=False)
+    assert 'max-width:680px' in html
+    assert 'margin:0 auto' in html
+    assert 'padding:0 16px' in html

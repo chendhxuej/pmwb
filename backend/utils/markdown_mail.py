@@ -256,38 +256,38 @@ def _render_scheme_a(title: str, subtitle: str, type_tag: str, period: str, kpi:
     blue = "#165dff"
     return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#ffffff;">
 <tr><td align="center" style="padding:20px 0;">
-<table width="680" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<table width="100%" max-width="680" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;margin:0 auto;">
 <!-- 简约商务页眉 -->
 <tr>
 <td style="padding:0 0 16px 0;border-bottom:2px solid {blue};">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
 <td align="left" valign="middle">
-<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:'Microsoft YaHei',Arial,sans-serif;">{title}</span>
+<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(title)}</span>
 </td>
 <td align="right" valign="middle">
 <table cellpadding="0" cellspacing="0" border="0"><tr>
-<td style="font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{type_tag}</td>
+<td style="font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(type_tag)}</td>
 <td width="12"></td>
-<td style="font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{period}</td>
+<td style="font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(period)}</td>
 </tr></table>
 </td>
 </tr>
 <tr>
-<td colspan="2" style="padding-top:8px;font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{subtitle}</td>
+<td colspan="2" style="padding-top:8px;font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(subtitle)}</td>
 </tr>
 </table>
 </td>
 </tr>
 <!-- 邮件正文内容 -->
 <tr>
-<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:'Microsoft YaHei',Arial,sans-serif;word-break:break-word;">
+<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:Microsoft YaHei,Arial,sans-serif;word-break:break-word;">
 {inner}
 </td>
 </tr>
 <!-- 页脚 -->
 <tr>
-<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:'Microsoft YaHei',Arial,sans-serif;">
+<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:Microsoft YaHei,Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
 <td align="left">🏢 PMWB · 产品经理个人工作台</td>
@@ -315,43 +315,43 @@ def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi:
     prog_html = ""
     if progress:
         prog_html = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 20px 0;background:#fafbff;padding:16px 20px;">'
-        prog_html += '<tr><td style="font-size:13px;color:#4e5969;font-weight:600;font-family:\'Microsoft YaHei\',Arial,sans-serif;padding-bottom:10px;">📈 本月各模块目标达成进度</td></tr>'
+        prog_html += '<tr><td style="font-size:13px;color:#4e5969;font-weight:600;font-family:Microsoft YaHei,Arial,sans-serif;padding-bottom:10px;">📈 本月各模块目标达成进度</td></tr>'
         for p in progress:
-            prog_html += f'<tr><td style="padding:3px 0;font-size:12px;color:#86909c;font-family:\'Microsoft YaHei\',Arial,sans-serif;">{p["name"]}</td>'
+            prog_html += f'<tr><td style="padding:3px 0;font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{p["name"]}</td>'
             prog_html += f'<td style="padding:3px 10px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e8e9ef;"><tr>'
             prog_html += f'<td width="{p["pct"]}%" style="height:8px;font-size:0;line-height:0;background:{p["color"]};">&nbsp;</td>'
             prog_html += f'<td style="height:8px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td>'
-            prog_html += f'<td width="45" align="right" style="font-size:12px;font-weight:700;color:{p["color"]};font-family:\'Microsoft YaHei\',Arial,sans-serif;padding:3px 0;">{p["pct"]}%</td></tr>'
+            prog_html += f'<td width="45" align="right" style="font-size:12px;font-weight:700;color:{p["color"]};font-family:Microsoft YaHei,Arial,sans-serif;padding:3px 0;">{p["pct"]}%</td></tr>'
         prog_html += '</table>'
 
     return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#ffffff;">
 <tr><td align="center" style="padding:20px 0;">
-<table width="680" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<table width="100%" max-width="680" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;margin:0 auto;">
 <!-- 简约商务页眉 -->
 <tr>
 <td style="padding:0 0 16px 0;border-bottom:2px solid {purple};">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
 <td align="left" valign="middle">
-<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:'Microsoft YaHei',Arial,sans-serif;">{title}</span>
+<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(title)}</span>
 </td>
 <td align="right" valign="middle">
 <table cellpadding="0" cellspacing="0" border="0"><tr>
-<td style="font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{type_tag}</td>
+<td style="font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(type_tag)}</td>
 <td width="12"></td>
-<td style="font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{period}</td>
+<td style="font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(period)}</td>
 </tr></table>
 </td>
 </tr>
 <tr>
-<td colspan="2" style="padding-top:8px;font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{subtitle}</td>
+<td colspan="2" style="padding-top:8px;font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(subtitle)}</td>
 </tr>
 </table>
 </td>
 </tr>
 <!-- 邮件正文内容 -->
 <tr>
-<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:'Microsoft YaHei',Arial,sans-serif;word-break:break-word;">
+<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:Microsoft YaHei,Arial,sans-serif;word-break:break-word;">
 {inner}
 </td>
 </tr>
@@ -359,7 +359,7 @@ def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi:
 {prog_html}
 <!-- 页脚 -->
 <tr>
-<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:'Microsoft YaHei',Arial,sans-serif;">
+<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:Microsoft YaHei,Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
 <td align="left">🏢 PMWB · 产品经理个人工作台</td>
@@ -509,7 +509,12 @@ def markdown_to_email_html(
     body_html = _sanitize(body_html)
     # 2. 再注入内联样式（bleach 无 css_sanitizer 时会清空 style 属性，故顺序在后）
     body_html = _apply_inline_styles(body_html)
-    styled = f'<div style="{_BODY_STYLE}">{body_html}</div>'
+    _body_wrap = (
+        'font-family:-apple-system,"Segoe UI",Microsoft YaHei,Arial,sans-serif;'
+        'font-size:14px;line-height:1.75;color:#1f2329;word-break:break-word;'
+        'max-width:680px;margin:0 auto;padding:0 16px;'
+    )
+    styled = f'<div style="{_body_wrap}">{body_html}</div>'
     if inject_signature:
         styled = inject_signature_inline(
             styled, signature if signature is not None else settings.EMAIL_SIGNATURE
