@@ -129,13 +129,88 @@ class ReportDataCollector:
     def __init__(self, db):
         self.db = db
 
+    @staticmethod
+    def _norm_title(t: Any) -> str:
+        """归一化标题用于去重：去【领导调研】标记、去评估/的/标点/空白，仅保留核心词。"""
+        import re as _re
+        s = str(t or "")
+        s = s.replace("【领导调研】", "").replace("【", "").replace("】", "")
+        s = _re.sub(r"[的评估\s，。、；：:（）()\/]", "", s)
+        return s
+
+    @classmethod
+    def _merge_research_tasks(cls, ri: Dict[str, Any], tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """把运营工单中剥离出的「领导调研」类并入 research_issue（4.4 独家归口），按归一化标题去重。
+
+        保证：① 运营工单总量已不含调研；② 4.4 始终有数据（兼容调研只录在运营表或只录在调研表两种情况）；
+        ③ 既不在两个来源间、也不在调研表内部产生重复呈现（调研表内部重复录入同样去重）。
+        """
+        raw_items = list(ri.get("items") or [])
+        # 1) 先对调研表内部按归一化标题去重（同一调研重复录入只留第一条）
+        seen: set = set()
+        deduped: List[Dict[str, Any]] = []
+        for it in raw_items:
+            n = cls._norm_title(it.get("title"))
+            if not n or n in seen:
+                continue
+            seen.add(n)
+            deduped.append(it)
+        # 2) 并入运营表剥离出的领导调研（增量去重，避免两表重复录入）
+        for t in (tasks or []):
+            n = cls._norm_title(t.get("title"))
+            if not n:
+                continue
+            if n in seen or any(n in e or e in n for e in seen):
+                continue
+            seen.add(n)
+            deduped.append({
+                "issue_no": t.get("issue_no") or "",
+                "title": t.get("title") or "",
+                "sub_type": "领导调研",
+                "status": t.get("status") or "待处理",
+                "city": "",
+                "impact_level": t.get("impact") or "一般(P2)",
+                "situation_desc": "",
+                "feedback_deadline": "",
+                "business_admin": t.get("handler") or "",
+                "related_req_id": "",
+            })
+        # 3) 从去重后的列表统一重算聚合计数，保证 items 与计数一致
+        by_sub_type: Dict[str, int] = defaultdict(int)
+        by_status: Dict[str, int] = defaultdict(int)
+        by_city: Dict[str, int] = defaultdict(int)
+        high: List[Dict[str, Any]] = []
+        CLOSED = ("已解决", "已关闭")
+        for it in deduped:
+            sub = it.get("sub_type") or "领导调研"
+            st = it.get("status") or "待处理"
+            imp = it.get("impact_level") or "一般(P2)"
+            by_sub_type[sub] += 1
+            by_status[st] += 1
+            if it.get("city"):
+                by_city[it.get("city")] += 1
+            if imp in ("致命(P0)", "严重(P1)") and st not in CLOSED:
+                high.append(it)
+        ri = dict(ri)
+        ri["items"] = deduped
+        ri["by_sub_type"] = dict(by_sub_type)
+        ri["by_status"] = dict(by_status)
+        ri["by_city"] = dict(by_city)
+        ri["high_impact"] = high
+        return ri
+
     def collect(self, date_start: date, date_end: date) -> Dict[str, Any]:
+        requirement = self._collect_requirement(date_start, date_end)
+        op = self._collect_operation_issue(date_start, date_end)
+        ri = self._collect_research_issue(date_start, date_end)
+        # 一线调研归口：运营工单中剥离出的「领导调研」类并入 research_issue（去重），由 4.4 独家呈现
+        ri = self._merge_research_tasks(ri, op.get("research_tasks") or [])
         return {
             "date_start": date_start.isoformat(),
             "date_end": date_end.isoformat(),
-            "requirement": self._collect_requirement(date_start, date_end),
-            "operation_issue": self._collect_operation_issue(date_start, date_end),
-            "research_issue": self._collect_research_issue(date_start, date_end),
+            "requirement": requirement,
+            "operation_issue": op,
+            "research_issue": ri,
             "dev_ticket": self._collect_dev_ticket(date_start, date_end),
             "meeting": self._collect_meeting(date_start, date_end),
             "meeting_action": self._collect_meeting_action(date_start, date_end),
@@ -312,6 +387,10 @@ class ReportDataCollector:
         high: List[Dict[str, Any]] = []
         items: List[Dict[str, Any]] = []
         cross_period: List[Dict[str, Any]] = []
+        # 一线调研/领导调研类工单：归口到「一线调研(4.4)」，不计入运营工单总量与高敏盯办。
+        # 此类工单常同时冗余存在于 operation_issue(task) 与 research_issue，统一由 4.4 独家呈现，
+        # 避免「运营总量虚高 + 一线调研无家可归」的双重 bug。
+        research_tasks: List[Dict[str, Any]] = []
         for r in rows:
             cat = _g(r, "category") or "other"
             st = _g(r, "status") or "pending"
@@ -321,10 +400,14 @@ class ReportDataCollector:
             disc = _date_of(_g(r, "discovery_date")) or _date_of(_g(r, "created_at"))
             resolve = _date_of(_g(r, "resolve_date"))
             is_overdue = _g(r, "is_overdue") or 0
+            title = _g(r, "title") or ""
 
             # 数据过滤：排除已挂起/已暂停的运营工单
             if st in ("paused", "suspended"):
                 continue
+
+            # 一线调研/领导调研识别：标题含「领导调研」即归口 4.4（运营工单只统计故障/异常/投诉类）
+            is_research = "领导调研" in title
 
             # 范围判定：运营工单优先使用 discovery_date 判定时间范围（业务发现时间），其次 updated_at
             in_scope = (
@@ -341,6 +424,17 @@ class ReportDataCollector:
             if not in_scope and not is_cross_period:
                 continue
 
+            # 一线调研类：归口 4.4，不计入运营工单聚合（总量/状态/影响/处理人时效/高敏）
+            if is_research:
+                research_tasks.append({
+                    "issue_no": _g(r, "issue_no"),
+                    "title": title,
+                    "status": tr(OP_ISSUE_STATUS, st),
+                    "impact": tr(IMPACT_LEVEL, impact),
+                    "handler": handler,
+                })
+                continue
+
             by_category[cat] += 1
             by_status[st] += 1
             by_impact[impact] += 1
@@ -350,7 +444,8 @@ class ReportDataCollector:
                     by_handler[h]["done"] += 1
                 if is_overdue:
                     by_handler[h]["overdue"] += 1
-            if impact in ("P0", "P1"):
+            # 高敏盯办仅收未闭环项（已解决/已关闭/待验证/已完成/已办 视为闭环，不进 4.1 盯办表）
+            if impact in ("P0", "P1") and st not in ("resolved", "closed", "verify", "completed", "done"):
                 high.append({
                     "issue_no": _g(r, "issue_no"),
                     "title": _g(r, "title"),
@@ -388,6 +483,7 @@ class ReportDataCollector:
             },
             "high_sensitivity": high,
             "cross_period_items": cross_period,
+            "research_tasks": research_tasks,
         }
 
     # ---- 开发工单 ----

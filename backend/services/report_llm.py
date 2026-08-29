@@ -238,8 +238,7 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     ma_done = ma.get("done") or 0
     ma_rate = float(ma.get("completion_rate", 0) or 0)
 
-    # ---- 关键指标速览（表格，便于一眼掌握全局）----
-    lines.append("## 一、本期概述")
+    # ---- 第一章：执行摘要（判断 + TOP3 + 时效预警，不含数字表）----
     judge = []
     if delivered:
         judge.append(f"需求交付 {len(delivered)} 项，交付侧有实质产出")
@@ -264,43 +263,49 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
         judge.append(f"重点工作 {kw_total} 项，进行中 {kw_active} 项"
                      + (f"，逾期 {kw_overdue} 项须盯办" if kw_overdue else "，推进有序"))
     overview = "；".join(judge) if judge else "本期各模块运行平稳，无突出风险"
-    # 整体判断作为 callout，醒目
+    # 整体判断作为 callout（H1 标题下首段，不单独成 H2）
     lines.append(f"> **本期整体判断**：{overview}。")
     lines.append("")
-    lines.append("**关键指标速览：**")
-    lines.append("")
-    lines.append(_md_table(
-        ["维度", "指标"],
-        [
-            ("重点工作", f"{kw_total} 项（进行中 {kw_active} / 逾期 {kw_overdue}）"),
-            ("需求交付", f"{len(delivered)} 项（新增 {len(added)} / 评估完成 {len(evaluated)} / 启动开发 {len(dev_start)}）"),
-            ("运营支撑", f"{op_total} 条（高敏 {len(hs)}）"),
-            ("会议协同", f"{mt_total} 场，行动项闭环 {ma_done}/{ma_total}（{ma_rate * 100:.0f}%）"),
-            ("个人待办", f"{td_total} 项（完成率 {td_rate * 100:.0f}%，超期 {td_overdue}）"),
-            ("知识中心", f"{kn_total} 条"),
-        ],
-    ))
+
+    # 核心定调：取最关键 3 条结论性判断（不写明细数字，数字留待各章）
+    lines.append("**核心定调**")
+    core = []
+    if hs:
+        core.append(f"运营侧：{len(hs)} 条 P0/P1 高敏工单在办，稳定性与处置能力双承压")
+    if po:
+        core.append(f"交付侧：{len(po)} 项 PO 级需求风险在途，交付节奏承压")
+    if ma_total and ma_done < ma_total:
+        core.append(f"协同侧：会议行动项闭环率仅 {ma_rate * 100:.0f}%，落地存在卡点")
+    if td_overdue:
+        core.append(f"执行侧：个人待办超期 {td_overdue} 项，个人执行偏弱")
+    if kw_overdue:
+        core.append(f"重点侧：{kw_overdue} 项重点工作逾期，须盯办")
+    for c in core[:3]:
+        lines.append(f"- {c}")
     lines.append("")
 
-    # 人员时效与改进要求（基于 by_handler 的完成率/超期率，点名问题处理人）
+    # 本周必须攻坚 TOP3（从高敏/PO 风险挑最关键，最多 3 项）
+    lines.append("**本周必须攻坚 TOP3**")
+    top3 = []
+    for h in hs[:3]:
+        handler = h.get("handler") or "待指派"
+        top3.append(f"- 【{h.get('impact')}】{h.get('title') or h.get('issue_no')}（{handler}）——本周必须闭环处置")
+    for p in po[: max(0, 3 - len(top3))]:
+        top3.append(f"- 【{p.get('priority')}】{p.get('req_name')}（{p.get('sa_name') or '待指派'}）——本周必须推进上线/明确计划")
+    if top3:
+        lines.extend(top3)
+    else:
+        lines.append("- 本期无 P0/P1 级紧急事项，维持常态推进。")
+    lines.append("")
+
+    # 处置时效预警（一句话，指向 4.3，不列表不重复数字）
     op_handlers = op.get("by_handler") or {}
-    if op_handlers:
-        problem = sorted(
-            [(h, v) for h, v in op_handlers.items() if v.get("overdue") or (v.get("done_rate", 1) < 0.7)],
-            key=lambda x: (-(x[1].get("overdue", 0)), x[1].get("done_rate", 1)),
-        )
-        if problem:
-            lines.append("**人员时效与改进要求**：以下处理人完成及时率偏低或存在超期，须提出改进要求——")
-            for h, v in problem[:5]:
-                rate = v.get("done_rate", 0)
-                ov = v.get("overdue", 0)
-                desc = f"完成率仅 {rate * 100:.0f}%（已办 {v.get('done', 0)}/{v.get('total', 0)}）"
-                if ov:
-                    desc += f"，超期 {ov} 条（超期率 {v.get('overdue_rate', 0) * 100:.0f}%）"
-                lines.append(f"- 要求【{h}】切实提升处置时效：{desc}，限期压缩工单处置时长、闭环超期项。")
-        else:
-            lines.append("**人员时效**：各处理人完成及时率整体良好，无突出超期，维持常态化支撑。")
-        lines.append("")
+    problem = [h for h, v in op_handlers.items() if (v.get("overdue") or 0) > 0 or (v.get("done_rate", 1) < 0.7)]
+    if problem:
+        lines.append(f"**处置时效预警**：{'、'.join(problem[:5])} 完成率偏低，详见第四章 4.3 处理人时效与改进要求。")
+    else:
+        lines.append("**处置时效预警**：各处理人完成及时率整体良好。")
+    lines.append("")
 
     # 二、重点工作（先概述，再分四子章节：总体态势/重点推进/本期完成/风险逾期）
     lines.append("## 二、重点工作")
@@ -463,35 +468,50 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     if op_total:
         top_cat = max(op_cat, key=op_cat.get) if op_cat else "—"
         overdue_intro = [h for h, v in handlers.items() if v.get("overdue")]
-        lines.append(f"> **本章概述**：本期运营工单 {op_total} 条，高发类别为「{top_cat}」({op_cat.get(top_cat, 0)})，高敏 {len(hs)} 条"
+        lines.append(f"> **本章概述**：本期运营工单 {op_total} 条（不含一线调研，调研类见 4.4），高发类别「{top_cat}」({op_cat.get(top_cat, 0)})，高敏 {len(hs)} 条"
                      + ("，处置时效承压。" if overdue_intro else "，时效整体可控。"))
         lines.append("")
-        lines.append("- **工单类别分布**：")
+
+        # 4.1 高敏（P0/P1）工单盯办（置顶，最优先）
+        lines.append("### 4.1 高敏（P0/P1）工单盯办")
+        if hs:
+            lines.append(_md_table(
+                ["工单编号", "标题", "类别", "影响", "处理人", "状态"],
+                [(h.get("issue_no") or "", h.get("title") or h.get("issue_no"), h.get("category"), h.get("impact"), h.get("handler") or "待指派", h.get("status")) for h in hs[:6]],
+            ))
+            lines.append("- 高敏工单须优先闭环、防止升级投诉；未闭环项须给出具体处置动作与时限。")
+        else:
+            lines.append("- 本期无高敏（P0/P1）工单。")
         lines.append("")
+
+        # 4.2 工单类别与趋势
+        lines.append("### 4.2 工单类别与趋势")
+        lines.append("- **工单类别分布**：")
         lines.append(_md_table(
             ["类别", "数量"],
             sorted(((k, v) for k, v in op_cat.items()), key=lambda x: -x[1])[:6],
         ))
         if hs:
-            lines.append(f"- **高敏（P0/P1）工单 {len(hs)} 条**，已纳入重点盯办，防止升级投诉：")
-            for h in hs[:6]:
-                handler = h.get("handler") or "待指派"
-                lines.append(f"  - 【{h.get('title') or h.get('issue_no')}】（{h.get('category')}/{h.get('impact')}"
-                             f"，处理人：{handler}）")
+            lines.append(f"- **趋势判断**：高敏工单集中（{len(hs)} 条 P0/P1），处置压力突出，须重点盯办并溯源根因。")
+        lines.append("")
+
+        # 4.3 处理人时效与改进要求（最 actionable，须完整列出）
+        lines.append("### 4.3 处理人时效与改进要求")
+        if handlers:
+            lines.append(_md_table(
+                ["处理人", "总量", "已办", "完成率", "改进要求"],
+                [(h, v.get("total", 0), v.get("done", 0), f'{v.get("done_rate", 0) * 100:.0f}%',
+                  "压缩处置时长、闭环超期项" if (v.get("overdue") or v.get("done_rate", 1) < 0.7) else "保持节奏")
+                 for h, v in sorted(handlers.items(), key=lambda x: -(x[1].get("overdue", 0)))[:8]],
+            ))
         else:
-            lines.append("- 高敏（P0/P1）工单：本期无。")
-        backlog = sorted(handlers.items(), key=lambda x: -(x[1].get("total", 0) - x[1].get("done", 0)))[:3]
-        if backlog:
-            bstr = "；".join(f"{h} 积压 {v['total'] - v['done']} 条（已办 {v['done']}/{v['total']}）" for h, v in backlog)
-            lines.append(f"- 处理人时效：处置压力集中在 {bstr}，需关注时效与分流。")
-        overdue_h = [h for h, v in handlers.items() if v.get("overdue")]
-        if overdue_h:
-            lines.append(f"- 超期处理人：{', '.join(overdue_h)}，需压缩处置时长。")
+            lines.append("- 本期无处理人时效数据。")
+        lines.append("")
     else:
         lines.append("- 本期无运营工单。")
-    lines.append("")
+        lines.append("")
 
-    # 4.4 一线调研（与 prompt 的「四、运营支撑」4.1~4.4 子章节体系对齐）
+    # 4.4 一线调研（独家归口，不计入运营总量）
     ri_items = ri.get("items") or []
     ri_sub = ri.get("by_sub_type") or {}
     ri_city = ri.get("by_city") or {}
@@ -499,8 +519,8 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
     lines.append("### 4.4 一线调研")
     if ri_items:
         sub_str = "、".join(f"{k} {v} 条" for k, v in sorted(ri_sub.items(), key=lambda x: -x[1]))
-        city_str = "、".join(f"{k} {v} 条" for k, v in sorted(ri_city.items(), key=lambda x: -x[1]))
-        lines.append(f"> 本期一线调研工单 {len(ri_items)} 条（{sub_str}），地市分布：{city_str or '—'}"
+        city_str = "、".join(f"{k} {v} 条" for k, v in sorted(ri_city.items(), key=lambda x: -x[1])) if ri_city else "—"
+        lines.append(f"> 本期一线调研工单 {len(ri_items)} 条（{sub_str}），地市分布：{city_str}"
                      + ("，其中高影响未闭环需重点盯办。" if ri_high else "。"))
         lines.append("")
         for it in ri_items[:6]:
