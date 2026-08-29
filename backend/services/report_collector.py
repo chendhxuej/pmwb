@@ -23,6 +23,7 @@ from db.models import (
     PmwbMeeting,
     PmwbMeetingAction,
     PmwbOperationIssue,
+    PmwbResearchIssue,
     PmwbRequirementEvaluation,
     PmwbRequirementExt,
     PmwbTodo,
@@ -42,6 +43,9 @@ from services.report_dict import (
     KW_CATEGORY,
     KW_STATUS,
     KW_PRIORITY,
+    RESEARCH_ISSUE_SUB_TYPE,
+    RESEARCH_ISSUE_STATUS,
+    RESEARCH_ISSUE_IMPACT,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,6 +120,7 @@ class ReportDataCollector:
             "date_end": date_end.isoformat(),
             "requirement": self._collect_requirement(date_start, date_end),
             "operation_issue": self._collect_operation_issue(date_start, date_end),
+            "research_issue": self._collect_research_issue(date_start, date_end),
             "dev_ticket": self._collect_dev_ticket(date_start, date_end),
             "meeting": self._collect_meeting(date_start, date_end),
             "meeting_action": self._collect_meeting_action(date_start, date_end),
@@ -529,8 +534,13 @@ class ReportDataCollector:
             # 范围判定：主表 updated_at/created_at，或关联周计划/进展/成员任务在范围内有更新
             latest_related = _latest_related_date(w, list(weekly_plans) + list(progresses) + list(member_tasks))
             is_overdue_risk = planned and planned < end and st not in ("completed", "cancelled")
+
+            # 在途重点工作（in_progress/planning）默认纳入，不受时间范围限制
+            # 确保商客专区等跨期重点项目始终可见
+            is_active = st in ("in_progress", "planning")
             in_scope = (
-                _in_range(updated, start, end)
+                is_active
+                or _in_range(updated, start, end)
                 or _in_range(created, start, end)
                 or _in_range(latest_related, start, end)
                 or _in_range(planned, start, end)
@@ -661,4 +671,76 @@ class ReportDataCollector:
                 "rejected": len(buckets["rejected"]),
                 "pending": len(buckets["pending"]),
             },
+        }
+
+    # ---- 一线调研 ----
+    def _collect_research_issue(self, start, end):
+        try:
+            rows = self.db.query(PmwbResearchIssue).all()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("采集一线调研工单失败: %s", e)
+            return {"items": [], "by_sub_type": {}, "by_status": {}, "by_city": {}, "high_impact": []}
+
+        by_sub_type = defaultdict(int)
+        by_status = defaultdict(int)
+        by_city = defaultdict(int)
+        high: List[Dict[str, Any]] = []
+        items: List[Dict[str, Any]] = []
+        for r in rows:
+            st = _g(r, "status") or "pending"
+            sub_type = _g(r, "sub_type") or "leader_research"
+            city = _g(r, "city") or ""
+            impact = _g(r, "impact_level") or "P2"
+            created = _date_of(_g(r, "created_at"))
+            updated = _date_of(_g(r, "updated_at"))
+            deadline = _date_of(_g(r, "feedback_deadline"))
+
+            # 排除已挂起
+            if st == "suspended":
+                continue
+
+            # 范围判定：创建/更新在范围内，或本周有进展
+            in_scope = (
+                _in_range(created, start, end)
+                or _in_range(updated, start, end)
+                or _in_range(deadline, start, end)
+            )
+            # 跨期跟踪：周期前已存在且未闭环
+            is_cross_period = (
+                not in_scope
+                and created and created < start
+                and st not in ("resolved", "closed")
+            )
+            if not in_scope and not is_cross_period:
+                continue
+
+            by_sub_type[sub_type] += 1
+            by_status[st] += 1
+            if city:
+                by_city[city] += 1
+
+            item = {
+                "issue_no": _g(r, "issue_no") or "",
+                "title": (_g(r, "title") or "")[:100],
+                "sub_type": tr(RESEARCH_ISSUE_SUB_TYPE, sub_type),
+                "status": tr(RESEARCH_ISSUE_STATUS, st),
+                "city": city,
+                "impact_level": tr(RESEARCH_ISSUE_IMPACT, impact),
+                "situation_desc": (_g(r, "situation_desc") or "")[:200],
+                "feedback_deadline": deadline.isoformat() if deadline else "",
+                "business_admin": _g(r, "business_admin") or "",
+                "related_req_id": _g(r, "related_req_id") or "",
+            }
+            items.append(item)
+
+            # 高影响（P0/P1）且未闭环
+            if impact in ("P0", "P1") and st not in ("resolved", "closed"):
+                high.append(item)
+
+        return {
+            "items": items,
+            "by_sub_type": tr_keys(RESEARCH_ISSUE_SUB_TYPE, by_sub_type),
+            "by_status": tr_keys(RESEARCH_ISSUE_STATUS, by_status),
+            "by_city": dict(by_city),
+            "high_impact": high,
         }

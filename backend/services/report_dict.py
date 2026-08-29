@@ -119,6 +119,28 @@ KW_PRIORITY: Dict[str, str] = {
     "P3": "低(P3)",
 }
 
+# ---- 一线调研工单 ----
+RESEARCH_ISSUE_SUB_TYPE: Dict[str, str] = {
+    "leader_research": "领导调研",
+    "frontline_station": "一线驻点",
+}
+
+RESEARCH_ISSUE_STATUS: Dict[str, str] = {
+    "pending": "待处理",
+    "processing": "处理中",
+    "verify": "待验证",
+    "resolved": "已解决",
+    "closed": "已关闭",
+    "suspended": "已挂起",
+}
+
+RESEARCH_ISSUE_IMPACT: Dict[str, str] = {
+    "P0": "致命(P0)",
+    "P1": "严重(P1)",
+    "P2": "一般(P2)",
+    "P3": "轻微(P3)",
+}
+
 # 所有字典按模块归类，便于 prompt 注入 glossary
 GLOSSARY: Dict[str, Dict[str, str]] = {
     "需求状态": REQUIREMENT_STATUS,
@@ -134,6 +156,9 @@ GLOSSARY: Dict[str, Dict[str, str]] = {
     "重点工作分类": KW_CATEGORY,
     "重点工作状态": KW_STATUS,
     "重点工作优先级": KW_PRIORITY,
+    "一线调研子类": RESEARCH_ISSUE_SUB_TYPE,
+    "一线调研状态": RESEARCH_ISSUE_STATUS,
+    "一线调研影响等级": RESEARCH_ISSUE_IMPACT,
 }
 
 
