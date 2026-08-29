@@ -192,31 +192,29 @@ def send_feedback_mail(
     payload: KeyWorkFeedbackMailRequest,
     db: Session = Depends(get_db),
 ):
-    """发送周反馈请求邮件给责任人（统一发信 + 人员中台邮箱解析）。
+    """发送周反馈请求邮件给工单负责人（负责人牵头制，统一发信 + 人员中台邮箱解析）。
 
-    指定 assignees 时只发给指定责任人；缺省发给该工单全部责任人。
-    无邮箱的责任人跳过并随结果返回，可转手动转录兜底。
+    负责人牵头制：只发给该工单负责人（owner），由负责人线下收集成员信息后汇总反馈；
+    不再向成员逐人发送。无邮箱的负责人跳过并随结果返回，可转手动录入兜底。
     """
     kw = keywork_service.get(db, kw_id)
     if not kw:
         raise NotFoundException(f"重点工作不存在：id={kw_id}")
 
-    if payload.assignees:
-        names = [n.strip() for n in payload.assignees if n and n.strip()]
-    else:
-        names = keywork_service._week_assignees(db, kw_id)
-    if not names:
-        return success(data={"week": payload.week, "sent": [], "skipped": [], "failed": [], "message": "该工单暂无责任人"})
+    owner = (kw.owner or "").strip()
+    if not owner:
+        return success(data={"week": payload.week, "sent": [], "skipped": [], "failed": [], "message": "该工单未设置负责人（owner），无法发送周反馈请求"})
+    names = [owner]
 
     emails = MasterServiceClient().resolve_staff_emails(names)
     week = payload.week
     body_md = (
         f"【重点工作周反馈】{kw.title}（{kw.work_no}）- {week} 周\n\n"
-        f"请于本周五前完成以下三块内容反馈：\n\n"
-        f"## 本周完成\n（填写本周已完成的进展）\n\n"
-        f"## 下周计划\n（填写下周计划开展的工作）\n\n"
+        f"您是该专题负责人，请牵头线下收集本专题各成员本周进展后，汇总反馈以下三块内容：\n\n"
+        f"## 本周完成\n（汇总本周已完成的进展，含各成员工作）\n\n"
+        f"## 下周计划\n（汇总下周计划开展的工作）\n\n"
         f"## 风险/求助\n（如有风险或需协调事项请填写）\n\n"
-        f"反馈方式：在 PMWB「重点工作」详情页的周反馈页签提交，或直接回复本邮件。"
+        f"反馈方式：直接回复本邮件，或线下同步给管理员在 PMWB「重点工作」详情页周反馈页签录入归档。"
     )
     sent, skipped, failed = [], [], []
     for name in names:

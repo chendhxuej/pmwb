@@ -499,6 +499,30 @@ class WeeklyFeedbackItemUpdate(BaseModel):
     status: str = Field(..., description="新状态")
 
 
+class WeeklyFeedbackMemberTaskNote(BaseModel):
+    """成员任务进展说明。"""
+
+    task_id: int = Field(..., description="成员任务ID")
+    note: Optional[str] = Field(None, description="进展说明")
+    status: Optional[str] = Field(None, description="更新后的状态")
+
+
+class WeeklyFeedbackNewTask(BaseModel):
+    """在周反馈中顺手新增的成员任务。"""
+
+    title: str = Field(..., max_length=500, description="待办标题")
+    assignee: Optional[str] = Field(None, max_length=64, description="负责人")
+    due_date: Optional[date] = Field(None, description="截止日期")
+    note: Optional[str] = Field(None, description="备注")
+    link_type: Optional[str] = Field("none", description="关联对象类型")
+    link_id: Optional[int] = Field(None, description="关联对象ID")
+
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def _empty_due_date_to_none(cls, v):
+        return None if v in ("", None) else v
+
+
 class KeyWorkWeeklyFeedbackCreate(BaseModel):
     week: str = Field(..., max_length=10, description="周次 YYYY-Www")
     assignee: str = Field(..., max_length=64, description="责任人")
@@ -506,9 +530,14 @@ class KeyWorkWeeklyFeedbackCreate(BaseModel):
     feedback_date: Optional[date] = Field(None, description="反馈日期")
     done_summary: Optional[str] = Field(None, description="本周完成")
     next_summary: Optional[str] = Field(None, description="下周计划")
+    monthly_summary: Optional[str] = Field(None, description="本月月总结（月底周）")
+    next_month_summary: Optional[str] = Field(None, description="下月重点/下月月计划草案（月底周）")
     risk_note: Optional[str] = Field(None, description="风险/求助")
     progress: Optional[int] = Field(None, ge=0, le=100, description="该责任人进度%")
-    item_updates: Optional[List[WeeklyFeedbackItemUpdate]] = Field(None, description="子项状态更新明细")
+    item_updates: Optional[List[WeeklyFeedbackItemUpdate]] = Field(None, description="月/周计划子项状态更新明细")
+    member_task_notes: Optional[List[WeeklyFeedbackMemberTaskNote]] = Field(None, description="成员任务进展说明")
+    new_tasks: Optional[List[WeeklyFeedbackNewTask]] = Field(None, description="新增成员任务")
+    deliverable_ids: Optional[List[int]] = Field(None, description="本次反馈关联交付物ID列表")
     raw_text: Optional[str] = Field(None, description="原始反馈全文")
 
     @field_validator("feedback_date", mode="before")
@@ -526,17 +555,22 @@ class KeyWorkWeeklyFeedbackOut(BaseModel):
     feedback_date: Optional[date] = None
     done_summary: Optional[str] = None
     next_summary: Optional[str] = None
+    monthly_summary: Optional[str] = None
+    next_month_summary: Optional[str] = None
     risk_note: Optional[str] = None
     progress: Optional[int] = None
     item_updates: List[dict] = []
+    member_task_notes: List[dict] = []
+    new_tasks: List[dict] = []
+    deliverable_ids: List[int] = []
     status: str = "submitted"
     raw_text: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("item_updates", mode="before")
+    @field_validator("item_updates", "member_task_notes", "deliverable_ids", mode="before")
     @classmethod
-    def _parse_item_updates(cls, v):
+    def _parse_json_fields(cls, v):
         if v is None or v == "":
             return []
         if isinstance(v, str):

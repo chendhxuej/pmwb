@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案B - 双段式概述（月报邮件预览）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #eef1f5; font-family: -apple-system, 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif; padding: 24px; }
+  .preview-wrap { max-width: 780px; margin: 0 auto; }
+  .scheme-label { background: #722ed1; color: #fff; padding: 8px 16px; border-radius: 8px 8px 0 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .scheme-label span { background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+  .email-card { background: #fff; border-radius: 0 0 12px 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); overflow: hidden; }
+
+  .email-header { background: linear-gradient(135deg, #722ed1 0%, #9064d9 100%); padding: 28px 28px 22px; color: #fff; }
+  .header-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+  .brand-col .brand-name { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; opacity: 0.9; }
+  .brand-col .brand-sub { font-size: 12px; opacity: 0.7; margin-top: 3px; }
+  .report-badges { display: flex; gap: 6px; align-items: center; }
+  .report-badges .type-tag { background: rgba(255,255,255,0.2); color: #fff; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+  .report-badges .month-tag { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.9); padding: 4px 10px; border-radius: 6px; font-size: 11px; }
+  .email-title { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 6px; }
+  .email-subtitle { font-size: 13px; opacity: 0.85; }
+
+  .dashboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-bottom: 1px solid #f0f0f0; }
+  .dash-cell { padding: 18px 16px; border-right: 1px solid #f5f5f5; text-align: center; }
+  .dash-cell:last-child { border-right: none; }
+  .dash-cell .dash-num { font-size: 28px; font-weight: 800; line-height: 1; }
+  .dash-cell .dash-num.blue { color: #165dff; }
+  .dash-cell .dash-num.warn { color: #f53f3f; }
+  .dash-cell .dash-num.ok { color: #00b42a; }
+  .dash-cell .dash-num.purple { color: #722ed1; }
+  .dash-cell .dash-label { font-size: 12px; color: #86909c; margin-top: 6px; }
+  .dash-cell .dash-sub { font-size: 11px; color: #c0c4cc; margin-top: 2px; }
+  .dash-cell .mini-bar { height: 4px; background: #f0f0f0; border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .dash-cell .mini-bar .fill { height: 100%; border-radius: 2px; }
+
+  .progress-section { padding: 14px 28px; background: #fafbff; border-bottom: 1px solid #f0f0f0; }
+  .prog-title { font-size: 13px; color: #4e5969; font-weight: 600; margin-bottom: 10px; }
+  .prog-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+  .prog-row .prog-name { font-size: 12px; color: #86909c; width: 80px; flex-shrink: 0; }
+  .prog-row .prog-bar { flex: 1; height: 8px; background: #e8e9ef; border-radius: 4px; overflow: hidden; }
+  .prog-row .prog-bar .prog-fill { height: 100%; border-radius: 4px; }
+  .prog-row .prog-pct { font-size: 12px; font-weight: 600; width: 36px; text-align: right; }
+
+  .overview-section { padding: 20px 28px; border-bottom: 1px solid #f0f0f0; }
+  .section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .section-num { width: 22px; height: 22px; background: #722ed1; color: #fff; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .section-title { font-size: 15px; font-weight: 700; color: #1d2129; }
+  .overview-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .ov-col { border-radius: 10px; padding: 16px; }
+  .ov-col.achievements { background: linear-gradient(135deg, #f0f7ff 0%, #e8f3ff 100%); border: 1px solid #c7ddff; }
+  .ov-col.issues { background: linear-gradient(135deg, #fff7f0 0%, #fff0e8 100%); border: 1px solid #ffccc7; }
+  .ov-col-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .ov-col-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .ov-col.achievements .ov-col-icon { background: #165dff; color: #fff; }
+  .ov-col.issues .ov-col-icon { background: #f53f3f; color: #fff; }
+  .ov-col-title { font-size: 14px; font-weight: 700; }
+  .ov-col.achievements .ov-col-title { color: #165dff; }
+  .ov-col.issues .ov-col-title { color: #f53f3f; }
+  .ov-list { list-style: none; padding: 0; }
+  .ov-list li { padding: 6px 0; font-size: 12px; color: #3d4a5c; line-height: 1.65; display: flex; align-items: flex-start; gap: 6px; border-bottom: 1px dashed rgba(0,0,0,0.06); }
+  .ov-list li:last-child { border-bottom: none; }
+  .ov-list .ov-bullet { width: 5px; height: 5px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+  .ov-col.achievements .ov-bullet { background: #165dff; }
+  .ov-col.issues .ov-bullet { background: #f53f3f; }
+  .ov-list .ov-highlight { font-weight: 600; color: #1d2129; }
+  .ov-list .ov-person { color: #86909c; font-size: 11px; }
+
+  .watch-strip { margin: 0 28px; background: linear-gradient(90deg, #fff2f0 0%, #fff7e8 100%); border: 1px solid #ffccc7; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #3d4a5c; }
+  .watch-strip .ws-icon { font-size: 16px; }
+  .watch-strip strong { color: #f53f3f; }
+  .watch-strip .ws-person { background: #fff; padding: 1px 6px; border-radius: 4px; font-size: 11px; color: #4e5969; font-weight: 600; }
+
+  .section { padding: 18px 28px; border-bottom: 1px solid #f0f0f0; }
+  .section:last-child { border-bottom: none; }
+  .section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .section-num.sn2 { background: #722ed1; }
+  .section-title { font-size: 15px; font-weight: 700; color: #1d2129; }
+  .section-tag { font-size: 11px; background: #f3e8ff; color: #722ed1; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+
+  .kw-card { background: #fafbfc; border: 1px solid #e8e9ef; border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+  .kw-card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .kw-card-title { font-size: 14px; font-weight: 600; color: #1d2129; display: flex; align-items: center; gap: 6px; }
+  .kw-card-meta { font-size: 12px; color: #86909c; margin-top: 2px; }
+  .kw-card-body { font-size: 12px; color: #4e5969; line-height: 1.7; }
+  .kw-card-body strong { color: #1d2129; }
+  .kw-card-footer { display: flex; gap: 16px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e8e9ef; font-size: 11px; }
+  .kw-card-footer span { color: #86909c; }
+  .kw-card-footer strong { color: #1d2129; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge.p0 { background: #fff2f0; color: #f53f3f; }
+  .badge.p1 { background: #fff7e8; color: #f77d00; }
+  .badge.done { background: #f0f7ff; color: #165dff; }
+  .badge.warn { background: #fff2f0; color: #f53f3f; }
+  .badge.purple { background: #f3e8ff; color: #722ed1; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0; }
+  table th { background: #f2f3f5; color: #4e5969; font-weight: 600; padding: 8px 10px; text-align: left; font-size: 11px; }
+  table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; color: #3d4a5c; vertical-align: top; }
+  table tr:last-child td { border-bottom: none; }
+  table tr:hover td { background: #fafbff; }
+
+  .next-section { background: linear-gradient(135deg, #f3e8ff 0%, #ede6ff 100%); padding: 18px 28px; border-top: 2px solid #722ed1; }
+  .next-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px dashed #d6c4ff; font-size: 13px; color: #3d4a5c; }
+  .next-item:last-child { border-bottom: none; }
+  .next-num { width: 18px; height: 18px; background: #722ed1; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+  .next-body strong { color: #1d2129; }
+
+  .email-footer { padding: 14px 28px; background: #fafbfc; border-top: 1px solid #f0f0f0; font-size: 11px; color: #c0c4cc; display: flex; justify-content: space-between; }
+  .email-footer a { color: #722ed1; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="preview-wrap">
+<div class="scheme-label">方案B · 双段式概述（月报） <span>紫调仪表盘</span></div>
+<div class="email-card">
+
+  <div class="email-header">
+    <div class="header-top">
+      <div class="brand-col">
+        <div class="brand-name">📊 PMWB 个人工作台</div>
+        <div class="brand-sub">产品经理工作总结 · 自动生成</div>
+      </div>
+      <div class="report-badges">
+        <span class="type-tag">工作月报</span>
+        <span class="month-tag">2026-08</span>
+      </div>
+    </div>
+    <div class="email-title">工作汇报</div>
+    <div class="email-subtitle">👤 陈大海 &nbsp;·&nbsp; 统计区间：2026-08-01 ~ 2026-08-29</div>
+  </div>
+
+  <div class="dashboard">
+    <div class="dash-cell"><div class="dash-num blue">18</div><div class="dash-label">需求交付数</div><div class="dash-sub">目标 25 项 · 达成率 72%</div><div class="mini-bar"><div class="fill" style="width:72%;background:#165dff;"></div></div></div>
+    <div class="dash-cell"><div class="dash-num warn">5</div><div class="dash-label">高敏工单</div><div class="dash-sub">P0/P1 未闭环 3 条</div><div class="mini-bar"><div class="fill" style="width:35%;background:#f53f3f;"></div></div></div>
+    <div class="dash-cell"><div class="dash-num ok">92%</div><div class="dash-label">待办完成率</div><div class="dash-sub">超期 1 项</div><div class="mini-bar"><div class="fill" style="width:92%;background:#00b42a;"></div></div></div>
+    <div class="dash-cell"><div class="dash-num purple">6</div><div class="dash-label">重点工作</div><div class="dash-sub">进行中 4 / 逾期 2</div><div class="mini-bar"><div class="fill" style="width:33%;background:#722ed1;"></div></div></div>
+    <div class="dash-cell"><div class="dash-num blue">8</div><div class="dash-label">会议场次</div><div class="dash-sub">行动项闭环 75%</div><div class="mini-bar"><div class="fill" style="width:75%;background:#165dff;"></div></div></div>
+    <div class="dash-cell"><div class="dash-num ok">12</div><div class="dash-label">知识沉淀</div><div class="dash-sub">较上月 +4</div><div class="mini-bar"><div class="fill" style="width:60%;background:#00b42a;"></div></div></div>
+  </div>
+
+  <div class="progress-section">
+    <div class="prog-title">📈 本月各模块目标达成进度</div>
+    <div class="prog-row"><span class="prog-name">需求交付</span><div class="prog-bar"><div class="prog-fill" style="width:72%;background:#165dff;"></div></div><span class="prog-pct" style="color:#165dff;font-weight:700;">72%</span></div>
+    <div class="prog-row"><span class="prog-name">运营工单</span><div class="prog-bar"><div class="prog-fill" style="width:85%;background:#00b42a;"></div></div><span class="prog-pct" style="color:#00b42a;font-weight:700;">85%</span></div>
+    <div class="prog-row"><span class="prog-name">重点工作</span><div class="prog-bar"><div class="prog-fill" style="width:45%;background:#f77d00;"></div></div><span class="prog-pct" style="color:#f77d00;font-weight:700;">45%</span></div>
+    <div class="prog-row"><span class="prog-name">知识中心</span><div class="prog-bar"><div class="prog-fill" style="width:60%;background:#722ed1;"></div></div><span class="prog-pct" style="color:#722ed1;font-weight:700;">60%</span></div>
+  </div>
+
+  <div class="overview-section">
+    <div class="section-header"><div class="section-num">一</div><div class="section-title">本期概述</div></div>
+    <div class="overview-dual">
+      <div class="ov-col achievements">
+        <div class="ov-col-header"><div class="ov-col-icon">✓</div><div class="ov-col-title">工作成效</div></div>
+        <ul class="ov-list">
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">需求交付：</span>本月完成上线 <span class="ov-highlight">18 项</span>（目标 25 项，达成率 72%），较上月提升 3 项；重点交付「商客专区智能匹配」「订单中心数据看板」等 5 项核心功能</span></li>
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">运营支撑：</span>一般工单平均处置时效 2.1 天，环比缩短 0.4 天；P0/P1 工单闭环率 85%，较上月提升 10 个百分点</span></li>
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">重点工作：</span>「商客专区智能报价」产品方案评审通过，AI 引擎 v1.0 开发完成，整体进度 65%，按计划推进</span></li>
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">知识沉淀：</span>本月新增 12 条知识库条目，较上月 +4，运营故障处置案例占比提升至 40%</span></li>
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">会议协同：</span>本月 8 场会议，行动项闭环 6/8（75%），较上月 60% 有提升</span></li>
+        </ul>
+      </div>
+      <div class="ov-col issues">
+        <div class="ov-col-header"><div class="ov-col-icon">!</div><div class="ov-col-title">待改进问题</div></div>
+        <ul class="ov-list">
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">高敏工单逾期：</span>3 条 P0/P1 工单未闭环，「一网通P0故障」已超期 5 天（负责人：<span class="ov-person">李四</span>，须 9/3 前闭环）</span></li>
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">交付节奏滞后：</span>本月交付 18/25 项，达成率 72%，缺口 7 项；「集团短信模板管理」「电子协议审批流」延期至下月</span></li>
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">重点工作逾期风险：</span>2 项逾期（「订单中心性能优化」截止 8/31，仅剩 2 天；「商客 SaaS 需求池整理」已超期 3 天）</span></li>
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">人员时效不均：</span>处理人 <span class="ov-person">李四</span> 本月超期 3 条，完成率 68%，低于团队均值 15 个百分点，需限期压缩处置时长</span></li>
+          <li><span class="ov-bullet"></span><span><span class="ov-highlight">个人待办超期：</span>1 项「竞品分析周报」截止昨日未提交，影响月度汇报材料完整性</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="watch-strip">
+    <span class="ws-icon">⚠️</span>
+    <span><strong>本月需重点盯办（4项）：</strong></span>
+    <span>①「一网通P0故障」— <span class="ws-person">李四</span> 9/3前闭环</span>
+    <span>②「订单中心性能优化」— <span class="ws-person">王五</span> 9/2前交付</span>
+    <span>③「商客SaaS需求池」— <span class="ws-person">赵六</span> 9/5前完成</span>
+    <span>④「集团短信模板管理」— <span class="ws-person">钱七</span> 9/10前上线</span>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><div class="section-num sn2">二</div><div class="section-title">重点工作</div><span class="section-tag">4 项推进中</span></div>
+    <div class="kw-card">
+      <div class="kw-card-head">
+        <div><div class="kw-card-title">集团商客专区智能报价 <span class="badge p0">P0</span></div><div class="kw-card-meta">负责人：张三 &nbsp;·&nbsp; 进度：65% &nbsp;·&nbsp; 计划完成：2026-09-05</div></div>
+        <span class="badge done">正常推进</span>
+      </div>
+      <div class="kw-card-body">本月计划 4 项，完成 2 项。核心进展：产品方案评审通过，AI 引擎 v1.0 开发完成；下月关键：模型联调与灰度验证（截止 9/15）。</div>
+      <div class="kw-card-footer"><span>本月计划 <strong>4项</strong>，完成 <strong>2项</strong></span><span>·</span><span>下月关键 <strong>模型联调</strong>（截止9/15）</span></div>
+    </div>
+    <div class="kw-card">
+      <div class="kw-card-head">
+        <div><div class="kw-card-title">一网通宽带融合开通流程升级</div><div class="kw-card-meta">负责人：李四 &nbsp;·&nbsp; 进度：40% &nbsp;·&nbsp; 计划完成：2026-10-15</div></div>
+        <span class="badge warn">需关注</span>
+      </div>
+      <div class="kw-card-body">本月完成现状调研与流程梳理；下月：需求规格说明书初稿提交并组织评审。</div>
+      <div class="kw-card-footer"><span>本月计划 <strong>3项</strong>，完成 <strong>1项</strong></span><span>·</span><span>下月关键 <strong>需求规格说明书评审</strong>（截止9/10）</span></div>
+    </div>
+  </div>
+
+  <div class="next-section">
+    <div class="section-header"><div class="section-num">八</div><div class="section-title">下月重点工作与趋势研判</div></div>
+    <div class="next-item"><div class="next-num">1</div><div class="next-body"><strong>【重点工作】集团商客专区智能报价</strong>（负责人：张三）— AI 模型联调与灰度验证，截止 9/15</div></div>
+    <div class="next-item"><div class="next-num">2</div><div class="next-body"><strong>【重点工作】一网通融合开通</strong>（负责人：李四）— 需求规格说明书评审，截止 9/10</div></div>
+    <div class="next-item"><div class="next-num">3</div><div class="next-body"><strong>【运营盯办】3条高敏工单闭环</strong>（负责人：李四/甲方）— 制定处置时效 SLA（≤48h）</div></div>
+    <div class="next-item"><div class="next-num">4</div><div class="next-body"><strong>【需求交付】补齐交付缺口</strong>— 推进「集团短信模板管理」「电子协议审批流」等 7 项，目标下月上交率 90%</div></div>
+    <div class="next-item"><div class="next-num">5</div><div class="next-body"><strong>【趋势研判】重点工作逾期风险收敛</strong>— 当前 2 项逾期，建议 9/5 前组织专项复盘，制定纠偏方案</div></div>
+  </div>
+
+  <div class="email-footer">
+    <span>🏢 PMWB · 产品经理个人工作台</span>
+    <span>本邮件由系统自动生成，请勿直接回复 &nbsp;·&nbsp; <a href="#">查看完整报告</a></span>
+  </div>
+</div>
+</div>
+</body>
+</html>

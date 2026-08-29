@@ -14,6 +14,7 @@ from services.report_llm import generate_report_markdown, render_rule_template, 
 from services.report_prompt import build_system_prompt, build_user_message
 from services.mail_dispatch import dispatch_email
 from utils.master_service import master_service_client
+from utils.markdown_mail import render_work_report_html
 from utils.obsidian import sanitize_filename, write_markdown
 from utils.validators import validate_email_strict
 
@@ -62,7 +63,9 @@ def _date_range(report_type: str, ds: Optional[date], de: Optional[date]):
     if ds:
         return ds, end
     if report_type == "weekly":
-        start = end - timedelta(days=6)
+        # ISO 周对齐：周一=本周开始，周日=本周结束
+        weekday = end.weekday()  # 0=周一, 6=周日
+        start = end - timedelta(days=weekday)
     elif report_type == "monthly":
         start = end.replace(day=1)
     else:  # daily / custom
@@ -286,14 +289,18 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
         raise ValidationException("没有可用的收件人邮箱（姓名需能在人员中台解析）")
     subject = req.get("subject") or r.title or "工作总结"
     raw_body = req.get("body") or r.content or ""
-    # 统一走邮件治理门面：Markdown→HTML、统一签名、落库、发信
+    # 结构化 HTML 邮件正文：按报告类型分派方案A（日报/周报）或方案B（月报）
+    person_name = req.get("person_name") or ""
+    html_body = render_work_report_html(raw_body, r.report_type, person_name)
+    # 统一走邮件治理门面：HTML 正文、统一签名、落库、发信
     result = dispatch_email(
         db=db,
         to=to_emails,
         cc=cc_emails or None,
         subject=subject,
         scene="work_report",
-        raw_content=raw_body,
+        raw_content=html_body,
+        html_passthrough=True,
         raise_on_error=False,
     )
     if not result.get("success"):

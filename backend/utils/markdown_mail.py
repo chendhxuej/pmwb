@@ -146,6 +146,202 @@ def _apply_inline_styles(html_str: str) -> str:
     return re.sub(r"<([a-zA-Z0-9]+)([^>]*)>", repl, html_str)
 
 
+def render_work_report_html(md: str, report_type: str, person_name: str = "") -> str:
+    """将工作总结 Markdown 转换为带结构化头部/KPI 条的 HTML 邮件正文。
+
+    按 report_type 分派排版方案：
+    - daily/weekly → 方案A（蓝色渐变头部 + 5格 KPI 条）
+    - monthly      → 方案B（紫色渐变头部 + 6格 KPI 卡片 + 进度条）
+    - 其余         → 降级为通用 markdown_to_email_html
+
+    头部信息从 md 第一行提取 H1 标题；若无则自动生成。
+    """
+    from datetime import date as _date
+
+    # ---- 1. 提取报告元信息 ----
+    title = ""
+    period = ""
+    type_label = ""
+    rest_md = md or ""
+
+    # 从第一行 H1 提取标题和区间
+    first_line = rest_md.split("\n")[0].strip() if rest_md else ""
+    if first_line.startswith("# "):
+        title_part = first_line[2:].strip()
+        # 格式："工作周报（统计区间：2026-08-25 ~ 2026-08-29）"
+        import re as _re
+        m = _re.search(r"统计区间[：:]\s*(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})", title_part)
+        if m:
+            period = f"{m.group(1)} ~ {m.group(2)}"
+            # 标题取区间之前的部分
+            title = title_part[: m.start()].strip() or "工作汇报"
+        else:
+            title = title_part or "工作汇报"
+    if not title:
+        type_map = {"daily": "工作日报", "weekly": "工作周报", "monthly": "工作月报", "custom": "专项报告"}
+        title = type_map.get(report_type, "工作汇报")
+    if not period:
+        # 尝试从 ## 一、本期概述 附近提取区间
+        for line in rest_md.split("\n"):
+            lm = _re.search(r"统计区间[：:]\s*(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})", line)
+            if lm:
+                period = f"{lm.group(1)} ~ {lm.group(2)}"
+                break
+    if not period:
+        period = "—"
+
+    # 类型标签
+    type_tag_map = {"daily": ("工作日报", "daily"), "weekly": ("工作周报", "weekly"),
+                    "monthly": ("工作月报", "monthly"), "custom": ("专项报告", "custom")}
+    type_label, type_key = type_tag_map.get(report_type, ("工作汇报", "custom"))
+
+    # ---- 2. 提取 KPI 数字 ----
+    kpi_data = _extract_kpi(rest_md)
+
+    # ---- 3. 渲染内层 Markdown HTML ----
+    inner_html = markdown.markdown(rest_md, extensions=_MD_EXTENSIONS)
+    inner_html = _sanitize(inner_html)
+    inner_html = _apply_inline_styles(inner_html)
+    # 过滤掉 H1 标题（已在头部展示），保留其余内容
+    inner_html = _re.sub(r"<h1[^>]*>.*?</h1>", "", inner_html, flags=_re.DOTALL | _re.IGNORECASE)
+
+    # ---- 4. 组装方案A/B 外壳 ----
+    if report_type == "monthly":
+        html = _render_scheme_b(title=title, subtitle=f"👤 {person_name} &nbsp;·&nbsp; 统计区间：{period}",
+                                type_tag=type_label, period=period,
+                                kpi=kpi_data, progress=kpi_data.get("progress", []),
+                                inner=inner_html)
+    else:
+        html = _render_scheme_a(title=title, subtitle=f"👤 {person_name} &nbsp;·&nbsp; 统计区间：{period}",
+                                type_tag=type_label, period=period,
+                                kpi=kpi_data, inner=inner_html)
+    return html
+
+
+def _extract_kpi(md: str) -> dict:
+    """从 Markdown 文本中提取关键指标数字（用于 KPI 展示）。"""
+    import re as _re
+    kpi = {}
+    # 提取各类 KPI 数字
+    patterns = {
+        "delivered": r"交付[：:]\s*(\d+)\s*项",
+        "added": r"新增[：:]\s*(\d+)\s*项",
+        "high_sensitivity": r"高敏[（(]P0/P1[)）]\s*工单\s*(\d+)\s*条",
+        "meeting": r"会议\s*(\d+)\s*场",
+        "todo_rate": r"待办完成率\s*(\d+)%",
+        "kw_active": r"进行中\s*(\d+)\s*项",
+        "kw_overdue": r"逾期\s*(\d+)\s*项",
+    }
+    for key, pat in patterns.items():
+        m = _re.search(pat, md)
+        if m:
+            kpi[key] = m.group(1)
+    return kpi
+
+
+def _render_scheme_a(title: str, subtitle: str, type_tag: str, period: str, kpi: dict, inner: str) -> str:
+    """方案A：蓝调商务风（日报/周报）"""
+    blue = "#165dff"
+    kpi_items = [
+        ("本周交付", kpi.get("delivered", "0"), "target", ""),
+        ("新增需求", kpi.get("added", "0"), "added", ""),
+        ("高敏工单", kpi.get("high_sensitivity", "0"), "high", "P0/P1"),
+        ("会议场次", kpi.get("meeting", "0"), "meeting", ""),
+        ("待办完成率", kpi.get("todo_rate", "0%"), "rate", ""),
+    ]
+    kpi_cells = "".join(
+        f'<div class="kpi-item"><div class="kpi-num{kpi_cell_class(v)}">{v}</div>'
+        f'<div class="kpi-label">{l}</div><div class="kpi-sub">{s}</div></div>'
+        for l, v, _, s in kpi_items
+    )
+    return f'''<div style="max-width:740px;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
+<div style="background:linear-gradient(135deg,{blue} 0%,#308ffd 100%);padding:28px 28px 22px;color:#fff;">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">
+<div><div style="font-size:16px;font-weight:700;opacity:0.9;">📋 PMWB 个人工作台</div>
+<div style="font-size:12px;opacity:0.7;margin-top:3px;">产品经理工作总结 · 自动生成</div></div>
+<div style="display:flex;gap:6px;align-items:center;">
+<span style="background:rgba(255,255,255,0.2);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;">{type_tag}</span>
+<span style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:4px 10px;border-radius:6px;font-size:11px;">{period}</span>
+</div>
+</div>
+<div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px;">{title}</div>
+<div style="font-size:13px;opacity:0.85;">{subtitle}</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid #f0f2f5;">{kpi_cells}</div>
+<div style="background:#fff;border-radius:0 0 12px 12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
+{inner}
+<div style="padding:14px 28px;background:#fafbfc;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;display:flex;justify-content:space-between;">
+<span>🏢 PMWB · 产品经理个人工作台</span>
+<span>本邮件由系统自动生成，请勿直接回复</span>
+</div>
+</div>
+</div>'''
+
+
+def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi: dict, progress: list, inner: str) -> str:
+    """方案B：紫调仪表盘风（月报）"""
+    purple = "#722ed1"
+    kpi_items = [
+        ("需求交付", kpi.get("delivered", "0"), "#165dff", "目标25项"),
+        ("高敏工单", kpi.get("high_sensitivity", "0"), "#f53f3f", "未闭环"),
+        ("待办完成率", kpi.get("todo_rate", "0%"), "#00b42a", ""),
+        ("重点工作", kpi.get("kw_active", "0"), purple, "进行中"),
+        ("会议场次", kpi.get("meeting", "0"), "#165dff", ""),
+        ("知识沉淀", kpi.get("added", "0"), "#00b42a", "较上月"),
+    ]
+    kpi_cells = "".join(
+        f'<div class="dash-cell"><div class="dash-num" style="color:{c};font-size:28px;font-weight:800;line-height:1;">{v}</div>'
+        f'<div class="dash-label" style="font-size:12px;color:#86909c;margin-top:6px;">{l}</div>'
+        f'<div class="dash-sub" style="font-size:11px;color:#c0c4cc;margin-top:2px;">{s}</div>'
+        f'<div class="mini-bar" style="height:4px;background:#f0f0f0;border-radius:2px;margin-top:8px;overflow:hidden;">'
+        f'<div class="fill" style="height:100%;width:72%;background:{c};border-radius:2px;"></div></div></div>'
+        for l, v, c, s in kpi_items
+    )
+    prog_html = ""
+    if progress:
+        prog_html = '<div class="progress-section" style="padding:14px 28px;background:#fafbff;border-bottom:1px solid #f0f0f0;">'
+        prog_html += '<div class="prog-title" style="font-size:13px;color:#4e5969;font-weight:600;margin-bottom:10px;">📈 本月各模块目标达成进度</div>'
+        for p in progress:
+            prog_html += f'<div class="prog-row" style="display:flex;align-items:center;gap:10px;margin-bottom:7px;">'
+            prog_html += f'<span class="prog-name" style="font-size:12px;color:#86909c;width:80px;">{p["name"]}</span>'
+            prog_html += f'<div class="prog-bar" style="flex:1;height:8px;background:#e8e9ef;border-radius:4px;overflow:hidden;">'
+            prog_html += f'<div class="prog-fill" style="height:100%;width:{p["pct"]}%;background:{p["color"]};border-radius:4px;"></div></div>'
+            prog_html += f'<span class="prog-pct" style="font-size:12px;font-weight:700;width:36px;text-align:right;color:{p["color"]};">{p["pct"]}%</span></div>'
+        prog_html += '</div>'
+
+    return f'''<div style="max-width:780px;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
+<div style="background:linear-gradient(135deg,{purple} 0%,#9064d9 100%);padding:28px 28px 22px;color:#fff;">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">
+<div><div style="font-size:16px;font-weight:700;opacity:0.9;">📊 PMWB 个人工作台</div>
+<div style="font-size:12px;opacity:0.7;margin-top:3px;">产品经理工作总结 · 自动生成</div></div>
+<div style="display:flex;gap:6px;align-items:center;">
+<span style="background:rgba(255,255,255,0.2);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;">{type_tag}</span>
+<span style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:4px 10px;border-radius:6px;font-size:11px;">{period}</span>
+</div>
+</div>
+<div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px;">{title}</div>
+<div style="font-size:13px;opacity:0.85;">{subtitle}</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid #f0f0f0;">{kpi_cells}</div>
+{prog_html}
+<div style="background:#fff;border-radius:0 0 12px 12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
+{inner}
+<div style="padding:14px 28px;background:#fafbfc;border-top:1px solid #f0f0f0;font-size:11px;color:#c0c4cc;display:flex;justify-content:space-between;">
+<span>🏢 PMWB · 产品经理个人工作台</span>
+<span>本邮件由系统自动生成，请勿直接回复</span>
+</div>
+</div>
+</div>'''
+
+
+def _kpi_cell_class(v: str) -> str:
+    if v and v.replace("%", "").replace(",", "").isdigit():
+        num = float(v.replace("%", ""))
+        if num > 80: return ' ok'
+        if num < 50: return ' warn'
+    return ''
+
+
 def _sanitize(html_str: str) -> str:
     """白名单净化，剥离脚本/危险标签与属性（对齐 3210 的 DOMPurify 思路）。
 

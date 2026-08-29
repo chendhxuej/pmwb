@@ -72,15 +72,26 @@ def _iso_week(d: Optional[date]) -> str:
     return d.strftime("%G-W%V")
 
 
-def _is_in_scope(obj, start: date, end: date, date_fields=("updated_at", "created_at")) -> bool:
+def _is_in_scope(obj, start: date, end: date, date_fields=("updated_at", "created_at"),
+                 exclude_completed: bool = True) -> bool:
     """判断对象是否在时间范围内发生过状态/数据更新。
 
     以 updated_at 为主判定，辅以 created_at 等关键事件日期。
+    若 exclude_completed=True 且对象已处于完结状态（completed/closed/done），
+    且完结日期早于周期起点、周期内无新更新，则排除（避免旧已完结任务污染报告）。
     """
     for f in date_fields:
         d = _date_of(_g(obj, f))
         if _in_range(d, start, end):
             return True
+    # 已完结且无周期内变更：排除
+    if exclude_completed:
+        st = str(_g(obj, "status") or "").lower()
+        if st in ("completed", "closed", "done", "cancelled"):
+            # 查找完结日期字段
+            completed_at = _date_of(_g(obj, "completed_at") or _g(obj, "closed_at"))
+            if completed_at and completed_at < start:
+                return False
     return False
 
 
@@ -151,8 +162,7 @@ class ReportDataCollector:
             req_delivered = _date_of(_g(r, "delivered_date"))
             go_live = req_delivered or ticket_go_live
 
-            # 范围判定：本期是否发生过状态/数据更新。
-            # 主表 updated_at/created_at、关键事件日期、关联评估/工单更新均纳入判定。
+            # 范围判定：本期是否发生过状态/数据更新；已完成需求（delivered_date 在周期前）排除
             in_scope = (
                 _is_in_scope(r, start, end)
                 or _in_range(go_live, start, end)
@@ -235,9 +245,9 @@ class ReportDataCollector:
             resolve = _date_of(_g(r, "resolve_date"))
             is_overdue = _g(r, "is_overdue") or 0
 
-            # 范围判定：基于更新时间戳或发现/解决日期
+            # 范围判定：基于更新时间戳或发现/解决日期；已完成且周期前已解决的工单排除
             in_scope = (
-                _is_in_scope(r, start, end, ("updated_at", "created_at"))
+                _is_in_scope(r, start, end, ("updated_at", "created_at"), exclude_completed=True)
                 or _in_range(disc, start, end)
                 or _in_range(resolve, start, end)
             )
@@ -298,8 +308,11 @@ class ReportDataCollector:
         for t in rows:
             st = _g(t, "status") or "created"
             go_live = _date_of(_g(t, "go_live_date"))
+            # 已上线且上线日期在周期前的工单不纳入（避免旧已交付工单污染）
+            if st == "live" and go_live and go_live < start:
+                continue
             in_scope = (
-                _is_in_scope(t, start, end)
+                _is_in_scope(t, start, end, exclude_completed=(st == "live"))
                 or _in_range(go_live, start, end)
             )
             if not in_scope:
@@ -346,16 +359,17 @@ class ReportDataCollector:
         done = 0
         unfinished: List[Dict[str, Any]] = []
         for a in rows:
+            st = _g(a, "status") or "pending"
             due = _date_of(_g(a, "due_date"))
+            # 已完成的行动项排除（除非完成日在周期内）
             in_scope = (
-                _is_in_scope(a, start, end)
+                _is_in_scope(a, start, end, exclude_completed=(st in ("done", "closed")))
                 or _in_range(due, start, end)
                 or _in_range(_date_of(_g(a, "created_at")), start, end)
             )
             if not in_scope:
                 continue
             total += 1
-            st = _g(a, "status") or "pending"
             if st in ("done", "closed"):
                 done += 1
             else:
@@ -389,7 +403,7 @@ class ReportDataCollector:
             due = _date_of(_g(t, "due_date"))
             completed = _date_of(_g(t, "completed_at"))
             in_scope = (
-                _is_in_scope(t, start, end)
+                _is_in_scope(t, start, end, exclude_completed=(st in ("done", "cancelled")))
                 or _in_range(completed, start, end)
                 or _in_range(due, start, end)
             )

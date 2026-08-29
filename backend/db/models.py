@@ -1224,6 +1224,10 @@ class PmwbKeyWorkWeeklyFeedback(Base):
     item_updates = Column(Text, comment="子项状态更新明细 JSON")
     status = Column(String(16), default="submitted", comment="状态: submitted/confirmed")
     raw_text = Column(Text, comment="原始反馈全文（邮件原文等）")
+    monthly_summary = Column(Text, comment="本月月总结（月底周）")
+    next_month_summary = Column(Text, comment="下月重点/下月月计划草案（月底周）")
+    member_task_notes = Column(Text, comment="成员任务进展说明 JSON [{task_id, note, status}]")
+    deliverable_ids = Column(Text, comment="本次反馈关联交付物ID列表 JSON")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,

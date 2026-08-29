@@ -412,7 +412,7 @@
         <!-- 周反馈 -->
         <el-tab-pane label="周反馈" name="feedback">
           <div class="sec-head" style="flex-wrap: wrap; gap: 8px">
-            <span class="pm-section-title">在途工单周反馈（责任人增量更新）</span>
+            <span class="pm-section-title">在途工单周反馈（负责人牵头汇总）</span>
             <div style="display: flex; align-items: center; gap: 8px; margin-left: auto">
               <el-date-picker
                 v-model="feedbackWeek"
@@ -424,7 +424,7 @@
                 @change="loadWeeklyFeedback"
               />
               <el-button size="small" :loading="mailSending" @click="sendFeedbackMails">
-                <el-icon><Message /></el-icon> 发送反馈请求
+                <el-icon><Message /></el-icon> 发送反馈请求给负责人
               </el-button>
             </div>
           </div>
@@ -432,12 +432,15 @@
           <div v-if="feedbackGroups.length" class="feedback-list">
             <div v-for="g in feedbackGroups" :key="g.assignee" class="feedback-card">
               <div class="feedback-card-head" @click="toggleFeedbackCard(g)">
-                <div style="display: flex; align-items: center; gap: 8px">
-                  <span class="feedback-assignee">{{ g.assignee }}</span>
-                  <span v-if="g.feedback" class="pm-tag" style="background: var(--success-bg, #f0f9eb); color: var(--success, #67c23a)">
-                    已反馈 {{ (g.feedback.feedback_date || '').slice(0, 10) }}
-                  </span>
-                  <span v-else class="pm-tag gray">未反馈</span>
+                <div style="display: flex; flex-direction: column; gap: 4px">
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <span class="feedback-assignee">负责人：{{ g.assignee }}</span>
+                    <span v-if="g.feedback" class="pm-tag" style="background: var(--success-bg, #f0f9eb); color: var(--success, #67c23a)">
+                      已反馈 {{ (g.feedback.feedback_date || '').slice(0, 10) }}
+                    </span>
+                    <span v-else class="pm-tag gray">负责人未反馈</span>
+                  </div>
+                  <span class="feedback-hint">牵头线下收集团队进展，统一汇总后录入归档</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px">
                   <span v-if="g.feedback" class="text-muted" style="font-size: 12px">进度 {{ g.feedback.progress || 0 }}%</span>
@@ -449,45 +452,159 @@
 
               <div v-if="isExpanded(g)" class="feedback-card-body">
                 <el-form label-position="top" size="small">
-                  <el-form-item label="本周完成">
-                    <el-input v-model="g._form.done_summary" type="textarea" :rows="2" placeholder="本周已完成的工作" />
-                  </el-form-item>
-                  <el-form-item label="下周计划">
-                    <el-input v-model="g._form.next_summary" type="textarea" :rows="2" placeholder="下周计划开展的工作" />
-                  </el-form-item>
-                  <el-form-item label="风险/求助">
-                    <el-input v-model="g._form.risk_note" type="textarea" :rows="2" placeholder="风险、阻塞或需协调事项" />
-                  </el-form-item>
-                  <el-form-item label="进度">
-                    <div style="display: flex; align-items: center; gap: 12px; width: 100%">
-                      <el-slider v-model="g._form.progress" :min="0" :max="100" style="flex: 1" />
-                      <span style="width: 42px; text-align: right; font-size: 13px">{{ g._form.progress || 0 }}%</span>
-                    </div>
-                  </el-form-item>
-                  <el-form-item label="子项状态更新（勾选 = 标记为已完成）">
-                    <div v-if="g.items.length" class="feedback-items">
-                      <el-checkbox
-                        v-for="it in g.items"
-                        :key="it.type + '-' + it.id"
-                        :model-value="isItemChecked(g, it)"
-                        @change="(v) => toggleItemChecked(g, it, v)"
+                  <el-collapse v-model="g._activePanels">
+                    <!-- A. 上周回顾 -->
+                    <el-collapse-item title="A. 上周回顾（只读）" name="lastWeek">
+                      <div v-if="lastWeekFeedback" class="feedback-last-week">
+                        <div class="info-block">
+                          <div class="info-label">上周计划（{{ lastWeekFeedback.week }}）</div>
+                          <div class="info-text">{{ lastWeekFeedback.next_summary || '（上周未填写下周计划）' }}</div>
+                        </div>
+                        <div v-if="lastWeekFeedback.item_updates?.length" class="info-block">
+                          <div class="info-label">上周计划子项当前状态</div>
+                          <div class="feedback-items">
+                            <div v-for="u in lastWeekFeedback.item_updates" :key="u.type + '-' + u.id" class="feedback-item-row">
+                              <span>{{ lastWeekItemLabel(u) }}</span>
+                              <span class="pm-tag" :class="(PLAN_STATUS_MAP[lastWeekItemStatus(u)] || {}).tag">
+                                {{ (PLAN_STATUS_MAP[lastWeekItemStatus(u)] || { label: lastWeekItemStatus(u) }).label }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div v-else class="text-muted">暂无上周反馈记录</div>
+                    </el-collapse-item>
+
+                    <!-- B. 月计划 -->
+                    <el-collapse-item title="B. 月计划" name="monthly">
+                      <div v-if="g.monthly_items.length" class="feedback-items">
+                        <el-checkbox
+                          v-for="it in g.monthly_items"
+                          :key="'m-' + it.id"
+                          :model-value="isItemChecked(g, it)"
+                          @change="(v) => toggleItemChecked(g, it, v)"
+                        >
+                          <span style="margin-right: 6px">{{ itemLabel(it) }}</span>
+                          <span class="pm-tag" :class="(PLAN_STATUS_MAP[it.status] || {}).tag">{{ (PLAN_STATUS_MAP[it.status] || { label: it.status }).label }}</span>
+                        </el-checkbox>
+                      </div>
+                      <div v-else class="text-muted">暂无关联网月计划</div>
+                      <template v-if="isMonthEnd">
+                        <el-form-item label="本月月总结" class="feedback-textarea-item">
+                          <el-input v-model="g._form.monthly_summary" type="textarea" :rows="3" placeholder="汇总本月完成情况、关键成果、偏差说明" />
+                        </el-form-item>
+                        <el-form-item label="下月重点 / 下月月计划草案" class="feedback-textarea-item">
+                          <el-input v-model="g._form.next_month_summary" type="textarea" :rows="3" placeholder="下月重点工作或拟制定的月计划" />
+                        </el-form-item>
+                      </template>
+                    </el-collapse-item>
+
+                    <!-- C. 周计划 -->
+                    <el-collapse-item title="C. 周计划" name="weekly">
+                      <div v-if="g.weekly_items.length" class="feedback-items">
+                        <el-checkbox
+                          v-for="it in g.weekly_items"
+                          :key="'w-' + it.id"
+                          :model-value="isItemChecked(g, it)"
+                          @change="(v) => toggleItemChecked(g, it, v)"
+                        >
+                          <span style="margin-right: 6px">{{ itemLabel(it) }}</span>
+                          <span class="pm-tag" :class="(PLAN_STATUS_MAP[it.status] || {}).tag">{{ (PLAN_STATUS_MAP[it.status] || { label: it.status }).label }}</span>
+                        </el-checkbox>
+                      </div>
+                      <div v-else class="text-muted">暂无关联周计划</div>
+                      <el-form-item label="下周新的工作计划" class="feedback-textarea-item">
+                        <el-input v-model="g._form.next_summary" type="textarea" :rows="3" placeholder="反馈下周计划开展的重点工作" />
+                      </el-form-item>
+                    </el-collapse-item>
+
+                    <!-- D. 成员待办 -->
+                    <el-collapse-item title="D. 成员待办（进展 + 新增）" name="memberTask">
+                      <el-table v-if="g.task_items.length" :data="g.task_items" border stripe size="small" class="feedback-task-table">
+                        <el-table-column prop="label" label="任务" min-width="140" show-overflow-tooltip />
+                        <el-table-column prop="assignee" label="负责人" width="90" />
+                        <el-table-column label="状态" width="130">
+                          <template #default="{ row }">
+                            <el-select :model-value="taskNote(g, row).status || row.status" size="small" style="width: 110px" @change="(v) => setTaskStatus(g, row, v)">
+                              <el-option v-for="(v, k) in TASK_STATUS_MAP" :key="k" :label="v.label" :value="k" />
+                            </el-select>
+                          </template>
+                        </el-table-column>
+                        <el-table-column label="进展说明" min-width="160">
+                          <template #default="{ row }">
+                            <el-input v-model="taskNote(g, row).note" type="textarea" :rows="1" placeholder="填写进展" size="small" @blur="ensureTaskNote(g, row)" />
+                          </template>
+                        </el-table-column>
+                      </el-table>
+                      <div v-else class="text-muted">当前无未完成的成员待办</div>
+
+                      <div class="feedback-new-task">
+                        <div class="feedback-section-subtitle">新增成员任务</div>
+                        <div class="feedback-new-task-form">
+                          <el-input v-model="newTaskForm.title" size="small" placeholder="任务标题" style="flex: 1" />
+                          <StaffSelect v-model="newTaskForm.assignee" style="width: 120px" />
+                          <el-date-picker v-model="newTaskForm.due_date" type="date" value-format="YYYY-MM-DD" placeholder="截止日" size="small" style="width: 130px" />
+                          <el-button size="small" @click="addNewTask(g)"><el-icon><Plus /></el-icon>添加</el-button>
+                        </div>
+                        <div v-if="g._form.new_tasks.length" class="feedback-new-task-list">
+                          <div v-for="(t, idx) in g._form.new_tasks" :key="idx" class="feedback-new-task-row">
+                            <span>{{ t.title }}</span>
+                            <span class="text-muted">{{ t.assignee || '未指派' }} {{ t.due_date ? '· ' + t.due_date : '' }}</span>
+                            <el-button link type="danger" size="small" @click="removeNewTask(g, idx)">删除</el-button>
+                          </div>
+                        </div>
+                      </div>
+                    </el-collapse-item>
+
+                    <!-- E. 交付物 -->
+                    <el-collapse-item title="E. 交付物材料" name="deliverable">
+                      <el-upload
+                        :show-file-list="false"
+                        :before-upload="(file) => handleFeedbackDeliverableUpload(file, g)"
+                        accept="*"
                       >
-                        <span style="margin-right: 6px">{{ itemLabel(it) }}</span>
-                        <span class="pm-tag" :class="(PLAN_STATUS_MAP[it.status] || {}).tag">{{ (PLAN_STATUS_MAP[it.status] || { label: it.status }).label }}</span>
-                      </el-checkbox>
-                    </div>
-                    <div v-else class="text-muted">该责任人本周无在途子项</div>
-                  </el-form-item>
-                  <div class="feedback-card-actions">
-                    <el-button type="primary" size="small" :loading="submittingAssignees.includes(g.assignee)" @click="submitFeedback(g)">
-                      提交反馈
-                    </el-button>
-                  </div>
+                        <el-button size="small" type="primary"><el-icon><Upload /></el-icon> 上传交付物</el-button>
+                      </el-upload>
+                      <div v-if="!g._form.deliverable_ids.length" class="text-muted" style="margin-top: 8px">本周暂无关联交付物</div>
+                      <div v-else class="feedback-deliverable-list">
+                        <div v-for="d in feedbackDeliverables.filter(x => g._form.deliverable_ids.includes(x.id))" :key="d.id" class="feedback-deliverable-row">
+                          <el-icon><Document /></el-icon>
+                          <span class="feedback-deliverable-name" :title="d.original_name || d.file_name">{{ d.original_name || d.file_name }}</span>
+                          <el-button link type="danger" size="small" @click="removeFeedbackDeliverable(g, d)">移除</el-button>
+                        </div>
+                      </div>
+                    </el-collapse-item>
+
+                    <!-- F. 风险/求助 -->
+                    <el-collapse-item title="F. 风险/求助" name="risk">
+                      <el-form-item label="风险、阻塞或需协调事项">
+                        <el-input v-model="g._form.risk_note" type="textarea" :rows="3" placeholder="请填写需要同步给管理员的异常或求助" />
+                      </el-form-item>
+                    </el-collapse-item>
+
+                    <!-- G. 整体进度 & 本周完成 -->
+                    <el-collapse-item title="G. 整体进度 & 本周完成" name="summary">
+                      <el-form-item label="整体进度">
+                        <div style="display: flex; align-items: center; gap: 12px; width: 100%">
+                          <el-slider v-model="g._form.progress" :min="0" :max="100" style="flex: 1" />
+                          <span style="width: 42px; text-align: right; font-size: 13px">{{ g._form.progress || 0 }}%</span>
+                        </div>
+                      </el-form-item>
+                      <el-form-item label="本周完成摘要">
+                        <el-input v-model="g._form.done_summary" type="textarea" :rows="3" placeholder="汇总本周完成的关键事项" />
+                      </el-form-item>
+                      <div class="feedback-card-actions">
+                        <el-button type="primary" size="small" :loading="submittingAssignees.includes(g.assignee)" @click="submitFeedback(g)">
+                          提交负责人周反馈
+                        </el-button>
+                      </div>
+                    </el-collapse-item>
+                  </el-collapse>
                 </el-form>
               </div>
             </div>
           </div>
-          <div v-else class="text-muted" style="padding: 16px 0">该周暂无责任人可反馈</div>
+          <div v-else class="text-muted" style="padding: 16px 0">该工单未设置负责人，无法生成周反馈工作单</div>
         </el-tab-pane>
       </el-tabs>
     </el-drawer>
@@ -783,6 +900,11 @@ const feedbackGroups = ref([])
 const expandedAssignees = ref([])
 const submittingAssignees = ref([])
 const mailSending = ref(false)
+const lastWeekFeedback = ref(null)
+const isMonthEnd = ref(false)
+const currentMonth = ref('')
+const feedbackDeliverables = ref([])
+const newTaskForm = ref({ title: '', assignee: '', due_date: '', note: '' })
 
 /** 当前 ISO 周次 YYYY-Www（周一为一周起点） */
 function currentIsoWeek() {
@@ -807,7 +929,7 @@ function toggleFeedbackCard(g) {
   else expandedAssignees.value.push(g.assignee)
 }
 
-/** 加载周反馈：台账（已反馈/未反馈）+ 工作单（子项清单+编辑回显）合并成卡片流 */
+/** 加载周反馈：台账 + 工作单（上周回顾/月计划/周计划/成员待办/交付物） */
 async function loadWeeklyFeedback() {
   if (!currentId.value || !feedbackWeek.value) return
   try {
@@ -815,22 +937,34 @@ async function loadWeeklyFeedback() {
       kwApi.listWeeklyFeedbacks(currentId.value, feedbackWeek.value),
       kwApi.getWeeklyFeedbackForm(currentId.value, feedbackWeek.value),
     ])
+    lastWeekFeedback.value = form.last_week_feedback || null
+    isMonthEnd.value = !!form.is_month_end
+    currentMonth.value = form.current_month || ''
+    feedbackDeliverables.value = detail.value?.deliverables || []
     feedbackGroups.value = (form.groups || []).map((g) => {
       const fb = g.feedback || (ledger.items || []).find((i) => i.assignee === g.assignee) || null
       return {
         assignee: g.assignee,
-        items: g.items || [],
+        monthly_items: g.monthly_items || [],
+        weekly_items: g.weekly_items || [],
+        task_items: g.task_items || [],
         feedback: fb,
+        _activePanels: ['summary', 'monthly', 'weekly', 'memberTask'],
         _form: {
           week: feedbackWeek.value,
           assignee: g.assignee,
-          source: fb ? fb.source : 'manual',
-          feedback_date: fb ? (fb.feedback_date || '') : new Date().toISOString().slice(0, 10),
-          done_summary: fb ? (fb.done_summary || '') : '',
-          next_summary: fb ? (fb.next_summary || '') : '',
-          risk_note: fb ? (fb.risk_note || '') : '',
-          progress: fb ? (fb.progress ?? 0) : 0,
-          item_updates: (fb && fb.item_updates) ? fb.item_updates : [],
+          source: fb?.source || 'manual',
+          feedback_date: fb?.feedback_date || new Date().toISOString().slice(0, 10),
+          done_summary: fb?.done_summary || '',
+          next_summary: fb?.next_summary || '',
+          monthly_summary: fb?.monthly_summary || '',
+          next_month_summary: fb?.next_month_summary || '',
+          risk_note: fb?.risk_note || '',
+          progress: fb?.progress ?? 0,
+          item_updates: fb?.item_updates || [],
+          member_task_notes: fb?.member_task_notes || [],
+          new_tasks: [],
+          deliverable_ids: fb?.deliverable_ids || [],
         },
       }
     })
@@ -854,18 +988,99 @@ function toggleItemChecked(g, it, checked) {
 }
 
 function itemLabel(it) {
-  const title = it.title || it.content || ''
+  const title = it.label || it.title || it.content || ''
   const typeName = { monthly: '月计划', weekly: '周计划', task: '成员待办' }[it.type] || it.type
-  return `【${typeName}】${(title || '').slice(0, 40)}`
+  const suffix = it.assignee ? `（${it.assignee}）` : ''
+  return `【${typeName}】${(title || '').slice(0, 40)}${suffix}`
 }
 
-/** 提交单个责任人的周反馈（幂等 upsert） */
+function _findCurrentItem(u) {
+  const g = feedbackGroups.value[0]
+  if (!g) return null
+  const list = u.type === 'monthly' ? g.monthly_items : u.type === 'weekly' ? g.weekly_items : g.task_items
+  return list.find((it) => it.id === u.id) || null
+}
+
+function lastWeekItemLabel(u) {
+  const it = _findCurrentItem(u)
+  return it ? itemLabel(it) : `【${u.type}】#${u.id}`
+}
+
+function lastWeekItemStatus(u) {
+  const it = _findCurrentItem(u)
+  return it ? it.status : u.status
+}
+
+function taskNote(g, row) {
+  const notes = g._form.member_task_notes || []
+  let n = notes.find((x) => x.task_id === row.id)
+  if (!n) {
+    n = { task_id: row.id, note: row.note || '', status: row.status }
+    notes.push(n)
+  }
+  return n
+}
+
+function ensureTaskNote(g, row) {
+  taskNote(g, row) // 只保证对象存在；blur 时已经双向绑定
+}
+
+function setTaskStatus(g, row, status) {
+  const n = taskNote(g, row)
+  n.status = status
+}
+
+function addNewTask(g) {
+  const t = newTaskForm.value
+  if (!t.title.trim()) {
+    ElMessage.warning('请输入新任务标题')
+    return
+  }
+  g._form.new_tasks.push({
+    title: t.title.trim(),
+    assignee: t.assignee || '',
+    due_date: t.due_date || null,
+    note: t.note || '',
+    status: 'not_started',
+    link_type: 'none',
+    link_id: null,
+  })
+  newTaskForm.value = { title: '', assignee: '', due_date: '', note: '' }
+}
+
+function removeNewTask(g, idx) {
+  g._form.new_tasks.splice(idx, 1)
+}
+
+async function handleFeedbackDeliverableUpload(file, g) {
+  try {
+    const data = await kwApi.uploadDeliverable(currentId.value, file)
+    g._form.deliverable_ids.push(data.id)
+    feedbackDeliverables.value.push(data)
+    ElMessage.success('交付物已上传')
+    await refreshDetail({ silent: true })
+  } catch (e) {
+    ElMessage.error('上传失败：' + (e?.message || e))
+  }
+  return false
+}
+
+function removeFeedbackDeliverable(g, d) {
+  const ids = g._form.deliverable_ids
+  const i = ids.indexOf(d.id)
+  if (i >= 0) ids.splice(i, 1)
+  const list = feedbackDeliverables.value
+  const j = list.findIndex((x) => x.id === d.id)
+  if (j >= 0) list.splice(j, 1)
+}
+
+/** 提交单个负责人的周反馈（幂等 upsert） */
 async function submitFeedback(g) {
   if (!g._form.assignee) return
   submittingAssignees.value.push(g.assignee)
   try {
     await kwApi.submitWeeklyFeedback(currentId.value, { ...g._form })
-    ElMessage.success(`「${g.assignee}」周反馈已提交`)
+    ElMessage.success(`「${g.assignee}」负责人周反馈已归档`)
     await loadWeeklyFeedback()
     refreshDetail({ silent: true }) // 子项状态被批量更新，静默兜底保持一致
   } catch (e) {
@@ -876,7 +1091,7 @@ async function submitFeedback(g) {
   }
 }
 
-/** 发送周反馈请求邮件（缺省发给全部责任人，无邮箱自动跳过） */
+/** 发送周反馈请求邮件（只发给负责人） */
 async function sendFeedbackMails() {
   if (!currentId.value) return
   mailSending.value = true
@@ -1430,8 +1645,26 @@ onMounted(async () => {
 .feedback-card-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; cursor: pointer; transition: background-color 0.2s; }
 .feedback-card-head:hover { background: var(--el-fill-color-light); }
 .feedback-assignee { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.feedback-hint { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
 .feedback-card-body { border-top: 1px dashed var(--border-subtle); padding: 12px 14px 4px; }
 .feedback-card-actions { display: flex; justify-content: flex-end; padding-bottom: 10px; }
 .feedback-items { display: flex; flex-direction: column; gap: 6px; }
 .feedback-items .el-checkbox { margin-right: 0; height: auto; white-space: normal; }
+.feedback-item-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+/* 周反馈折叠面板 */
+.feedback-card-body .el-collapse-item__header { font-size: 13px; font-weight: 500; }
+.feedback-last-week { display: flex; flex-direction: column; gap: 10px; }
+.feedback-last-week .info-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.feedback-last-week .info-text { font-size: 13px; color: var(--text-primary); line-height: 1.6; white-space: pre-wrap; }
+.feedback-textarea-item { margin-top: 12px; }
+.feedback-section-subtitle { font-size: 13px; font-weight: 500; color: var(--text-primary); margin: 12px 0 8px; }
+/* 成员任务 */
+.feedback-task-table { margin-bottom: 10px; }
+.feedback-new-task-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.feedback-new-task-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.feedback-new-task-row { display: flex; align-items: center; gap: 8px; font-size: 13px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; }
+/* 交付物 */
+.feedback-deliverable-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.feedback-deliverable-row { display: flex; align-items: center; gap: 8px; font-size: 13px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; }
+.feedback-deliverable-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
