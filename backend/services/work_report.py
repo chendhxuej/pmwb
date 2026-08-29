@@ -140,6 +140,7 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
     """保证 LLM 输出包含所有必备小节（防止偶发漏模块），缺失则补占位说明。
 
     同时修正格式：将错误的 H3 级别章节标题提升为 H2。
+    修正章节顺序：确保"一、本期概述"在文档开头。
     """
     import re as _re
     required = [
@@ -162,6 +163,22 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
     out = _re.sub(r'^### (五、会议与协同|会议与协同)$', r'## 五、会议与协同', out, flags=_re.MULTILINE)
     out = _re.sub(r'^### (六、个人待办|个人待办)$', r'## 六、个人待办', out, flags=_re.MULTILINE)
     out = _re.sub(r'^### (七、知识中心|知识中心)$', r'## 七、知识中心', out, flags=_re.MULTILINE)
+
+    # 修正章节顺序：确保"一、本期概述"在文档开头
+    # 查找"一、本期概述"的位置
+    overview_match = _re.search(r'^(## 一、本期概述.+?)(?=## 二、|$)', out, _re.DOTALL | _re.MULTILINE)
+    if overview_match:
+        overview_content = overview_match.group(1)
+        # 如果不在开头，移动到开头
+        if not out.strip().startswith('## 一、本期概述'):
+            # 移除原有的"一、本期概述"章节
+            out = _re.sub(r'^## 一、本期概述.+?(?=## 二、|$)', '', out, flags=_re.DOTALL | _re.MULTILINE)
+            # 在开头插入
+            out = overview_content.rstrip() + '\n\n' + out.lstrip()
+
+    # 移除周期外在途跟踪章节（合并到其他工单分析中）
+    out = _re.sub(r'\n### ④.*?周期外在途跟踪.*?(?=\n###|\n## |\Z)', '\n', out, flags=_re.DOTALL)
+    out = _re.sub(r'\n*周期外在途跟踪.*?(?=\n|$)', '', out)
 
     # 检查缺失章节并补充（仅检查 H2 级别标题）
     for title, marker in required:

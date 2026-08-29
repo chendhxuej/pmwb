@@ -256,18 +256,18 @@ def _render_scheme_a(title: str, subtitle: str, type_tag: str, period: str, kpi:
         f'<div class="kpi-label">{l}</div><div class="kpi-sub">{s}</div></div>'
         for l, v, _, s in kpi_items
     )
-    return f'''<div style="max-width:740px;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
-<div style="background:linear-gradient(135deg,{blue} 0%,#308ffd 100%);padding:28px 28px 22px;color:#fff;">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">
-<div><div style="font-size:16px;font-weight:700;opacity:0.9;">📋 PMWB 个人工作台</div>
-<div style="font-size:12px;opacity:0.7;margin-top:3px;">产品经理工作总结 · 自动生成</div></div>
-<div style="display:flex;gap:6px;align-items:center;">
-<span style="background:rgba(255,255,255,0.2);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;">{type_tag}</span>
-<span style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:4px 10px;border-radius:6px;font-size:11px;">{period}</span>
+    return f'''<div style="max-width:820px;width:100%;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
+<div style="background:linear-gradient(135deg,{blue} 0%,#308ffd 100%);padding:24px 20px 20px;color:#fff;">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+<div><div style="font-size:15px;font-weight:700;opacity:0.9;">📋 PMWB 个人工作台</div>
+<div style="font-size:11px;opacity:0.7;margin-top:2px;">产品经理工作总结 · 自动生成</div></div>
+<div style="display:flex;gap:5px;align-items:center;">
+<span style="background:rgba(255,255,255,0.2);color:#fff;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:600;">{type_tag}</span>
+<span style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:3px 8px;border-radius:5px;font-size:10px;">{period}</span>
 </div>
 </div>
-<div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px;">{title}</div>
-<div style="font-size:13px;opacity:0.85;">{subtitle}</div>
+<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px;text-align:center;">{title}</div>
+<div style="font-size:12px;opacity:0.85;text-align:center;">{subtitle}</div>
 </div>
 <div style="display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid #f0f2f5;">{kpi_cells}</div>
 <div style="background:#fff;border-radius:0 0 12px 12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
@@ -311,18 +311,18 @@ def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi:
             prog_html += f'<span class="prog-pct" style="font-size:12px;font-weight:700;width:36px;text-align:right;color:{p["color"]};">{p["pct"]}%</span></div>'
         prog_html += '</div>'
 
-    return f'''<div style="max-width:780px;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
-<div style="background:linear-gradient(135deg,{purple} 0%,#9064d9 100%);padding:28px 28px 22px;color:#fff;">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">
-<div><div style="font-size:16px;font-weight:700;opacity:0.9;">📊 PMWB 个人工作台</div>
-<div style="font-size:12px;opacity:0.7;margin-top:3px;">产品经理工作总结 · 自动生成</div></div>
-<div style="display:flex;gap:6px;align-items:center;">
-<span style="background:rgba(255,255,255,0.2);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;">{type_tag}</span>
-<span style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:4px 10px;border-radius:6px;font-size:11px;">{period}</span>
+    return f'''<div style="max-width:820px;width:100%;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
+<div style="background:linear-gradient(135deg,{purple} 0%,#9064d9 100%);padding:24px 20px 20px;color:#fff;">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+<div><div style="font-size:15px;font-weight:700;opacity:0.9;">📊 PMWB 个人工作台</div>
+<div style="font-size:11px;opacity:0.7;margin-top:2px;">产品经理工作总结 · 自动生成</div></div>
+<div style="display:flex;gap:5px;align-items:center;">
+<span style="background:rgba(255,255,255,0.2);color:#fff;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:600;">{type_tag}</span>
+<span style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:3px 8px;border-radius:5px;font-size:10px;">{period}</span>
 </div>
 </div>
-<div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px;">{title}</div>
-<div style="font-size:13px;opacity:0.85;">{subtitle}</div>
+<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px;text-align:center;">{title}</div>
+<div style="font-size:12px;opacity:0.85;text-align:center;">{subtitle}</div>
 </div>
 <div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid #f0f0f0;">{kpi_cells}</div>
 {prog_html}
