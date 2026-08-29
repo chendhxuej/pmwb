@@ -417,3 +417,5 @@ def render_signature_html(signature: str | None) -> str:
         return ""
     inner = "".join(f"<p>{html.escape(line)}</p>" for line in lines)
     return f'<div class="pmwb-sign">{inner}</div>'
+
+kpi_cell_class = _kpi_cell_class
