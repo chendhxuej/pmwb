@@ -400,11 +400,18 @@ def test_work_report_email_is_responsive_and_centered():
         # 内容容器用百分比宽度 + align 居中（邮件客户端 universally 支持）
         assert 'width="90%"' in body, f"{label} 缺少 width=90%"
         assert 'align="center"' in body, f"{label} 缺少 align=center（会被 bleach 剥掉导致左对齐）"
+        # 2026-08-30 第二轮修复：邮件客户端对 table 的 align 解析不稳定，
+        # 用「左右 5% 幽灵单元格 + 中间 90% 内容区」强制绝对居中
+        assert 'width="5%"' in body, f"{label} 缺少 5% 幽灵单元格（内容会偏左）"
         # 反例：禁止再用 max-width 或 margin:0 auto（Outlook/Foxmail 不支持，会导致正文偏左）
         assert 'max-width' not in body, f"{label} 不应有 max-width"
         assert 'margin:0 auto' not in body, f"{label} 不应有 margin:0 auto"
     # 外层表格应占满宽度以适应不同屏幕
     assert 'width="100%"' in sent
+    # 双栏卡片强制等高起步：两边内部 table 都设置 height="260"，避免左右严重失衡
+    assert 'height="260"' in sent, "发送态 双栏卡片缺少固定高度"
+    # 内容 td 顶部对齐，防止短内容卡片底部空荡
+    assert sent.count('valign="top"') >= 4, "发送态 双栏卡片 td 未顶部对齐"
     # 字体格式应兼容
     assert "Microsoft YaHei,Arial,sans-serif" in sent
     assert "'Microsoft YaHei'" not in sent  # 不应有带单引号的写法

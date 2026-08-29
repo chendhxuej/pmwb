@@ -68,9 +68,9 @@ _ALLOWED_ATTRS = {
     # align 必须保留：邮件客户端普遍不支持 CSS `margin:0 auto`，内容居中全靠
     # align="center"。若被 bleach 剥掉，width="90%" 的表格会左对齐——
     # 这正是「正文挤在屏幕左半边」的一种成因（2026-08-29 修复）。
-    "table": ["cellpadding", "cellspacing", "border", "width", "role", "align"],
-    "td": ["width", "valign", "colspan", "rowspan", "align"],
-    "th": ["width", "valign", "colspan", "rowspan", "align"],
+    "table": ["cellpadding", "cellspacing", "border", "width", "height", "role", "align"],
+    "td": ["width", "height", "valign", "colspan", "rowspan", "align"],
+    "th": ["width", "height", "valign", "colspan", "rowspan", "align"],
 }
 
 # 邮件正文允许的内联 CSS 属性白名单（邮件客户端剥离 <style>，必须依赖内联样式）
@@ -288,8 +288,12 @@ def _render_scheme_a(title: str, reporter: str, period: str, generated_at: str, 
     period_esc = html.escape(period)
     generated_esc = html.escape(generated_at)
     return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#ffffff;">
-<tr><td align="center" style="padding:20px 0;">
-<table width="{_CONTENT_WIDTH}" align="center" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<tr>
+<!-- 幽灵单元格居中法：左右各 5% 空白强制内容区居中，不依赖 align="center"（Foxmail/Outlook 对 align 支持不稳定）。
+     中间 td 宽度 90%，两侧 td 各 5%，保证任何客户端都绝对居中。 -->
+<td width="5%" style="font-size:0;line-height:0;background:#ffffff;">&nbsp;</td>
+<td width="{_CONTENT_WIDTH}" align="center" style="padding:20px 0;background:#ffffff;">
+<table width="100%" align="center" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
 <!-- 品牌色带 -->
 <tr>
 <td style="height:4px;line-height:4px;font-size:0;background:{accent};">&nbsp;</td>
@@ -338,7 +342,9 @@ def _render_scheme_a(title: str, reporter: str, period: str, generated_at: str, 
 </td>
 </tr>
 </table>
-</td></tr></table>'''
+</td>
+<td width="5%" style="font-size:0;line-height:0;background:#ffffff;">&nbsp;</td>
+</tr></table>'''
 
 
 def _render_scheme_b(title: str, reporter: str, period: str, generated_at: str, accent: str, kpi: dict, progress: list, inner: str) -> str:
@@ -370,8 +376,12 @@ def _render_scheme_b(title: str, reporter: str, period: str, generated_at: str, 
     period_esc = html.escape(period)
     generated_esc = html.escape(generated_at)
     return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#ffffff;">
-<tr><td align="center" style="padding:20px 0;">
-<table width="{_CONTENT_WIDTH}" align="center" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<tr>
+<!-- 幽灵单元格居中法：左右各 5% 空白强制内容区居中，不依赖 align="center"（Foxmail/Outlook 对 align 支持不稳定）。
+     中间 td 宽度 90%，两侧 td 各 5%，保证任何客户端都绝对居中。 -->
+<td width="5%" style="font-size:0;line-height:0;background:#ffffff;">&nbsp;</td>
+<td width="{_CONTENT_WIDTH}" align="center" style="padding:20px 0;background:#ffffff;">
+<table width="100%" align="center" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
 <!-- 品牌色带 -->
 <tr>
 <td style="height:4px;line-height:4px;font-size:0;background:{accent};">&nbsp;</td>
@@ -422,7 +432,9 @@ def _render_scheme_b(title: str, reporter: str, period: str, generated_at: str, 
 </td>
 </tr>
 </table>
-</td></tr></table>'''
+</td>
+<td width="5%" style="font-size:0;line-height:0;background:#ffffff;">&nbsp;</td>
+</tr></table>'''
 
 
 def _kpi_cell_class(v: str) -> str:
@@ -464,10 +476,9 @@ def _render_dual_overview(html_str: str) -> str:
         'style="padding:20px 28px;border-bottom:1px solid #f0f2f5;">'
         '<tr>'
         '<td width="50%" valign="top" style="padding-right:7px;">'
-        '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
+        '<table width="100%" height="260" cellpadding="0" cellspacing="0" border="0" '
         'style="background:#f0f7ff;border:1px solid #c7ddff;padding:16px;">'
-        '<tr>'
-        '<td style="padding-bottom:10px;">'
+        '<tr><td valign="top" style="padding-bottom:10px;">'
         '<table cellpadding="0" cellspacing="0" border="0">'
         '<tr>'
         '<td style="width:28px;height:28px;background:#165dff;'
@@ -476,16 +487,14 @@ def _render_dual_overview(html_str: str) -> str:
         '<td style="padding-left:8px;font-size:14px;font-weight:700;color:#165dff;">工作成效</td>'
         '</tr>'
         '</table>'
-        '</td>'
-        '</tr>'
-        '<tr><td>' f'{col_a_content}' '</td></tr>'
+        '</td></tr>'
+        f'<tr><td valign="top" height="100%">{col_a_content}</td></tr>'
         '</table>'
         '</td>'
         '<td width="50%" valign="top" style="padding-left:7px;">'
-        '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
+        '<table width="100%" height="260" cellpadding="0" cellspacing="0" border="0" '
         'style="background:#fff7f0;border:1px solid #ffccc7;padding:16px;">'
-        '<tr>'
-        '<td style="padding-bottom:10px;">'
+        '<tr><td valign="top" style="padding-bottom:10px;">'
         '<table cellpadding="0" cellspacing="0" border="0">'
         '<tr>'
         '<td style="width:28px;height:28px;background:#f53f3f;'
@@ -494,9 +503,8 @@ def _render_dual_overview(html_str: str) -> str:
         '<td style="padding-left:8px;font-size:14px;font-weight:700;color:#f53f3f;">待改进问题</td>'
         '</tr>'
         '</table>'
-        '</td>'
-        '</tr>'
-        '<tr><td>' f'{col_b_content}' '</td></tr>'
+        '</td></tr>'
+        f'<tr><td valign="top" height="100%">{col_b_content}</td></tr>'
         '</table>'
         '</td>'
         '</tr>'
