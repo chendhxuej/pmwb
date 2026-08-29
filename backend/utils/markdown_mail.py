@@ -311,15 +311,15 @@ def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi:
     """
     purple = "#722ed1"
 
-    # 进度条HTML（若有）
+    # 进度条HTML（若有）- Outlook兼容：移除border-radius
     prog_html = ""
     if progress:
-        prog_html = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 20px 0;background:#fafbff;border-radius:8px;padding:16px 20px;">'
+        prog_html = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 20px 0;background:#fafbff;padding:16px 20px;">'
         prog_html += '<tr><td style="font-size:13px;color:#4e5969;font-weight:600;font-family:\'Microsoft YaHei\',Arial,sans-serif;padding-bottom:10px;">📈 本月各模块目标达成进度</td></tr>'
         for p in progress:
             prog_html += f'<tr><td style="padding:3px 0;font-size:12px;color:#86909c;font-family:\'Microsoft YaHei\',Arial,sans-serif;">{p["name"]}</td>'
-            prog_html += f'<td style="padding:3px 10px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e8e9ef;border-radius:4px;"><tr>'
-            prog_html += f'<td width="{p["pct"]}%" style="height:8px;font-size:0;line-height:0;background:{p["color"]};border-radius:4px;">&nbsp;</td>'
+            prog_html += f'<td style="padding:3px 10px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e8e9ef;"><tr>'
+            prog_html += f'<td width="{p["pct"]}%" style="height:8px;font-size:0;line-height:0;background:{p["color"]};">&nbsp;</td>'
             prog_html += f'<td style="height:8px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td>'
             prog_html += f'<td width="45" align="right" style="font-size:12px;font-weight:700;color:{p["color"]};font-family:\'Microsoft YaHei\',Arial,sans-serif;padding:3px 0;">{p["pct"]}%</td></tr>'
         prog_html += '</table>'
@@ -382,45 +382,67 @@ def _kpi_cell_class(v: str) -> str:
 
 
 def _render_dual_overview(html_str: str) -> str:
-    """将 Part A 工作成效 / Part B 待改进问题的双段式概述转换为两栏 HTML 布局。"""
+    """将 Part A 工作成效 / Part B 待改进问题的双段式概述转换为两栏 HTML 布局。
+
+    邮件兼容性优化（2026-08-29）：
+    - 移除 linear-gradient（Outlook 不支持）→ 改用纯色背景
+    - 移除 border-radius（Outlook 不支持）→ 保持直角边框
+    - 支持 H2 标题和粗体两种格式（**Part A 工作成效** 或 ## Part A 工作成效）
+    - 所有样式内联，使用 table 布局
+    """
     import re as _re
+    # 兼容两种格式：## Part A 工作成效（H2）或 **Part A 工作成效**（粗体）
     pattern = (
-        r'<h2[^>]*>Part\s+A\s+工作成效</h2>(.*?)'
-        r'<h2[^>]*>Part\s+B\s+待改进问题</h2>(.*?)'
-        r'(?=<h2|</div>$)'
+        r'(<h2[^>]*>Part\s+A\s+工作成效</h2>|<strong>Part\s+A\s+工作成效</strong>)'
+        r'(.*?)(?=<h2|<strong>|$)'
+        r'(<h2[^>]*>Part\s+B\s+待改进问题</h2>|<strong>Part\s+B\s+待改进问题</strong>)'
+        r'(.*?)(?=<h2|<strong>|$)'
     )
     m = _re.search(pattern, html_str, _re.DOTALL)
     if not m:
         return html_str
-    col_a_content = m.group(1).strip()
-    col_b_content = m.group(2).strip()
+    col_a_content = m.group(2).strip()
+    col_b_content = m.group(4).strip()
+    # Outlook 兼容：纯色背景 + 直角边框
     dual_table = (
         '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
         'style="padding:20px 28px;border-bottom:1px solid #f0f2f5;">'
         '<tr>'
         '<td width="50%" valign="top" style="padding-right:7px;">'
-        '<div style="background:linear-gradient(135deg,#f0f7ff 0%,#e8f3ff 100%);'
-        'border:1px solid #c7ddff;border-radius:10px;padding:16px;">'
-        '<table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">'
-        '<tr><td style="width:28px;height:28px;border-radius:8px;'
-        'background:#165dff;color:#fff;text-align:center;vertical-align:middle;'
-        'font-size:14px;font-weight:700;">✓</td>'
-        '<td style="padding-left:8px;font-size:14px;font-weight:700;color:#165dff;">工作成效</td></tr>'
+        '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="background:#f0f7ff;border:1px solid #c7ddff;padding:16px;">'
+        '<tr>'
+        '<td style="padding-bottom:10px;">'
+        '<table cellpadding="0" cellspacing="0" border="0">'
+        '<tr>'
+        '<td style="width:28px;height:28px;background:#165dff;'
+        'text-align:center;vertical-align:middle;'
+        'font-size:14px;font-weight:700;color:#fff;">✓</td>'
+        '<td style="padding-left:8px;font-size:14px;font-weight:700;color:#165dff;">工作成效</td>'
+        '</tr>'
         '</table>'
-        f'{col_a_content}'
-        '</div>'
+        '</td>'
+        '</tr>'
+        '<tr><td>' f'{col_a_content}' '</td></tr>'
+        '</table>'
         '</td>'
         '<td width="50%" valign="top" style="padding-left:7px;">'
-        '<div style="background:linear-gradient(135deg,#fff7f0 0%,#fff0e8 100%);'
-        'border:1px solid #ffccc7;border-radius:10px;padding:16px;">'
-        '<table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">'
-        '<tr><td style="width:28px;height:28px;border-radius:8px;'
-        'background:#f53f3f;color:#fff;text-align:center;vertical-align:middle;'
-        'font-size:14px;font-weight:700;">!</td>'
-        '<td style="padding-left:8px;font-size:14px;font-weight:700;color:#f53f3f;">待改进问题</td></tr>'
+        '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="background:#fff7f0;border:1px solid #ffccc7;padding:16px;">'
+        '<tr>'
+        '<td style="padding-bottom:10px;">'
+        '<table cellpadding="0" cellspacing="0" border="0">'
+        '<tr>'
+        '<td style="width:28px;height:28px;background:#f53f3f;'
+        'text-align:center;vertical-align:middle;'
+        'font-size:14px;font-weight:700;color:#fff;">!</td>'
+        '<td style="padding-left:8px;font-size:14px;font-weight:700;color:#f53f3f;">待改进问题</td>'
+        '</tr>'
         '</table>'
-        f'{col_b_content}'
-        '</div>'
+        '</td>'
+        '</tr>'
+        '<tr><td>' f'{col_b_content}' '</td></tr>'
+        '</table>'
         '</td>'
         '</tr>'
         '</table>'
