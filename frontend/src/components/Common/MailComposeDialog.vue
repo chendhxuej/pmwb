@@ -13,11 +13,77 @@
       <div class="compose-edit">
         <div class="compose-row">
           <span class="compose-label">收件人</span>
-          <StaffSelect v-model="to" multiple :value-key="valueKey" placeholder="选择 / 输入收件人（姓名或邮箱）" />
+          <div class="compose-row-flex">
+            <StaffSelect v-model="to" multiple :value-key="valueKey" placeholder="选择 / 输入收件人（姓名或邮箱）" />
+            <el-dropdown v-if="props.scene" trigger="click" @visible-change="(v) => (templateDropdownVisible = v)">
+              <el-button size="small" :icon="Document" class="template-btn">
+                模板
+                <el-badge v-if="currentTemplates.length" :value="currentTemplates.length" />
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-if="currentTemplates.length" disabled>
+                    <span class="template-dropdown-hint">当前场景历史模板</span>
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-for="tpl in currentTemplates"
+                    :key="tpl.id"
+                    @click="loadTemplate(tpl)"
+                  >
+                    <span class="template-item-name">{{ tpl.name }}</span>
+                    <span class="template-item-meta">
+                      {{ tpl.to.length }}收/{{ tpl.cc.length }}抄 · {{ formatDate(tpl.updatedAt) }}
+                    </span>
+                  </el-dropdown-item>
+                  <el-dropdown-item v-if="!currentTemplates.length" disabled>
+                    <span class="template-empty">暂无模板，点击下方按钮创建</span>
+                  </el-dropdown-item>
+                  <el-divider style="margin: 4px 0" />
+                  <el-dropdown-item @click="openNewTemplateDialog()">
+                    <el-icon><Plus /></el-icon>
+                    <span>保存当前选择为新模板</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
         </div>
         <div class="compose-row">
           <span class="compose-label">抄送</span>
-          <StaffSelect v-model="cc" multiple :value-key="valueKey" placeholder="选择 / 输入抄送（可空）" />
+          <div class="compose-row-flex">
+            <StaffSelect v-model="cc" multiple :value-key="valueKey" placeholder="选择 / 输入抄送（可空）" />
+            <el-dropdown v-if="props.scene" trigger="click" @visible-change="(v) => (templateDropdownVisible = v)">
+              <el-button size="small" :icon="Document" class="template-btn">
+                模板
+                <el-badge v-if="currentTemplates.length" :value="currentTemplates.length" />
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-if="currentTemplates.length" disabled>
+                    <span class="template-dropdown-hint">当前场景历史模板</span>
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-for="tpl in currentTemplates"
+                    :key="tpl.id"
+                    @click="loadTemplate(tpl)"
+                  >
+                    <span class="template-item-name">{{ tpl.name }}</span>
+                    <span class="template-item-meta">
+                      {{ tpl.to.length }}收/{{ tpl.cc.length }}抄 · {{ formatDate(tpl.updatedAt) }}
+                    </span>
+                  </el-dropdown-item>
+                  <el-dropdown-item v-if="!currentTemplates.length" disabled>
+                    <span class="template-empty">暂无模板，点击下方按钮创建</span>
+                  </el-dropdown-item>
+                  <el-divider style="margin: 4px 0" />
+                  <el-dropdown-item @click="openNewTemplateDialog()">
+                    <el-icon><Plus /></el-icon>
+                    <span>保存当前选择为新模板</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
         </div>
         <div class="compose-row">
           <span class="compose-label">主题</span>
@@ -49,14 +115,49 @@
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
       <el-button type="primary" :loading="sending" @click="onSend">发送</el-button>
     </template>
+
+    <!-- 新建模板对话框 -->
+    <el-dialog
+      v-model="showTemplateDialog"
+      title="保存为模板"
+      width="480px"
+      append-to-body
+    >
+      <el-form label-width="80px">
+        <el-form-item label="模板名称">
+          <el-input
+            v-model="newTemplateName"
+            placeholder="如：周报发给张经理"
+            maxlength="50"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item label="收件人">
+          <span class="template-preview-count">{{ to.length }} 人</span>
+        </el-form-item>
+        <el-form-item label="抄送">
+          <span class="template-preview-count">{{ cc.length }} 人</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showTemplateDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveTemplate">保存</el-button>
+      </template>
+    </el-dialog>
   </el-dialog>
 </template>
 
 <script setup>
 import { ref, watch, computed, onBeforeUnmount } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Document, Plus, Delete } from '@element-plus/icons-vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import { previewEmail, sendEmail } from '@/api/mailDispatch.js'
+import {
+  getSceneTemplates,
+  addTemplate,
+  deleteTemplate,
+} from '@/composables/useMailTemplates.js'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -96,7 +197,18 @@ const sending = ref(false)
 let timer = null
 let lastBody = ''
 
+// 模板相关状态
+const templateDropdownVisible = ref(false)
+const showTemplateDialog = ref(false)
+const newTemplateName = ref('')
+
 const isRawMode = computed(() => !props.scene)
+
+// 当前场景的模板列表
+const currentTemplates = computed(() => {
+  if (!props.scene) return []
+  return getSceneTemplates(props.scene)
+})
 
 watch(
   () => props.modelValue,
@@ -229,9 +341,63 @@ async function onSend() {
   }
 }
 
+function formatDate(ts) {
+  if (!ts) return ''
+  return new Date(ts).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+}
+
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
 })
+
+// 模板操作
+function loadTemplate(template) {
+  to.value = [...(template.to || [])]
+  cc.value = [...(template.cc || [])]
+  ElMessage.success(`已加载模板「${template.name}」`)
+  templateDropdownVisible.value = false
+}
+
+async function deleteTemplateConfirm(id, name) {
+  try {
+    await ElMessageBox.confirm(`确认删除模板「${name}」？`, '提示', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    deleteTemplate(id)
+    ElMessage.success('模板已删除')
+    templateDropdownVisible.value = false
+  } catch {
+    // 取消
+  }
+}
+
+function openNewTemplateDialog() {
+  templateDropdownVisible.value = false
+  newTemplateName.value = ''
+  showTemplateDialog.value = true
+}
+
+function saveTemplate() {
+  const name = newTemplateName.value.trim()
+  if (!name) {
+    ElMessage.warning('请输入模板名称')
+    return
+  }
+  if (!to.value.length) {
+    ElMessage.warning('请先选择收件人')
+    return
+  }
+  addTemplate({
+    scene: props.scene,
+    name,
+    to: to.value,
+    cc: cc.value,
+  })
+  ElMessage.success('模板已保存')
+  showTemplateDialog.value = false
+}
 
 defineExpose({ sending, refreshPreview })
 </script>
@@ -294,6 +460,36 @@ defineExpose({ sending, refreshPreview })
 .compose-body :deep(.el-textarea),
 .compose-body :deep(.el-textarea__inner) {
   flex: 1;
+}
+.compose-row-flex {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.template-btn {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.template-dropdown-hint {
+  font-size: 12px;
+  color: #909399;
+}
+.template-item-name {
+  flex: 1;
+}
+.template-item-meta {
+  font-size: 11px;
+  color: #909399;
+  margin-left: 8px;
+}
+.template-empty {
+  font-size: 12px;
+  color: #c0c4cc;
+}
+.template-preview-count {
+  font-size: 13px;
+  color: #606266;
 }
 .compose-hint {
   display: block;
