@@ -141,6 +141,14 @@ RESEARCH_ISSUE_IMPACT: Dict[str, str] = {
     "P3": "轻微(P3)",
 }
 
+# 地市编码（拼音）→ 中文；未命中（已是中文或其他省份）回退原值
+CITY: Dict[str, str] = {
+    "nanjing": "南京", "wuxi": "无锡", "xuzhou": "徐州", "changzhou": "常州",
+    "suzhou": "苏州", "nantong": "南通", "lianyungang": "连云港", "huaian": "淮安",
+    "yancheng": "盐城", "yangzhou": "扬州", "zhenjiang": "镇江", "taizhou": "泰州",
+    "suqian": "宿迁",
+}
+
 # 所有字典按模块归类，便于 prompt 注入 glossary
 GLOSSARY: Dict[str, Dict[str, str]] = {
     "需求状态": REQUIREMENT_STATUS,
@@ -159,6 +167,7 @@ GLOSSARY: Dict[str, Dict[str, str]] = {
     "一线调研子类": RESEARCH_ISSUE_SUB_TYPE,
     "一线调研状态": RESEARCH_ISSUE_STATUS,
     "一线调研影响等级": RESEARCH_ISSUE_IMPACT,
+    "地市": CITY,
 }
 
 

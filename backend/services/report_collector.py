@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -46,6 +47,7 @@ from services.report_dict import (
     RESEARCH_ISSUE_SUB_TYPE,
     RESEARCH_ISSUE_STATUS,
     RESEARCH_ISSUE_IMPACT,
+    CITY,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,19 @@ def _iso_week(d: Optional[date]) -> str:
     if d is None:
         return ""
     return d.strftime("%G-W%V")
+
+
+def _req_no(req_id) -> str:
+    """提取需求文号中的数字编号，用于识别同一需求的不同 req_id 写法。
+
+    业务系统里同一条需求可能存在两种 req_id：
+    - 完整文号：'敏捷需求（2026）第（082501014）号'
+    - 纯数字：'082501014'
+    两者指向同一条需求，若不去重会在报告中重复列出。
+    """
+    s = str(req_id or "")
+    m = re.search(r"(\d{7,})", s)
+    return m.group(1) if m else s
 
 
 def _is_in_scope(obj, start: date, end: date, date_fields=("updated_at", "created_at"),
@@ -138,13 +153,64 @@ class ReportDataCollector:
             logger.warning("采集需求失败: %s", e)
             return {"items": [], "buckets": {}, "po_risk": []}
 
+        # ---- 需求去重 ----
+        # 同一需求可能以「敏捷需求（2026）第（082501014）号」和纯数字「082501014」两种
+        # req_id 形式各存一条，导致报告重复列出，且空名记录只能显示文号（用户反馈的"错乱"）。
+        # 按数字编号归一分組，每组只保留信息最完整的一条（有 req_name 者优先），
+        # 并用主记录的名称为同组其他 req_id 建立别名，供展示时补全。
+        grouped: Dict[str, List[Any]] = defaultdict(list)
+        for r in rows:
+            grouped[_req_no(_g(r, "req_id"))].append(r)
+
+        def _has_name(r) -> bool:
+            return bool((_g(r, "req_name") or "").strip())
+
+        def _touched_in_range(r) -> bool:
+            """本期是否发生过创建或更新（用于主记录选取，避免选到早已沉寂的旧记录）。"""
+            return (
+                _in_range(_date_of(_g(r, "created_at")), start, end)
+                or _in_range(_date_of(_g(r, "updated_at")), start, end)
+            )
+
+        alias_name: Dict[str, str] = {}
+        # 组内任一记录于本期创建 → 该需求视为「本期新增」。
+        # 不能只看主记录的 created：同组内可能存在本期新录入的重复记录
+        # （如主记录创建于周期前、用户本期又录了一条同编号需求），
+        # 若只看主记录会导致该需求本期"消失"。
+        group_added: Dict[int, bool] = {}
+        primary_rows: List[Any] = []
+        for _key, group in grouped.items():
+            if len(group) == 1:
+                primary_rows.append(group[0])
+                continue
+            touched = [r for r in group if _touched_in_range(r)]
+            # 主记录优先级：本期活跃且有名称 > 本期活跃 > 有名称 > 组内最近更新
+            for pool in (
+                [r for r in touched if _has_name(r)],
+                touched,
+                [r for r in group if _has_name(r)],
+                group,
+            ):
+                if pool:
+                    main = max(pool, key=lambda r: _date_of(_g(r, "updated_at")) or date.min)
+                    break
+            primary_rows.append(main)
+            group_added[_g(main, "req_id") or ""] = any(
+                _in_range(_date_of(_g(r, "created_at")), start, end) for r in group
+            )
+            main_name = (_g(main, "req_name") or _g(main, "req_id") or "").strip()
+            if main_name:
+                for r in group:
+                    if r is not main:
+                        alias_name[_g(r, "req_id") or ""] = main_name
+
         buckets = {"added": [], "evaluated": [], "dev_start": [], "delivered": [], "ongoing": []}
         delivered_items: List[Dict[str, Any]] = []
         po_risk: List[Dict[str, Any]] = []
         items: List[Dict[str, Any]] = []
-        for r in rows:
+        for r in primary_rows:
             req_id = _g(r, "req_id") or ""
-            req_name = _g(r, "req_name") or req_id
+            req_name = (_g(r, "req_name") or "").strip() or alias_name.get(req_id) or req_id
             status = _g(r, "status") or "proposed"
             priority = _g(r, "priority") or "P2"
             created = _date_of(_g(r, "created_at"))
@@ -199,7 +265,8 @@ class ReportDataCollector:
             }
 
             # 本期新增/评估/启动开发/交付/进行中分桶
-            if _in_range(created, start, end):
+            # 同编号重复需求：组内任一记录于本期创建即视为本期新增
+            if _in_range(created, start, end) or group_added.get(req_id, False):
                 buckets["added"].append(req_name)
             if any(_in_range(_date_of(_g(e, "created_at")), start, end) for e in evals):
                 buckets["evaluated"].append(req_name)
@@ -481,11 +548,12 @@ class ReportDataCollector:
         except Exception as e:  # noqa: BLE001
             logger.warning("采集重点工作失败: %s", e)
             return {"total": 0, "by_category": {}, "by_status": {}, "by_priority": {},
-                    "active": [], "completed_in_range": [], "overdue": []}
+                    "active": [], "tracking": [], "completed_in_range": [], "overdue": []}
         by_category = defaultdict(int)
         by_status = defaultdict(int)
         by_priority = defaultdict(int)
         active: List[Dict[str, Any]] = []
+        tracking: List[Dict[str, Any]] = []
         completed_in_range: List[Dict[str, Any]] = []
         overdue: List[Dict[str, Any]] = []
 
@@ -531,15 +599,31 @@ class ReportDataCollector:
             if st in ("paused", "suspended"):
                 continue
 
+            # 本周/下周计划与本周进展（提前计算，供分层判定使用）
+            this_week_plans = [p for p in weekly_plans if _g(p, "week") == this_week_label]
+            next_week_plans = [p for p in weekly_plans if _g(p, "week") == next_week_label]
+            this_week_progresses = [
+                p for p in progresses
+                if _in_range(_date_of(_g(p, "record_date")), start, end)
+            ]
+
             # 范围判定：主表 updated_at/created_at，或关联周计划/进展/成员任务在范围内有更新
             latest_related = _latest_related_date(w, list(weekly_plans) + list(progresses) + list(member_tasks))
             is_overdue_risk = planned and planned < end and st not in ("completed", "cancelled")
 
-            # 在途重点工作（in_progress/planning）默认纳入，不受时间范围限制
-            # 确保商客专区等跨期重点项目始终可见
-            is_active = st in ("in_progress", "planning")
+            # 在途状态：in_progress/planning 一律纳入，不受时间范围限制，
+            # 确保商客专区等跨期重点项目不会从报告中消失
+            is_ongoing_status = st in ("in_progress", "planning")
+            # 本期实质活动：主表更新/创建、关联对象更新、本周有计划或进展记录
+            has_period_activity = (
+                _in_range(updated, start, end)
+                or _in_range(created, start, end)
+                or _in_range(latest_related, start, end)
+                or bool(this_week_plans)
+                or bool(this_week_progresses)
+            )
             in_scope = (
-                is_active
+                is_ongoing_status
                 or _in_range(updated, start, end)
                 or _in_range(created, start, end)
                 or _in_range(latest_related, start, end)
@@ -551,14 +635,6 @@ class ReportDataCollector:
             by_category[cat] += 1
             by_status[st] += 1
             by_priority[pri] += 1
-
-            # 本周/下周计划与本周进展
-            this_week_plans = [p for p in weekly_plans if _g(p, "week") == this_week_label]
-            next_week_plans = [p for p in weekly_plans if _g(p, "week") == next_week_label]
-            this_week_progresses = [
-                p for p in progresses
-                if _in_range(_date_of(_g(p, "record_date")), start, end)
-            ]
 
             this_week_plan_summary = {
                 "week": this_week_label,
@@ -590,7 +666,7 @@ class ReportDataCollector:
                 })
             # 规划中/进行中/已暂停 视为重点推进事项
             if st in ("planning", "in_progress", "paused"):
-                active.append({
+                entry = {
                     "work_no": work_no,
                     "title": title,
                     "category": tr(KW_CATEGORY, cat),
@@ -603,7 +679,14 @@ class ReportDataCollector:
                     "this_week_plan": this_week_plan_summary,
                     "next_week_plan": next_week_plan_summary,
                     "this_week_progress": this_week_progress_summary,
-                })
+                }
+                # 分层：本期有实质活动的进 active 详写；
+                # 仅因「在途」被纳入但本期无活动的进 tracking 简述，
+                # 避免长期无更新的项目（如个人认证）每周静默占据详写篇幅。
+                if has_period_activity:
+                    active.append(entry)
+                else:
+                    tracking.append(entry)
             # 逾期风险：计划完成日已过且未完结（非已完成/已取消）
             if is_overdue_risk:
                 overdue.append({
@@ -618,6 +701,7 @@ class ReportDataCollector:
             "by_status": tr_keys(KW_STATUS, by_status),
             "by_priority": tr_keys(KW_PRIORITY, by_priority),
             "active": active,
+            "tracking": tracking,
             "completed_in_range": completed_in_range,
             "overdue": overdue,
         }
@@ -689,7 +773,7 @@ class ReportDataCollector:
         for r in rows:
             st = _g(r, "status") or "pending"
             sub_type = _g(r, "sub_type") or "leader_research"
-            city = _g(r, "city") or ""
+            city = tr(CITY, _g(r, "city") or "")
             impact = _g(r, "impact_level") or "P2"
             created = _date_of(_g(r, "created_at"))
             updated = _date_of(_g(r, "updated_at"))
