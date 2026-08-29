@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案C - 高管简报风（综合预览）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #f5f6f8; font-family: -apple-system, 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif; padding: 24px; }
+  .preview-wrap { max-width: 720px; margin: 0 auto; }
+  .scheme-label { background: #00b42a; color: #fff; padding: 8px 16px; border-radius: 8px 8px 0 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .scheme-label span { background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+  .email-card { background: #fff; border-radius: 0 0 12px 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); overflow: hidden; }
+
+  /* 顶部窄条 */
+  .top-bar { background: #1d2129; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; }
+  .top-bar .brand { color: #fff; font-size: 13px; font-weight: 600; letter-spacing: 0.5px; }
+  .top-bar .meta { color: #86909c; font-size: 12px; }
+
+  /* 标题区 */
+  .title-section { padding: 20px 24px 16px; border-bottom: 3px solid #165dff; }
+  .title-section .report-label { font-size: 11px; color: #86909c; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .title-section h1 { font-size: 20px; font-weight: 800; color: #1d2129; line-height: 1.3; }
+  .title-section .period { font-size: 13px; color: #4e5969; margin-top: 4px; }
+
+  /* 核心盯办横条 */
+  .watch-strip {
+    background: #1d2129;
+    color: #fff;
+    padding: 12px 24px;
+    font-size: 13px;
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .watch-strip .ws-label { color: #86909c; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .watch-strip .ws-item { display: flex; align-items: center; gap: 6px; }
+  .watch-strip .ws-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .watch-strip .ws-dot.red { background: #f53f3f; }
+  .watch-strip .ws-dot.orange { background: #f77d00; }
+  .watch-strip .ws-dot.green { background: #00b42a; }
+  .watch-strip .ws-val { font-weight: 700; font-size: 15px; }
+
+  /* 章节：左侧竖线风格 */
+  .section { padding: 18px 24px; border-bottom: 1px solid #f0f0f0; }
+  .section:last-child { border-bottom: none; }
+  .section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .sec-line { width: 4px; height: 18px; background: #165dff; border-radius: 2px; flex-shrink: 0; }
+  .sec-title { font-size: 14px; font-weight: 700; color: #1d2129; }
+  .sec-count { font-size: 11px; background: #f2f3f5; color: #4e5969; padding: 2px 8px; border-radius: 10px; }
+
+  .callout { background: #fafbfc; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #4e5969; line-height: 1.7; margin-bottom: 12px; }
+  .callout strong { color: #1d2129; }
+  .callout .hl { color: #165dff; font-weight: 600; }
+
+  /* 列表：简洁风格 */
+  .clean-list { list-style: none; padding: 0; }
+  .clean-list li { padding: 8px 0; border-bottom: 1px dashed #f0f0f0; font-size: 13px; color: #3d4a5c; line-height: 1.65; display: flex; align-items: flex-start; gap: 8px; }
+  .clean-list li:last-child { border-bottom: none; }
+  .clean-list .li-bullet { width: 5px; height: 5px; background: #165dff; border-radius: 50%; margin-top: 7px; flex-shrink: 0; }
+  .clean-list .li-bullet.warn { background: #f53f3f; }
+  .clean-list .li-bullet.ok { background: #00b42a; }
+  .clean-list .li-title { font-weight: 600; color: #1d2129; }
+  .clean-list .li-meta { color: #86909c; font-size: 12px; }
+
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+  table th { background: #1d2129; color: #fff; font-weight: 600; padding: 8px 10px; text-align: left; font-size: 11px; letter-spacing: 0.3px; }
+  table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; color: #3d4a5c; vertical-align: top; }
+  table tr:last-child td { border-bottom: none; }
+  table tr:hover td { background: #fafbff; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge.p0 { background: #fff2f0; color: #f53f3f; }
+  .badge.p1 { background: #fff7e8; color: #f77d00; }
+  .badge.done { background: #f0f7ff; color: #165dff; }
+  .badge.warn { background: #fff2f0; color: #f53f3f; }
+
+  /* 下周计划：极简 */
+  .next-section { background: #f6ffed; border-left: 4px solid #00b42a; padding: 16px 24px; }
+  .next-section .sec-title { color: #00871a; }
+  .next-section .sec-line { background: #00b42a; }
+  .next-section .callout { background: #f0fff4; border: 1px solid #b7eb8f; }
+  .plan-row { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px dashed #d9f7be; font-size: 13px; }
+  .plan-row:last-child { border-bottom: none; }
+  .plan-num { font-size: 11px; font-weight: 700; color: #00b42a; width: 16px; flex-shrink: 0; padding-top: 2px; }
+  .plan-body { flex: 1; }
+  .plan-body strong { color: #1d2129; }
+
+  /* 底部 */
+  .email-footer { padding: 12px 24px; background: #1d2129; color: #86909c; font-size: 11px; display: flex; justify-content: space-between; }
+  .email-footer a { color: #8faafd; text-decoration: none; }
+
+  .scheme-desc { max-width: 720px; margin: 16px auto 0; background: #fff; border-radius: 12px; padding: 20px 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .scheme-desc h3 { font-size: 15px; color: #1d2129; margin-bottom: 10px; }
+  .scheme-desc p { font-size: 13px; color: #4e5969; line-height: 1.8; }
+  .scheme-desc ul { margin: 8px 0 8px 18px; font-size: 13px; color: #4e5969; }
+  .scheme-desc li { margin-bottom: 4px; }
+  .scheme-desc .tag-item { display: inline-block; background: #f0f7ff; color: #165dff; padding: 1px 8px; border-radius: 10px; font-size: 12px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<div class="preview-wrap">
+
+<div class="scheme-label">方案 C · 高管简报风 <span>精简推荐</span></div>
+<div class="email-card">
+
+  <!-- 顶条 -->
+  <div class="top-bar">
+    <span class="brand">PMWB · 个人工作台</span>
+    <span class="meta">自动生成的工作汇报 · 2026-08-29</span>
+  </div>
+
+  <!-- 标题 -->
+  <div class="title-section">
+    <div class="report-label">工作周报</div>
+    <h1>工作汇报</h1>
+    <div class="period">📅 统计区间：2026-08-25（周一） ~ 2026-08-29（周五）</div>
+  </div>
+
+  <!-- 核心数据横条 -->
+  <div class="watch-strip">
+    <div class="ws-item"><span class="ws-dot green"></span><span class="ws-label">交付</span><span class="ws-val">3</span></div>
+    <div class="ws-item"><span class="ws-dot blue" style="background:#165dff;"></span><span class="ws-label">新增</span><span class="ws-val">5</span></div>
+    <div class="ws-item"><span class="ws-dot orange"></span><span class="ws-label">高敏工单</span><span class="ws-val">2</span></div>
+    <div class="ws-item"><span class="ws-dot red"></span><span class="ws-label">逾期重点</span><span class="ws-val">2</span></div>
+    <div class="ws-item"><span class="ws-dot green"></span><span class="ws-label">待办完成</span><span class="ws-val">87%</span></div>
+  </div>
+
+  <!-- 一、概述 -->
+  <div class="section">
+    <div class="section-head">
+      <div class="sec-line"></div>
+      <div class="sec-title">一、本期概述</div>
+    </div>
+    <div class="callout">
+      本期需求交付节奏平稳，完成上线 <span class="hl">3 项</span>；运营侧承压，<strong>2 条高敏（P0/P1）工单</strong>需重点关注；重点工作推进有序，<span class="hl">2 项存在逾期风险</span>，须限期盯办。整体判断：<strong>交付平稳 · 运营承压 · 协同滞后</strong>。
+    </div>
+  </div>
+
+  <!-- 二、重点工作 -->
+  <div class="section">
+    <div class="section-head">
+      <div class="sec-line"></div>
+      <div class="sec-title">二、重点工作</div>
+      <span class="sec-count">5 项推进中</span>
+    </div>
+    <ul class="clean-list">
+      <li>
+        <span class="li-bullet warn"></span>
+        <div>
+          <span class="li-title">集团商客专区智能报价</span>
+          <span class="badge p0" style="margin-left:6px;">P0</span>
+          <div class="li-meta">负责人：张三 &nbsp;·&nbsp; 进度：65% &nbsp;·&nbsp; 计划完成：2026-09-05</div>
+          <div style="margin-top:4px;">本周计划 3 项，完成 2 项。核心进展：产品方案评审通过，AI 引擎 v1.0 开发完成。下周关键：AI 模型接入联调（截止 9/3）。</div>
+        </div>
+      </li>
+      <li>
+        <span class="li-bullet"></span>
+        <div>
+          <span class="li-title">一网通宽带融合开通流程升级</span>
+          <div class="li-meta">负责人：李四 &nbsp;·&nbsp; 进度：40% &nbsp;·&nbsp; 计划完成：2026-10-15</div>
+          <div style="margin-top:4px;">本周完成现状调研与流程梳理。下周：需求规格说明书初稿提交。</div>
+        </div>
+      </li>
+    </ul>
+  </div>
+
+  <!-- 三、需求与交付 -->
+  <div class="section">
+    <div class="section-head">
+      <div class="sec-line"></div>
+      <div class="sec-title">三、需求与交付</div>
+    </div>
+    <table>
+      <tr><th>需求名称</th><th>系统</th><th>SA</th><th>上线日</th><th>核心实现</th></tr>
+      <tr><td>商客专区智能匹配</td><td>商客专区</td><td>王五</td><td>08-27</td><td>基于客户画像的产品匹配算法</td></tr>
+      <tr><td>电子协议模板优化</td><td>电子协议</td><td>赵六</td><td>08-28</td><td>模板引擎升级，支持动态字段</td></tr>
+      <tr><td>订单中心数据看板</td><td>订单中心</td><td>钱七</td><td>08-29</td><td>交付数据可视化看板</td></tr>
+    </table>
+  </div>
+
+  <!-- 四、运营支撑 -->
+  <div class="section">
+    <div class="section-head">
+      <div class="sec-line"></div>
+      <div class="sec-title">四、运营支撑</div>
+      <span class="sec-count">高敏 2 条</span>
+    </div>
+    <div class="callout">本期运营工单 23 条，高发类别为<strong>「系统故障」</strong>（8 条），高敏（P0/P1）工单 <span class="hl">2 条未闭环</span>，处置时效承压。处理人 <strong>李四</strong> 超期率偏高（3 条超期），须限期压缩处置时长。</div>
+    <table>
+      <tr><th>工单</th><th>类别</th><th>影响等级</th><th>处理人</th><th>状态</th></tr>
+      <tr><td>一网通宽带P0故障</td><td>系统故障</td><td><span class="badge p0">P0</span></td><td>李四</td><td><span class="badge warn">未闭环</span></td></tr>
+      <tr><td>商客专区性能告警</td><td>性能告警</td><td><span class="badge p1">P1</span></td><td>王五</td><td><span class="badge warn">处理中</span></td></tr>
+    </table>
+  </div>
+
+  <!-- 八、下周计划 -->
+  <div class="next-section">
+    <div class="section-head">
+      <div class="sec-line"></div>
+      <div class="sec-title">八、下周重点计划</div>
+    </div>
+    <div class="callout" style="border:none; margin-bottom:10px;">
+      下周核心围绕<strong>3 项逾期风险 + 3 条高敏工单</strong>展开，确保关键节点不延误。
+    </div>
+    <div class="plan-row">
+      <span class="plan-num">1</span>
+      <div class="plan-body"><strong>【集团商客专区智能报价】</strong>（负责人：张三）— AI 模型接入联调，截止 9/3</div>
+    </div>
+    <div class="plan-row">
+      <span class="plan-num">2</span>
+      <div class="plan-body"><strong>【一网通P0故障】</strong>（负责人：李四）— 限期 48h 内闭环处置</div>
+    </div>
+    <div class="plan-row">
+      <span class="plan-num">3</span>
+      <div class="plan-body"><strong>【会议行动项】</strong> — 跟进 3 项未闭环行动项，指定责任人</div>
+    </div>
+    <div class="plan-row">
+      <span class="plan-num">4</span>
+      <div class="plan-body"><strong>【需求交付】</strong> — 推进 7 条在途需求，无新增风险</div>
+    </div>
+  </div>
+
+  <div class="email-footer">
+    <span>🏢 PMWB · 产品经理个人工作台</span>
+    <span>本邮件由系统自动生成，请勿直接回复 &nbsp;·&nbsp; <a href="#">查看系统</a></span>
+  </div>
+</div>
+
+<div class="scheme-desc">
+  <h3>方案C — 设计说明</h3>
+  <p>以<strong>高管简报（Executive Briefing）</strong>为基调，信息密度高、视觉干扰少，适合忙碌的管理者快速扫读。</p>
+  <ul>
+    <li><span class="tag-item">深色顶条</span> 品牌标识 + 时间戳，专业感强</li>
+    <li><span class="tag-item">数据横条</span> 5 个核心指标一行展示，无需点击即可一览全局</li>
+    <li><span class="tag-item">左侧竖线标题</span> 章节用 4px 色块竖线引导视觉，层次清晰</li>
+    <li><span class="tag-item">深色表格表头</span> 替代传统浅色表头，对比度更高，更易阅读</li>
+    <li><span class="tag-item">绿色下周计划区</span> 单独用绿色背景区分，形成明确的行动区视觉锚点</li>
+    <li><span class="tag-item">极简无多余装饰</span> 去除圆角卡片、渐变等繁复元素，专注内容</li>
+  </ul>
+  <p><strong>适用场景：</strong>通用（日报/周报/月报均适用），适合管理层高频查阅，信息密度与可读性兼顾。</p>
+</div>
+
+</div>
+</body>
+</html>

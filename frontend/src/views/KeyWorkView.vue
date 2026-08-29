@@ -423,8 +423,8 @@
                 style="width: 140px"
                 @change="loadWeeklyFeedback"
               />
-              <el-button size="small" :loading="mailSending" @click="sendFeedbackMails">
-                <el-icon><Message /></el-icon> 发送反馈请求给负责人
+              <el-button size="small" @click="openFeedbackMail">
+                <el-icon><Message /></el-icon> 预览并发送反馈请求
               </el-button>
             </div>
           </div>
@@ -798,6 +798,20 @@
       </template>
     </el-dialog>
   </div>
+
+  <!-- 周反馈邮件预览弹窗（负责人牵头制） -->
+  <MailComposeDialog
+    v-model="mailDialogVisible"
+    :title="mailDialogTitle"
+    :scene="mailDialogScene"
+    :variables="mailDialogVariables"
+    :default-to="mailDialogTo"
+    :default-cc="mailDialogCc"
+    :default-subject="mailDialogSubject"
+    :default-body="mailDialogBody"
+    value-key="email"
+    @success="handleFeedbackMailSuccess"
+  />
 </template>
 
 <script setup>
@@ -808,6 +822,7 @@ import * as kwApi from '@/api/keywork.js'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import {
   CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP, PLAN_STATUS_MAP,
@@ -899,7 +914,35 @@ const feedbackWeek = ref(currentIsoWeek())
 const feedbackGroups = ref([])
 const expandedAssignees = ref([])
 const submittingAssignees = ref([])
-const mailSending = ref(false)
+
+// 邮件预览弹窗（负责人牵头制）
+const mailDialogVisible = ref(false)
+const mailDialogTitle = ref('发送周反馈请求')
+const mailDialogTo = ref([])
+const mailDialogCc = ref([])
+const mailDialogSubject = ref('')
+const mailDialogBody = ref('')
+const mailDialogScene = ref('keywork_feedback')
+const mailDialogVariables = ref({})
+const mailDialogContext = ref({})
+
+/** 打开周反馈邮件预览弹窗 */
+function openFeedbackMailDialog(owner, week, title, workNo) {
+  mailDialogTo.value = [owner]
+  mailDialogCc.value = []
+  mailDialogSubject.value = `【周反馈请求】${title} - ${week} 周`
+  mailDialogBody.value = `【重点工作周反馈】${title}（${workNo}）- ${week} 周\n\n您是该专题负责人，请牵头线下收集本专题各成员本周进展后，汇总反馈以下三块内容：\n\n## 本周完成\n（汇总本周已完成的进展，含各成员工作）\n\n## 下周计划\n（汇总下周计划开展的工作）\n\n## 风险/求助\n（如有风险或需协调事项请填写）\n\n反馈方式：直接回复本邮件，或线下同步给管理员在 PMWB「重点工作」详情页周反馈页签录入归档。`
+  mailDialogScene.value = 'keywork_feedback'
+  mailDialogVariables.value = {
+    week,
+    work_no: workNo,
+    title,
+    assignee: owner,
+    body: mailDialogBody.value,
+  }
+  mailDialogContext.value = {}
+  mailDialogVisible.value = true
+}
 const lastWeekFeedback = ref(null)
 const isMonthEnd = ref(false)
 const currentMonth = ref('')
@@ -1091,22 +1134,23 @@ async function submitFeedback(g) {
   }
 }
 
-/** 发送周反馈请求邮件（只发给负责人） */
-async function sendFeedbackMails() {
+/** 发送周反馈请求邮件（只发给负责人）— 改为预览确认后发送 */
+async function openFeedbackMail() {
   if (!currentId.value) return
-  mailSending.value = true
-  try {
-    const res = await kwApi.sendFeedbackMail(currentId.value, { week: feedbackWeek.value })
-    const parts = []
-    if (res.sent?.length) parts.push(`已发送 ${res.sent.length} 封`)
-    if (res.skipped?.length) parts.push(`无邮箱跳过：${res.skipped.map((s) => s.assignee).join('、')}`)
-    if (res.failed?.length) parts.push(`发送失败：${res.failed.map((s) => s.assignee).join('、')}`)
-    ElMessage[res.sent?.length ? 'success' : 'warning'](parts.join('；') || '无发送结果')
-  } catch (e) {
-    ElMessage.error('发送失败：' + (e?.message || e))
-  } finally {
-    mailSending.value = false
+  const g = feedbackGroups.value[0]
+  if (!g?.assignee) {
+    ElMessage.warning('该工单未设置负责人')
+    return
   }
+  // 获取工单信息用于填充预览
+  const kw = detail.value
+  openFeedbackMailDialog(g.assignee, feedbackWeek.value, kw.title, kw.work_no)
+}
+
+/** 邮件预览弹窗确认发送回调 */
+function handleFeedbackMailSuccess() {
+  mailDialogVisible.value = false
+  ElMessage.success('周反馈请求邮件已发送')
 }
 
 // ---------- 数据获取 ----------
