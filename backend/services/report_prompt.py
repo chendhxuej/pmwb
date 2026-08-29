@@ -106,7 +106,7 @@ _TYPE_LABELS = {"daily": "日", "weekly": "周", "monthly": "月", "custom": "�
 def build_system_prompt(report_type: str) -> str:
     title_label = _TITLE_LABELS.get(report_type, "工作日报")
     next_req = _NEXT_PERIOD_REQ.get(report_type, _NEXT_PERIOD_REQ["custom"])
-    prompt = SYSTEM_PROMPT_COMMON.format(type=title_label, next_req=next_req)
+    prompt = SYSTEM_PROMPT_COMMON.format(type=title_label, type_label=title_label, next_req=next_req)
     return prompt + "\n\n" + TYPE_PROMPTS.get(report_type, "") + "\n\n" + build_glossary_text()
 
 
