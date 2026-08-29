@@ -162,6 +162,10 @@ class ReportDataCollector:
             req_delivered = _date_of(_g(r, "delivered_date"))
             go_live = req_delivered or ticket_go_live
 
+            # 数据过滤：排除已挂起/已暂停的数据（按用户要求）
+            if status in ("paused", "suspended"):
+                continue
+
             # 范围判定：本期是否发生过状态/数据更新；已完成需求（delivered_date 在周期前）排除
             in_scope = (
                 _is_in_scope(r, start, end)
@@ -245,6 +249,10 @@ class ReportDataCollector:
             disc = _date_of(_g(r, "discovery_date")) or _date_of(_g(r, "created_at"))
             resolve = _date_of(_g(r, "resolve_date"))
             is_overdue = _g(r, "is_overdue") or 0
+
+            # 数据过滤：排除已挂起/已暂停的运营工单
+            if st in ("paused", "suspended"):
+                continue
 
             # 范围判定：基于更新时间戳或发现/解决日期；已完成且周期前已解决的工单排除
             in_scope = (
@@ -513,6 +521,10 @@ class ReportDataCollector:
             weekly_plans = _g(w, "weekly_plans") or []
             progresses = _g(w, "progresses") or []
             member_tasks = _g(w, "member_tasks") or []
+
+            # 数据过滤：排除已挂起/已暂停的重点工作
+            if st in ("paused", "suspended"):
+                continue
 
             # 范围判定：主表 updated_at/created_at，或关联周计划/进展/成员任务在范围内有更新
             latest_related = _latest_related_date(w, list(weekly_plans) + list(progresses) + list(member_tasks))

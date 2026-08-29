@@ -52,3 +52,5 @@
 - Obsidian 打开统一入口：所有"打开笔记/主笔记"动作走 `frontend/src/utils/obsidian.js` 的 `openObsidianNote(relPath)`，协议 `obsidian://open?vault=知识图谱&file=${encodeURIComponent(relPath)}` 后 `window.open(_blank)`；vault 名固定「知识图谱」。禁止再 `emit('open-note')` 让父壳中转——`KnowledgeCenterView.vue` 仅包 `<router-view/>` 不监听该事件，曾是死事件导致按钮失效；DomainKnowledgeView.vue 的 `window.open` 写法即权威参照。
 - 主笔记内容完整：结构化视图 `get_main_note_structured` 只返 14 标准节，非标准章节（如 `## 关联对象`/`## 相关子笔记 MOC`）会被丢弃；需展示全文时调 `obsidianApi.getNoteContent(path)` 拉 raw markdown 用 MarkdownRender 渲染。
 - 主动运营分析（prod 工单）：PmwbOperationAnalysis 1:1 关联 issue；GET /analysis-template/download、POST /analysis/import、GET /issues/{id}/analysis；导入遗留任务只建运营工单不建 PmwbTodo。
+- AR 总结排版方案确认：日报/周报用方案A（蓝色渐变头部 + KPI条 + 双段式概述），月报用方案B（紫色仪表盘风格 + 6格KPI + 双段式概述）；双段式概述 = PartA 工作成效 + PartB 待改进问题。3版 HTML 预览：prototype/email-scheme-a.html / email-scheme-b.html / email-scheme-c.html（方案C备用）。
+- 待实现：① ISO周对齐修复 ② 已完结任务过滤 ③ 月报 items 截断上限 ④ 双段式概述提示词重构 ⑤ 报告标题注入 ⑥ 邮件模板按类型分派（A/B）。
