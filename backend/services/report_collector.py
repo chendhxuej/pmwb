@@ -235,6 +235,7 @@ class ReportDataCollector:
         by_handler = defaultdict(lambda: {"total": 0, "done": 0, "overdue": 0})
         high: List[Dict[str, Any]] = []
         items: List[Dict[str, Any]] = []
+        cross_period: List[Dict[str, Any]] = []
         for r in rows:
             cat = _g(r, "category") or "other"
             st = _g(r, "status") or "pending"
@@ -251,7 +252,13 @@ class ReportDataCollector:
                 or _in_range(disc, start, end)
                 or _in_range(resolve, start, end)
             )
-            if not in_scope:
+            # 跨期跟踪：本周期前已存在且仍处理中的工单
+            is_cross_period = (
+                not in_scope
+                and disc and disc < start
+                and st not in ("resolved", "closed", "verify", "completed", "done")
+            )
+            if not in_scope and not is_cross_period:
                 continue
 
             by_category[cat] += 1
@@ -271,15 +278,21 @@ class ReportDataCollector:
                     "status": tr(OP_ISSUE_STATUS, st),
                     "handler": handler,
                     "impact": tr(IMPACT_LEVEL, impact),
+                    "cross_period": is_cross_period,
                 })
-            items.append({
+            item = {
                 "issue_no": _g(r, "issue_no"),
                 "title": _g(r, "title"),
                 "category": tr(OP_ISSUE_CATEGORY, cat),
                 "status": tr(OP_ISSUE_STATUS, st),
                 "impact": tr(IMPACT_LEVEL, impact),
                 "handler": handler,
-            })
+            }
+            if is_cross_period:
+                item["cross_period"] = True
+                cross_period.append(item)
+            else:
+                items.append(item)
         return {
             "items": items,
             "by_category": tr_keys(OP_ISSUE_CATEGORY, by_category),
@@ -294,6 +307,7 @@ class ReportDataCollector:
                 for k, v in by_handler.items()
             },
             "high_sensitivity": high,
+            "cross_period_items": cross_period,
         }
 
     # ---- 开发工单 ----

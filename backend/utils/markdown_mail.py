@@ -204,6 +204,8 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
     inner_html = _apply_inline_styles(inner_html)
     # 过滤掉 H1 标题（已在头部展示），保留其余内容
     inner_html = _re.sub(r"<h1[^>]*>.*?</h1>", "", inner_html, flags=_re.DOTALL | _re.IGNORECASE)
+    # ---- 3.5 特殊处理：提取双段式 Part A/B 并渲染为两栏布局 ----
+    inner_html = _render_dual_overview(inner_html)
 
     # ---- 4. 组装方案A/B 外壳 ----
     if report_type == "monthly":
@@ -335,11 +337,55 @@ def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi:
 
 
 def _kpi_cell_class(v: str) -> str:
+    """根据KPI数值返回样式类名（ok=绿色，warn=红色，空=默认）。"""
     if v and v.replace("%", "").replace(",", "").isdigit():
         num = float(v.replace("%", ""))
         if num > 80: return ' ok'
         if num < 50: return ' warn'
     return ''
+
+
+def _render_dual_overview(html_str: str) -> str:
+    """将 Part A 工作成效 / Part B 待改进问题的双段式概述转换为两栏 HTML 布局。"""
+    import re as _re
+    pattern = (
+        r'<h2[^>]*>Part\s+A\s+工作成效</h2>(.*?)'
+        r'<h2[^>]*>Part\s+B\s+待改进问题</h2>(.*?)'
+        r'(?=<h2|</div>$)'
+    )
+    m = _re.search(pattern, html_str, _re.DOTALL)
+    if not m:
+        return html_str
+    col_a_content = m.group(1).strip()
+    col_b_content = m.group(2).strip()
+    dual_div = (
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;'
+        'padding:20px 28px;border-bottom:1px solid #f0f2f5;">'
+        '<div style="background:linear-gradient(135deg,#f0f7ff 0%,#e8f3ff 100%);'
+        'border:1px solid #c7ddff;border-radius:10px;padding:16px;">'
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+        '<div style="width:28px;height:28px;border-radius:8px;'
+        'background:#165dff;color:#fff;display:flex;align-items:center;'
+        'justify-content:center;font-size:14px;font-weight:700;">✓</div>'
+        '<div style="font-size:14px;font-weight:700;color:#165dff;">工作成效</div>'
+        '</div>'
+        f'{col_a_content}'
+        '</div>'
+        '<div style="background:linear-gradient(135deg,#fff7f0 0%,#fff0e8 100%);'
+        'border:1px solid #ffccc7;border-radius:10px;padding:16px;">'
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+        '<div style="width:28px;height:28px;border-radius:8px;'
+        'background:#f53f3f;color:#fff;display:flex;align-items:center;'
+        'justify-content:center;font-size:14px;font-weight:700;">!</div>'
+        '<div style="font-size:14px;font-weight:700;color:#f53f3f;">待改进问题</div>'
+        '</div>'
+        f'{col_b_content}'
+        '</div>'
+        '</div>'
+    )
+    replacement = dual_div
+    html_str = _re.sub(pattern, replacement, html_str, flags=_re.DOTALL)
+    return html_str
 
 
 def _sanitize(html_str: str) -> str:
