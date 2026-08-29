@@ -34,6 +34,24 @@
                     <span class="template-item-meta">
                       {{ tpl.to.length }}收/{{ tpl.cc.length }}抄 · {{ formatDate(tpl.updatedAt) }}
                     </span>
+                    <div class="template-item-actions">
+                      <el-button
+                        size="small"
+                        link
+                        type="primary"
+                        @click.stop="openEditTemplateDialog(tpl)"
+                      >
+                        <el-icon><Edit /></el-icon>
+                      </el-button>
+                      <el-button
+                        size="small"
+                        link
+                        type="danger"
+                        @click.stop="deleteTemplateConfirm(tpl.id, tpl.name)"
+                      >
+                        <el-icon><Delete /></el-icon>
+                      </el-button>
+                    </div>
                   </el-dropdown-item>
                   <el-dropdown-item v-if="!currentTemplates.length" disabled>
                     <span class="template-empty">暂无模板，点击下方按钮创建</span>
@@ -71,6 +89,24 @@
                     <span class="template-item-meta">
                       {{ tpl.to.length }}收/{{ tpl.cc.length }}抄 · {{ formatDate(tpl.updatedAt) }}
                     </span>
+                    <div class="template-item-actions">
+                      <el-button
+                        size="small"
+                        link
+                        type="primary"
+                        @click.stop="openEditTemplateDialog(tpl)"
+                      >
+                        <el-icon><Edit /></el-icon>
+                      </el-button>
+                      <el-button
+                        size="small"
+                        link
+                        type="danger"
+                        @click.stop="deleteTemplateConfirm(tpl.id, tpl.name)"
+                      >
+                        <el-icon><Delete /></el-icon>
+                      </el-button>
+                    </div>
                   </el-dropdown-item>
                   <el-dropdown-item v-if="!currentTemplates.length" disabled>
                     <span class="template-empty">暂无模板，点击下方按钮创建</span>
@@ -144,19 +180,78 @@
         <el-button type="primary" @click="saveTemplate">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 编辑模板对话框 -->
+    <el-dialog
+      v-model="showEditTemplateDialog"
+      :title="`编辑模板「${editingTemplate?.name || ''}」`"
+      width="480px"
+      append-to-body
+    >
+      <el-form label-width="80px">
+        <el-form-item label="模板名称">
+          <el-input
+            v-model="editTemplateName"
+            placeholder="如：周报发给张经理"
+            maxlength="50"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item label="收件人">
+          <span class="template-preview-count">{{ (editingTemplate?.to || []).length }} 人</span>
+          <el-button size="small" link type="primary" @click="editTo = [...(editingTemplate?.to || [])]; showEditStaffSelect = 'to'">修改</el-button>
+        </el-form-item>
+        <el-form-item label="抄送">
+          <span class="template-preview-count">{{ (editingTemplate?.cc || []).length }} 人</span>
+          <el-button size="small" link type="primary" @click="editCc = [...(editingTemplate?.cc || [])]; showEditStaffSelect = 'cc'">修改</el-button>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showEditTemplateDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveEditTemplate">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 编辑时的人员选择弹窗 -->
+    <el-dialog
+      v-model="showEditStaffSelect"
+      :title="showEditStaffSelect === 'to' ? '选择收件人' : '选择抄送人'"
+      width="760px"
+      append-to-body
+    >
+      <StaffSelect
+        v-if="showEditStaffSelect === 'to'"
+        v-model="editTo"
+        multiple
+        :value-key="valueKey"
+        placeholder="选择 / 输入收件人（姓名或邮箱）"
+      />
+      <StaffSelect
+        v-else-if="showEditStaffSelect === 'cc'"
+        v-model="editCc"
+        multiple
+        :value-key="valueKey"
+        placeholder="选择 / 输入抄送（可空）"
+      />
+      <template #footer>
+        <el-button @click="showEditStaffSelect = ''">取消</el-button>
+        <el-button type="primary" @click="showEditStaffSelect = ''">确认</el-button>
+      </template>
+    </el-dialog>
   </el-dialog>
 </template>
 
 <script setup>
 import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Plus, Delete } from '@element-plus/icons-vue'
+import { Document, Plus, Delete, Edit } from '@element-plus/icons-vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import { previewEmail, sendEmail } from '@/api/mailDispatch.js'
 import {
   getSceneTemplates,
   addTemplate,
   deleteTemplate,
+  updateTemplate,
 } from '@/composables/useMailTemplates.js'
 
 const props = defineProps({
@@ -201,6 +296,12 @@ let lastBody = ''
 const templateDropdownVisible = ref(false)
 const showTemplateDialog = ref(false)
 const newTemplateName = ref('')
+const editingTemplate = ref(null)  // 正在编辑的模板（用于编辑对话框）
+const showEditTemplateDialog = ref(false)
+const editTemplateName = ref('')
+const editTo = ref([])
+const editCc = ref([])
+const showEditStaffSelect = ref('')  // 'to' | 'cc' | ''
 
 const isRawMode = computed(() => !props.scene)
 
@@ -399,6 +500,35 @@ function saveTemplate() {
   showTemplateDialog.value = false
 }
 
+// 编辑模板
+function openEditTemplateDialog(template) {
+  templateDropdownVisible.value = false
+  editingTemplate.value = template
+  editTemplateName.value = template.name
+  editTo.value = [...(template.to || [])]
+  editCc.value = [...(template.cc || [])]
+  showEditTemplateDialog.value = true
+  showEditStaffSelect.value = ''
+}
+
+function saveEditTemplate() {
+  if (!editTemplateName.value.trim()) {
+    ElMessage.warning('请输入模板名称')
+    return
+  }
+  if (!editTo.value.length) {
+    ElMessage.warning('收件人不能为空')
+    return
+  }
+  updateTemplate(editingTemplate.value.id, {
+    name: editTemplateName.value.trim(),
+    to: editTo.value,
+    cc: editCc.value,
+  })
+  ElMessage.success('模板已更新')
+  showEditTemplateDialog.value = false
+}
+
 defineExpose({ sending, refreshPreview })
 </script>
 
@@ -490,6 +620,15 @@ defineExpose({ sending, refreshPreview })
 .template-preview-count {
   font-size: 13px;
   color: #606266;
+}
+.template-item-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.el-dropdown-menu__item:hover .template-item-actions {
+  opacity: 1;
 }
 .compose-hint {
   display: block;

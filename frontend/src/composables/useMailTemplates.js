@@ -69,6 +69,22 @@ export function deleteTemplate(id) {
 }
 
 /**
+ * 更新模板（修改名称、收件人、抄送人）
+ */
+export function updateTemplate(id, updates) {
+  const list = templates.value.map((t) => {
+    if (t.id !== id) return t
+    return {
+      ...t,
+      ...updates,
+      updatedAt: Date.now(),
+    }
+  })
+  templates.value = list
+  saveTemplates(list)
+}
+
+/**
  * 清空指定场景的所有模板
  */
 export function clearSceneTemplates(scene) {
