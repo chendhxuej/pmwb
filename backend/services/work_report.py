@@ -140,7 +140,7 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
     """保证 LLM 输出包含所有必备小节（防止偶发漏模块），缺失则补占位说明。
 
     同时修正格式：将错误的 H3 级别章节标题提升为 H2。
-    修正章节顺序：确保"一、本期概述"在文档开头。
+    修正标题格式：确保 H1 标题在最顶部，后续才是 H2 章节。
     """
     import re as _re
     required = [
@@ -164,17 +164,18 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
     out = _re.sub(r'^### (六、个人待办|个人待办)$', r'## 六、个人待办', out, flags=_re.MULTILINE)
     out = _re.sub(r'^### (七、知识中心|知识中心)$', r'## 七、知识中心', out, flags=_re.MULTILINE)
 
-    # 修正章节顺序：确保"一、本期概述"在文档开头
-    # 查找"一、本期概述"的位置
-    overview_match = _re.search(r'^(## 一、本期概述.+?)(?=## 二、|$)', out, _re.DOTALL | _re.MULTILINE)
-    if overview_match:
-        overview_content = overview_match.group(1)
-        # 如果不在开头，移动到开头
-        if not out.strip().startswith('## 一、本期概述'):
-            # 移除原有的"一、本期概述"章节
-            out = _re.sub(r'^## 一、本期概述.+?(?=## 二、|$)', '', out, flags=_re.DOTALL | _re.MULTILINE)
-            # 在开头插入
-            out = overview_content.rstrip() + '\n\n' + out.lstrip()
+    # 修正标题格式：确保 H1 标题在文档最顶部
+    # 查找 H1 标题（如果存在）
+    h1_match = _re.search(r'^# .+$', out, _re.MULTILINE)
+    if h1_match:
+        h1_content = h1_match.group(0)
+        h1_pos = h1_match.start()
+        # 如果 H1 不在第一行，将其移到开头
+        if h1_pos > 0:
+            # 移除原有的 H1
+            out = out[:h1_pos] + out[h1_match.end():]
+            # 在开头插入 H1
+            out = h1_content + '\n\n' + out.lstrip()
 
     # 移除周期外在途跟踪章节（合并到其他工单分析中）
     out = _re.sub(r'\n### ④.*?周期外在途跟踪.*?(?=\n###|\n## |\Z)', '\n', out, flags=_re.DOTALL)
