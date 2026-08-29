@@ -61,12 +61,12 @@ def _md_table(headers: List[str], rows: List[Tuple[str, ...]]) -> str:
     return "\n".join(lines)
 
 
-def generate_report_markdown(db, system_prompt: str, user_message: str, max_tokens: int = 8192):
+def generate_report_markdown(db, system_prompt: str, user_message: str, max_tokens: int = 16384):
     """调用 LLM 生成报告正文，返回 (markdown, used_llm, provider_name, notice)。
 
     底层走多模型注册表（services.llm_provider），按优先级 fallback；
     全部不可用时返回 ("", False, None, notice)，由上层降级到规则模板。
-    默认 max_tokens=8192，确保 8 章节完整输出不被截断。
+    默认 max_tokens=16384，确保 8 章节完整输出不被截断。
     """
     try:
         res = call_best_available(db, system_prompt, user_message, max_tokens=max_tokens)
