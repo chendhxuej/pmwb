@@ -30,6 +30,7 @@ from routers import (
     reminder,
     requirement,
     requirement_delivery,
+    research,
     sql_script,
     supervise,
     task_center,
@@ -102,6 +103,7 @@ app.include_router(health.router, prefix="/api/v1", tags=["健康检查"])
 app.include_router(basic_data.router, prefix="/api/v1", tags=["基础数据"])
 app.include_router(keywork.router, prefix="/api/v1", tags=["重点工作"])
 app.include_router(operation.router, prefix="/api/v1", tags=["业务运营监控"])
+app.include_router(research.router, prefix="/api/v1", tags=["一线调研"])
 app.include_router(meeting_action.router, prefix="/api/v1", tags=["会议行动项"])
 app.include_router(meeting.router, prefix="/api/v1", tags=["会议管理"])
 app.include_router(knowledge.router, prefix="/api/v1", tags=["知识库"])

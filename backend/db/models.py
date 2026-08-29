@@ -457,6 +457,75 @@ class PmwbOperationIssue(Base):
     )
 
 
+class PmwbResearchIssue(Base):
+    """一线调研工单表：记录领导调研/一线驻点收集的问题及闭环跟踪。"""
+
+    __tablename__ = "pmwb_research_issue"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    issue_no = Column(String(64), nullable=False, unique=True, comment="调研工单编号")
+    title = Column(String(255), nullable=False, comment="工单标题")
+    sub_type = Column(
+        Enum("leader_research", "frontline_station"),
+        default="leader_research",
+        comment="子类：领导调研/一线驻点",
+    )
+    status = Column(
+        Enum("pending", "processing", "verify", "resolved", "closed", "suspended"),
+        default="pending",
+        comment="状态：待处理/处理中/验证中/已解决/已关闭/已挂起",
+    )
+    city = Column(String(64), comment="地市")
+    basic_info = Column(Text, comment="基本信息")
+    situation_desc = Column(Text, comment="情况说明")
+    city_suggestion = Column(Text, comment="地市建议")
+    feedback_name = Column(String(128), comment="反馈人姓名")
+    feedback_phone = Column(String(64), comment="联系电话")
+    case_info = Column(Text, comment="案例信息")
+    source = Column(String(128), comment="信息来源")
+    feedback_deadline = Column(Date, comment="反馈截止日期")
+    remark = Column(Text, comment="备注")
+    vendor_handlers = Column(String(512), comment="厂家责任人（多选，逗号分隔）")
+    assessment_result = Column(Text, comment="评估结果")
+    issue_nature = Column(
+        Enum("bug", "optimization", "invalid"),
+        comment="问题性质：BUG/优化/非有效问题",
+    )
+    solution = Column(Text, comment="解决方案")
+    business_admin = Column(String(512), comment="业务管理员（多选，逗号分隔）")
+    related_req_id = Column(String(64), comment="关联需求编号")
+    related_issue_id = Column(Integer, comment="关联运营/调研工单ID")
+    related_meeting_id = Column(Integer, comment="关联会议ID")
+    version_plan = Column(String(128), comment="版本计划")
+    official_feedback = Column(Text, comment="正式反馈信息")
+    domain_code = Column(String(64), comment="关联业务领域编码")
+    impact_level = Column(Enum("P0", "P1", "P2", "P3"), default="P2", comment="影响等级")
+    go_live_date = Column(Date, comment="计划完成时间")
+    resolve_date = Column(DateTime, comment="解决时间")
+    is_overdue = Column(Integer, default=0, comment="是否超期")
+    obsidian_path = Column(String(512), comment="沉淀知识条目路径")
+    attachments = Column(Text, comment="附件元信息(JSON 数组)")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_research_issue_no", "issue_no"),
+        Index("idx_research_status", "status"),
+        Index("idx_research_city", "city"),
+        Index("idx_research_sub_type", "sub_type"),
+        Index("idx_research_issue_nature", "issue_nature"),
+        Index("idx_research_related_req", "related_req_id"),
+        Index("idx_research_related_issue", "related_issue_id"),
+        Index("idx_research_related_meeting", "related_meeting_id"),
+        {"comment": "一线调研工单表"},
+    )
+
+
 class PmwbOperationAnalysis(Base):
     """主动运营分析工单明细表：承接分析长文本与5维度结果，1:1 关联运营工单。"""
 

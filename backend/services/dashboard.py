@@ -520,6 +520,27 @@ class DashboardService:
         # 运营问题（复用 get_stats）
         stats = self.get_stats()
 
+        # 一线调研工单（与运营问题合并统计，统一展示在首页「运营工单」卡片）
+        try:
+            from db.models import PmwbResearchIssue
+            research_total = self.db.query(func.count(PmwbResearchIssue.id)).scalar() or 0
+            research_pending = self.db.query(func.count(PmwbResearchIssue.id)).filter(PmwbResearchIssue.status == "pending").scalar() or 0
+            research_processing = self.db.query(func.count(PmwbResearchIssue.id)).filter(PmwbResearchIssue.status == "processing").scalar() or 0
+            research_resolved = self.db.query(func.count(PmwbResearchIssue.id)).filter(PmwbResearchIssue.status.in_(["resolved", "closed"])).scalar() or 0
+            research_overdue = self.db.query(func.count(PmwbResearchIssue.id)).filter(PmwbResearchIssue.is_overdue == 1).scalar() or 0
+            # 合并统计：运营问题 + 一线调研
+            issues_total = (stats.issue_total or 0) + research_total
+            issues_pending = (stats.issue_pending or 0) + research_pending
+            issues_processing = (stats.issue_processing or 0) + research_processing
+            issues_resolved = (stats.issue_resolved or 0) + research_resolved
+            issues_overdue = (stats.issue_overdue or 0) + research_overdue
+        except Exception:  # noqa: BLE001
+            issues_total = stats.issue_total or 0
+            issues_pending = stats.issue_pending or 0
+            issues_processing = stats.issue_processing or 0
+            issues_resolved = stats.issue_resolved or 0
+            issues_overdue = stats.issue_overdue or 0
+
         # 会议：start_time 按本地时间存储，用本地日期区间统计，避免 UTC 边界少算一天
         meeting_this_week = self.db.query(func.count(PmwbMeeting.id)).filter(
             PmwbMeeting.start_time >= _day_start(week_start),
@@ -599,9 +620,9 @@ class DashboardService:
                 resolved=ticket_resolved, closed=ticket_closed,
             ),
             issues=ModuleStatsIssues(
-                total=stats.issue_total, pending=stats.issue_pending,
-                processing=stats.issue_processing, resolved=stats.issue_resolved,
-                overdue=stats.issue_overdue,
+                total=issues_total, pending=issues_pending,
+                processing=issues_processing, resolved=issues_resolved,
+                overdue=issues_overdue,
             ),
             meetings=ModuleStatsMeetings(
                 totalThisWeek=meeting_this_week, today=meeting_today, upcoming=meeting_upcoming,

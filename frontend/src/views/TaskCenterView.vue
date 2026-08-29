@@ -413,6 +413,7 @@ async function handleNewTodoSubmit() {
 const sourceList = [
   { key: 'todo', label: '个人待办' },
   { key: 'operation_issue', label: '运营问题' },
+  { key: 'research_issue', label: '一线调研' },
   { key: 'dev_ticket', label: '开发工单' },
   { key: 'meeting_action', label: '会议行动项' },
   { key: 'key_work', label: '重点工作' },

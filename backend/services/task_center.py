@@ -23,6 +23,7 @@ from db.models import (
     PmwbMeeting,
     PmwbMeetingAction,
     PmwbOperationIssue,
+    PmwbResearchIssue,
     PmwbTodo,
     SentEmail,
 )
@@ -198,6 +199,59 @@ class TaskCenterService:
                     "问题大类": _CATEGORY_LABEL.get(r.category, r.category or "—"),
                     "问题类型": _ISSUE_TYPE_LABEL.get(r.issue_type, r.issue_type or "—"),
                     "关联系统": r.related_system,
+                    "关联需求": r.related_req_id,
+                    "情况说明": (r.situation_desc or ""),
+                },
+                **flags,
+            ))
+        return items
+
+    def collect_research_issue(self, db: Session) -> List[TaskItem]:
+        """一线调研工单采集器。"""
+        rows = db.query(PmwbResearchIssue).all()
+        items: List[TaskItem] = []
+        status_map = {
+            "pending": "pending",
+            "processing": "in_progress",
+            "verify": "in_progress",
+            "resolved": "done",
+            "closed": "done",
+            "suspended": "blocked",
+        }
+        SUB_TYPE_LABEL = {
+            "leader_research": "领导调研",
+            "frontline_station": "一线驻点",
+        }
+        CITY_LABEL = {
+            "nanjing": "南京", "suzhou": "苏州", "wuxi": "无锡",
+            "changzhou": "常州", "zhenjiang": "镇江", "yangzhou": "扬州",
+            "taizhou": "泰州", "nantong": "南通", "yancheng": "盐城",
+            "huaian": "淮安", "suqian": "宿迁", "xuzhou": "徐州",
+            "lianyungang": "连云港",
+        }
+        for r in rows:
+            status = status_map.get(r.status or "pending", "pending")
+            due = r.go_live_date or r.feedback_deadline
+            flags = _flag_dates(due, status)
+            items.append(TaskItem(
+                task_id=f"research_issue:{r.id}",
+                source="research_issue",
+                source_label=SOURCE_LABELS["research_issue"],
+                source_id=str(r.id),
+                title=f"[{r.issue_no}] {r.title or ''}",
+                status=status,
+                status_label=STATUS_LABELS[status],
+                raw_status=r.status or "",
+                owner=r.vendor_handlers or "",
+                priority=r.impact_level,
+                due_date=due,
+                created_at=r.created_at.date() if r.created_at else None,
+                source_url=f"/operation/research?issueId={r.id}",
+                detail={
+                    "工单编号": r.issue_no,
+                    "子类": SUB_TYPE_LABEL.get(r.sub_type, r.sub_type or "—"),
+                    "地市": CITY_LABEL.get(r.city, r.city or "—"),
+                    "问题性质": r.issue_nature or "—",
                     "关联需求": r.related_req_id,
                     "情况说明": (r.situation_desc or ""),
                 },
@@ -488,6 +542,7 @@ class TaskCenterService:
     _COLLECTORS = {
         "todo": "collect_todo",
         "operation_issue": "collect_operation_issue",
+        "research_issue": "collect_research_issue",
         "dev_ticket": "collect_dev_ticket",
         "meeting_action": "collect_meeting_action",
         "key_work": "collect_key_work",

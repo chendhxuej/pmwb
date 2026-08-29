@@ -66,6 +66,36 @@
         </div>
       </div>
 
+      <!-- 一线调研快捷入口 -->
+      <div class="card research-quick-card" @click="goResearch">
+        <div class="research-quick-header">
+          <span class="research-quick-title">一线调研</span>
+          <span class="research-quick-sub">领导调研 · 一线驻点</span>
+          <el-icon class="research-quick-arrow"><ArrowRight /></el-icon>
+        </div>
+        <div class="research-quick-stats">
+          <div class="rq-stat">
+            <div class="rq-num">{{ researchStats.total || 0 }}</div>
+            <div class="rq-lab">工单总量</div>
+          </div>
+          <div class="rq-divider"></div>
+          <div class="rq-stat">
+            <div class="rq-num rq-pending">{{ researchStats.pending || 0 }}</div>
+            <div class="rq-lab">待处理</div>
+          </div>
+          <div class="rq-divider"></div>
+          <div class="rq-stat">
+            <div class="rq-num rq-processing">{{ researchStats.processing || 0 }}</div>
+            <div class="rq-lab">进行中</div>
+          </div>
+          <div class="rq-divider"></div>
+          <div class="rq-stat">
+            <div class="rq-num rq-overdue" :class="{ warn: researchStats.overdue > 0 }">{{ researchStats.overdue || 0 }}</div>
+            <div class="rq-lab">已逾期</div>
+          </div>
+        </div>
+      </div>
+
       <!-- 工单列表 -->
       <div class="card ops-list-col">
         <div class="card-header" style="padding:18px 20px 0">
@@ -318,12 +348,13 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Document, Warning, DataLine, Cpu, List, ChatDotRound, ArrowDown } from '@element-plus/icons-vue'
+import { Plus, Document, Warning, DataLine, Cpu, List, ChatDotRound, ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import RelatedKnowledgePanel from '@/components/Common/RelatedKnowledgePanel.vue'
 import { operationApi } from '@/api/operation'
+import { researchApi } from '@/api/research'
 import { obsidianApi } from '@/api/obsidian'
 import { formatDate } from '@/utils/format'
 
@@ -438,6 +469,25 @@ const pagedList = computed(() => {
 
 const sideNotes = ref([])
 const overdueList = computed(() => allIssues.value.filter((i) => i.is_overdue).slice(0, 5))
+
+const researchStats = reactive({ total: 0, pending: 0, processing: 0, resolved: 0, overdue: 0 })
+
+const loadResearchStats = async () => {
+  try {
+    const res = await researchApi.getStats()
+    Object.assign(researchStats, {
+      total: res.total || 0,
+      pending: res.pending || 0,
+      processing: res.processing || 0,
+      resolved: (res.resolved || 0) + (res.closed || 0),
+      overdue: res.overdue || 0,
+    })
+  } catch (e) {
+    // ignore
+  }
+}
+
+const goResearch = () => router.push('/operation/research')
 
 const loadStats = async () => {
   try {
@@ -598,6 +648,7 @@ onMounted(() => {
   loadStats()
   loadIssues()
   loadNotes()
+  loadResearchStats()
 })
 </script>
 
@@ -900,6 +951,11 @@ onMounted(() => {
   color: var(--danger);
 }
 
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 18px;
+}
 @media (max-width: 1280px) {
   .ops-list-col,
   .ops-side-col {
@@ -923,5 +979,82 @@ onMounted(() => {
 .dot-resolved { background: #67c23a; }
 .dot-closed { background: #909399; }
 .dot-suspended { background: #909399; }
+
+/* 一线调研快捷入口 */
+.research-quick-card {
+  grid-column: span 12;
+  padding: 20px 24px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f0f5ff 0%, #f6faff 100%);
+}
+.research-quick-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px var(--accent-soft);
+  transform: translateY(-1px);
+}
+.research-quick-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.research-quick-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.research-quick-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.research-quick-arrow {
+  margin-left: auto;
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+}
+.research-quick-card:hover .research-quick-arrow {
+  transform: translateX(3px);
+  color: var(--accent);
+}
+.research-quick-stats {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.rq-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.rq-num {
+  font-size: 28px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  line-height: 1;
+}
+.rq-pending .rq-num { color: var(--danger); }
+.rq-processing .rq-num { color: var(--warning); }
+.rq-overdue .rq-num { color: var(--danger); }
+.rq-overdue.warn .rq-num { animation: blink 1.2s ease-in-out infinite; }
+.rq-lab {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.rq-divider {
+  width: 1px;
+  height: 36px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 
 </style>

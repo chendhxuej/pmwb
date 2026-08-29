@@ -69,6 +69,12 @@ const routes = [
             meta: { title: '热点投诉', category: 'complaint' },
           },
           {
+            path: 'research',
+            name: 'WOResearch',
+            component: () => import('@/views/ResearchIssueView.vue'),
+            meta: { title: '一线调研', category: 'research' },
+          },
+          {
             path: 'monitor',
             name: 'ProductionMonitor',
             component: () => import('@/views/ProductionMonitorPlaceholder.vue'),

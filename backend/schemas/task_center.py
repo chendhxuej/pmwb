@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 TASK_SOURCES = [
     "todo",                # 个人待办 pmwb_todo
     "operation_issue",     # 运营问题 pmwb_operation_issue
+    "research_issue",      # 一线调研工单 pmwb_research_issue
     "dev_ticket",          # 开发工单 pmwb_dev_ticket
     "meeting_action",      # 会议行动项 pmwb_meeting_action
     "key_work",            # 重点工作（成员任务/里程碑/主项）
@@ -19,6 +20,7 @@ TASK_SOURCES = [
 SOURCE_LABELS = {
     "todo": "个人待办",
     "operation_issue": "运营问题",
+    "research_issue": "一线调研",
     "dev_ticket": "开发工单",
     "meeting_action": "会议行动项",
     "key_work": "重点工作",

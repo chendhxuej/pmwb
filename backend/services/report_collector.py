@@ -254,9 +254,9 @@ class ReportDataCollector:
             if st in ("paused", "suspended"):
                 continue
 
-            # 范围判定：基于更新时间戳或发现/解决日期；已完成且周期前已解决的工单排除
+            # 范围判定：运营工单优先使用 discovery_date 判定时间范围（业务发现时间），其次 updated_at
             in_scope = (
-                _is_in_scope(r, start, end, ("updated_at", "created_at"), exclude_completed=True)
+                _is_in_scope(r, start, end, ("updated_at", "discovery_date"), exclude_completed=True)
                 or _in_range(disc, start, end)
                 or _in_range(resolve, start, end)
             )
@@ -266,7 +266,10 @@ class ReportDataCollector:
                 and disc and disc < start
                 and st not in ("resolved", "closed", "verify", "completed", "done")
             )
+            # 调试日志：记录被过滤的工单
             if not in_scope and not is_cross_period:
+                logger.debug("跳过工单 %s: disc=%s, updated=%s, status=%s, in_scope=%s",
+                    _g(r, "issue_no"), disc, _g(r, "updated_at"), st, in_scope)
                 continue
 
             by_category[cat] += 1
