@@ -239,7 +239,13 @@ const mailDialogSubject = ref('')
 const mailDialogBody = ref('')
 
 async function handleSendMail(payload) {
-  const data = await sendWorkReport(current.value.id, payload)
+  // payload 可能包含 scene/variables 等额外字段，后端 SendRequest 只接受 to/cc/subject/body
+  const data = await sendWorkReport(current.value.id, {
+    to: payload.to || [],
+    cc: payload.cc || [],
+    subject: payload.subject || '',
+    body: payload.body || payload.variables?.body || '',
+  })
   return { success: true, data }
 }
 
