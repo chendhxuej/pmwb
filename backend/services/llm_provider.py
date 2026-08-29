@@ -276,8 +276,11 @@ def _load_enabled_providers(db: Session) -> List[PmwbLlmProvider]:
     ).all()
 
 
-def call_provider(p: PmwbLlmProvider, system: str, user: str, max_tokens: int | None = None) -> str:
-    """调用单个提供方（OpenAI 兼容）。失败抛异常由上层 fallback。"""
+def call_provider(p: PmwbLlmProvider, system: str, user: str, max_tokens: int | None = None, timeout: int | None = None) -> str:
+    """调用单个提供方（OpenAI 兼容）。失败抛异常由上层 fallback。
+
+    timeout 参数优先级：显式传入 > 模型配置 > 默认180秒（报告生成需要更长时间）
+    """
     base_url = (p.base_url or "").rstrip("/")
     if not base_url:
         raise ValueError("未配置 Base URL")
@@ -296,8 +299,10 @@ def call_provider(p: PmwbLlmProvider, system: str, user: str, max_tokens: int | 
         "max_tokens": _max_tokens,
         "temperature": _effective_temperature(p),
     }
-    timeout = httpx.Timeout(int(p.timeout or 120))
-    with httpx.Client(timeout=timeout) as client:
+    # 超时优先级：显式传入 > 模型配置 > 默认180秒
+    effective_timeout = timeout or int(p.timeout or 180)
+    timeout_config = httpx.Timeout(effective_timeout)
+    with httpx.Client(timeout=timeout_config) as client:
         resp = client.post(url, headers=headers, json=body)
         resp.raise_for_status()
         data = resp.json()
@@ -311,7 +316,7 @@ def call_provider(p: PmwbLlmProvider, system: str, user: str, max_tokens: int | 
     return content
 
 
-def pick_provider(providers, call_fn, system: str, user: str, max_tokens: int | None = None) -> Dict[str, Any]:
+def pick_provider(providers, call_fn, system: str, user: str, max_tokens: int | None = None, timeout: int | None = None) -> Dict[str, Any]:
     """纯函数：按序尝试 providers，返回首个成功或失败汇总。便于单测。"""
     if not providers:
         return {
@@ -321,7 +326,7 @@ def pick_provider(providers, call_fn, system: str, user: str, max_tokens: int | 
     errors: List[str] = []
     for p in providers:
         try:
-            text = call_fn(p, system, user, max_tokens=max_tokens)
+            text = call_fn(p, system, user, max_tokens=max_tokens, timeout=timeout)
             if text and text.strip():
                 return {
                     "text": text.strip(), "used_llm": True,
@@ -335,10 +340,13 @@ def pick_provider(providers, call_fn, system: str, user: str, max_tokens: int | 
     return {"text": "", "used_llm": False, "provider_name": None, "provider_id": None, "notice": notice}
 
 
-def call_best_available(db: Session, system: str, user: str, max_tokens: int | None = None) -> Dict[str, Any]:
-    """按优先级尝试已启用提供方，全失败返回 used_llm=False + notice，并记录失败原因。"""
+def call_best_available(db: Session, system: str, user: str, max_tokens: int | None = None, timeout: int | None = None) -> Dict[str, Any]:
+    """按优先级尝试已启用提供方，全失败返回 used_llm=False + notice，并记录失败原因。
+
+    timeout 参数会传递给 call_provider，用于控制 HTTP 请求超时。
+    """
     providers = _load_enabled_providers(db)
-    res = pick_provider(providers, lambda p, s, u, max_tokens=max_tokens: call_provider(p, s, u, max_tokens=max_tokens), system, user, max_tokens=max_tokens)
+    res = pick_provider(providers, lambda p, s, u, max_tokens=max_tokens, timeout=timeout: call_provider(p, s, u, max_tokens=max_tokens, timeout=timeout), system, user, max_tokens=max_tokens, timeout=timeout)
     if not res["used_llm"]:
         prefix = "所有已启用的大模型均不可用，已生成规则模板版（非 AI 润色）。"
         rest = res["notice"]
