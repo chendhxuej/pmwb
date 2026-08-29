@@ -154,8 +154,14 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
     out = md or ""
 
     # 修正格式：将 ### 标题 提升为 ## 标题
-    out = _re.sub(r'^### (一、本期概述|二、重点工作|三、需求与交付|四、运营支撑|五、会议与协同|六、个人待办|七、知识中心)$',
-                  r'## \1', out, flags=_re.MULTILINE)
+    # 支持两种格式：### 一、本期概述 或 ### 本期概述
+    out = _re.sub(r'^### (一、本期概述|本期概述)$', r'## 一、本期概述', out, flags=_re.MULTILINE)
+    out = _re.sub(r'^### (二、重点工作|二、重点工作)$', r'## 二、重点工作', out, flags=_re.MULTILINE)
+    out = _re.sub(r'^### (三、需求与交付|需求与交付)$', r'## 三、需求与交付', out, flags=_re.MULTILINE)
+    out = _re.sub(r'^### (四、运营支撑|运营支撑)$', r'## 四、运营支撑', out, flags=_re.MULTILINE)
+    out = _re.sub(r'^### (五、会议与协同|会议与协同)$', r'## 五、会议与协同', out, flags=_re.MULTILINE)
+    out = _re.sub(r'^### (六、个人待办|个人待办)$', r'## 六、个人待办', out, flags=_re.MULTILINE)
+    out = _re.sub(r'^### (七、知识中心|知识中心)$', r'## 七、知识中心', out, flags=_re.MULTILINE)
 
     # 检查缺失章节并补充（仅检查 H2 级别标题）
     for title, marker in required:
