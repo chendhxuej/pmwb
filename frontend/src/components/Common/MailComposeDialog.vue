@@ -199,11 +199,11 @@
         </el-form-item>
         <el-form-item label="收件人">
           <span class="template-preview-count">{{ (editingTemplate?.to || []).length }} 人</span>
-          <el-button size="small" link type="primary" @click="editTo = [...(editingTemplate?.to || [])]; showEditStaffSelect = 'to'">修改</el-button>
+          <el-button size="small" link type="primary" @click="openEditStaffSelect('to')">修改</el-button>
         </el-form-item>
         <el-form-item label="抄送">
           <span class="template-preview-count">{{ (editingTemplate?.cc || []).length }} 人</span>
-          <el-button size="small" link type="primary" @click="editCc = [...(editingTemplate?.cc || [])]; showEditStaffSelect = 'cc'">修改</el-button>
+          <el-button size="small" link type="primary" @click="openEditStaffSelect('cc')">修改</el-button>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -214,28 +214,28 @@
 
     <!-- 编辑时的人员选择弹窗 -->
     <el-dialog
-      v-model="showEditStaffSelect"
-      :title="showEditStaffSelect === 'to' ? '选择收件人' : '选择抄送人'"
+      v-model="showEditStaffSelectDialog"
+      :title="editStaffSelectTarget === 'to' ? '选择收件人' : '选择抄送人'"
       width="760px"
       append-to-body
     >
       <StaffSelect
-        v-if="showEditStaffSelect === 'to'"
+        v-if="editStaffSelectTarget === 'to'"
         v-model="editTo"
         multiple
         :value-key="valueKey"
         placeholder="选择 / 输入收件人（姓名或邮箱）"
       />
       <StaffSelect
-        v-else-if="showEditStaffSelect === 'cc'"
+        v-else-if="editStaffSelectTarget === 'cc'"
         v-model="editCc"
         multiple
         :value-key="valueKey"
         placeholder="选择 / 输入抄送（可空）"
       />
       <template #footer>
-        <el-button @click="showEditStaffSelect = ''">取消</el-button>
-        <el-button type="primary" @click="showEditStaffSelect = ''">确认</el-button>
+        <el-button @click="closeEditStaffSelect">取消</el-button>
+        <el-button type="primary" @click="closeEditStaffSelect">确认</el-button>
       </template>
     </el-dialog>
   </el-dialog>
@@ -301,7 +301,8 @@ const showEditTemplateDialog = ref(false)
 const editTemplateName = ref('')
 const editTo = ref([])
 const editCc = ref([])
-const showEditStaffSelect = ref('')  // 'to' | 'cc' | ''
+const showEditStaffSelectDialog = ref(false) // 人员选择弹窗显隐（布尔值，禁止用字符串当 v-model）
+const editStaffSelectTarget = ref('') // 'to' | 'cc' | ''
 
 const isRawMode = computed(() => !props.scene)
 
@@ -319,6 +320,10 @@ watch(
       cc.value = [...(props.defaultCc || [])]
       subject.value = props.defaultSubject || ''
       body.value = props.defaultBody || ''
+      // 重置模板编辑状态，防止残留弹窗被异常打开
+      showEditTemplateDialog.value = false
+      showEditStaffSelectDialog.value = false
+      editStaffSelectTarget.value = ''
       refreshPreview(true)
     }
   },
@@ -508,7 +513,18 @@ function openEditTemplateDialog(template) {
   editTo.value = [...(template.to || [])]
   editCc.value = [...(template.cc || [])]
   showEditTemplateDialog.value = true
-  showEditStaffSelect.value = ''
+  showEditStaffSelectDialog.value = false
+  editStaffSelectTarget.value = ''
+}
+
+function openEditStaffSelect(target) {
+  editStaffSelectTarget.value = target
+  showEditStaffSelectDialog.value = true
+}
+
+function closeEditStaffSelect() {
+  showEditStaffSelectDialog.value = false
+  editStaffSelectTarget.value = ''
 }
 
 function saveEditTemplate() {
