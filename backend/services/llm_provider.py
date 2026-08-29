@@ -43,6 +43,12 @@ PROVIDER_PRESETS: Dict[str, Dict[str, str]] = {
         "model": "deepseek-chat",
         "note": "OpenAI 兼容",
     },
+    "agnes": {
+        "label": "Agnes AI",
+        "base_url": "https://apihub.agnes-ai.com/v1",
+        "model": "agnes-2.5-pro",
+        "note": "OpenAI 兼容；可选模型：agnes-2.5-pro / agnes-2.5-flash / agnes-2.0-flash 等",
+    },
     "openai": {
         "label": "OpenAI 兼容",
         "base_url": "https://api.openai.com/v1",
