@@ -53,4 +53,12 @@
 - 主笔记内容完整：结构化视图 `get_main_note_structured` 只返 14 标准节，非标准章节（如 `## 关联对象`/`## 相关子笔记 MOC`）会被丢弃；需展示全文时调 `obsidianApi.getNoteContent(path)` 拉 raw markdown 用 MarkdownRender 渲染。
 - 主动运营分析（prod 工单）：PmwbOperationAnalysis 1:1 关联 issue；GET /analysis-template/download、POST /analysis/import、GET /issues/{id}/analysis；导入遗留任务只建运营工单不建 PmwbTodo。
 - AR 总结排版方案确认：日报/周报用方案A（蓝色渐变头部 + KPI条 + 双段式概述），月报用方案B（紫色仪表盘风格 + 6格KPI + 双段式概述）；双段式概述 = PartA 工作成效 + PartB 待改进问题。3版 HTML 预览：prototype/email-scheme-a.html / email-scheme-b.html / email-scheme-c.html（方案C备用）。
-- 待实现：① ISO周对齐修复 ② 已完结任务过滤 ③ 月报 items 截断上限 ④ 双段式概述提示词重构 ⑤ 报告标题注入 ⑥ 邮件模板按类型分派（A/B）。
+- AR总结排版优化（已全部完成）：
+  - ① ISO周对齐修复 ✅ (d018eb1)
+  - ② 已完结任务过滤 ✅ (d018eb1)
+  - ③ 月报 items 截断上限 ✅ (d018eb1)
+  - ④ 双段式概述提示词重构 ✅ (d018eb1/a298f0f)
+  - ⑤ 报告标题注入 ✅ (205279c)
+  - ⑥ 邮件模板按类型分派（A/B）✅ (d018eb1)
+  - ⑦ 周反馈邮件模板重构为4节结构 ✅ (4e22e8e)
+  - ⑧ MailComposeDialog 模板管理（增删改）✅ (f450284/c26a311)

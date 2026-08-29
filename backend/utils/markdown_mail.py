@@ -157,6 +157,7 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
     头部信息从 md 第一行提取 H1 标题；若无则自动生成。
     """
     from datetime import date as _date
+    import re as _re
 
     # ---- 1. 提取报告元信息 ----
     title = ""
@@ -169,7 +170,6 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
     if first_line.startswith("# "):
         title_part = first_line[2:].strip()
         # 格式："工作周报（统计区间：2026-08-25 ~ 2026-08-29）"
-        import re as _re
         m = _re.search(r"统计区间[：:]\s*(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})", title_part)
         if m:
             period = f"{m.group(1)} ~ {m.group(2)}"
