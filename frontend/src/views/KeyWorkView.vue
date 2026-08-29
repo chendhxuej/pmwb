@@ -980,7 +980,19 @@ function buildFeedbackMailBody(g) {
     lines.push('## 四、成员待办进展')
     for (const t of g.task_items) {
       const note = taskNote(g, t)
-      lines.push(`- **${t.label || t.title || '（未命名）'}** — ${note.assignee || '未指派'} | ${note.status ? (TASK_STATUS_MAP[note.status]?.label || note.status) : '—'} | ${note.note || '（无进展说明）'}`)
+      const assignee = t.assignee || '未指派'
+      const statusLabel = note.status ? (TASK_STATUS_MAP[note.status]?.label || note.status) : (t.status ? (TASK_STATUS_MAP[t.status]?.label || t.status) : '—')
+      const noteText = note.note || t.note || '（无进展说明）'
+      lines.push(`- **${t.label || t.title || '（未命名）'}** — ${assignee} | ${statusLabel} | ${noteText}`)
+    }
+    lines.push('')
+  }
+
+  // D+. 新增待办任务
+  if (g._form.new_tasks.length) {
+    lines.push('## 四（新增）、新增待办任务')
+    for (const t of g._form.new_tasks) {
+      lines.push(`- ${t.title} — ${t.assignee || '未指派'} ${t.due_date ? '· ' + t.due_date : ''}`)
     }
     lines.push('')
   }
