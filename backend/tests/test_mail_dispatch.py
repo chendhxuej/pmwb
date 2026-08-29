@@ -392,17 +392,22 @@ def test_work_report_email_is_responsive_and_centered():
         report_type="weekly",
         person_name="陈大海"
     )
-    # 核心修复：内容容器用百分比宽度 + align 居中（邮件客户端 universally 支持）
-    assert 'width="90%"' in html
-    assert 'align="center"' in html
-    # 反例：禁止再用 max-width 或 margin:0 auto（Outlook/Foxmail 不支持，会导致正文偏左）
-    assert 'max-width' not in html
-    assert 'margin:0 auto' not in html
+    # 关键：必须同时验证「渲染态」与「发送态」。
+    # 真实发送前会过 _sanitize（bleach 净化），若 align 不在 _ALLOWED_ATTRS 白名单里，
+    # 渲染结果明明有 align="center"，发出去却被剥掉 → 内容左对齐。曾踩过这个坑。
+    sent = markdown_mail._sanitize(html)
+    for label, body in (("渲染态", html), ("发送态(_sanitize 后)", sent)):
+        # 内容容器用百分比宽度 + align 居中（邮件客户端 universally 支持）
+        assert 'width="90%"' in body, f"{label} 缺少 width=90%"
+        assert 'align="center"' in body, f"{label} 缺少 align=center（会被 bleach 剥掉导致左对齐）"
+        # 反例：禁止再用 max-width 或 margin:0 auto（Outlook/Foxmail 不支持，会导致正文偏左）
+        assert 'max-width' not in body, f"{label} 不应有 max-width"
+        assert 'margin:0 auto' not in body, f"{label} 不应有 margin:0 auto"
     # 外层表格应占满宽度以适应不同屏幕
-    assert 'width="100%"' in html
+    assert 'width="100%"' in sent
     # 字体格式应兼容
-    assert "Microsoft YaHei,Arial,sans-serif" in html
-    assert "'Microsoft YaHei'" not in html  # 不应有带单引号的写法
+    assert "Microsoft YaHei,Arial,sans-serif" in sent
+    assert "'Microsoft YaHei'" not in sent  # 不应有带单引号的写法
 
 
 def test_work_report_email_header_is_professional():

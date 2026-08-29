@@ -65,9 +65,12 @@ _ALLOWED_ATTRS = {
     "a": ["href", "title", "target"],
     "img": ["src", "alt", "width", "height"],
     # 邮件表格兼容性属性（Outlook 等客户端更认 HTML 属性而非 CSS）
-    "table": ["cellpadding", "cellspacing", "border", "width", "role"],
-    "td": ["width", "valign", "colspan", "rowspan"],
-    "th": ["width", "valign", "colspan", "rowspan"],
+    # align 必须保留：邮件客户端普遍不支持 CSS `margin:0 auto`，内容居中全靠
+    # align="center"。若被 bleach 剥掉，width="90%" 的表格会左对齐——
+    # 这正是「正文挤在屏幕左半边」的一种成因（2026-08-29 修复）。
+    "table": ["cellpadding", "cellspacing", "border", "width", "role", "align"],
+    "td": ["width", "valign", "colspan", "rowspan", "align"],
+    "th": ["width", "valign", "colspan", "rowspan", "align"],
 }
 
 # 邮件正文允许的内联 CSS 属性白名单（邮件客户端剥离 <style>，必须依赖内联样式）

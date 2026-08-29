@@ -20,7 +20,7 @@ BACKEND = ROOT / "backend"
 os.chdir(BACKEND)
 sys.path.insert(0, str(BACKEND))
 
-from utils.markdown_mail import render_work_report_html  # noqa: E402
+from utils.markdown_mail import _sanitize, render_work_report_html  # noqa: E402
 
 MD_WEEKLY = """# 商客市场能力建设与运营工作周报（统计区间：2026-08-23 ~ 2026-08-29）
 
@@ -76,8 +76,10 @@ MD_MONTHLY = """# 商客市场能力建设与运营工作月报（统计区间�
 重点推进商客专区智能应用完善与交付流程升级。
 """
 
-weekly_html = render_work_report_html(MD_WEEKLY, "weekly", "陈大海")
-monthly_html = render_work_report_html(MD_MONTHLY, "monthly", "陈大海")
+# 预览必须走 _sanitize —— 真实发送前后端会过 bleach 净化，白名单外的属性
+# （如 align="center"）会被剥掉，不过一遍预览就会与实际收到的效果不符
+weekly_html = _sanitize(render_work_report_html(MD_WEEKLY, "weekly", "陈大海"))
+monthly_html = _sanitize(render_work_report_html(MD_MONTHLY, "monthly", "陈大海"))
 
 SHELL = """<!DOCTYPE html>
 <html lang="zh-CN">
