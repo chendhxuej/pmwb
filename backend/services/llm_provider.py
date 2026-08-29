@@ -276,7 +276,7 @@ def _load_enabled_providers(db: Session) -> List[PmwbLlmProvider]:
     ).all()
 
 
-def call_provider(p: PmwbLlmProvider, system: str, user: str) -> str:
+def call_provider(p: PmwbLlmProvider, system: str, user: str, max_tokens: int | None = None) -> str:
     """调用单个提供方（OpenAI 兼容）。失败抛异常由上层 fallback。"""
     base_url = (p.base_url or "").rstrip("/")
     if not base_url:
@@ -286,13 +286,14 @@ def call_provider(p: PmwbLlmProvider, system: str, user: str) -> str:
     key = decrypt_secret(p.api_key)
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    _max_tokens = int(max_tokens) if max_tokens is not None else int(p.max_tokens or 4096)
     body = {
         "model": p.model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "max_tokens": int(p.max_tokens or 4096),
+        "max_tokens": _max_tokens,
         "temperature": _effective_temperature(p),
     }
     timeout = httpx.Timeout(int(p.timeout or 120))
@@ -310,7 +311,7 @@ def call_provider(p: PmwbLlmProvider, system: str, user: str) -> str:
     return content
 
 
-def pick_provider(providers, call_fn, system: str, user: str) -> Dict[str, Any]:
+def pick_provider(providers, call_fn, system: str, user: str, max_tokens: int | None = None) -> Dict[str, Any]:
     """纯函数：按序尝试 providers，返回首个成功或失败汇总。便于单测。"""
     if not providers:
         return {
@@ -320,7 +321,7 @@ def pick_provider(providers, call_fn, system: str, user: str) -> Dict[str, Any]:
     errors: List[str] = []
     for p in providers:
         try:
-            text = call_fn(p, system, user)
+            text = call_fn(p, system, user, max_tokens=max_tokens)
             if text and text.strip():
                 return {
                     "text": text.strip(), "used_llm": True,
@@ -334,10 +335,10 @@ def pick_provider(providers, call_fn, system: str, user: str) -> Dict[str, Any]:
     return {"text": "", "used_llm": False, "provider_name": None, "provider_id": None, "notice": notice}
 
 
-def call_best_available(db: Session, system: str, user: str) -> Dict[str, Any]:
+def call_best_available(db: Session, system: str, user: str, max_tokens: int | None = None) -> Dict[str, Any]:
     """按优先级尝试已启用提供方，全失败返回 used_llm=False + notice，并记录失败原因。"""
     providers = _load_enabled_providers(db)
-    res = pick_provider(providers, lambda p, s, u: call_provider(p, s, u), system, user)
+    res = pick_provider(providers, lambda p, s, u, max_tokens=max_tokens: call_provider(p, s, u, max_tokens=max_tokens), system, user, max_tokens=max_tokens)
     if not res["used_llm"]:
         prefix = "所有已启用的大模型均不可用，已生成规则模板版（非 AI 润色）。"
         rest = res["notice"]
