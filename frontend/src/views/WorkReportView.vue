@@ -141,6 +141,7 @@
     <MailComposeDialog
       v-model="mailDialogVisible"
       title="发送工作总结邮件"
+      scene="work_report"
       :default-to="mailDialogTo"
       :default-cc="mailDialogCc"
       :default-subject="mailDialogSubject"
