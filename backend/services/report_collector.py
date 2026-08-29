@@ -266,10 +266,7 @@ class ReportDataCollector:
                 and disc and disc < start
                 and st not in ("resolved", "closed", "verify", "completed", "done")
             )
-            # 调试日志：记录被过滤的工单
             if not in_scope and not is_cross_period:
-                logger.debug("跳过工单 %s: disc=%s, updated=%s, status=%s, in_scope=%s",
-                    _g(r, "issue_no"), disc, _g(r, "updated_at"), st, in_scope)
                 continue
 
             by_category[cat] += 1
