@@ -137,7 +137,11 @@ def _has_next_period(content: str, report_type: str) -> bool:
 
 
 def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
-    """保证 LLM 输出包含所有必备小节（防止偶发漏模块），缺失则补占位说明。"""
+    """保证 LLM 输出包含所有必备小节（防止偶发漏模块），缺失则补占位说明。
+
+    同时修正格式：将错误的 H3 级别章节标题提升为 H2。
+    """
+    import re as _re
     required = [
         ("一、本期概述", "本期概述"),
         ("二、重点工作", "重点工作"),
@@ -148,6 +152,12 @@ def _ensure_sections(data: Dict[str, Any], md: str, report_type: str) -> str:
         ("七、知识中心", "知识中心"),
     ]
     out = md or ""
+
+    # 修正格式：将 ### 标题 提升为 ## 标题
+    out = _re.sub(r'^### (一、本期概述|二、重点工作|三、需求与交付|四、运营支撑|五、会议与协同|六、个人待办|七、知识中心)$',
+                  r'## \1', out, flags=_re.MULTILINE)
+
+    # 检查缺失章节并补充
     for title, marker in required:
         if marker not in out:
             out = out.rstrip() + f"\n\n## {title}\n（本期暂无相关数据与进展，建议补充）\n"
