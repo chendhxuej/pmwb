@@ -446,6 +446,40 @@ def test_work_report_email_header_is_professional():
     assert not re.search(r"[\U0001F300-\U0001FAFF]", html)
 
 
+def test_work_report_dual_overview_captures_part_b_list_items():
+    """双段式概述：Part B（待改进问题）卡片内的列表项（含内部 <strong> 标签）必须完整捕获，
+    不得被甩到卡片外（仅留空壳 <ul><li>）。
+
+    关键回归（2026-08-30）：Part B 内容为 `- **需求交付**：...` 这类列表，
+    markdown 转换后为 `<strong>需求交付</strong>`。旧正则的结束条件 `(?=<h2|<strong|$)`
+    会在遇到列表项内部的 <strong> 时提前终止匹配，导致 4 条实质内容溢出到卡片外。
+    修复后：col_b 仅在遇到下一个真正的 H2 章节或文末时终止。
+    """
+    md = (
+        "# 工作周报（统计区间：2026-08-24 ~ 2026-08-30）\n\n"
+        "**Part A 工作成效**：本周取得进展：\n"
+        "  - **知识中心建设**：新增 6 个领域。\n\n"
+        "**Part B 待改进问题**：本期需跟进：\n"
+        "  - **需求交付**：在途15项，P0风险3项。\n"
+        "  - **运营闭环**：21项工单在处理中。\n"
+        "  - **个人待办**：2项超期。\n"
+        "  - **会议行动项**：完成率50%。\n\n"
+        "## 二、重点工作\n\n### 2.1 重点推进事项\n- x\n"
+    )
+    html = markdown_mail.render_work_report_html(md, report_type="weekly", person_name="陈大海")
+    sent = markdown_mail._sanitize(html)
+    items = ["需求交付", "运营闭环", "个人待办", "会议行动项"]
+    for label, body in (("渲染态", html), ("发送态", sent)):
+        for it in items:
+            assert it in body, f"{label} 缺失 Part B 内容项：{it}"
+        # 关键：4 条内容不应溢出到 dual_table 闭合 </table> 之后
+        last_close = body.rfind("</table>")
+        tail = body[last_close:]
+        assert not any(it in tail for it in items), f"{label} Part B 内容溢出到卡片外（空壳 bug 复发）"
+    # Part A 内部 list 项（含 <strong>）也应完整保留
+    assert "知识中心建设" in sent
+
+
 def test_work_report_title_by_type():
     """日报/周报/月报一级标题均使用业务口径全称，月报用紫色品牌色。"""
     cases = {

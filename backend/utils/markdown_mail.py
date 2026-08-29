@@ -459,17 +459,29 @@ def _render_dual_overview(html_str: str) -> str:
     # 兼容两种格式：## Part A 工作成效（H2）或 **Part A 工作成效**（粗体）
     # 注意：<strong> 必须写成 <strong[^>]*>，因为 _apply_inline_styles 已为 strong
     # 注入 style="font-weight:600;..." 属性，精确匹配 <strong> 会导致双栏布局静默失效
+    # 结束条件设计（关键修复 2026-08-30）：
+    # - col_a（工作成效）：仅在「遇到 Part B 标题」时终止，而非任意 <strong>。
+    #   否则 Part A 内部列表项（**xxx**：... → <strong>xxx</strong>）会使匹配提前终止。
+    # - col_b（待改进问题）：仅在「遇到下一个真正的 H2 章节」或文末时终止。
+    #   否则 Part B 内部的列表项 strong（<strong>需求交付</strong> 等）会被误判为结束符，
+    #   导致内容溢出到卡片外（仅捕获到空壳 <ul><li>）。
+    # 两处都显式匹配「Part B 待改进问题」字样，避免误吞其它 bold 文本。
+    _part_b_title = (
+        r'(?:<h2[^>]*>Part\s+B\s+待改进问题</h2>'
+        r'|<strong[^>]*>Part\s+B\s+待改进问题</strong>)'
+    )
     pattern = (
-        r'(<h2[^>]*>Part\s+A\s+工作成效</h2>|<strong[^>]*>Part\s+A\s+工作成效</strong>)'
-        r'(.*?)(?=<h2|<strong|$)'
-        r'(<h2[^>]*>Part\s+B\s+待改进问题</h2>|<strong[^>]*>Part\s+B\s+待改进问题</strong>)'
-        r'(.*?)(?=<h2|<strong|$)'
+        r'(?:<h2[^>]*>Part\s+A\s+工作成效</h2>'
+        r'|<strong[^>]*>Part\s+A\s+工作成效</strong>)'
+        r'(.*?)(?=' + _part_b_title + r'|$)'
+        + _part_b_title
+        + r'(.*?)(?=<h2|$)'
     )
     m = _re.search(pattern, html_str, _re.DOTALL)
     if not m:
         return html_str
-    col_a_content = m.group(2).strip()
-    col_b_content = m.group(4).strip()
+    col_a_content = m.group(1).strip()
+    col_b_content = m.group(2).strip()
     # Outlook 兼容：纯色背景 + 直角边框
     dual_table = (
         '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
@@ -488,7 +500,7 @@ def _render_dual_overview(html_str: str) -> str:
         '</tr>'
         '</table>'
         '</td></tr>'
-        f'<tr><td valign="top" height="100%">{col_a_content}</td></tr>'
+        f'<tr><td valign="top">{col_a_content}</td></tr>'
         '</table>'
         '</td>'
         '<td width="50%" valign="top" style="padding-left:7px;">'
@@ -504,7 +516,7 @@ def _render_dual_overview(html_str: str) -> str:
         '</tr>'
         '</table>'
         '</td></tr>'
-        f'<tr><td valign="top" height="100%">{col_b_content}</td></tr>'
+        f'<tr><td valign="top">{col_b_content}</td></tr>'
         '</table>'
         '</td>'
         '</tr>'
