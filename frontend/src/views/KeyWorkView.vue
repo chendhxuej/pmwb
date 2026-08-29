@@ -926,19 +926,123 @@ const mailDialogScene = ref('keywork_feedback')
 const mailDialogVariables = ref({})
 const mailDialogContext = ref({})
 
+/** 用 feedbackGroups 真实数据构建周反馈邮件正文（Markdown） */
+function buildFeedbackMailBody(g) {
+  const week = feedbackWeek.value
+  const kw = detail.value
+  const title = kw?.title || ''
+  const workNo = kw?.work_no || ''
+  const lines = []
+  lines.push(`【重点工作周反馈】${title}（${workNo}）- ${week} 周`)
+  lines.push('')
+  lines.push(`负责人：${g.assignee}`)
+  lines.push('')
+
+  // A. 上周回顾
+  if (lastWeekFeedback.value) {
+    lines.push('## 一、上周回顾')
+    const lw = lastWeekFeedback.value
+    lines.push(`> 上周计划（${lw.week}）：${lw.next_summary || '（未填写）'}`)
+    if (lw.item_updates?.length) {
+      lines.push('')
+      lines.push('上周计划子项当前状态：')
+      for (const u of lw.item_updates) {
+        const label = lastWeekItemLabel(u)
+        const st = PLAN_STATUS_MAP[lastWeekItemStatus(u)]
+        lines.push(`- ${label} → **${st?.label || lastWeekItemStatus(u)}**`)
+      }
+    }
+    lines.push('')
+  }
+
+  // B. 月计划完成
+  if (g.monthly_items.length) {
+    lines.push('## 二、月计划完成')
+    for (const it of g.monthly_items) {
+      const checked = isItemChecked(g, it)
+      lines.push(`- ${checked ? '✅' : '⬜'} ${itemLabel(it)}（${it.status || '—'}）`)
+    }
+    lines.push('')
+  }
+
+  // C. 周计划完成
+  if (g.weekly_items.length) {
+    lines.push('## 三、周计划完成')
+    for (const it of g.weekly_items) {
+      const checked = isItemChecked(g, it)
+      lines.push(`- ${checked ? '✅' : '⬜'} ${itemLabel(it)}（${it.status || '—'}）`)
+    }
+    lines.push('')
+  }
+
+  // D. 成员待办进展
+  if (g.task_items.length) {
+    lines.push('## 四、成员待办进展')
+    for (const t of g.task_items) {
+      const note = taskNote(g, t)
+      lines.push(`- **${t.label || t.title || '（未命名）'}** — ${note.assignee || '未指派'} | ${note.status ? (TASK_STATUS_MAP[note.status]?.label || note.status) : '—'} | ${note.note || '（无进展说明）'}`)
+    }
+    lines.push('')
+  }
+
+  // 月底额外区
+  if (isMonthEnd.value && g._form.monthly_summary) {
+    lines.push('## 五、本月月总结')
+    lines.push(g._form.monthly_summary)
+    lines.push('')
+  }
+  if (isMonthEnd.value && g._form.next_month_summary) {
+    lines.push('## 六、下月重点 / 下月月计划草案')
+    lines.push(g._form.next_month_summary)
+    lines.push('')
+  }
+
+  // G. 本周完成 + 整体进度
+  lines.push('## 五、本周完成 & 整体进度')
+  if (g._form.done_summary) {
+    lines.push(g._form.done_summary)
+  } else {
+    lines.push('（待填写）')
+  }
+  lines.push('')
+  lines.push(`**整体进度：${g._form.progress || 0}%**`)
+  lines.push('')
+
+  // F. 风险/求助
+  if (g._form.risk_note) {
+    lines.push('## 六、风险 / 求助')
+    lines.push(g._form.risk_note)
+    lines.push('')
+  }
+
+  // C. 下周计划
+  lines.push('## 七、下周计划')
+  if (g._form.next_summary) {
+    lines.push(g._form.next_summary)
+  } else {
+    lines.push('（待填写）')
+  }
+  lines.push('')
+
+  lines.push('反馈方式：直接回复本邮件，或线下同步给管理员在 PMWB「重点工作」详情页周反馈页签录入归档。')
+
+  return lines.join('\n')
+}
+
 /** 打开周反馈邮件预览弹窗 */
-function openFeedbackMailDialog(owner, week, title, workNo) {
+function openFeedbackMailDialog(g, owner, week, title, workNo) {
+  const body = buildFeedbackMailBody(g)
   mailDialogTo.value = [owner]
   mailDialogCc.value = []
   mailDialogSubject.value = `【周反馈请求】${title} - ${week} 周`
-  mailDialogBody.value = `【重点工作周反馈】${title}（${workNo}）- ${week} 周\n\n您是该专题负责人，请牵头线下收集本专题各成员本周进展后，汇总反馈以下三块内容：\n\n## 本周完成\n（汇总本周已完成的进展，含各成员工作）\n\n## 下周计划\n（汇总下周计划开展的工作）\n\n## 风险/求助\n（如有风险或需协调事项请填写）\n\n反馈方式：直接回复本邮件，或线下同步给管理员在 PMWB「重点工作」详情页周反馈页签录入归档。`
+  mailDialogBody.value = body
   mailDialogScene.value = 'keywork_feedback'
   mailDialogVariables.value = {
     week,
     work_no: workNo,
     title,
     assignee: owner,
-    body: mailDialogBody.value,
+    body,
   }
   mailDialogContext.value = {}
   mailDialogVisible.value = true
@@ -1142,9 +1246,8 @@ async function openFeedbackMail() {
     ElMessage.warning('该工单未设置负责人')
     return
   }
-  // 获取工单信息用于填充预览
   const kw = detail.value
-  openFeedbackMailDialog(g.assignee, feedbackWeek.value, kw.title, kw.work_no)
+  openFeedbackMailDialog(g, g.assignee, feedbackWeek.value, kw.title, kw.work_no)
 }
 
 /** 邮件预览弹窗确认发送回调 */
