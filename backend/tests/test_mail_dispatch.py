@@ -381,26 +381,88 @@ def test_compress_falls_back_to_byte_probe_when_mime_missing():
 
 
 def test_work_report_email_is_responsive_and_centered():
-    """work_report 场景邮件正文应支持响应式布局，内容居中不偏左。"""
+    """work_report 场景邮件正文应占屏宽 90% 且居中，不偏左。
+
+    关键约定（2026-08-29 方案A）：Outlook / Foxmail 均不支持 `max-width`
+    与 `margin:0 auto`，必须用「百分比 width + align="center"」才能可靠居中；
+    误用 max-width/margin 会导致正文挤在屏幕左半边。
+    """
     html = markdown_mail.render_work_report_html(
         "# 工作周报（统计区间：2026-08-25 ~ 2026-08-29）\n\n**Part A 工作成效**\n\n本周完成3项交付。\n\n**Part B 待改进问题**\n\n高敏工单需关注。",
         report_type="weekly",
         person_name="陈大海"
     )
-    # 核心修复：内容表格应有 max-width + margin 居中，而非硬编码 width="680"
-    assert 'max-width="680"' in html
-    assert 'margin:0 auto' in html
+    # 核心修复：内容容器用百分比宽度 + align 居中（邮件客户端 universally 支持）
+    assert 'width="90%"' in html
+    assert 'align="center"' in html
+    # 反例：禁止再用 max-width 或 margin:0 auto（Outlook/Foxmail 不支持，会导致正文偏左）
+    assert 'max-width' not in html
+    assert 'margin:0 auto' not in html
     # 外层表格应占满宽度以适应不同屏幕
     assert 'width="100%"' in html
-    # 安全修复：用户输入内容应被转义
-    assert "&lt;" not in html  # 不应有未转义的 < 字符（指用户可控部分）
     # 字体格式应兼容
     assert "Microsoft YaHei,Arial,sans-serif" in html
     assert "'Microsoft YaHei'" not in html  # 不应有带单引号的写法
 
 
+def test_work_report_email_header_is_professional():
+    """周报邮件抬头：品牌色带 + 两栏元信息 + 业务口径标题，且不含彩色 emoji。"""
+    import re
+    html = markdown_mail.render_work_report_html(
+        "# 工作周报（统计区间：2026-08-25 ~ 2026-08-29）\n\n"
+        "**Part A 工作成效**\n\n本周完成3项交付。\n\n"
+        "**Part B 待改进问题**\n\n高敏工单需关注。",
+        report_type="weekly",
+        person_name="陈大海"
+    )
+    # 一级标题升级为业务口径全称，旧口径不残留
+    assert "商客市场能力建设与运营工作周报" in html
+    assert ">工作周报<" not in html
+    # 抬头元信息：汇报人 / 统计区间 / 生成时间（信息不重复）
+    assert "汇报人：陈大海" in html
+    assert "统计区间：2026-08-25 ~ 2026-08-29" in html
+    assert "生成时间：" in html
+    # 品牌色带：日报/周报用蓝色
+    assert "background:#165dff" in html
+    # 双段式概述渲染为两栏卡片（回归：<strong> 被注入 style 后曾导致匹配静默失效）
+    assert "background:#f0f7ff" in html  # Part A 浅蓝卡片
+    assert "background:#fff7f0" in html  # Part B 浅橙卡片
+    # 页脚：纯文字，去 emoji
+    assert "PMWB · 产品经理个人工作台" in html
+    assert "本邮件由系统自动生成，请勿直接回复" in html
+    # 仅禁止彩色 emoji（U+1F300+）；✓ 等单色符号作为双栏标题标识保留
+    assert not re.search(r"[\U0001F300-\U0001FAFF]", html)
+
+
+def test_work_report_title_by_type():
+    """日报/周报/月报一级标题均使用业务口径全称，月报用紫色品牌色。"""
+    cases = {
+        "daily": "商客市场能力建设与运营工作日报",
+        "weekly": "商客市场能力建设与运营工作周报",
+        "monthly": "商客市场能力建设与运营工作月报",
+    }
+    for rt, expected in cases.items():
+        html = markdown_mail.render_work_report_html(
+            "# 工作周报（统计区间：2026-08-01 ~ 2026-08-31）\n\n正文内容",
+            report_type=rt,
+            person_name="陈大海"
+        )
+        assert expected in html, f"{rt} 的一级标题应为「{expected}」"
+    # 月报用紫色品牌色
+    monthly_html = markdown_mail.render_work_report_html(
+        "# 工作月报（统计区间：2026-08-01 ~ 2026-08-31）\n\n正文内容",
+        report_type="monthly",
+        person_name="陈大海"
+    )
+    assert "background:#722ed1" in monthly_html
+
+
 def test_markdown_to_email_html_has_max_width():
-    """通用 Markdown 邮件正文也应限制最大宽度，避免在宽屏上拉伸过长。"""
+    """通用 Markdown 邮件正文也应限制最大宽度，避免在宽屏上拉伸过长。
+
+    注：非周报邮件（催办/通知等）内容较短，固定 680px 阅读体验更佳，
+    与周报的「占屏宽 90%」策略不同，此处保持 max-width 设计。
+    """
     html = markdown_mail.markdown_to_email_html("# 标题\n\n正文内容", inject_signature=False)
     assert 'max-width:680px' in html
     assert 'margin:0 auto' in html

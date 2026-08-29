@@ -14,6 +14,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+from datetime import datetime
 
 import bleach
 import markdown
@@ -130,6 +131,26 @@ _ALLOWED_CSS_PROPERTIES: frozenset[str] = frozenset({
 
 _CSS_SANITIZER = CSSSanitizer(allowed_css_properties=_ALLOWED_CSS_PROPERTIES)
 
+# ---- 报告一级标题（业务口径，2026-08-29 老大确认）----
+_REPORT_TITLES = {
+    "daily": "商客市场能力建设与运营工作日报",
+    "weekly": "商客市场能力建设与运营工作周报",
+    "monthly": "商客市场能力建设与运营工作月报",
+    "custom": "专项报告",
+}
+# 旧口径标题 → 新口径标题（历史报告重发也展示新标题）
+_LEGACY_TITLE_MAP = {
+    "工作日报": "商客市场能力建设与运营工作日报",
+    "工作周报": "商客市场能力建设与运营工作周报",
+    "工作月报": "商客市场能力建设与运营工作月报",
+}
+# 品牌强调色：日报/周报蓝，月报紫
+_ACCENT_DAILY = "#165dff"
+_ACCENT_MONTHLY = "#722ed1"
+# 内容容器占屏宽（邮件客户端 universally 支持百分比宽度 + align=center，
+# 切勿改用 max-width / margin:0 auto：Outlook、Foxmail 均不支持，会导致内容偏左）
+_CONTENT_WIDTH = "90%"
+
 
 def _apply_inline_styles(html_str: str) -> str:
     """为常见标签注入内联 style（已带 style 的标签不覆盖）。"""
@@ -162,7 +183,6 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
     # ---- 1. 提取报告元信息 ----
     title = ""
     period = ""
-    type_label = ""
     rest_md = md or ""
 
     # 从第一行 H1 提取标题和区间
@@ -181,8 +201,13 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
         else:
             title = title_part or "工作汇报"
     if not title:
-        type_map = {"daily": "工作日报", "weekly": "工作周报", "monthly": "工作月报", "custom": "专项报告"}
-        title = type_map.get(report_type, "工作汇报")
+        title = _REPORT_TITLES.get(report_type, "工作汇报")
+    # 一级标题统一升级为业务口径：
+    # 提取到旧口径标题（工作日报/工作周报/工作月报）时，按 report_type 取对应新标题，
+    # 避免 H1 文本与 report_type 不一致时张冠李戴（如 daily 报告 H1 误写「工作周报」）；
+    # 自定义标题（含 LLM 已按新口径生成的）原样保留。
+    if title in _LEGACY_TITLE_MAP:
+        title = _REPORT_TITLES.get(report_type, title)
     if not period:
         # 尝试从 ## 一、本期概述 附近提取区间
         for line in rest_md.split("\n"):
@@ -192,11 +217,6 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
                 break
     if not period:
         period = "—"
-
-    # 类型标签
-    type_tag_map = {"daily": ("工作日报", "daily"), "weekly": ("工作周报", "weekly"),
-                    "monthly": ("工作月报", "monthly"), "custom": ("专项报告", "custom")}
-    type_label, type_key = type_tag_map.get(report_type, ("工作汇报", "custom"))
 
     # ---- 2. 提取 KPI 数字 ----
     kpi_data = _extract_kpi(rest_md)
@@ -211,14 +231,17 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
     inner_html = _render_dual_overview(inner_html)
 
     # ---- 4. 组装方案A/B 外壳 ----
+    # 生成时间：UTC+8 本地时间（项目约定用 datetime.now()，禁止 utcnow）
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    reporter = person_name or "—"
     if report_type == "monthly":
-        html = _render_scheme_b(title=title, subtitle=f"汇报人：{person_name} &nbsp;·&nbsp; 统计区间：{period}",
-                                type_tag=type_label, period=period,
+        html = _render_scheme_b(title=title, reporter=reporter, period=period,
+                                generated_at=generated_at, accent=_ACCENT_MONTHLY,
                                 kpi=kpi_data, progress=kpi_data.get("progress", []),
                                 inner=inner_html)
     else:
-        html = _render_scheme_a(title=title, subtitle=f"汇报人：{person_name} &nbsp;·&nbsp; 统计区间：{period}",
-                                type_tag=type_label, period=period,
+        html = _render_scheme_a(title=title, reporter=reporter, period=period,
+                                generated_at=generated_at, accent=_ACCENT_DAILY,
                                 kpi=kpi_data, inner=inner_html)
     return html
 
@@ -244,53 +267,68 @@ def _extract_kpi(md: str) -> dict:
     return kpi
 
 
-def _render_scheme_a(title: str, subtitle: str, type_tag: str, period: str, kpi: dict, inner: str) -> str:
+def _render_scheme_a(title: str, reporter: str, period: str, generated_at: str, accent: str, kpi: dict, inner: str) -> str:
     """方案A：简约商务风（日报/周报）。
 
-    设计要点（按 2026-08-29 分析报告整改）：
-    - 页眉精简：细蓝色分割线，无大面积蓝色背景块
-    - 正文容器：680px 黄金阅读宽度，左右内边距 30px
-    - 移除 Web 端统计卡片（KPI 条仅预览使用，邮件正文不显示）
-    - 所有样式内联，兼容 Outlook/Foxmail
+    设计要点（按 2026-08-29 分析报告整改，方案A）：
+    - 容器宽度：百分比 `width="90%"` + `align="center"`。
+      Outlook / Foxmail / Gmail / 手机端均支持；**禁止**改用 `max-width` 或
+      `margin:0 auto`（Outlook、Foxmail 不支持，会导致正文挤在屏幕左半边）。
+    - 抬头：顶部 4px 品牌色带 + 两栏元信息（左：标题/汇报人，右：统计区间/生成时间），
+      信息不重复、层次分明。
+    - 页脚：纯文字，无 emoji（正式汇报邮件不用装饰性图标）。
+    - 全 table 布局 + 内联样式，无圆角/渐变/阴影（Outlook 不支持）。
     """
-    blue = "#165dff"
+    font = "Microsoft YaHei,Arial,sans-serif"
+    title_esc = html.escape(title)
+    reporter_esc = html.escape(reporter)
+    period_esc = html.escape(period)
+    generated_esc = html.escape(generated_at)
     return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#ffffff;">
 <tr><td align="center" style="padding:20px 0;">
-<table width="100%" max-width="680" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;margin:0 auto;">
-<!-- 简约商务页眉 -->
+<table width="{_CONTENT_WIDTH}" align="center" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<!-- 品牌色带 -->
 <tr>
-<td style="padding:0 0 16px 0;border-bottom:2px solid {blue};">
+<td style="height:4px;line-height:4px;font-size:0;background:{accent};">&nbsp;</td>
+</tr>
+<!-- 抬头：两栏元信息 -->
+<tr>
+<td style="padding:22px 30px 18px 30px;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td align="left" valign="middle">
-<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(title)}</span>
+<td align="left" valign="top" width="60%">
+<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:{font};">{title_esc}</span>
 </td>
-<td align="right" valign="middle">
-<table cellpadding="0" cellspacing="0" border="0"><tr>
-<td style="font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(type_tag)}</td>
-<td width="12"></td>
-<td style="font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(period)}</td>
-</tr></table>
+<td align="right" valign="top" width="40%">
+<span style="font-size:13px;color:#86909c;font-family:{font};">统计区间：{period_esc}</span>
 </td>
 </tr>
 <tr>
-<td colspan="2" style="padding-top:8px;font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(subtitle)}</td>
+<td align="left" valign="top" style="padding-top:9px;">
+<span style="font-size:13px;color:#4e5969;font-family:{font};">汇报人：{reporter_esc}</span>
+</td>
+<td align="right" valign="top" style="padding-top:9px;">
+<span style="font-size:12px;color:#a9aeb8;font-family:{font};">生成时间：{generated_esc}</span>
+</td>
 </tr>
 </table>
 </td>
 </tr>
+<tr>
+<td style="height:1px;line-height:1px;font-size:0;background:#e5e6eb;">&nbsp;</td>
+</tr>
 <!-- 邮件正文内容 -->
 <tr>
-<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:Microsoft YaHei,Arial,sans-serif;word-break:break-word;">
+<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:{font};word-break:break-word;">
 {inner}
 </td>
 </tr>
 <!-- 页脚 -->
 <tr>
-<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:Microsoft YaHei,Arial,sans-serif;">
+<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:{font};">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td align="left">🏢 PMWB · 产品经理个人工作台</td>
+<td align="left">PMWB · 产品经理个人工作台</td>
 <td align="right">本邮件由系统自动生成，请勿直接回复</td>
 </tr>
 </table>
@@ -300,22 +338,21 @@ def _render_scheme_a(title: str, subtitle: str, type_tag: str, period: str, kpi:
 </td></tr></table>'''
 
 
-def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi: dict, progress: list, inner: str) -> str:
+def _render_scheme_b(title: str, reporter: str, period: str, generated_at: str, accent: str, kpi: dict, progress: list, inner: str) -> str:
     """方案B：简约商务风（月报）。
 
-    设计要点（按 2026-08-29 分析报告整改）：
-    - 页眉精简：细紫色分割线，无大面积紫色背景块
-    - 正文容器：680px 黄金阅读宽度，左右内边距 30px
-    - 移除 Web 端统计卡片（KPI 条仅预览使用，邮件正文不显示）
-    - 所有样式内联，兼容 Outlook/Foxmail
+    设计要点（按 2026-08-29 分析报告整改，方案A 同款抬头的紫色版）：
+    - 容器宽度：百分比 `width="90%"` + `align="center"`（Outlook / Foxmail 均支持）。
+    - 抬头：顶部 4px 紫色品牌色带 + 两栏元信息（左：标题/汇报人，右：统计区间/生成时间）。
+    - 页脚与进度条标题：纯文字，无 emoji。
+    - 全 table 布局 + 内联样式，无圆角/渐变/阴影（Outlook 不支持）。
     """
-    purple = "#722ed1"
 
     # 进度条HTML（若有）- Outlook兼容：移除border-radius
     prog_html = ""
     if progress:
         prog_html = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 20px 0;background:#fafbff;padding:16px 20px;">'
-        prog_html += '<tr><td style="font-size:13px;color:#4e5969;font-weight:600;font-family:Microsoft YaHei,Arial,sans-serif;padding-bottom:10px;">📈 本月各模块目标达成进度</td></tr>'
+        prog_html += '<tr><td style="font-size:13px;color:#4e5969;font-weight:600;font-family:Microsoft YaHei,Arial,sans-serif;padding-bottom:10px;">本月各模块目标达成进度</td></tr>'
         for p in progress:
             prog_html += f'<tr><td style="padding:3px 0;font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{p["name"]}</td>'
             prog_html += f'<td style="padding:3px 10px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e8e9ef;"><tr>'
@@ -324,34 +361,47 @@ def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi:
             prog_html += f'<td width="45" align="right" style="font-size:12px;font-weight:700;color:{p["color"]};font-family:Microsoft YaHei,Arial,sans-serif;padding:3px 0;">{p["pct"]}%</td></tr>'
         prog_html += '</table>'
 
+    font = "Microsoft YaHei,Arial,sans-serif"
+    title_esc = html.escape(title)
+    reporter_esc = html.escape(reporter)
+    period_esc = html.escape(period)
+    generated_esc = html.escape(generated_at)
     return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#ffffff;">
 <tr><td align="center" style="padding:20px 0;">
-<table width="100%" max-width="680" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;margin:0 auto;">
-<!-- 简约商务页眉 -->
+<table width="{_CONTENT_WIDTH}" align="center" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<!-- 品牌色带 -->
 <tr>
-<td style="padding:0 0 16px 0;border-bottom:2px solid {purple};">
+<td style="height:4px;line-height:4px;font-size:0;background:{accent};">&nbsp;</td>
+</tr>
+<!-- 抬头：两栏元信息 -->
+<tr>
+<td style="padding:22px 30px 18px 30px;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td align="left" valign="middle">
-<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(title)}</span>
+<td align="left" valign="top" width="60%">
+<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:{font};">{title_esc}</span>
 </td>
-<td align="right" valign="middle">
-<table cellpadding="0" cellspacing="0" border="0"><tr>
-<td style="font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(type_tag)}</td>
-<td width="12"></td>
-<td style="font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(period)}</td>
-</tr></table>
+<td align="right" valign="top" width="40%">
+<span style="font-size:13px;color:#86909c;font-family:{font};">统计区间：{period_esc}</span>
 </td>
 </tr>
 <tr>
-<td colspan="2" style="padding-top:8px;font-size:12px;color:#86909c;font-family:Microsoft YaHei,Arial,sans-serif;">{html.escape(subtitle)}</td>
+<td align="left" valign="top" style="padding-top:9px;">
+<span style="font-size:13px;color:#4e5969;font-family:{font};">汇报人：{reporter_esc}</span>
+</td>
+<td align="right" valign="top" style="padding-top:9px;">
+<span style="font-size:12px;color:#a9aeb8;font-family:{font};">生成时间：{generated_esc}</span>
+</td>
 </tr>
 </table>
 </td>
 </tr>
+<tr>
+<td style="height:1px;line-height:1px;font-size:0;background:#e5e6eb;">&nbsp;</td>
+</tr>
 <!-- 邮件正文内容 -->
 <tr>
-<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:Microsoft YaHei,Arial,sans-serif;word-break:break-word;">
+<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:{font};word-break:break-word;">
 {inner}
 </td>
 </tr>
@@ -359,10 +409,10 @@ def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi:
 {prog_html}
 <!-- 页脚 -->
 <tr>
-<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:Microsoft YaHei,Arial,sans-serif;">
+<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:{font};">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td align="left">🏢 PMWB · 产品经理个人工作台</td>
+<td align="left">PMWB · 产品经理个人工作台</td>
 <td align="right">本邮件由系统自动生成，请勿直接回复</td>
 </tr>
 </table>
@@ -392,11 +442,13 @@ def _render_dual_overview(html_str: str) -> str:
     """
     import re as _re
     # 兼容两种格式：## Part A 工作成效（H2）或 **Part A 工作成效**（粗体）
+    # 注意：<strong> 必须写成 <strong[^>]*>，因为 _apply_inline_styles 已为 strong
+    # 注入 style="font-weight:600;..." 属性，精确匹配 <strong> 会导致双栏布局静默失效
     pattern = (
-        r'(<h2[^>]*>Part\s+A\s+工作成效</h2>|<strong>Part\s+A\s+工作成效</strong>)'
-        r'(.*?)(?=<h2|<strong>|$)'
-        r'(<h2[^>]*>Part\s+B\s+待改进问题</h2>|<strong>Part\s+B\s+待改进问题</strong>)'
-        r'(.*?)(?=<h2|<strong>|$)'
+        r'(<h2[^>]*>Part\s+A\s+工作成效</h2>|<strong[^>]*>Part\s+A\s+工作成效</strong>)'
+        r'(.*?)(?=<h2|<strong|$)'
+        r'(<h2[^>]*>Part\s+B\s+待改进问题</h2>|<strong[^>]*>Part\s+B\s+待改进问题</strong>)'
+        r'(.*?)(?=<h2|<strong|$)'
     )
     m = _re.search(pattern, html_str, _re.DOTALL)
     if not m:

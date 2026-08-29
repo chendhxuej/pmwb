@@ -8,16 +8,10 @@ import logging
 from typing import Any, Dict, List, Tuple
 
 from services.llm_provider import call_best_available
+# 规则模板兜底标题与 LLM 提示词标题共用同一份定义，避免两处维护导致口径不一致
+from services.report_prompt import _TITLE_LABELS as _RULE_TITLE
 
 logger = logging.getLogger(__name__)
-
-# 规则模板兜底标题（随报告类型）
-_RULE_TITLE = {
-    "daily": "工作日报",
-    "weekly": "工作周报",
-    "monthly": "工作月报",
-    "custom": "专项报告",
-}
 
 # 下期重点计划小节标题（随报告类型）
 _NEXT_TITLE = {
@@ -214,6 +208,7 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
 
     req = data.get("requirement", {}) or {}
     op = data.get("operation_issue", {}) or {}
+    ri = data.get("research_issue", {}) or {}
     mt = data.get("meeting", {}) or {}
     ma = data.get("meeting_action", {}) or {}
     td = data.get("todo", {}) or {}
@@ -494,6 +489,31 @@ def render_rule_template(data: Dict[str, Any], report_type: str = "daily") -> st
             lines.append(f"- 超期处理人：{', '.join(overdue_h)}，需压缩处置时长。")
     else:
         lines.append("- 本期无运营工单。")
+    lines.append("")
+
+    # 4.4 一线调研（与 prompt 的「四、运营支撑」4.1~4.4 子章节体系对齐）
+    ri_items = ri.get("items") or []
+    ri_sub = ri.get("by_sub_type") or {}
+    ri_city = ri.get("by_city") or {}
+    ri_high = ri.get("high_impact") or []
+    lines.append("### 4.4 一线调研")
+    if ri_items:
+        sub_str = "、".join(f"{k} {v} 条" for k, v in sorted(ri_sub.items(), key=lambda x: -x[1]))
+        city_str = "、".join(f"{k} {v} 条" for k, v in sorted(ri_city.items(), key=lambda x: -x[1]))
+        lines.append(f"> 本期一线调研工单 {len(ri_items)} 条（{sub_str}），地市分布：{city_str or '—'}"
+                     + ("，其中高影响未闭环需重点盯办。" if ri_high else "。"))
+        lines.append("")
+        for it in ri_items[:6]:
+            admin = it.get("business_admin")
+            lines.append(f"- 【{it.get('issue_no') or '—'}】{it.get('title') or '（无标题）'}"
+                         f"（{it.get('sub_type') or '—'}/{it.get('city') or '—'}"
+                         f"，状态：{it.get('status') or '—'}"
+                         + (f"，业务管理员：{admin}" if admin else "")
+                         + "）")
+        if len(ri_items) > 6:
+            lines.append(f"- 其他 {len(ri_items) - 6} 项按计划推进。")
+    else:
+        lines.append("本期暂无一线调研工单。")
     lines.append("")
 
     # 五、会议与协同（分析型）

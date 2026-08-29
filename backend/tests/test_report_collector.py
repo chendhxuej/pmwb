@@ -253,7 +253,9 @@ def test_prompt_overview_and_subsections():
     from services.report_prompt import build_system_prompt
     p = build_system_prompt("weekly")
     assert "人员时效与改进要求" in p
-    assert "二、重点工作" in p and "2.1 总体态势" in p
+    # 注：重点工作章子结构已由「2.1 总体态势」改为引用块「> **本章概述**」（下方单独断言），
+    # 此处只校验章节标题本身
+    assert "二、重点工作" in p
     assert "3.1 新增需求" in p and "3.2 在途需求" in p
     assert "3.3 交付需求" in p and "3.4 风险需求" in p
     assert "本章概述" in p
