@@ -938,9 +938,9 @@ function buildFeedbackMailBody(g) {
   lines.push(`负责人：${g.assignee}`)
   lines.push('')
 
-  // A. 上周回顾
+  // 一、上周回顾
+  lines.push('## 一、上周回顾')
   if (lastWeekFeedback.value) {
-    lines.push('## 一、上周回顾')
     const lw = lastWeekFeedback.value
     lines.push(`> 上周计划（${lw.week}）：${lw.next_summary || '（未填写）'}`)
     if (lw.item_updates?.length) {
@@ -951,33 +951,41 @@ function buildFeedbackMailBody(g) {
         const st = PLAN_STATUS_MAP[lastWeekItemStatus(u)]
         lines.push(`- ${label} → **${st?.label || lastWeekItemStatus(u)}**`)
       }
+    } else {
+      lines.push('> （上周无子项更新记录）')
     }
-    lines.push('')
+  } else {
+    lines.push('> （暂无上周反馈记录）')
   }
+  lines.push('')
 
-  // B. 月计划完成
+  // 二、月计划完成
+  lines.push('## 二、月计划完成')
   if (g.monthly_items.length) {
-    lines.push('## 二、月计划完成')
     for (const it of g.monthly_items) {
       const checked = isItemChecked(g, it)
       lines.push(`- ${checked ? '✅' : '⬜'} ${itemLabel(it)}（${it.status || '—'}）`)
     }
-    lines.push('')
+  } else {
+    lines.push('- （暂无关联月计划）')
   }
+  lines.push('')
 
-  // C. 周计划完成
+  // 三、周计划完成
+  lines.push('## 三、周计划完成')
   if (g.weekly_items.length) {
-    lines.push('## 三、周计划完成')
     for (const it of g.weekly_items) {
       const checked = isItemChecked(g, it)
       lines.push(`- ${checked ? '✅' : '⬜'} ${itemLabel(it)}（${it.status || '—'}）`)
     }
-    lines.push('')
+  } else {
+    lines.push('- （暂无关联周计划）')
   }
+  lines.push('')
 
-  // D. 成员待办进展
+  // 四、成员待办进展
+  lines.push('## 四、成员待办进展')
   if (g.task_items.length) {
-    lines.push('## 四、成员待办进展')
     for (const t of g.task_items) {
       const note = taskNote(g, t)
       const assignee = t.assignee || '未指派'
@@ -985,54 +993,66 @@ function buildFeedbackMailBody(g) {
       const noteText = note.note || t.note || '（无进展说明）'
       lines.push(`- **${t.label || t.title || '（未命名）'}** — ${assignee} | ${statusLabel} | ${noteText}`)
     }
-    lines.push('')
+  } else {
+    lines.push('- （暂无在途成员待办）')
   }
+  lines.push('')
 
-  // D+. 新增待办任务
+  // 四（新增）、新增待办任务
+  lines.push('## 四（新增）、新增待办任务')
   if (g._form.new_tasks.length) {
-    lines.push('## 四（新增）、新增待办任务')
     for (const t of g._form.new_tasks) {
       lines.push(`- ${t.title} — ${t.assignee || '未指派'} ${t.due_date ? '· ' + t.due_date : ''}`)
+    }
+  } else {
+    lines.push('- （暂无新增待办任务）')
+  }
+  lines.push('')
+
+  // 五、本月月总结 / 六、下月重点（仅月底显示）
+  if (isMonthEnd.value) {
+    lines.push('## 五、本月月总结')
+    if (g._form.monthly_summary) {
+      lines.push(g._form.monthly_summary)
+    } else {
+      lines.push('- （待填写）')
+    }
+    lines.push('')
+    lines.push('## 六、下月重点 / 下月月计划草案')
+    if (g._form.next_month_summary) {
+      lines.push(g._form.next_month_summary)
+    } else {
+      lines.push('- （待填写）')
     }
     lines.push('')
   }
 
-  // 月底额外区
-  if (isMonthEnd.value && g._form.monthly_summary) {
-    lines.push('## 五、本月月总结')
-    lines.push(g._form.monthly_summary)
-    lines.push('')
-  }
-  if (isMonthEnd.value && g._form.next_month_summary) {
-    lines.push('## 六、下月重点 / 下月月计划草案')
-    lines.push(g._form.next_month_summary)
-    lines.push('')
-  }
-
-  // G. 本周完成 + 整体进度
-  lines.push('## 五、本周完成 & 整体进度')
+  // 七、本周完成 & 整体进度
+  lines.push('## 七、本周完成 & 整体进度')
   if (g._form.done_summary) {
     lines.push(g._form.done_summary)
   } else {
-    lines.push('（待填写）')
+    lines.push('- （待填写）')
   }
   lines.push('')
   lines.push(`**整体进度：${g._form.progress || 0}%**`)
   lines.push('')
 
-  // F. 风险/求助
+  // 八、风险 / 求助
+  lines.push('## 八、风险 / 求助')
   if (g._form.risk_note) {
-    lines.push('## 六、风险 / 求助')
     lines.push(g._form.risk_note)
-    lines.push('')
+  } else {
+    lines.push('- （无）')
   }
+  lines.push('')
 
-  // C. 下周计划
-  lines.push('## 七、下周计划')
+  // 九、下周计划
+  lines.push('## 九、下周计划')
   if (g._form.next_summary) {
     lines.push(g._form.next_summary)
   } else {
-    lines.push('（待填写）')
+    lines.push('- （待填写）')
   }
   lines.push('')
 
