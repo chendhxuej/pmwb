@@ -1304,6 +1304,11 @@ let detailSeq = 0 // 竞态保护：连续操作时仅应用最后一次详情�
 async function openDetail(row) {
   currentId.value = row.id
   drawerVisible.value = true
+  // 重置周反馈数据，防止旧工单数据残留
+  feedbackGroups.value = []
+  lastWeekFeedback.value = null
+  isMonthEnd.value = false
+  currentMonth.value = ''
   await refreshDetail()
 }
 
