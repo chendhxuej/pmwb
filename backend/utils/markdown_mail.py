@@ -150,8 +150,8 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
     """将工作总结 Markdown 转换为带结构化头部/KPI 条的 HTML 邮件正文。
 
     按 report_type 分派排版方案：
-    - daily/weekly → 方案A（蓝色渐变头部 + 5格 KPI 条）
-    - monthly      → 方案B（紫色渐变头部 + 6格 KPI 卡片 + 进度条）
+    - daily/weekly → 方案A（简约商务页眉 + 5格 KPI 条）
+    - monthly      → 方案B（简约商务页眉 + 6格 KPI 卡片 + 进度条）
     - 其余         → 降级为通用 markdown_to_email_html
 
     头部信息从 md 第一行提取 H1 标题；若无则自动生成。
@@ -212,12 +212,12 @@ def render_work_report_html(md: str, report_type: str, person_name: str = "") ->
 
     # ---- 4. 组装方案A/B 外壳 ----
     if report_type == "monthly":
-        html = _render_scheme_b(title=title, subtitle=f"👤 {person_name} &nbsp;·&nbsp; 统计区间：{period}",
+        html = _render_scheme_b(title=title, subtitle=f"汇报人：{person_name} &nbsp;·&nbsp; 统计区间：{period}",
                                 type_tag=type_label, period=period,
                                 kpi=kpi_data, progress=kpi_data.get("progress", []),
                                 inner=inner_html)
     else:
-        html = _render_scheme_a(title=title, subtitle=f"👤 {person_name} &nbsp;·&nbsp; 统计区间：{period}",
+        html = _render_scheme_a(title=title, subtitle=f"汇报人：{person_name} &nbsp;·&nbsp; 统计区间：{period}",
                                 type_tag=type_label, period=period,
                                 kpi=kpi_data, inner=inner_html)
     return html
@@ -245,142 +245,130 @@ def _extract_kpi(md: str) -> dict:
 
 
 def _render_scheme_a(title: str, subtitle: str, type_tag: str, period: str, kpi: dict, inner: str) -> str:
-    """方案A：蓝调商务风（日报/周报）。使用 table 布局保证 Outlook 等邮件客户端兼容。"""
+    """方案A：简约商务风（日报/周报）。
+
+    设计要点（按 2026-08-29 分析报告整改）：
+    - 页眉精简：细蓝色分割线，无大面积蓝色背景块
+    - 正文容器：680px 黄金阅读宽度，左右内边距 30px
+    - 移除 Web 端统计卡片（KPI 条仅预览使用，邮件正文不显示）
+    - 所有样式内联，兼容 Outlook/Foxmail
+    """
     blue = "#165dff"
-    kpi_items = [
-        ("本周交付", kpi.get("delivered", "0"), "target", ""),
-        ("新增需求", kpi.get("added", "0"), "added", ""),
-        ("高敏工单", kpi.get("high_sensitivity", "0"), "high", "P0/P1"),
-        ("会议场次", kpi.get("meeting", "0"), "meeting", ""),
-        ("待办完成率", kpi.get("todo_rate", "0%"), "rate", ""),
-    ]
-    kpi_cells = "".join(
-        f'<td width="20%" align="center" valign="top" style="padding:18px 4px;'
-        f'border-left:{"0" if i == 0 else "1px solid #f0f2f5"};'  # noqa: B005
-        f'font-family:-apple-system,\'Microsoft YaHei\',Arial,sans-serif;">'
-        f'<div style="font-size:26px;font-weight:800;line-height:1;color:#1d2129;margin-bottom:6px;">{v}</div>'
-        f'<div style="font-size:12px;color:#86909c;font-weight:600;">{l}</div>'
-        f'<div style="font-size:11px;color:#c0c4cc;margin-top:2px;">{s}</div></td>'
-        for i, (l, v, _, s) in enumerate(kpi_items)
-    )
-    return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;">
-<tr><td align="center" style="padding:0;">
-<div style="max-width:820px;width:100%;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
-<div style="background:linear-gradient(135deg,{blue} 0%,#308ffd 100%);padding:24px 20px 20px;color:#fff;">
+    return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#ffffff;">
+<tr><td align="center" style="padding:20px 0;">
+<table width="680" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<!-- 简约商务页眉 -->
+<tr>
+<td style="padding:0 0 16px 0;border-bottom:2px solid {blue};">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td align="left" valign="top">
-<div style="font-size:15px;font-weight:700;opacity:0.9;">📋 PMWB 个人工作台</div>
-<div style="font-size:11px;opacity:0.7;margin-top:2px;">产品经理工作总结 · 自动生成</div>
+<td align="left" valign="middle">
+<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:'Microsoft YaHei',Arial,sans-serif;">{title}</span>
 </td>
-<td align="right" valign="top">
+<td align="right" valign="middle">
 <table cellpadding="0" cellspacing="0" border="0"><tr>
-<td style="background:rgba(255,255,255,0.2);color:#fff;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:600;">{type_tag}</td>
-<td width="5"></td>
-<td style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:3px 8px;border-radius:5px;font-size:10px;">{period}</td>
+<td style="font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{type_tag}</td>
+<td width="12"></td>
+<td style="font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{period}</td>
 </tr></table>
 </td>
 </tr>
-</table>
-<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin:16px 0 4px;text-align:center;">{title}</div>
-<div style="font-size:12px;opacity:0.85;text-align:center;">{subtitle}</div>
-</div>
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid #f0f2f5;background:#fff;">
-<tr>{kpi_cells}</tr>
-</table>
-<div style="background:#fff;border-radius:0 0 12px 12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
-{inner}
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fafbfc;border-top:1px solid #f0f2f5;">
 <tr>
-<td style="padding:14px 28px;font-size:11px;color:#c0c4cc;" align="left">🏢 PMWB · 产品经理个人工作台</td>
-<td style="padding:14px 28px;font-size:11px;color:#c0c4cc;" align="right">本邮件由系统自动生成，请勿直接回复</td>
+<td colspan="2" style="padding-top:8px;font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{subtitle}</td>
 </tr>
 </table>
-</div>
-</div>
+</td>
+</tr>
+<!-- 邮件正文内容 -->
+<tr>
+<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:'Microsoft YaHei',Arial,sans-serif;word-break:break-word;">
+{inner}
+</td>
+</tr>
+<!-- 页脚 -->
+<tr>
+<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:'Microsoft YaHei',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="left">🏢 PMWB · 产品经理个人工作台</td>
+<td align="right">本邮件由系统自动生成，请勿直接回复</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
 </td></tr></table>'''
 
 
 def _render_scheme_b(title: str, subtitle: str, type_tag: str, period: str, kpi: dict, progress: list, inner: str) -> str:
-    """方案B：紫调仪表盘风（月报）。使用 table 布局保证 Outlook 等邮件客户端兼容。"""
-    purple = "#722ed1"
-    kpi_items = [
-        ("需求交付", kpi.get("delivered", "0"), "#165dff", "目标25项"),
-        ("高敏工单", kpi.get("high_sensitivity", "0"), "#f53f3f", "未闭环"),
-        ("待办完成率", kpi.get("todo_rate", "0%"), "#00b42a", ""),
-        ("重点工作", kpi.get("kw_active", "0"), purple, "进行中"),
-        ("会议场次", kpi.get("meeting", "0"), "#165dff", ""),
-        ("知识沉淀", kpi.get("added", "0"), "#00b42a", "较上月"),
-    ]
-    # 6 个 KPI 分两行，每行 3 列
-    kpi_rows = []
-    for row_idx in range(2):
-        cells = []
-        for col_idx in range(3):
-            i = row_idx * 3 + col_idx
-            l, v, c, s = kpi_items[i]
-            border_top = "0" if row_idx == 0 else "1px solid #f0f0f0"
-            border_left = "0" if col_idx == 0 else "1px solid #f0f0f0"
-            cells.append(
-                f'<td width="33.33%" align="center" valign="top" '
-                f'style="padding:18px 6px;border-top:{border_top};border-left:{border_left};'
-                f'font-family:-apple-system,\'Microsoft YaHei\',Arial,sans-serif;">'
-                f'<div style="font-size:28px;font-weight:800;line-height:1;color:{c};margin-bottom:6px;">{v}</div>'
-                f'<div style="font-size:12px;color:#86909c;margin-top:6px;">{l}</div>'
-                f'<div style="font-size:11px;color:#c0c4cc;margin-top:2px;">{s}</div>'
-                f'<table width="80%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;background:#f0f0f0;border-radius:2px;">'
-                f'<tr><td style="height:4px;font-size:0;line-height:0;background:{c};border-radius:2px;width:72%;">&nbsp;</td>'
-                f'<td style="height:4px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td>'
-            )
-        kpi_rows.append("<tr>" + "".join(cells) + "</tr>")
-    kpi_table = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid #f0f0f0;background:#fff;">' + "".join(kpi_rows) + "</table>"
+    """方案B：简约商务风（月报）。
 
+    设计要点（按 2026-08-29 分析报告整改）：
+    - 页眉精简：细紫色分割线，无大面积紫色背景块
+    - 正文容器：680px 黄金阅读宽度，左右内边距 30px
+    - 移除 Web 端统计卡片（KPI 条仅预览使用，邮件正文不显示）
+    - 所有样式内联，兼容 Outlook/Foxmail
+    """
+    purple = "#722ed1"
+
+    # 进度条HTML（若有）
     prog_html = ""
     if progress:
-        prog_html = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 28px;background:#fafbff;border-bottom:1px solid #f0f0f0;">'
-        prog_html += '<tr><td colspan="3" style="font-size:13px;color:#4e5969;font-weight:600;padding-bottom:10px;">📈 本月各模块目标达成进度</td></tr>'
+        prog_html = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 20px 0;background:#fafbff;border-radius:8px;padding:16px 20px;">'
+        prog_html += '<tr><td style="font-size:13px;color:#4e5969;font-weight:600;font-family:\'Microsoft YaHei\',Arial,sans-serif;padding-bottom:10px;">📈 本月各模块目标达成进度</td></tr>'
         for p in progress:
-            prog_html += f'<tr><td width="80" style="font-size:12px;color:#86909c;padding:3px 0;">{p["name"]}</td>'
+            prog_html += f'<tr><td style="padding:3px 0;font-size:12px;color:#86909c;font-family:\'Microsoft YaHei\',Arial,sans-serif;">{p["name"]}</td>'
             prog_html += f'<td style="padding:3px 10px;"><table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e8e9ef;border-radius:4px;"><tr>'
             prog_html += f'<td width="{p["pct"]}%" style="height:8px;font-size:0;line-height:0;background:{p["color"]};border-radius:4px;">&nbsp;</td>'
             prog_html += f'<td style="height:8px;font-size:0;line-height:0;">&nbsp;</td></tr></table></td>'
-            prog_html += f'<td width="45" align="right" style="font-size:12px;font-weight:700;color:{p["color"]};padding:3px 0;">{p["pct"]}%</td></tr>'
+            prog_html += f'<td width="45" align="right" style="font-size:12px;font-weight:700;color:{p["color"]};font-family:\'Microsoft YaHei\',Arial,sans-serif;padding:3px 0;">{p["pct"]}%</td></tr>'
         prog_html += '</table>'
 
-    return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;">
-<tr><td align="center" style="padding:0;">
-<div style="max-width:820px;width:100%;margin:0 auto;font-family:-apple-system,'Microsoft YaHei',Arial,sans-serif;">
-<div style="background:linear-gradient(135deg,{purple} 0%,#9064d9 100%);padding:24px 20px 20px;color:#fff;">
+    return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#ffffff;">
+<tr><td align="center" style="padding:20px 0;">
+<table width="680" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+<!-- 简约商务页眉 -->
+<tr>
+<td style="padding:0 0 16px 0;border-bottom:2px solid {purple};">
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td align="left" valign="top">
-<div style="font-size:15px;font-weight:700;opacity:0.9;">📊 PMWB 个人工作台</div>
-<div style="font-size:11px;opacity:0.7;margin-top:2px;">产品经理工作总结 · 自动生成</div>
+<td align="left" valign="middle">
+<span style="font-size:20px;font-weight:700;color:#1d2129;font-family:'Microsoft YaHei',Arial,sans-serif;">{title}</span>
 </td>
-<td align="right" valign="top">
+<td align="right" valign="middle">
 <table cellpadding="0" cellspacing="0" border="0"><tr>
-<td style="background:rgba(255,255,255,0.2);color:#fff;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:600;">{type_tag}</td>
-<td width="5"></td>
-<td style="background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);padding:3px 8px;border-radius:5px;font-size:10px;">{period}</td>
+<td style="font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{type_tag}</td>
+<td width="12"></td>
+<td style="font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{period}</td>
 </tr></table>
 </td>
 </tr>
-</table>
-<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;margin:16px 0 4px;text-align:center;">{title}</div>
-<div style="font-size:12px;opacity:0.85;text-align:center;">{subtitle}</div>
-</div>
-{kpi_table}
-{prog_html}
-<div style="background:#fff;border-radius:0 0 12px 12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
-{inner}
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fafbfc;border-top:1px solid #f0f0f0;">
 <tr>
-<td style="padding:14px 28px;font-size:11px;color:#c0c4cc;" align="left">🏢 PMWB · 产品经理个人工作台</td>
-<td style="padding:14px 28px;font-size:11px;color:#c0c4cc;" align="right">本邮件由系统自动生成，请勿直接回复</td>
+<td colspan="2" style="padding-top:8px;font-size:12px;color:#86909c;font-family:'Microsoft YaHei',Arial,sans-serif;">{subtitle}</td>
 </tr>
 </table>
-</div>
-</div>
+</td>
+</tr>
+<!-- 邮件正文内容 -->
+<tr>
+<td style="padding:24px 30px 20px 30px;font-size:14px;line-height:1.75;color:#1f2329;font-family:'Microsoft YaHei',Arial,sans-serif;word-break:break-word;">
+{inner}
+</td>
+</tr>
+<!-- 进度条（若有） -->
+{prog_html}
+<!-- 页脚 -->
+<tr>
+<td style="padding:16px 30px;border-top:1px solid #f0f2f5;font-size:11px;color:#c0c4cc;font-family:'Microsoft YaHei',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="left">🏢 PMWB · 产品经理个人工作台</td>
+<td align="right">本邮件由系统自动生成，请勿直接回复</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
 </td></tr></table>'''
 
 
