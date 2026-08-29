@@ -46,8 +46,8 @@ PROVIDER_PRESETS: Dict[str, Dict[str, str]] = {
     "agnes": {
         "label": "Agnes AI",
         "base_url": "https://apihub.agnes-ai.com/v1",
-        "model": "agnes-2.5-pro",
-        "note": "OpenAI 兼容；可选模型：agnes-2.5-pro / agnes-2.5-flash / agnes-2.0-flash 等",
+        "model": "agnes-2.5-flash",
+        "note": "OpenAI 兼容；当前免费模型：agnes-2.5-flash / agnes-2.0-flash；Pro 系列需账户有额度",
     },
     "openai": {
         "label": "OpenAI 兼容",
