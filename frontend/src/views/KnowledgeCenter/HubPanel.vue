@@ -151,6 +151,7 @@
           class="domain-card"
           :class="{ active: selectedDomain?.domain_code === d.domain_code }"
           @click="selectDomain(d)"
+          :title="d.domain_name"
         >
           <div class="domain-card-top">
             <span class="domain-avatar">{{ d.domain_name.slice(0, 1) }}</span>
@@ -160,19 +161,25 @@
           <div class="domain-code">{{ d.domain_code }}</div>
           <div class="domain-meta">
             <span>知识 {{ d.knowledge_count || 0 }}</span>
-            <span>需求 {{ d.req_count || 0 }}</span>
+            <span>需求 {{ d.requirement_count || 0 }}</span>
             <span>工单 {{ d.issue_count || 0 }}</span>
             <span>会议 {{ d.meeting_count || 0 }}</span>
           </div>
           <div class="domain-bar">
             <i class="bar-seg b1" :style="{ width: barSeg(d.knowledge_count || 0) }"></i>
-            <i class="bar-seg b2" :style="{ width: barSeg(d.req_count || 0) }"></i>
+            <i class="bar-seg b2" :style="{ width: barSeg(d.requirement_count || 0) }"></i>
             <i class="bar-seg b3" :style="{ width: barSeg(d.issue_count || 0) }"></i>
           </div>
           <div class="domain-barlbl">
-            <span><b>{{ (d.knowledge_count || 0) + (d.req_count || 0) + (d.issue_count || 0) + (d.meeting_count || 0) }}</b> 关联对象</span>
-            <span v-if="healthMap[d.domain_code]?.hasMainNote"><b>主笔记已建</b></span>
+            <span><b>{{ (d.knowledge_count || 0) + (d.requirement_count || 0) + (d.issue_count || 0) + (d.meeting_count || 0) }}</b> 关联对象</span>
+            <span v-if="healthMap[d.domain_code]?.has_main_note"><b>主笔记已建</b></span>
             <span v-else class="text-warn"><b>缺主笔记</b></span>
+          </div>
+          <!-- 一键同步按钮 -->
+          <div v-if="!healthMap[d.domain_code]?.has_main_note" class="domain-sync-btn">
+            <el-button size="small" type="primary" plain @click.stop="ensureMainNote(d.domain_code)">
+              一键同步
+            </el-button>
           </div>
         </button>
       </div>
@@ -219,7 +226,7 @@
             <div class="detail-card-head">全景指标</div>
             <div class="mini-list">
               <div class="mini-item"><span>知识条目</span><b>{{ selectedDomain.knowledge_count || 0 }}</b></div>
-              <div class="mini-item"><span>关联需求</span><b>{{ selectedDomain.req_count || 0 }}</b></div>
+              <div class="mini-item"><span>关联需求</span><b>{{ selectedDomain.requirement_count || 0 }}</b></div>
               <div class="mini-item"><span>运营工单</span><b>{{ selectedDomain.issue_count || 0 }}</b></div>
               <div class="mini-item"><span>会议</span><b>{{ selectedDomain.meeting_count || 0 }}</b></div>
             </div>
@@ -313,17 +320,6 @@ function onSearchSelect(s) {
   }
 }
 
-async function ensureMainNote(code) {
-  try {
-    await knowledgeApi.createMainNote(code)
-    ElMessage.success('主笔记已创建')
-    await scanHealth()
-    loadDomains()
-  } catch (e) {
-    ElMessage.error(e.message || '创建失败')
-  }
-}
-
 const GROUP_META = {
   商客业务: { color: '#2f6fed', bg: 'rgba(47,111,237,.10)' },
   系统平台: { color: '#06b6d4', bg: 'rgba(6,182,212,.10)' },
@@ -359,7 +355,7 @@ const filteredDomains = computed(() => {
 
 const stats = computed(() => {
   const total = allDomains.value.length
-  const withMainNote = Object.values(healthMap.value).filter((h) => h.hasMainNote).length
+  const withMainNote = Object.values(healthMap.value).filter((h) => h.has_main_note).length
   const incomplete = total - withMainNote
   const recentEvents = recentFeed.value.length
   return { total, withMainNote, incomplete, recentEvents }
@@ -374,7 +370,7 @@ const incompleteDomains = computed(() => {
   return allDomains.value
     .filter((d) => {
       const h = healthMap.value[d.domain_code]
-      return !h || !h.hasMainNote
+      return !h || !h.has_main_note
     })
     .map((d) => ({ ...d, reason: '缺主笔记' }))
 })

@@ -156,7 +156,7 @@ const routes = [
         component: () => import('@/views/BusinessDomainManage.vue'),
         meta: { title: '业务领域管理', hidden: true },
       },
-      // ── 知识中心：业务全景（保留子路由以防历史深链崩溃，菜单仅展示 hub） ──
+      // ── 知识中心：B+C 融合驾驶舱（DEMO 方案） ──
       {
         path: 'knowledge-center',
         name: 'KnowledgeCenter',
@@ -168,25 +168,31 @@ const routes = [
             path: 'hub',
             name: 'KcHub',
             component: () => import('@/views/KnowledgeCenter/HubPanel.vue'),
-            meta: { title: '业务全景', icon: 'DataBoard' },
+            meta: { title: '总览驾驶舱', icon: 'DataBoard' },
+          },
+          {
+            path: 'domain/:code',
+            name: 'KcDomainDetail',
+            component: () => import('@/views/KnowledgeCenter/DomainDetailView.vue'),
+            meta: { title: '领域详情', icon: 'Grid' },
           },
           {
             path: 'timeline',
             name: 'KcTimeline',
             component: () => import('@/views/KnowledgeCenter/TimelineView.vue'),
-            meta: { title: '全局时间线', icon: 'Clock', hidden: true },
+            meta: { title: '全局时间线', icon: 'Clock' },
           },
           {
             path: 'relations',
             name: 'KcRelations',
             component: () => import('@/views/KnowledgeCenter/RelationsView.vue'),
-            meta: { title: '智能关联', icon: 'Connection', hidden: true },
+            meta: { title: '智能关联', icon: 'Connection' },
           },
           {
             path: 'manage',
             name: 'KcManage',
             component: () => import('@/views/KnowledgeCenter/ManageView.vue'),
-            meta: { title: '领域管理', icon: 'SetUp', hidden: true },
+            meta: { title: '领域管理', icon: 'SetUp' },
           },
           // ── 历史子模块（hidden：保留深链，不在左侧菜单展示） ───
           {
