@@ -456,31 +456,27 @@ def build_main_note_markdown(
     return "\n".join(lines) + "\n"
 
 
-# 主笔记标准结构章节定义（编号前缀用于跨域措辞差异匹配）。
-# kind: baseline(人工维护) / auto(系统自动) / system(系统维护)，对应前端徽标颜色。
-MAIN_NOTE_SECTIONS = [
-    {"prefix": "1", "key": "overview", "kind": "baseline", "kind_label": "人工维护"},
-    {"prefix": "2.1", "key": "product_matrix", "kind": "baseline", "kind_label": "人工维护"},
-    {"prefix": "2.2", "key": "pricing", "kind": "baseline", "kind_label": "人工维护"},
-    {"prefix": "2.3", "key": "product_change", "kind": "auto", "kind_label": "系统自动"},
-    {"prefix": "3.1", "key": "service_scenario", "kind": "baseline", "kind_label": "人工维护"},
-    {"prefix": "3.2", "key": "process_change", "kind": "auto", "kind_label": "系统自动"},
-    {"prefix": "4.1", "key": "general_rules", "kind": "baseline", "kind_label": "人工维护"},
-    {"prefix": "4.2", "key": "scenario_rules", "kind": "auto", "kind_label": "系统自动"},
-    {"prefix": "5", "key": "change_track", "kind": "auto", "kind_label": "系统自动"},
-    {"prefix": "6", "key": "deliverables", "kind": "auto", "kind_label": "系统自动"},
-    {"prefix": "7", "key": "related_index", "kind": "system", "kind_label": "系统维护"},
-    {"prefix": "8", "key": "moc", "kind": "system", "kind_label": "系统维护"},
-    {"prefix": "9", "key": "timeline", "kind": "auto", "kind_label": "系统自动"},
-    {"prefix": "10", "key": "related_systems", "kind": "baseline", "kind_label": "人工维护"},
-]
+# 主笔记标准结构章节定义统一收敛到 obsidian_paths.MAIN_NOTE_SECTIONS（三套：
+# business/platform/capability/general），消除此前 knowledge_link_service 旧单套
+# 与 obsidian_paths 三套并存的双份/不一致（§3.8 结构标准化）。
+from services import obsidian_paths as _op
+
+# zone -> 前端徽标文案（与前端 HubPanel 消费 sec.kind_label 一致）
+KIND_LABEL = {"baseline": "人工维护", "auto": "系统自动", "system": "系统维护"}
+
+
+def _sections_for_group(group: str):
+    """按 domain_group 取三类主笔记模板章节（元组：(编号, 标题, 区属性)）。"""
+    alias = _op.group_alias(group)
+    return _op.MAIN_NOTE_SECTIONS.get(alias, _op.MAIN_NOTE_SECTIONS["general"])
 
 
 def get_main_note_structured(db: Session, domain_code: str) -> Dict:
     """读取某业务领域主笔记，按标准结构返回分章节内容。
 
-    用于前端「知识标准化管理（主笔记标准结构）」展示。章节通过编号前缀
-    匹配（如 "2.1"），兼容各域主笔记措辞差异（「系统自动」/「自动区」等）。
+    按 domain_group 选三类模板（business/platform/capability），编号前缀与
+    生成器（obsidian_paths.build_main_note_skeleton）严格一致（带点编号 2.1），
+    修复此前「## 2. 产商品与资费体系」(无点) 匹配不到导致永远"暂无数据"的 bug。
     """
     item = (
         db.query(PmwbKnowledgeItem)
@@ -490,6 +486,12 @@ def get_main_note_structured(db: Session, domain_code: str) -> Dict:
     )
     if not item or not item.obsidian_path:
         return {"domain_code": domain_code, "title": "", "obsidian_path": "", "sections": []}
+
+    domain = db.query(PmwbBusinessDomain).filter(
+        PmwbBusinessDomain.domain_code == domain_code
+    ).first()
+    group = domain.domain_group if domain else "通用"
+
     content = read_markdown(item.obsidian_path) or ""
 
     # 解析全部标题（层级 + 文本）
@@ -500,28 +502,30 @@ def get_main_note_structured(db: Session, domain_code: str) -> Dict:
             headings.append(m.group(2).strip())
 
     sections = []
-    for sec in MAIN_NOTE_SECTIONS:
+    for no, title, zone in _sections_for_group(group):
+        suffix = _op.ZONE_LABEL.get(zone, "")
+        target = f"{no} {title}{suffix}".strip()
         matched = None
         for text in headings:
             pm = re.match(r"^(\d+(?:\.\d+)*)\b\s*(.*)$", text)
-            if pm and pm.group(1) == sec["prefix"]:
+            if pm and pm.group(1) == no:
                 matched = text
                 break
         if not matched:
             sections.append({
-                "key": sec["key"],
-                "title": "",
-                "kind": sec["kind"],
-                "kind_label": sec["kind_label"],
+                "key": no,
+                "title": target,
+                "kind": zone,
+                "kind_label": KIND_LABEL.get(zone, "人工维护"),
                 "markdown": "_暂无数据_",
             })
             continue
         md = extract_section(content, matched) or "_暂无数据_"
         sections.append({
-            "key": sec["key"],
+            "key": no,
             "title": matched,
-            "kind": sec["kind"],
-            "kind_label": sec["kind_label"],
+            "kind": zone,
+            "kind_label": KIND_LABEL.get(zone, "人工维护"),
             "markdown": md,
         })
     return {
