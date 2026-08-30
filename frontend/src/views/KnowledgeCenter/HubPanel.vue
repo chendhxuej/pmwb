@@ -74,19 +74,19 @@
         <div class="kpi-delta">{{ groupNames.length }} 个分组</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-value">{{ stats.withMainNote }}</div>
-        <div class="kpi-label">主笔记已建</div>
-        <div class="kpi-delta" :class="{ warn: stats.withMainNote < stats.total }">覆盖率 {{ coverageText }}</div>
+        <div class="kpi-value">{{ stats.weeklyNew }}</div>
+        <div class="kpi-label">本周新增知识</div>
+        <div class="kpi-delta">自动沉淀 {{ stats.weeklyAuto }}</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-value">{{ stats.recentEvents }}</div>
-        <div class="kpi-label">本周动态</div>
-        <div class="kpi-delta">关联事件</div>
+        <div class="kpi-value">{{ stats.coveragePercent }}%</div>
+        <div class="kpi-label">领域覆盖率</div>
+        <div class="kpi-delta">主笔记已建</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-value warn">{{ stats.incomplete }}</div>
-        <div class="kpi-label">待完善领域</div>
-        <div class="kpi-delta warn">缺主笔记或结构不全</div>
+        <div class="kpi-value warn">{{ stats.zombieCount }}</div>
+        <div class="kpi-label">僵尸知识</div>
+        <div class="kpi-delta warn">90 天未更新</div>
       </div>
     </div>
 
@@ -337,12 +337,17 @@ const groupNames = computed(() => domainTree.value.map((g) => g.domain_name))
 
 const groupTabs = computed(() => {
   const tabs = [{ code: 'all', name: '全部', count: allDomains.value.length }]
-  for (const g of domainTree.value) {
-    tabs.push({
-      code: g.domain_code,
-      name: g.domain_name,
-      count: (g.children || []).length,
-    })
+  // 按 domain_group 分组，对齐 DEMO 的 5 个固定 tab
+  const groupMap = new Map()
+  for (const d of allDomains.value) {
+    const g = d.domain_group
+    if (!groupMap.has(g)) {
+      groupMap.set(g, { code: g, name: g, count: 0 })
+    }
+    groupMap.get(g).count++
+  }
+  for (const g of groupMap.values()) {
+    tabs.push(g)
   }
   return tabs
 })
@@ -357,13 +362,13 @@ const stats = computed(() => {
   const total = allDomains.value.length
   const withMainNote = Object.values(healthMap.value).filter((h) => h.has_main_note).length
   const incomplete = total - withMainNote
-  const recentEvents = recentFeed.value.length
-  return { total, withMainNote, incomplete, recentEvents }
-})
-
-const coverageText = computed(() => {
-  if (!stats.value.total) return '-'
-  return Math.round((stats.value.withMainNote / stats.value.total) * 100) + '%'
+  // 从 healthMap 中获取本周新增和僵尸知识（取第一个元素的值，因为全局统一）
+  const firstHealth = Object.values(healthMap.value)[0] || {}
+  const weeklyNew = firstHealth.weekly_new_count || 0
+  const weeklyAuto = firstHealth.weekly_new_count || 0
+  const zombieCount = firstHealth.zombie_count || 0
+  const coveragePercent = total > 0 ? Math.round((withMainNote / total) * 100) : 0
+  return { total, withMainNote, incomplete, weeklyNew, weeklyAuto, zombieCount, coveragePercent }
 })
 
 const incompleteDomains = computed(() => {

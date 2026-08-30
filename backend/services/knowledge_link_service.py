@@ -1042,6 +1042,7 @@ def ensure_domain_main_note(db: Session, domain_code: str) -> dict:
 def domain_main_note_health(db: Session) -> list:
     """批量扫描启用领域的主笔记健康状态，供前端驾驶舱统计与一键修复入口。"""
     from db.models import PmwbKnowledgeItem, PmwbRequirementExt, PmwbOperationIssue, PmwbMeeting
+    from datetime import datetime, timedelta
     domains = (
         db.query(PmwbBusinessDomain)
         .filter(PmwbBusinessDomain.enabled == True)
@@ -1084,6 +1085,22 @@ def domain_main_note_health(db: Session) -> list:
     )
     meeting_map = {row.domain_code: row.c for row in meeting_count}
 
+    # 本周新增知识统计
+    week_ago = datetime.now() - timedelta(days=7)
+    weekly_new_count = (
+        db.query(func.count(PmwbKnowledgeItem.id))
+        .filter(PmwbKnowledgeItem.created_at >= week_ago)
+        .scalar() or 0
+    )
+
+    # 僵尸知识统计（90天未更新）
+    zombie_deadline = datetime.now() - timedelta(days=90)
+    zombie_count = (
+        db.query(func.count(PmwbKnowledgeItem.id))
+        .filter(PmwbKnowledgeItem.updated_at <= zombie_deadline)
+        .scalar() or 0
+    )
+
     results = []
     for d in domains:
         mc = main_map.get(d.domain_code, 0)
@@ -1109,6 +1126,8 @@ def domain_main_note_health(db: Session) -> list:
             "issue_count": ic,
             "meeting_count": mt,
             "vault_path": d.vault_path,
+            "weekly_new_count": weekly_new_count,
+            "zombie_count": zombie_count,
         })
     return results
 
