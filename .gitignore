@@ -95,6 +95,7 @@ frontend/dist.bak/
 frontend/dist_bak/
 frontend/dist_new/
 frontend/dist_old_*/
+frontend/dist_t6check/
 
 # ad-hoc build verification dirs
 frontend/dist-verify/

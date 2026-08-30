@@ -80,6 +80,24 @@ export const knowledgeApi = {
     return request.delete(`/knowledge/links/${linkId}`)
   },
 
+  // 条目维度关联：按知识条目 id 获取/建立/移除过程性对象关联
+  listByItem(id) {
+    return request.get(`/knowledge/${id}/links`)
+  },
+
+  createItemLink(id, payload) {
+    return request.post(`/knowledge/${id}/links`, payload)
+  },
+
+  deleteItemLink(id, sourceType, sourceId) {
+    return request.delete(`/knowledge/${id}/links/${sourceType}/${sourceId}`)
+  },
+
+  // 新建业务知识主笔记（选领域后生成标准模板，幂等）
+  createMainNote(domainCode) {
+    return request.post('/knowledge/main-note', { domain_code: domainCode })
+  },
+
   // 把需求沉淀为知识条目（force=true 覆盖更新）
   sedimentRequirement(reqId, force = false) {
     return request.post(`/knowledge/sediment/requirement/${reqId}`, null, {

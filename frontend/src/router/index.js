@@ -175,7 +175,7 @@ const routes = [
             path: 'knowledge',
             name: 'KcKnowledge',
             component: () => import('@/views/KnowledgeView.vue'),
-            meta: { title: '知识库', icon: 'Collection', hidden: true },
+            meta: { title: '知识库', icon: 'Collection' },
           },
           {
             path: 'product-bible',
@@ -187,7 +187,7 @@ const routes = [
             path: 'domain',
             name: 'KcDomain',
             component: () => import('@/views/DomainKnowledgeView.vue'),
-            meta: { title: '按领域浏览', icon: 'Grid', hidden: true },
+            meta: { title: '按领域浏览', icon: 'Grid' },
           },
           {
             path: 'sql-scripts',
@@ -199,7 +199,7 @@ const routes = [
             path: 'business-domains',
             name: 'KcBusinessDomains',
             component: () => import('@/views/BusinessDomainManage.vue'),
-            meta: { title: '业务知识维度', icon: 'SetUp', hidden: true },
+            meta: { title: '业务知识维度', icon: 'SetUp' },
           },
           {
             path: 'notes',

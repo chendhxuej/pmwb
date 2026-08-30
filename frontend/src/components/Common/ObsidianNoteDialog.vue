@@ -70,7 +70,7 @@ const load = async (relPath) => {
   }
   loading.value = true
   try {
-    const res = await obsidianApi.getContent(relPath)
+    const res = await obsidianApi.getNoteContent(relPath)
     loadedPath.value = relPath
     exists.value = res.exists
     content.value = res.content || ''

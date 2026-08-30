@@ -82,38 +82,43 @@
           </div>
         </div>
 
-        <div v-loading="loading" class="kv-notes-grid">
-          <div
-            v-for="item in pagedItems"
-            :key="item.id"
-            class="kv-note-card"
-            @click="openPreview(item)"
-          >
-            <div class="kv-note-emoji">{{ emojiFor(item) }}</div>
-            <div class="kv-note-title">{{ item.title }}</div>
-            <div class="kv-note-path">{{ item.obsidian_path || '未关联笔记' }}</div>
-            <div class="kv-note-tags">
-              <span
-                v-for="t in splitTags(item.tags)"
-                :key="t"
-                class="kv-ntag"
-                :class="tagClass(t)"
-              >{{ t }}</span>
-              <span v-if="!splitTags(item.tags).length" class="kv-ntag">未标签</span>
-            </div>
-            <div class="kv-note-foot">
-              <span>🕒 {{ formatDate(item.updated_at) }}</span>
-              <div class="kv-note-links">
+        <div class="kv-notes-grid">
+          <template v-if="loading && !filteredItems.length">
+            <div v-for="n in 12" :key="'sk' + n" class="kv-skel" />
+          </template>
+          <template v-else>
+            <div
+              v-for="item in pagedItems"
+              :key="item.id"
+              class="kv-note-card"
+              @click="openPreview(item)"
+            >
+              <div class="kv-note-emoji">{{ emojiFor(item) }}</div>
+              <div class="kv-note-title">{{ item.title }}</div>
+              <div class="kv-note-path">{{ item.obsidian_path || '未关联笔记' }}</div>
+              <div class="kv-note-tags">
                 <span
-                  v-if="item.source_id"
-                  class="kv-link-dot"
-                  :style="{ background: sourceColor(item.source_type) }"
-                  :title="sourceLabelFull(item.source_type)"
-                >{{ sourceAbbr(item.source_type) }}</span>
+                  v-for="t in splitTags(item.tags)"
+                  :key="t"
+                  class="kv-ntag"
+                  :class="tagClass(t)"
+                >{{ t }}</span>
+                <span v-if="!splitTags(item.tags).length" class="kv-ntag">未标签</span>
+              </div>
+              <div class="kv-note-foot">
+                <span>🕒 {{ formatDate(item.updated_at) }}</span>
+                <div class="kv-note-links">
+                  <span
+                    v-if="item.source_id"
+                    class="kv-link-dot"
+                    :style="{ background: sourceColor(item.source_type) }"
+                    :title="sourceLabelFull(item.source_type)"
+                  >{{ sourceAbbr(item.source_type) }}</span>
+                </div>
               </div>
             </div>
-          </div>
-          <el-empty v-if="!loading && !filteredItems.length" description="暂无匹配的知识条目" />
+            <el-empty v-if="!filteredItems.length" description="暂无匹配的知识条目" />
+          </template>
         </div>
         <el-pagination
           v-if="filteredItems.length > kvPageSize"
@@ -281,7 +286,7 @@ const submitMainNote = async () => {
   mainNoteCreating.value = true
   try {
     const res = await knowledgeApi.createMainNote(mainNoteDomain.value)
-    ElMessage.success(res.message || (res.data?.created ? '主笔记已生成' : '主笔记已存在'))
+    ElMessage.success(res?.created ? '主笔记已生成' : '主笔记已存在')
     mainNoteVisible.value = false
     await loadItems()
     await loadObsidianNotes()
@@ -718,6 +723,26 @@ onUnmounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
   gap: 16px;
   min-height: 200px;
+}
+.kv-skel {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #ebeef5);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  min-height: 156px;
+  position: relative;
+  overflow: hidden;
+}
+.kv-skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(64, 158, 255, .08), transparent);
+  animation: kv-shimmer 1.4s ease infinite;
+}
+@keyframes kv-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 .kv-note-card {
   background: var(--surface);

@@ -264,11 +264,11 @@ onMounted(loadDomains)
 .dk-header h2 {
   margin: 0 0 4px;
   font-size: 20px;
-  color: #e0e0e0;
+  color: var(--text-primary, #303133);
 }
 .dk-sub {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted, #909399);
 }
 .dk-grid {
   margin: 0 !important;
@@ -277,8 +277,8 @@ onMounted(loadDomains)
   margin-bottom: 16px;
 }
 .dk-card {
-  background: #1e1e2e;
-  border: 1px solid #2a2a3e;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #ebeef5);
   border-radius: 10px;
   padding: 18px;
   cursor: pointer;
@@ -296,12 +296,12 @@ onMounted(loadDomains)
 .dk-card-name {
   font-size: 16px;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary, #303133);
 }
 .dk-card-desc {
   margin-top: 8px;
   font-size: 13px;
-  color: #999;
+  color: var(--text-secondary, #909399);
 }
 .dk-stats {
   display: flex;
@@ -319,7 +319,7 @@ onMounted(loadDomains)
 }
 .dk-stat-label {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted, #909399);
 }
 .dk-dialog-bar {
   display: flex;
@@ -346,7 +346,7 @@ onMounted(loadDomains)
 .dk-main-note-title {
   font-size: 16px;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary, #303133);
   flex: 1;
 }
 .dk-main-note-sub {
@@ -372,8 +372,8 @@ onMounted(loadDomains)
 }
 .dk-sub-group-count {
   font-size: 12px;
-  color: #888;
-  background: #2a2a3e;
+  color: var(--text-muted, #909399);
+  background: var(--border-subtle, #e4e7ed);
   border-radius: 10px;
   padding: 0 8px;
 }
@@ -386,8 +386,8 @@ onMounted(loadDomains)
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #1e1e2e;
-  border: 1px solid #2a2a3e;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #ebeef5);
   border-radius: 8px;
   padding: 8px 12px;
   cursor: pointer;
@@ -399,10 +399,10 @@ onMounted(loadDomains)
 .dk-sub-title {
   flex: 1;
   font-size: 13px;
-  color: #dcdcdc;
+  color: var(--text-primary, #303133);
 }
 .dk-sub-cat {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted, #909399);
 }
 </style>
