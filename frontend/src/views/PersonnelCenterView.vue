@@ -40,16 +40,27 @@
             :empty-text="'暂无组织'"
           >
             <el-table-column prop="name" label="组织名称" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="sort" label="排序" width="90" />
-            <el-table-column prop="staff_count" label="人数" width="90">
+            <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="source_trace" label="数据来源" width="100" align="center">
               <template #default="{ row }">
-                <el-tag size="small" effect="plain" type="info">{{ row.staff_count || 0 }} 人</el-tag>
+                <el-tag v-if="row.source_trace" size="small" type="info" effect="plain">{{ row.source_trace }}</el-tag>
+                <span v-else class="pc-muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column prop="enabled" label="状态" width="90">
+            <el-table-column prop="staff_count" label="人数" width="80" align="right">
+              <template #default="{ row }">
+                <span class="pc-badge">{{ row.staff_count || 0 }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="enabled" label="状态" width="80" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.enabled" size="small" type="success" effect="light">启用</el-tag>
                 <el-tag v-else size="small" type="info" effect="plain">停用</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="165">
+              <template #default="{ row }">
+                <span class="pc-time">{{ _fmtTime(row.created_at) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="140" fixed="right">
@@ -88,12 +99,16 @@
             row-key="id"
             :empty-text="'暂无身份'"
           >
-            <el-table-column prop="name" label="身份名称" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="sort" label="排序" width="90" />
-            <el-table-column prop="enabled" label="状态" width="90">
+            <el-table-column prop="name" label="身份名称" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="enabled" label="状态" width="80" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.enabled" size="small" type="success" effect="light">启用</el-tag>
                 <el-tag v-else size="small" type="info" effect="plain">停用</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="165">
+              <template #default="{ row }">
+                <span class="pc-time">{{ _fmtTime(row.created_at) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="140" fixed="right">
@@ -147,25 +162,36 @@
             row-key="id"
             :empty-text="'暂无人员'"
           >
-            <el-table-column prop="name" label="姓名" width="120" />
-            <el-table-column prop="org_name" label="所属组织" width="150" show-overflow-tooltip />
-            <el-table-column prop="role_hint" label="身份" width="130" show-overflow-tooltip>
+            <el-table-column prop="name" label="姓名" width="100" align="center" />
+            <el-table-column prop="org_name" label="所属组织" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="role_hint" label="身份" min-width="130" show-overflow-tooltip>
               <template #default="{ row }">
                 <el-tag v-if="row.role_hint" size="small" effect="light" type="primary">{{ row.role_hint }}</el-tag>
                 <span v-else class="pc-muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column prop="email" label="邮箱" min-width="180" show-overflow-tooltip>
+            <el-table-column prop="email" label="邮箱" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 <span v-if="row.email" class="pc-email">{{ row.email }}</span>
                 <span v-else class="pc-muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column prop="phone" label="电话" width="130" />
-            <el-table-column prop="enabled" label="状态" width="90">
+            <el-table-column prop="phone" label="电话" width="130" show-overflow-tooltip />
+            <el-table-column prop="source_trace" label="来源" width="90" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.source_trace" size="small" type="info" effect="plain">{{ row.source_trace }}</el-tag>
+                <span v-else class="pc-muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="enabled" label="状态" width="80" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.enabled" size="small" type="success" effect="light">启用</el-tag>
                 <el-tag v-else size="small" type="info" effect="plain">停用</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="165">
+              <template #default="{ row }">
+                <span class="pc-time">{{ _fmtTime(row.created_at) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="140" fixed="right">
@@ -184,10 +210,13 @@
     </el-tabs>
 
     <!-- 组织编辑弹窗 -->
-    <el-dialog v-model="orgDialogVisible" :title="orgForm.id ? '编辑组织' : '新增组织'" width="420px" append-to-body>
+    <el-dialog v-model="orgDialogVisible" :title="orgForm.id ? '编辑组织' : '新增组织'" width="480px" append-to-body>
       <el-form :model="orgForm" label-width="72px">
         <el-form-item label="名称" required>
           <el-input v-model="orgForm.name" placeholder="如：政企业务部" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="orgForm.description" type="textarea" :rows="2" placeholder="选填，组织用途说明" />
         </el-form-item>
         <el-form-item label="排序号">
           <el-input-number v-model="orgForm.sort" :min="0" :step="1" style="width: 100%" />
@@ -284,12 +313,25 @@ import { basicDataApi, refreshStaffOptions } from '@/api/basicData.js'
 const activeTab = ref('org')
 const fileInput = ref(null)
 
+// ── 通用工具 ──
+function _fmtTime(ts) {
+  if (!ts) return '—'
+  try {
+    const d = new Date(ts)
+    if (isNaN(d.getTime())) return String(ts).slice(0, 16)
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  } catch {
+    return String(ts).slice(0, 16)
+  }
+}
+
 // ── 组织 ──
 const orgs = ref([])
 const orgLoading = ref(false)
 const orgKeyword = ref('')
 const orgDialogVisible = ref(false)
-const orgForm = reactive({ id: null, name: '', sort: 0, enabled: true })
+const orgForm = reactive({ id: null, name: '', description: '', sort: 0, enabled: true })
 
 const filteredOrgs = computed(() => {
   const kw = orgKeyword.value.trim().toLowerCase()
@@ -310,11 +352,17 @@ async function loadOrgs() {
 }
 
 function openOrgCreate() {
-  Object.assign(orgForm, { id: null, name: '', sort: orgs.value.length, enabled: true })
+  Object.assign(orgForm, { id: null, name: '', description: '', sort: orgs.value.length, enabled: true })
   orgDialogVisible.value = true
 }
 function openOrgEdit(org) {
-  Object.assign(orgForm, { id: org.id, name: org.name, sort: org.sort || 0, enabled: org.enabled })
+  Object.assign(orgForm, {
+    id: org.id,
+    name: org.name,
+    description: org.description || '',
+    sort: org.sort || 0,
+    enabled: org.enabled,
+  })
   orgDialogVisible.value = true
 }
 async function submitOrg() {
@@ -323,7 +371,12 @@ async function submitOrg() {
     return
   }
   try {
-    const payload = { name: orgForm.name.trim(), sort: orgForm.sort, enabled: orgForm.enabled }
+    const payload = {
+      name: orgForm.name.trim(),
+      description: orgForm.description || null,
+      sort: orgForm.sort,
+      enabled: orgForm.enabled,
+    }
     if (orgForm.id) {
       await basicDataApi.updateOrg(orgForm.id, payload)
       ElMessage.success('组织已更新')
@@ -645,5 +698,16 @@ onMounted(() => {
 }
 .pc-muted {
   color: #c0c4cc;
+}
+.pc-badge {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pc-time {
+  font-variant-numeric: tabular-nums;
+  color: #6b7280;
+  font-size: 12px;
 }
 </style>
