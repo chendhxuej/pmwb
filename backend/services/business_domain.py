@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from core.exceptions import NotFoundException, ValidationException
 from db.models import (
     PmwbBusinessDomain,
+    PmwbDevTicket,
+    PmwbKeyWork,
     PmwbKnowledgeItem,
     PmwbKnowledgeLink,
     PmwbMeeting,
@@ -621,3 +623,45 @@ def create_note(db: Session, domain_code: str, note_name: str,
     db.commit()
     db.refresh(item)
     return item
+
+
+def batch_set_domain(db: Session, payloads: List[dict], overwrite: bool = True) -> dict:
+    """批量设置业务领域关联（关联便捷性优化 §3.11）。
+
+    payloads: [{source_type, source_id, domain_code}]
+    source_type -> (模型, 主键字段)：
+        requirement=PmwbRequirementExt.req_id / ticket=PmwbDevTicket.id /
+        meeting=PmwbMeeting.meeting_id / operation=PmwbOperationIssue.issue_no /
+        note=PmwbKnowledgeItem.item_id / key_work=PmwbKeyWork.id
+    overwrite=False 时跳过已有关联(domain_code 非空)的记录，避免批量操作污染存量。
+    返回 {updated, skipped, errors}；未知 source_type / 不存在记录计入 errors 不阻断其他。
+    """
+    MODEL_KEY = {
+        "requirement": (PmwbRequirementExt, "req_id"),
+        "ticket": (PmwbDevTicket, "id"),
+        "meeting": (PmwbMeeting, "meeting_id"),
+        "operation": (PmwbOperationIssue, "issue_no"),
+        "note": (PmwbKnowledgeItem, "item_id"),
+        "key_work": (PmwbKeyWork, "id"),
+    }
+    updated = skipped = 0
+    errors = []
+    for p in payloads:
+        st = (p.get("source_type") or "").strip()
+        sid = p.get("source_id")
+        dc = p.get("domain_code")
+        if st not in MODEL_KEY or not sid:
+            errors.append({"source_type": st, "source_id": sid, "reason": "unknown_or_missing"})
+            continue
+        model, key_field = MODEL_KEY[st]
+        rec = db.query(model).filter(getattr(model, key_field) == sid).first()
+        if not rec:
+            errors.append({"source_type": st, "source_id": sid, "reason": "not_found"})
+            continue
+        if not overwrite and getattr(rec, "domain_code", None):
+            skipped += 1
+            continue
+        rec.domain_code = dc
+        updated += 1
+    db.commit()
+    return {"updated": updated, "skipped": skipped, "errors": errors}

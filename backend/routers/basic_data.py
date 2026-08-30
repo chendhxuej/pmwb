@@ -7,6 +7,7 @@ from io import BytesIO
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,7 @@ from schemas.business_domain import (
     BusinessDomainUpdate,
 )
 from services.business_domain import (
+    batch_set_domain as batch_set_domain_bd,
     create as create_business_domain,
     delete as delete_business_domain,
     get_related as get_domain_related,
@@ -105,6 +107,31 @@ def delete_bd(domain_code: str, db: Session = Depends(get_db)):
 def get_bd_related(domain_code: str, db: Session = Depends(get_db)):
     """聚合某业务领域关联的知识条目 / 需求 / 会议 / 运营工单（知识中心按领域浏览详情）。"""
     return success(data=get_domain_related(db, domain_code))
+
+
+class BatchSetDomainItem(BaseModel):
+    """批量关联单条记录。"""
+    source_type: str = Field(..., description="记录类型：requirement/ticket/meeting/operation/note/key_work")
+    source_id: str = Field(..., description="记录主键（与各模型主键类型一致，字符串或数字均可）")
+    domain_code: Optional[str] = Field(None, description="目标业务领域编码；None=置空")
+
+
+class BatchSetDomainPayload(BaseModel):
+    items: List[BatchSetDomainItem]
+    overwrite: bool = Field(True, description="False=跳过已有关联(domain_code非空)，不覆盖存量")
+
+
+@router.post("/business-domains/batch-set-domain")
+def batch_set_bd(payload: BatchSetDomainPayload, db: Session = Depends(get_db)):
+    """批量设置业务领域关联（知识中心关联便捷性优化 §3.11）。
+
+    用于「批量关联 / 批量修正」场景：录单时漏选领域、或历史数据补关联。
+    幂等安全：overwrite=False 跳过已有关联；未知类型 / 不存在记录计入 errors 不阻断其余。
+    """
+    result = batch_set_domain_bd(
+        db, [it.model_dump() for it in payload.items], overwrite=payload.overwrite
+    )
+    return success(data=result, message=f"已更新 {result['updated']} 条，跳过 {result['skipped']} 条")
 
 
 # ---------------------------------------------------------------------------
