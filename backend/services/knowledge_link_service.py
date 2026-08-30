@@ -1041,8 +1041,10 @@ def ensure_domain_main_note(db: Session, domain_code: str) -> dict:
 
 def domain_main_note_health(db: Session) -> list:
     """批量扫描启用领域的主笔记健康状态，供前端驾驶舱统计与一键修复入口。"""
-    from db.models import PmwbKnowledgeItem, PmwbRequirementExt, PmwbOperationIssue, PmwbMeeting
+    from db.models import PmwbKnowledgeItem, PmwbBusinessDomain, PmwbRequirementExt, PmwbOperationIssue, PmwbMeeting
     from datetime import datetime, timedelta
+    from pathlib import Path
+    from core.config import settings
     domains = (
         db.query(PmwbBusinessDomain)
         .filter(PmwbBusinessDomain.enabled == True)
@@ -1101,6 +1103,18 @@ def domain_main_note_health(db: Session) -> list:
         .scalar() or 0
     )
 
+    # 检查 Obsidian 文件是否存在（用于补全 DB 缺失的记录）
+    vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
+    obsidian_files = {}  # domain_code -> rel_path
+    for d in domains:
+        # 规范化vault_path：统一使用正斜杠，确保跨平台兼容
+        vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
+        # 文件名：domain_name + "业务知识主笔记.md"
+        filename = f"{d.domain_name}业务知识主笔记.md"
+        note_file = vpath_norm / filename
+        if note_file.exists():
+            obsidian_files[d.domain_code] = str(note_file.relative_to(vault_path))
+
     results = []
     for d in domains:
         mc = main_map.get(d.domain_code, 0)
@@ -1108,13 +1122,19 @@ def domain_main_note_health(db: Session) -> list:
         rc = req_map.get(d.domain_code, 0)
         ic = issue_map.get(d.domain_code, 0)
         mt = meeting_map.get(d.domain_code, 0)
-        has_main = mc > 0
+
+        # 检查 Obsidian 文件是否存在
+        obsidian_exists = d.domain_code in obsidian_files
+
+        # has_main_note: DB 有记录 OR Obsidian 文件存在
+        has_main = mc > 0 or obsidian_exists
+
         # 结构不全：有主笔记但无子笔记摘要
         structure_ok = True
         if has_main:
-            # 有主笔记但没有子笔记也算缺（空壳）
             if sc == 0:
                 structure_ok = False
+
         results.append({
             "domain_code": d.domain_code,
             "domain_name": d.domain_name,
@@ -1128,38 +1148,91 @@ def domain_main_note_health(db: Session) -> list:
             "vault_path": d.vault_path,
             "weekly_new_count": weekly_new_count,
             "zombie_count": zombie_count,
+            "obsidian_file_exists": obsidian_exists,
+            "needs_db_index": obsidian_exists and not mc,
         })
     return results
 
 
 def ensure_domain_main_notes(db: Session) -> dict:
-    """为所有「有子笔记但缺主笔记」的启用业务领域自动保活主笔记，并重建子笔记摘要索引。"""
+    """为所有「有子笔记但缺主笔记」的启用业务领域自动保活主笔记，并重建子笔记摘要索引。
+
+    增强：同时检查 Obsidian 文件是否存在，若存在但 DB 未索引则补全记录。
+    """
+    from pathlib import Path
+    from core.config import settings
     domains = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.enabled == True).all()
     created = 0
     ensured = 0
+    indexed = 0  # 新增：从 Obsidian 补全 DB 索引
+
+    # 构建 Obsidian 文件路径映射（快速查找）
+    vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
+    obsidian_files = {}
     for d in domains:
-        has_sub = (
-            db.query(PmwbKnowledgeItem.id)
-            .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
-            .filter(PmwbKnowledgeItem.note_type != "main")
-            .first()
-        )
+        vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
+        filename = f"{d.domain_name}业务知识主笔记.md"
+        note_file = vpath_norm / filename
+        if note_file.exists():
+            obsidian_files[d.domain_code] = str(note_file.relative_to(vault_path))
+
+    for d in domains:
+        # 检查 DB 中是否已有主笔记记录
         main = (
             db.query(PmwbKnowledgeItem.id)
             .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
             .filter(PmwbKnowledgeItem.note_type == "main")
             .first()
         )
-        if has_sub and not main:
-            ensure_domain_main_note(db, d.domain_code)
-            created += 1
-        if main or (has_sub and not main):
+
+        # 情况1: DB 有记录 → 重建子笔记摘要
+        if main:
             rebuild_main_note_subnotes(db, d.domain_code)
             ensured += 1
+            continue
+
+        # 情况2: DB 无记录，但 Obsidian 文件存在 → 补全 DB 索引
+        if d.domain_code in obsidian_files:
+            obsidian_rel_path = obsidian_files[d.domain_code]
+            # 创建 DB 记录但不覆盖 Obsidian 文件
+            item = PmwbKnowledgeItem(
+                item_id=_gen_item_id(),
+                title=f"{d.domain_name} 业务知识主笔记",
+                category="product",
+                sub_category="主笔记",
+                tags="业务知识，主笔记",
+                obsidian_path=obsidian_rel_path,
+                source_type="manual",
+                source_id=d.domain_code,
+                domain_code=d.domain_code,
+                note_type="main",
+                summary=f"{d.domain_name} 业务知识主笔记（业务概述/产商品资费/SOP/规则/变更轨迹/交付物）",
+            )
+            db.add(item)
+            db.commit()
+            db.refresh(item)
+            indexed += 1
+            ensured += 1
+            continue
+
+        # 情况3: DB 无记录，Obsidian 文件也不存在 → 创建新主笔记
+        has_sub = (
+            db.query(PmwbKnowledgeItem.id)
+            .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
+            .filter(PmwbKnowledgeItem.note_type != "main")
+            .first()
+        )
+        if has_sub:
+            ensure_domain_main_note(db, d.domain_code)
+            created += 1
+            rebuild_main_note_subnotes(db, d.domain_code)
+            ensured += 1
+
     return {
         "domains_scanned": len(domains),
         "main_notes_created": created,
         "main_notes_ensured": ensured,
+        "db_indexed_from_obsidian": indexed,
     }
 
 

@@ -553,21 +553,25 @@ bus.on(EVT_DOMAINS_CHANGED, loadDomains)
 .subnav-link:hover { color: #2f6fed; background: #fff; }
 .subnav-link.active { background: #2f6fed; color: #fff; }
 
-/* KPI 条 */
+/* KPI 条 - 单行横向紧凑布局 */
 .kpi-strip {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
 }
 .kpi-card {
+  flex: 1;
   background: #fff;
   border: 1px solid #e4e7ed;
-  border-radius: 12px;
-  padding: 16px 18px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.04);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .kpi-value {
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 800;
   color: #1f2d3d;
   letter-spacing: -.5px;
@@ -575,14 +579,14 @@ bus.on(EVT_DOMAINS_CHANGED, loadDomains)
 }
 .kpi-value.warn { color: #f0a64a; }
 .kpi-label {
-  font-size: 13px;
+  font-size: 12px;
   color: #64748b;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 .kpi-delta {
-  font-size: 12px;
+  font-size: 11px;
   color: #10b981;
-  margin-top: 8px;
+  margin-top: 4px;
 }
 .kpi-delta.warn { color: #f0a64a; }
 
@@ -933,11 +937,11 @@ bus.on(EVT_DOMAINS_CHANGED, loadDomains)
 }
 
 @media (max-width: 1200px) {
-  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+  .kpi-strip { flex-direction: column; }
   .action-row, .detail-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
-  .kpi-strip { grid-template-columns: 1fr; }
+  .kpi-strip { flex-direction: column; }
   .domain-grid { grid-template-columns: 1fr; }
 }
 </style>

@@ -23,6 +23,8 @@
 ## 启动/看门狗常驻
 - `C:\pmwb-scripts\pmwb-keeper.py` 每 15s 查 3306/8000/5173/3210/8001，DOWN 用 DETACHED 拉起；桌面 启动PMWB.bat/重启PMWB.bat。
 - 开机自启铁律：pmwb-autostart.vbs 必须 `cmd /c "<python>" "<keeper.py>"`，绝不用 pythonw/Run-StartProcess（mysqld 静默失败）。
+- **多实例防护（2026-08-30 加固）**：keeper.py 启动时检查 `C:\pmwb-logs\keeper.pid`，若其他实例仍在运行则直接退出；restart.py 使用 `.restart_lock` 文件防并发重启；kill_keeper() 三层清理（wmic→pmwb python→端口PID）；monitor() 改状态变化才日志、5s 间隔，不再每秒刷屏。
+- 重启PMWB.bat 输出重定向到 `C:\pmwb-logs\restart_output.log`，无 pause 窗口自动关闭。
 - Ghost Port 坑：kill Python 后 LISTENING socket 残留 → 看门狗误判；`Get-Process python | Stop-Process -Force` 清掉重拉。
 - 陈旧占位坑：改代码不生效(404)先查旧 NSSM 服务/PMWB-MySQL 任务是否占 8000。
 
