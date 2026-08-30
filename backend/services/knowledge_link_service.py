@@ -16,6 +16,7 @@ import re
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.exceptions import NotFoundException
@@ -1036,6 +1037,80 @@ def ensure_domain_main_note(db: Session, domain_code: str) -> dict:
     if existing:
         return {"created": False, "item": _item_dict(existing)}
     return create_main_note(db, domain_code)
+
+
+def domain_main_note_health(db: Session) -> list:
+    """批量扫描启用领域的主笔记健康状态，供前端驾驶舱统计与一键修复入口。"""
+    from db.models import PmwbKnowledgeItem, PmwbRequirementExt, PmwbOperationIssue, PmwbMeeting
+    domains = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.enabled == True)
+        .order_by(PmwbBusinessDomain.domain_group, PmwbBusinessDomain.sort_order)
+        .all()
+    )
+    main_count = (
+        db.query(PmwbKnowledgeItem.domain_code, func.count().label("c"))
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .group_by(PmwbKnowledgeItem.domain_code)
+        .all()
+    )
+    main_map = {row.domain_code: row.c for row in main_count}
+    sub_count = (
+        db.query(PmwbKnowledgeItem.domain_code, func.count().label("c"))
+        .filter(PmwbKnowledgeItem.note_type != "main")
+        .group_by(PmwbKnowledgeItem.domain_code)
+        .all()
+    )
+    sub_map = {row.domain_code: row.c for row in sub_count}
+    req_count = (
+        db.query(PmwbRequirementExt.domain_code, func.count().label("c"))
+        .filter(PmwbRequirementExt.domain_code.isnot(None))
+        .group_by(PmwbRequirementExt.domain_code)
+        .all()
+    )
+    req_map = {row.domain_code: row.c for row in req_count}
+    issue_count = (
+        db.query(PmwbOperationIssue.domain_code, func.count().label("c"))
+        .filter(PmwbOperationIssue.domain_code.isnot(None))
+        .group_by(PmwbOperationIssue.domain_code)
+        .all()
+    )
+    issue_map = {row.domain_code: row.c for row in issue_count}
+    meeting_count = (
+        db.query(PmwbMeeting.domain_code, func.count().label("c"))
+        .filter(PmwbMeeting.domain_code.isnot(None))
+        .group_by(PmwbMeeting.domain_code)
+        .all()
+    )
+    meeting_map = {row.domain_code: row.c for row in meeting_count}
+
+    results = []
+    for d in domains:
+        mc = main_map.get(d.domain_code, 0)
+        sc = sub_map.get(d.domain_code, 0)
+        rc = req_map.get(d.domain_code, 0)
+        ic = issue_map.get(d.domain_code, 0)
+        mt = meeting_map.get(d.domain_code, 0)
+        has_main = mc > 0
+        # 结构不全：有主笔记但无子笔记摘要
+        structure_ok = True
+        if has_main:
+            # 有主笔记但没有子笔记也算缺（空壳）
+            if sc == 0:
+                structure_ok = False
+        results.append({
+            "domain_code": d.domain_code,
+            "domain_name": d.domain_name,
+            "domain_group": d.domain_group,
+            "has_main_note": has_main,
+            "structure_ok": structure_ok,
+            "knowledge_count": sc,
+            "requirement_count": rc,
+            "issue_count": ic,
+            "meeting_count": mt,
+            "vault_path": d.vault_path,
+        })
+    return results
 
 
 def ensure_domain_main_notes(db: Session) -> dict:

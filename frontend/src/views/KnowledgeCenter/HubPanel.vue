@@ -3,9 +3,49 @@
     <!-- 顶部 -->
     <div class="hub-header">
       <div class="hub-header-titles">
+        <div class="hub-breadcrumb">
+          <router-link to="/" class="bc-link">首页</router-link>
+          <span class="bc-sep">/</span>
+          <router-link to="/knowledge-center/hub" class="bc-link bc-active">知识中心</router-link>
+        </div>
         <h3 class="hub-title">知识中心 · 总览驾驶舱</h3>
         <span class="hub-subtitle">业务领域全景、主笔记标准化、关联事件时间线</span>
       </div>
+
+      <!-- 全局搜索（智能推荐领域） -->
+      <div class="hub-search-wrap">
+        <el-input
+          v-model="searchKeyword"
+          placeholder="搜索知识 / 输入领域名（如「一网通」）看智能推荐…"
+          clearable
+          prefix-icon="Search"
+          style="width: 320px"
+          @input="onSearchInput"
+          @focus="showSearchHint = true"
+          @blur="hideSearchHint"
+          @select="onSearchSelect"
+        >
+          <template #prefix><el-icon><Search /></el-icon></template>
+          <template #suffix>
+            <span v-if="searchKeyword" class="search-hint-count">{{ suggestCount }} 个相关领域</span>
+          </template>
+        </el-input>
+        <div v-if="showSearchHint && searchSuggestions.length" class="search-hint">
+          <div class="hint-title">智能推荐领域（关键词 + 名称 + 编码 + 首字母）</div>
+          <div
+            v-for="s in searchSuggestions"
+            :key="s.domain_code"
+            class="hint-row"
+            @click="onSearchSelect(s)"
+          >
+            <span class="hint-name">{{ s.domain_name }}</span>
+            <span class="hint-group" :style="tagStyle(s.domain_group)">{{ s.domain_group }}</span>
+            <span class="hint-why">{{ s.reason || '匹配' }}</span>
+          </div>
+          <div v-if="!searchSuggestions.length && searchKeyword" class="hint-empty">未匹配到相关领域</div>
+        </div>
+      </div>
+
       <div class="hub-header-actions">
         <el-button plain @click="goManage">
           <el-icon><SetUp /></el-icon>
@@ -200,10 +240,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  Refresh, Notebook, FolderOpened, SetUp, Clock, Lightning, FirstAidKit
+  Refresh, Notebook, FolderOpened, SetUp, Clock, Lightning, FirstAidKit, Search
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { basicDataApi, loadBusinessDomains } from '@/api/basicData.js'
@@ -220,6 +260,7 @@ const goManage = () => router.push('/knowledge-center/business-domains')
 const loading = ref(false)
 const domainTree = ref([])
 const allDomains = ref([])
+const healthMap = ref({})
 const activeGroup = ref('all')
 const selectedDomain = ref(null)
 const syncLoading = ref(false)
@@ -229,8 +270,59 @@ const mainNotePath = ref('')
 const bibleSections = ref([])
 const bibleLoading = ref(false)
 const detailLoading = ref(false)
-const healthMap = ref({})
 const recentFeed = ref([])
+
+// 全局搜索智能推荐
+const searchKeyword = ref('')
+const searchSuggestions = ref([])
+const showSearchHint = ref(false)
+let searchTimer = null
+
+const suggestCount = computed(() => searchSuggestions.value.length)
+
+const tagStyle = (g) => {
+  const m = GROUP_META[g] || GROUP_META.通用
+  return { color: m.color, background: m.bg }
+}
+
+function onSearchInput() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(async () => {
+    const t = searchKeyword.value.trim()
+    if (!t) { searchSuggestions.value = []; return }
+    try {
+      const data = await basicDataApi.suggestDomains(t, 6)
+      searchSuggestions.value = Array.isArray(data) ? data : []
+    } catch {
+      searchSuggestions.value = []
+    }
+  }, 300)
+}
+
+function hideSearchHint() {
+  setTimeout(() => { showSearchHint.value = false }, 200)
+}
+
+function onSearchSelect(s) {
+  searchSuggestions.value = []
+  searchKeyword.value = ''
+  showSearchHint.value = false
+  if (s?.domain_code) {
+    const d = allDomains.value.find(x => x.domain_code === s.domain_code)
+    if (d) selectDomain(d)
+  }
+}
+
+async function ensureMainNote(code) {
+  try {
+    await knowledgeApi.createMainNote(code)
+    ElMessage.success('主笔记已创建')
+    await scanHealth()
+    loadDomains()
+  } catch (e) {
+    ElMessage.error(e.message || '创建失败')
+  }
+}
 
 const GROUP_META = {
   商客业务: { color: '#2f6fed', bg: 'rgba(47,111,237,.10)' },
@@ -302,27 +394,25 @@ const loadDomains = async () => {
       for (const d of g.children || []) flat.push(d)
     }
     allDomains.value = flat
-    // 默认选中第一个
     if (!selectedDomain.value && flat.length) {
       selectDomain(flat[0])
     }
-    // 后台健康扫描
-    scanHealth()
+    await scanHealth()
   } finally {
     loading.value = false
   }
 }
 
 const scanHealth = async () => {
-  for (const d of allDomains.value) {
-    try {
-      const res = await basicDataApi.getDomainRelated(d.domain_code)
-      healthMap.value[d.domain_code] = {
-        hasMainNote: !!res?.main_note?.obsidian_path,
+  try {
+    const data = await knowledgeApi.getMainNoteHealth()
+    if (Array.isArray(data)) {
+      for (const r of data) {
+        healthMap.value[r.domain_code] = r
       }
-    } catch {
-      healthMap.value[d.domain_code] = { hasMainNote: false }
     }
+  } catch {
+    // fallback 静默
   }
 }
 

@@ -22,6 +22,7 @@ from services.knowledge_link_service import (
     business_timeline,
     business_timeline_global,
     create_main_note as create_main_note_service,
+    domain_main_note_health,
     ensure_domain_main_notes,
     get_main_note_structured,
     link_note,
@@ -63,6 +64,18 @@ def get_business_timeline_global(
     """全局业务全过程时间线：聚合所有领域关联事件，按 event_date 倒序。"""
     data = business_timeline_global(db, event_type=event_type, group=group, limit=limit)
     return success(data=data)
+
+
+@router.get("/main-notes/health")
+def get_main_note_health(
+    domain_group: Optional[str] = Query(None, description="按业务分组过滤"),
+    db: Session = Depends(get_db),
+):
+    """主笔记健康状态批量扫描：是否含主笔记、结构是否完整、关联对象数量。"""
+    results = domain_main_note_health(db)
+    if domain_group:
+        results = [r for r in results if r["domain_group"] == domain_group]
+    return success(data=results)
 
 
 @router.get("")

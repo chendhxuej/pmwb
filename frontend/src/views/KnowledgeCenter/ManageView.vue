@@ -107,26 +107,17 @@ async function runSync() {
       match_keywords: form.value.match_keywords,
       enabled: true,
     }
-    const res = await basicDataApi.createBusinessDomain(payload)
-    if (res.data && res.data.code === 0) {
+    await basicDataApi.createBusinessDomain(payload)
+    stepDone.value = 3
+    ElMessage.success('领域已创建，开始生成主笔记')
+    try {
+      await knowledgeApi.createMainNote(form.value.domain_code)
+      stepDone.value = 5
+      syncResult.value = `成功：${form.value.domain_name} 已创建并生成主笔记。`
+      ElMessage.success('主笔记生成成功')
+    } catch (e) {
       stepDone.value = 3
-      ElMessage.success('领域已创建，开始生成主笔记')
-      try {
-        const mainRes = await knowledgeApi.createMainNote(form.value.domain_code)
-        if (mainRes.data && mainRes.data.code === 0) {
-          stepDone.value = 5
-          syncResult.value = `成功：${form.value.domain_name} 已创建并生成主笔记。`
-          ElMessage.success('主笔记生成成功')
-        } else {
-          stepDone.value = 3
-          syncResult.value = `领域已创建，但主笔记生成失败：${mainRes.data?.message || ''}`
-        }
-      } catch (e) {
-        stepDone.value = 3
-        syncResult.value = `领域已创建，主笔记生成异常：${e.message}`
-      }
-    } else {
-      ElMessage.error(res.data?.message || '创建失败')
+      syncResult.value = `领域已创建，主笔记生成异常：${e.message || '失败'}`
     }
   } catch (e) {
     ElMessage.error(e.message || '创建失败')

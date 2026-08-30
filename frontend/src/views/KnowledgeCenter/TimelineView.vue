@@ -77,13 +77,9 @@ async function refresh() {
     const params = {}
     if (filterGroup.value) params.group = filterGroup.value
     if (filterType.value) params.event_type = filterType.value
-    const res = await knowledgeApi.getGlobalTimeline(params)
-    if (res.data && res.data.code === 0) {
-      events.value = res.data.data.events || []
-      eventTypes.value = res.data.data.event_types || []
-    } else {
-      ElMessage.error(res.data?.message || '加载失败')
-    }
+    const data = await knowledgeApi.getGlobalTimeline(params)
+    events.value = data?.events || []
+    eventTypes.value = data?.event_types || []
   } catch (e) {
     ElMessage.error(e.message || '加载失败')
   } finally {

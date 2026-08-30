@@ -61,6 +61,11 @@ export const knowledgeApi = {
     return request.post('/knowledge/ensure-main-notes')
   },
 
+  // 主笔记健康状态批量扫描（供驾驶舱统计与一键修复）
+  getMainNoteHealth(params) {
+    return request.get('/knowledge/main-notes/health', { params })
+  },
+
   // 从 Obsidian Vault 反向同步笔记到知识索引
   syncFromVault(data) {
     return request.post('/knowledge/sync-from-vault', data)

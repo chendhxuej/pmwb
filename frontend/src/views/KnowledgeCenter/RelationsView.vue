@@ -100,10 +100,8 @@ function onTitleChange() {
     const t = smartTitle.value.trim()
     if (!t) { suggestions.value = []; return }
     try {
-      const res = await basicDataApi.suggestDomains(t, 5)
-      if (res.data && res.data.code === 0) {
-        suggestions.value = res.data.data || []
-      }
+      const data = await basicDataApi.suggestDomains(t, 5)
+      suggestions.value = data || []
     } catch (e) {
       ElMessage.error(e.message || '推荐失败')
     }
@@ -122,12 +120,12 @@ async function applyBatch() {
       source_id: String(r.source_id),
       domain_code: batchDomainCode.value,
     }))
-    const res = await basicDataApi.batchSetDomain({ items, overwrite: true })
-    if (res.data && res.data.code === 0) {
-      ElMessage.success(`已更新 ${res.data.data.updated} 条`)
+    const data = await basicDataApi.batchSetDomain({ items, overwrite: true })
+    if (data && typeof data.updated === 'number') {
+      ElMessage.success(`已更新 ${data.updated} 条`)
       selectedRows.value.forEach(r => { r.domain_name = batchDomainCode.value })
     } else {
-      ElMessage.error(res.data?.message || '批量设置失败')
+      ElMessage.error('批量设置失败')
     }
   } catch (e) {
     ElMessage.error(e.message || '批量设置失败')
