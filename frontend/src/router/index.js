@@ -170,7 +170,25 @@ const routes = [
             component: () => import('@/views/KnowledgeCenter/HubPanel.vue'),
             meta: { title: '业务全景', icon: 'DataBoard' },
           },
-          // ── 历史子模块（hidden：保留深链，不在左侧菜单展示） ──
+          {
+            path: 'timeline',
+            name: 'KcTimeline',
+            component: () => import('@/views/KnowledgeCenter/TimelineView.vue'),
+            meta: { title: '全局时间线', icon: 'Clock', hidden: true },
+          },
+          {
+            path: 'relations',
+            name: 'KcRelations',
+            component: () => import('@/views/KnowledgeCenter/RelationsView.vue'),
+            meta: { title: '智能关联', icon: 'Connection', hidden: true },
+          },
+          {
+            path: 'manage',
+            name: 'KcManage',
+            component: () => import('@/views/KnowledgeCenter/ManageView.vue'),
+            meta: { title: '领域管理', icon: 'SetUp', hidden: true },
+          },
+          // ── 历史子模块（hidden：保留深链，不在左侧菜单展示） ───
           {
             path: 'knowledge',
             name: 'KcKnowledge',

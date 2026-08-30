@@ -18,6 +18,14 @@
       </div>
     </div>
 
+    <!-- 子导航 -->
+    <div class="hub-subnav">
+      <router-link to="/knowledge-center/hub" class="subnav-link" :class="{ active: $route.path === '/knowledge-center/hub' }">总览驾驶舱</router-link>
+      <router-link to="/knowledge-center/timeline" class="subnav-link" :class="{ active: $route.path === '/knowledge-center/timeline' }">全局时间线</router-link>
+      <router-link to="/knowledge-center/relations" class="subnav-link" :class="{ active: $route.path === '/knowledge-center/relations' }">智能关联</router-link>
+      <router-link to="/knowledge-center/manage" class="subnav-link" :class="{ active: $route.path === '/knowledge-center/manage' }">领域管理</router-link>
+    </div>
+
     <!-- KPI 条 -->
     <div class="kpi-strip">
       <div class="kpi-card">
@@ -439,6 +447,20 @@ bus.on(EVT_DOMAINS_CHANGED, loadDomains)
   display: flex;
   gap: 10px;
 }
+
+/* 子导航 */
+.hub-subnav {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px; background: #f5f7fa; border-radius: 10px;
+  border: 1px solid #e4e7ed; width: fit-content;
+}
+.subnav-link {
+  padding: 6px 14px; border-radius: 8px;
+  font-size: 13px; color: #606266; text-decoration: none;
+  transition: .15s;
+}
+.subnav-link:hover { color: #2f6fed; background: #fff; }
+.subnav-link.active { background: #2f6fed; color: #fff; }
 
 /* KPI 条 */
 .kpi-strip {

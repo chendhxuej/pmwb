@@ -10,6 +10,11 @@ export const knowledgeApi = {
     return request.get('/knowledge/business-timeline', { params })
   },
 
+  // 全局业务全过程时间线（跨领域聚合 Feed）
+  getGlobalTimeline(params) {
+    return request.get('/knowledge/business-timeline/global', { params })
+  },
+
   // 把需求/用户故事/关联事件回流到指定领域主笔记的自动区（人工区零覆盖，幂等）
   syncMainNote(domainCode) {
     return request.post('/knowledge/sync-main-note', { domain_code: domainCode })

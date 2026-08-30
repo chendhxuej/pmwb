@@ -20,6 +20,7 @@ from services.knowledge_link_service import (
 )
 from services.knowledge_link_service import (
     business_timeline,
+    business_timeline_global,
     create_main_note as create_main_note_service,
     ensure_domain_main_notes,
     get_main_note_structured,
@@ -49,6 +50,18 @@ def get_business_timeline(
 ):
     """业务全过程时间线：聚合某领域全部关联事件，按 event_date 倒序。"""
     data = business_timeline(db, domain_code, event_type=event_type, limit=limit)
+    return success(data=data)
+
+
+@router.get("/business-timeline/global")
+def get_business_timeline_global(
+    event_type: Optional[str] = Query(None, description="按事件类型过滤"),
+    group: Optional[str] = Query(None, description="按业务分组过滤"),
+    limit: Optional[int] = Query(50, description="截断条数"),
+    db: Session = Depends(get_db),
+):
+    """全局业务全过程时间线：聚合所有领域关联事件，按 event_date 倒序。"""
+    data = business_timeline_global(db, event_type=event_type, group=group, limit=limit)
     return success(data=data)
 
 

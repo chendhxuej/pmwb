@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>知识中心 · 方案 B+C 融合 · 交互 DEMO</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg-elev:#161b22; --bg-card:#1a2230; --bg-card2:#20293a;
+    --border:#262f3d; --border-soft:#1f2733;
+    --text:#e6edf3; --text-dim:#8b949e; --text-faint:#5b6675;
+    --accent:#4a8cff; --accent-deep:#165dff; --accent-soft:rgba(74,140,255,.14);
+    --c-biz:#4a8cff;   /* 商客业务 */
+    --c-plat:#36c5d0;  /* 系统平台 */
+    --c-cap:#3fb950;   /* 公共能力 */
+    --c-gen:#9da7b3;   /* 通用 */
+    --radius:16px; --radius-sm:10px;
+    --shadow:0 6px 22px -6px rgba(0,0,0,.45);
+    --font:'PingFang SC','Microsoft YaHei','Outfit',sans-serif;
+    --mono:'JetBrains Mono','SFMono-Regular',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5;overflow:hidden}
+  .app{display:grid;grid-template-columns:220px 1fr;height:100vh}
+  /* 侧边栏 */
+  .side{background:var(--bg-elev);border-right:1px solid var(--border);padding:18px 12px;display:flex;flex-direction:column;gap:4px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:15px;padding:6px 8px 16px;color:var(--text)}
+  .logo .dot{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--accent-deep));display:flex;align-items:center;justify-content:center;font-size:14px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;color:var(--text-dim);cursor:pointer;font-size:13.5px;transition:.15s;position:relative}
+  .nav-item:hover{background:var(--border-soft);color:var(--text)}
+  .nav-item.active{background:var(--accent-soft);color:var(--text)}
+  .nav-item.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--accent)}
+  .nav-item .ic{width:18px;text-align:center;opacity:.9}
+  .nav-sub{padding-left:34px;font-size:12.5px}
+  .side-foot{margin-top:auto;font-size:11px;color:var(--text-faint);padding:8px}
+  /* 主区 */
+  .main{display:flex;flex-direction:column;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--bg-elev)}
+  .topbar h1{font-size:17px;font-weight:700}
+  .topbar .crumb{color:var(--text-faint);font-size:13px}
+  .search{position:relative;flex:1;max-width:520px;margin-left:auto}
+  .search input{width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:9px 12px 9px 36px;font-size:13.5px;outline:none}
+  .search input:focus{border-color:var(--accent)}
+  .search .si{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-dim)}
+  .search .hint{position:absolute;top:42px;left:0;right:0;background:var(--bg-card2);border:1px solid var(--border);border-radius:12px;padding:8px;box-shadow:var(--shadow);z-index:30;display:none}
+  .search .hint.show{display:block}
+  .hint-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:13px}
+  .hint-row:hover{background:var(--accent-soft)}
+  .hint-row .tag{margin-left:auto;font-size:11px;color:var(--text-faint)}
+  .hint-title{font-size:11px;color:var(--text-faint);padding:4px 10px 6px}
+  .content{flex:1;overflow:auto;padding:24px}
+  .view{display:none;animation:fade .25s ease}
+  .view.show{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  /* KPI */
+  .kpi-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+  .kpi{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+  .kpi .n{font-family:var(--mono);font-size:28px;font-weight:800;letter-spacing:-.5px}
+  .kpi .l{color:var(--text-dim);font-size:12.5px;margin-top:2px}
+  .kpi .d{font-size:11px;margin-top:6px;color:var(--c-cap)}
+  .kpi .n.warn{color:#f0a64a}
+  /* tabs */
+  .grp-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .gtab{padding:7px 14px;border-radius:999px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);cursor:pointer;font-size:13px;transition:.15s}
+  .gtab:hover{color:var(--text);border-color:var(--accent)}
+  .gtab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  /* 个人化 */
+  .pane-row{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:18px}
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+  .card h3{font-size:13.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .card h3 .em{font-size:16px}
+  .feed{display:flex;flex-direction:column;gap:9px}
+  .feed .it{display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--bg-card2);border-radius:10px;font-size:13px}
+  .feed .it .dotc{width:8px;height:8px;border-radius:50%;flex:none}
+  .feed .it .t{color:var(--text-dim);font-size:11.5px;margin-left:auto}
+  .mini-list{display:flex;flex-direction:column;gap:8px}
+  .mini-list .m{display:flex;align-items:center;gap:8px;font-size:13px}
+  .mini-list .m .badge{margin-left:auto;font-size:11px;background:#3a2a12;color:#f0a64a;padding:2px 7px;border-radius:6px}
+  /* 领域网格 */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:14px}
+  .dom{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:15px 16px;cursor:pointer;transition:.16s;position:relative;overflow:hidden}
+  .dom:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:var(--shadow)}
+  .dom .top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .dom .gtag{font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600}
+  .dom .nm{font-size:15px;font-weight:700}
+  .dom .sub{color:var(--text-dim);font-size:12px;margin-bottom:12px}
+  .dom .meta{display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-faint);margin-bottom:10px}
+  .bar{height:6px;border-radius:4px;background:var(--border-soft);overflow:hidden;display:flex;gap:2px}
+  .bar i{height:100%;display:block}
+  .bar .b1{background:var(--accent)} .bar .b2{background:var(--c-plat)} .bar .b3{background:var(--c-cap)}
+  .barlbl{font-size:11px;color:var(--text-dim);margin-top:6px;display:flex;gap:12px}
+  .barlbl span b{color:var(--text)}
+  /* 领域详情 */
+  .dv{display:grid;grid-template-columns:300px 1fr;gap:16px}
+  .dv .left .card{margin-bottom:14px}
+  .skeleton{display:flex;flex-direction:column;gap:8px}
+  .sk{display:flex;align-items:center;gap:8px;font-size:12.5px}
+  .sk .sn{color:var(--text-faint);font-family:var(--mono);width:26px}
+  .sk .st{margin-left:auto;font-size:11px}
+  .sk .ok{color:var(--c-cap)} .sk .au{color:var(--accent)} .sk .mi{color:var(--text-faint)}
+  .dtabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:14px}
+  .dtab{padding:9px 14px;cursor:pointer;color:var(--text-dim);font-size:13px;border-bottom:2px solid transparent}
+  .dtab.on{color:var(--text);border-color:var(--accent)}
+  .rel-table{width:100%;border-collapse:collapse;font-size:13px}
+  .rel-table th{text-align:left;color:var(--text-dim);font-weight:600;font-size:12px;padding:8px 10px;border-bottom:1px solid var(--border)}
+  .rel-table td{padding:9px 10px;border-bottom:1px solid var(--border-soft)}
+  .ptag{font-size:11px;padding:2px 7px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
+  .filt{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+  .filt .f{padding:4px 10px;border-radius:8px;background:var(--bg-card2);font-size:12px;cursor:pointer;border:1px solid transparent}
+  .filt .f.on{border-color:var(--accent);color:var(--accent)}
+  /* 时间线 */
+  .tl{position:relative;padding-left:20px}
+  .tl::before{content:"";position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:var(--border)}
+  .tl .ev{position:relative;padding:0 0 16px 14px}
+  .tl .ev::before{content:"";position:absolute;left:-17px;top:6px;width:11px;height:11px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+  .tl .ev .h{font-size:13.5px}
+  .tl .ev .m{color:var(--text-dim);font-size:12px;margin-top:2px}
+  /* 智能关联 demo */
+  .demo-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12.5px;color:var(--text-dim);margin-bottom:6px}
+  .field input,.field select{width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:10px 12px;font-size:13.5px;outline:none}
+  .field input:focus,.field select:focus{border-color:var(--accent)}
+  .rec{margin-top:10px}
+  .rec .rt{font-size:11.5px;color:var(--text-faint);margin-bottom:7px}
+  .chips{display:flex;flex-direction:column;gap:7px}
+  .chip{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-card2);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;transition:.12s}
+  .chip:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .chip .why{margin-left:auto;font-size:11px;color:var(--text-faint)}
+  .chip .rk{font-size:10px;background:var(--border);color:var(--text-dim);padding:1px 6px;border-radius:5px}
+  .btbl{width:100%;border-collapse:collapse;font-size:13px}
+  .btbl th,.btbl td{padding:9px 10px;border-bottom:1px solid var(--border-soft);text-align:left}
+  .btbl th{color:var(--text-dim);font-size:12px}
+  .row-sel{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-top:12px;padding:10px 12px;background:var(--accent-soft);border-radius:10px;font-size:13px}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-size:13.5px;cursor:pointer;font-family:var(--font);font-weight:600}
+  .btn:hover{background:var(--accent-deep)}
+  .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text-dim)}
+  .btn.ghost:hover{border-color:var(--accent);color:var(--text)}
+  .note{font-size:12px;color:var(--text-faint);margin-top:10px;line-height:1.6}
+  /* 领域管理 demo */
+  .steps{display:flex;flex-direction:column;gap:0;margin-top:14px}
+  .step{display:flex;gap:12px;padding:10px 0}
+  .step .num{width:24px;height:24px;border-radius:50%;background:var(--border);color:var(--text-dim);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none}
+  .step.done .num{background:var(--c-cap);color:#0d1117}
+  .step .stx{font-size:13px}
+  .step .stx .sd{color:var(--text-dim);font-size:12px}
+  .section-title{font-size:15px;font-weight:700;margin:4px 0 14px;display:flex;align-items:center;gap:8px}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:999px;background:var(--bg-card2);color:var(--text-dim);margin-left:8px}
+  .todo{color:#f0a64a}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 侧边栏 -->
+  <aside class="side">
+    <div class="logo"><span class="dot">🦊</span><span>PMWB 工作台</span></div>
+    <div class="nav-item"><span class="ic">▦</span>首页看板</div>
+    <div class="nav-item"><span class="ic">✓</span>任务中心</div>
+    <div class="nav-item"><span class="ic">◎</span>需求与交付</div>
+    <div class="nav-item"><span class="ic">◉</span>运营监控</div>
+    <div class="nav-item"><span class="ic">⏱</span>会议日程</div>
+    <div class="nav-item"><span class="ic">☆</span>个人待办</div>
+    <div class="nav-item"><span class="ic">★</span>重点工作</div>
+    <div class="nav-item active"><span class="ic">📚</span>知识中心</div>
+    <div class="nav-item nav-sub">总览驾驶舱</div>
+    <div class="nav-item nav-sub">领域详情</div>
+    <div class="nav-item nav-sub">全局时间线</div>
+    <div class="nav-item nav-sub">智能关联</div>
+    <div class="nav-item nav-sub">领域管理</div>
+    <div class="nav-item"><span class="ic">👥</span>人员中台</div>
+    <div class="nav-item"><span class="ic">✉</span>邮件中心</div>
+    <div class="side-foot">方案 B+C 融合 · 交互原型<br/>仅用于决策演示</div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="pageTitle">知识中心 · 总览驾驶舱</h1>
+        <div class="crumb" id="pageCrumb">知识中心 / 总览</div>
+      </div>
+      <div class="search">
+        <span class="si">🔍</span>
+        <input id="globalSearch" placeholder="全局搜索知识 / 试试输入“一网通”看智能推荐…" />
+        <div class="hint" id="searchHint">
+          <div class="hint-title">智能推荐领域（按关键词 + 历史）</div>
+          <div class="hint-row" onclick="gotoDomain('一网通宽带')">一网通宽带 <span class="tag">商客业务 · 匹配“一网通”</span></div>
+          <div class="hint-row" onclick="gotoDomain('FTTO')">FTTO <span class="tag">商客业务 · 匹配“ftto”</span></div>
+          <div class="hint-row" onclick="gotoDomain('政企工作台')">政企工作台 <span class="tag">系统平台 · 最近使用</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- ============ 总览驾驶舱 ============ -->
+      <section class="view show" id="view-overview">
+        <div class="kpi-strip">
+          <div class="kpi"><div class="n">38</div><div class="l">业务领域总数</div><div class="d">▲ 本周 +3</div></div>
+          <div class="kpi"><div class="n">23</div><div class="l">本周新增知识</div><div class="d">▲ 自动沉淀 19</div></div>
+          <div class="kpi"><div class="n">76%</div><div class="l">领域覆盖率</div><div class="d">▲ 主笔记已建</div></div>
+          <div class="kpi"><div class="n warn">9</div><div class="l">僵尸知识</div><div class="d">⚠ 90 天未更新</div></div>
+        </div>
+
+        <div class="grp-tabs" id="grpTabs">
+          <div class="gtab on" data-g="all">全部</div>
+          <div class="gtab" data-g="商客业务">商客业务</div>
+          <div class="gtab" data-g="系统平台">系统平台</div>
+          <div class="gtab" data-g="公共能力">公共能力</div>
+          <div class="gtab" data-g="通用">通用</div>
+        </div>
+
+        <div class="pane-row">
+          <div class="card">
+            <h3><span class="em">⚡</span>本周新增 · 待我处理</h3>
+            <div class="feed">
+              <div class="it"><span class="dotc" style="background:var(--c-biz)"></span>一网通宽带 · §2.3 产商品变更待确认<span class="t">2 小时前</span></div>
+              <div class="it"><span class="dotc" style="background:var(--c-plat)"></span>订单中心 · 3 条开发工单未关联<span class="t">今天</span></div>
+              <div class="it"><span class="dotc" style="background:var(--c-cap)"></span>场景化销售 · 调用轨迹新增 12 条<span class="t">昨天</span></div>
+              <div class="it"><span class="dotc" style="background:var(--c-gen)"></span>通用 · 2 篇 AI 周报待归档<span class="t">昨天</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3><span class="em">🩹</span>需补领域（无主笔记 / 结构不全）</h3>
+            <div class="mini-list">
+              <div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:#f0a64a"></span>商客安防 <span class="badge">缺主笔记</span></div>
+              <div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:#f0a64a"></span>小微ICT <span class="badge">结构残缺</span></div>
+              <div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:#f0a64a"></span>网格通 <span class="badge">缺 §10</span></div>
+              <div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:var(--c-cap)"></span>集团充值 <span class="badge">已达标</span></div>
+            </div>
+            <div class="note">点击「领域管理」可一键同步创建缺失主笔记（套模板 + 建目录）。</div>
+          </div>
+        </div>
+
+        <div class="grid" id="domGrid"></div>
+      </section>
+
+      <!-- ============ 领域详情 ============ -->
+      <section class="view" id="view-domain">
+        <div class="dv">
+          <div class="left">
+            <div class="card">
+              <div class="top" style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                <span class="gtag" id="dGtag" style="font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600"></span>
+                <span class="nm" id="dName" style="font-size:16px;font-weight:700"></span>
+              </div>
+              <div class="sub" id="dPath" style="color:var(--text-dim);font-size:12px;margin-bottom:12px;font-family:var(--mono)"></div>
+              <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">主笔记结构（§3.8 三类模板）</div>
+              <div class="skeleton" id="dSkeleton"></div>
+            </div>
+            <div class="card">
+              <h3><span class="em">📊</span>全景指标</h3>
+              <div class="mini-list">
+                <div class="m">知识条目 <b style="margin-left:auto;font-family:var(--mono)">42</b></div>
+                <div class="m">关联需求 <b style="margin-left:auto;font-family:var(--mono)">15</b></div>
+                <div class="m">关联工单 <b style="margin-left:auto;font-family:var(--mono)">8</b></div>
+                <div class="m">时间线事件 <b style="margin-left:auto;font-family:var(--mono)">31</b></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="dtabs" id="dTabs">
+              <div class="dtab on" data-t="bible">产品圣经</div>
+              <div class="dtab" data-t="rel">关联对象</div>
+              <div class="dtab" data-t="tl">时间线</div>
+              <div class="dtab" data-t="auto">自动区状态</div>
+            </div>
+            <div id="dBody"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 全局时间线 ============ -->
+      <section class="view" id="view-timeline">
+        <div class="section-title">🌐 全局时间线 Feed <span class="pill">跨领域事件流 · 倒序</span></div>
+        <div class="card"><div class="tl" id="tlFeed"></div></div>
+      </section>
+
+      <!-- ============ 智能关联演示 ============ -->
+      <section class="view" id="view-smart">
+        <div class="section-title">🤖 各模块录入即关联 · 便捷性演示 <span class="pill">回应“手工关联太烦”</span></div>
+        <div class="demo-grid">
+          <div class="card">
+            <h3><span class="em">📝</span>录工单 / 需求时：智能推荐领域</h3>
+            <div class="field">
+              <label>标题（随手输入，无需先想领域）</label>
+              <input id="smartTitle" placeholder="例如：一网通宽带融合开通流程优化需求" />
+            </div>
+            <div class="rec">
+              <div class="rt">实时推荐（关键词匹配 + 最近使用置顶 + 拼音/编码搜索）</div>
+              <div class="chips" id="smartChips">
+                <div class="chip" style="opacity:.6">输入标题后自动推荐领域…<span class="why"></span></div>
+              </div>
+            </div>
+            <div class="note">支持拼音（输入 ywt → 一网通）、编码（ywt-broadband）、标题关键词；最近使用 Top3 置顶；一键选中即带出 domain_code，源头填对不再污染整条链路。</div>
+          </div>
+          <div class="card">
+            <h3><span class="em">☑</span>批量关联（列表多选 → 一键设领域）</h3>
+            <table class="btbl">
+              <thead><tr><th style="width:32px"></th><th>工单</th><th>当前领域</th></tr></thead>
+              <tbody id="batchBody"></tbody>
+            </table>
+            <div class="row-sel">
+              <span id="batchCnt">已选 0 条</span>
+              <select id="batchDomain" style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:6px 10px;font-size:13px">
+                <option>设为：一网通宽带</option><option>设为：政企工作台</option><option>设为：订单中心</option><option>设为：场景化销售</option>
+              </select>
+              <button class="btn" onclick="applyBatch()">批量应用</button>
+            </div>
+            <div class="note">不再逐条重开弹窗；表格内联勾选即可。配合“必填口径统一”，漏填也能事后批量补。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 领域管理 ============ -->
+      <section class="view" id="view-manage">
+        <div class="section-title">🗂 领域管理 · 页面化同步创建 <span class="pill">§3.8.5</span></div>
+        <div class="demo-grid">
+          <div class="card">
+            <h3><span class="em">➕</span>新增业务子领域（一键同步 vault）</h3>
+            <div class="field">
+              <label>类别（4 选 1，决定分目录）</label>
+              <select id="mGroup"><option>商客业务</option><option>系统平台</option><option>公共能力</option><option>通用</option></select>
+            </div>
+            <div class="field"><label>领域名称</label><input id="mName" placeholder="如：商客安防" /></div>
+            <div class="field"><label>领域编码（domain_code）</label><input id="mCode" placeholder="如：cj-security" /></div>
+            <div style="display:flex;gap:10px">
+              <button class="btn" onclick="runSync()">同步创建（建目录+主笔记+回写路径）</button>
+              <button class="btn ghost" onclick="switchView('overview')">返回总览</button>
+            </div>
+            <div class="note">后端自动：算 vault_path → 建目录 + 5 子目录 → 生成主笔记（套 §3.8 模板骨架）→ 回写 vault_path/obsidian_path。不再手工去 Obsidian 建文件夹/笔记/模板。</div>
+          </div>
+          <div class="card">
+            <h3><span class="em">⚙</span>同步创建流程</h3>
+            <div class="steps" id="syncSteps">
+              <div class="step"><div class="num">1</div><div class="stx">校验参数<div class="sd">类别 / 名称 / 编码 合法、编码未占用</div></div></div>
+              <div class="step"><div class="num">2</div><div class="stx">计算 vault 路径<div class="sd">01-业务知识/{类别}/{名称}/ （走权威源）</div></div></div>
+              <div class="step"><div class="num">3</div><div class="stx">建目录 + 5 子目录<div class="sd">03-业务规则 / 05-交付物 / 运营 / 会议 / 开发交付</div></div></div>
+              <div class="step"><div class="num">4</div><div class="stx">生成主笔记（套模板）<div class="sd">frontmatter + 人工区占位 + 自动区预留</div></div></div>
+              <div class="step"><div class="num">5</div><div class="stx">回写 DB + 索引<div class="sd">vault_path / obsidian_path 落库，立即可见</div></div></div>
+            </div>
+            <div class="note" id="syncResult"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- 数据 ---------- */
+const DOMAINS = [
+  {name:'一网通宽带',g:'商客业务',path:'01-业务知识/商客业务/一网通宽带',items:42,upd:'2 小时前',auto:[92,78,60]},
+  {name:'FTTO',g:'商客业务',path:'01-业务知识/商客业务/FTTO',items:18,upd:'昨天',auto:[80,55,40]},
+  {name:'安防',g:'商客业务',path:'01-业务知识/商客业务/安防',items:9,upd:'3 天前',auto:[20,30,10]},
+  {name:'智能组网',g:'商客业务',path:'01-业务知识/商客业务/智能组网',items:14,upd:'5 天前',auto:[70,60,50]},
+  {name:'融合开通',g:'商客业务',path:'01-业务知识/商客业务/融合开通',items:11,upd:'1 周前',auto:[65,50,45]},
+  {name:'商客 SaaS',g:'商客业务',path:'01-业务知识/商客业务/商客SaaS',items:7,upd:'2 天前',auto:[40,35,30]},
+  {name:'政企工作台',g:'系统平台',path:'01-业务知识/系统平台/政企工作台',items:26,upd:'今天',auto:[85,70,55]},
+  {name:'订单中心',g:'系统平台',path:'01-业务知识/系统平台/订单中心',items:21,upd:'昨天',auto:[75,65,50]},
+  {name:'电子协议',g:'系统平台',path:'01-业务知识/系统平台/电子协议',items:19,upd:'3 天前',auto:[70,60,45]},
+  {name:'生产运营平台',g:'系统平台',path:'01-业务知识/系统平台/生产运营平台',items:15,upd:'4 天前',auto:[60,55,40]},
+  {name:'商机中心',g:'系统平台',path:'01-业务知识/系统平台/商机中心',items:8,upd:'1 周前',auto:[50,40,30]},
+  {name:'网格通',g:'系统平台',path:'01-业务知识/系统平台/网格通',items:6,upd:'2 周前',auto:[30,25,15]},
+  {name:'场景化销售',g:'公共能力',path:'01-业务知识/公共能力/场景化销售',items:13,upd:'昨天',auto:[68,60,52]},
+  {name:'一键订购',g:'公共能力',path:'01-业务知识/公共能力/一键订购',items:10,upd:'3 天前',auto:[55,50,48]},
+  {name:'集团充值',g:'公共能力',path:'01-业务知识/公共能力/集团充值',items:5,upd:'1 周前',auto:[45,40,38]},
+  {name:'通用模板',g:'通用',path:'01-业务知识/通用/通用模板',items:4,upd:'2 周前',auto:[35,30,25]},
+];
+const GC = {'商客业务':'var(--c-biz)','系统平台':'var(--c-plat)','公共能力':'var(--c-cap)','通用':'var(--c-gen)'};
+const BATCH = [
+  {t:'订单中心短信接口异常',d:'未关联'},{t:'政企工作台待办同步延迟',d:'未关联'},
+  {t:'一网通宽带资费导出需求',d:'一网通宽带'},{t:'电子协议签署回调失败',d:'未关联'},
+];
+
+/* ---------- 渲染 ---------- */
+function gtag(g){return `<span class="gtag" style="background:${GC[g]}22;color:${GC[g]}">${g}</span>`}
+function renderGrid(g='all'){
+  const grid=document.getElementById('domGrid');
+  grid.innerHTML = DOMAINS.filter(d=>g==='all'||d.g===g).map(d=>`
+    <div class="dom" onclick="gotoDomain('${d.name}')">
+      <div class="top">${gtag(d.g)}<span class="nm">${d.name}</span></div>
+      <div class="sub" style="font-family:var(--mono);font-size:11px">${d.path.split('/').slice(0,3).join('/')}/</div>
+      <div class="meta"><span>${d.items} 条知识</span><span>更新 ${d.upd}</span></div>
+      <div class="bar"><i class="b1" style="width:${d.auto[0]}%"></i><i class="b2" style="width:${d.auto[1]}%"></i><i class="b3" style="width:${d.auto[2]}%"></i></div>
+      <div class="barlbl"><span>产品圣经 <b>${d.auto[0]}%</b></span><span>关联对象 <b>${d.auto[1]}%</b></span><span>时间线 <b>${d.auto[2]}%</b></span></div>
+    </div>`).join('');
+}
+function renderTimeline(){
+  const evs=[
+    {h:'一网通宽带 · §2.3 产商品变更已沉淀',m:'来源：已上线需求 #2041',g:'商客业务'},
+    {h:'政企工作台 · 3 条开发工单关联',m:'来源：开发工单 #D882',g:'系统平台'},
+    {h:'场景化销售 · 调用轨迹 +12 条',m:'来源：调用日志',g:'公共能力'},
+    {h:'订单中心 · 时间线事件新增',m:'来源：运营工单 #O551',g:'系统平台'},
+    {h:'AI 周报（商客专线试点）归档',m:'来源：15-工作总结',g:'通用'},
+    {h:'电子协议 · §10 关联系统补全',m:'来源：人工维护',g:'系统平台'},
+  ];
+  document.getElementById('tlFeed').innerHTML = evs.map(e=>`
+    <div class="ev"><div class="h">${e.h}</div><div class="m">${e.m} · <span style="color:${GC[e.g]}">${e.g}</span></div></div>`).join('');
+}
+function renderBatch(){
+  document.getElementById('batchBody').innerHTML = BATCH.map((b,i)=>`
+    <tr><td><input type="checkbox" data-i="${i}" onchange="updBatch()" ${b.d==='未关联'?'':''}/></td>
+    <td>${b.t}</td><td style="color:${b.d==='未关联'?'#f0a64a':'var(--text-dim)'}">${b.d}</td></tr>`).join('');
+}
+function updBatch(){
+  const n=document.querySelectorAll('#batchBody input:checked').length;
+  document.getElementById('batchCnt').textContent='已选 '+n+' 条';
+}
+function applyBatch(){
+  const n=document.querySelectorAll('#batchBody input:checked').length;
+  if(!n){alert('请先勾选要关联的工单');return}
+  const dom=document.getElementById('batchDomain').value.replace('设为：','');
+  document.querySelectorAll('#batchBody input:checked').forEach(c=>{BATCH[c.dataset.i].d=dom;});
+  renderBatch();
+  alert('已将 '+n+' 条工单关联至「'+dom+'」（演示）');
+}
+
+/* ---------- 视图切换 ---------- */
+const TITLES={overview:['知识中心 · 总览驾驶舱','知识中心 / 总览'],domain:['领域详情','知识中心 / 领域详情'],timeline:['全局时间线','知识中心 / 时间线'],smart:['智能关联','知识中心 / 录入即关联'],manage:['领域管理','知识中心 / 领域管理']};
+function switchView(v){
+  document.querySelectorAll('.view').forEach(s=>s.classList.remove('show'));
+  document.getElementById('view-'+v).classList.add('show');
+  document.getElementById('pageTitle').textContent=TITLES[v][0];
+  document.getElementById('pageCrumb').textContent=TITLES[v][1];
+}
+function gotoDomain(name){
+  const d=DOMAINS.find(x=>x.name===name)||DOMAINS[0];
+  document.getElementById('dGtag').textContent=d.g;
+  document.getElementById('dGtag').style.background=GC[d.g]+'22';
+  document.getElementById('dGtag').style.color=GC[d.g];
+  document.getElementById('dName').textContent=d.name;
+  document.getElementById('dPath').textContent=d.path+'/';
+  const sec=[['§1','业务概述','ok'],['§2.1','产商品与资费','ok'],['§3.1','客户服务SOP','ok'],['§2.3','产商品变更(自动)','au'],['§3.2','流程变更(自动)','au'],['§5','变更轨迹(自动)','au'],['§6','交付物(自动)','mi'],['§9','时间线(自动)','mi'],['§10','关联系统与接口','mi']];
+  document.getElementById('dSkeleton').innerHTML=sec.map(s=>`
+    <div class="sk"><span class="sn">${s[0]}</span>${s[1]}<span class="st ${s[2]==='ok'?'ok':s[2]==='au'?'au':'mi'}">${s[2]==='ok'?'人工✓':s[2]==='au'?'自动':''}</span></div>`).join('');
+  renderDDetail('bible');
+  switchView('domain');
+}
+/* 领域详情 tabs */
+const DBODY={
+  bible:'<div style="font-size:13.5px;line-height:1.9">▶ <b>§1 业务概述</b>：一网通宽带是面向商客的融合统一入口宽带产品…<br/>▶ <b>§2.1 产商品与资费</b>：包月/包年/融合套餐，详见资费表<br/>▶ <b>§3.1 客户服务 SOP</b>：开通/续费/故障处理标准动作<br/><span style="color:var(--accent)">▶ §2.3 产商品变更（自动区）</span>：已沉淀 2 条（来源：已上线需求）<br/><span style="color:var(--accent)">▶ §3.2 流程变更（自动区）</span>：已沉淀 1 条<br/><span style="color:var(--text-faint)">▶ §6 交付物（自动区）</span>：待沉淀<br/><span style="color:var(--text-faint)">▶ §10 关联系统与接口</span>：待人工补全</div>',
+  rel:'<div class="filt"><div class="f on">全部</div><div class="f">需求</div><div class="f">工单</div><div class="f">会议</div><div class="f">邮件</div><div class="f">AI总结</div></div><table class="rel-table"><thead><tr><th>类型</th><th>对象</th><th>领域</th><th>时间</th></tr></thead><tbody><tr><td><span class="ptag">需求</span></td><td>融合开通流程优化 #2041</td><td>一网通宽带</td><td>今天</td></tr><tr><td><span class="ptag">工单</span></td><td>资费导出异常 #O551</td><td>一网通宽带</td><td>昨天</td></tr><tr><td><span class="ptag">会议</span></td><td>商客专区周会</td><td>一网通宽带</td><td>3 天前</td></tr><tr><td><span class="ptag">AI总结</span></td><td>商客周报</td><td>一网通宽带</td><td>本周</td></tr></tbody></table>',
+  tl:'<div class="tl"><div class="ev"><div class="h">需求 #2041 已上线 → §2.3 自动沉淀</div><div class="m">今天 · 来源：需求与交付</div></div><div class="ev"><div class="h">工单 #O551 创建并关联</div><div class="m">昨天 · 来源：运营工单</div></div><div class="ev"><div class="h">商客专区周会纪要归档</div><div class="m">3 天前 · 来源：会议</div></div></div>',
+  auto:'<div class="mini-list"><div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>§2.3 产商品变更 <b style="margin-left:auto">2 条 · 正常</b></div><div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>§3.2 流程变更 <b style="margin-left:auto">1 条 · 正常</b></div><div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:var(--text-faint)"></span>§5 变更轨迹 <b style="margin-left:auto">0 条 · 待事件</b></div><div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:var(--text-faint)"></span>§6 交付物 <b style="margin-left:auto">0 条 · 待沉淀</b></div><div class="m"><span class="dotc" style="width:8px;height:8px;border-radius:50%;background:var(--text-faint)"></span>§9 时间线 <b style="margin-left:auto">0 条 · 待沉淀</b></div></div><div class="note">自动区由 P1 事件总线按图索骥回写，人工区（§1/§2.1/§3.1/§10）零覆盖。</div>'
+};
+function renderDDetail(t){
+  document.getElementById('dBody').innerHTML=DBODY[t];
+}
+document.getElementById('dTabs').addEventListener('click',e=>{
+  if(!e.target.classList.contains('dtab'))return;
+  document.querySelectorAll('#dTabs .dtab').forEach(x=>x.classList.remove('on'));
+  e.target.classList.add('on');
+  renderDDetail(e.target.dataset.t);
+});
+/* 分组筛选 */
+document.getElementById('grpTabs').addEventListener('click',e=>{
+  if(!e.target.classList.contains('gtab'))return;
+  document.querySelectorAll('#grpTabs .gtab').forEach(x=>x.classList.remove('on'));
+  e.target.classList.add('on');
+  renderGrid(e.target.dataset.g);
+});
+/* 侧边栏 */
+document.querySelectorAll('.side .nav-sub').forEach(n=>n.addEventListener('click',()=>{
+  const map={'总览驾驶舱':'overview','领域详情':'domain','全局时间线':'timeline','智能关联':'smart','领域管理':'manage'};
+  switchView(map[n.textContent.trim()]);
+}));
+/* 搜索智能推荐 */
+const SMART={
+  '一网通':[{n:'一网通宽带',w:'匹配“一网通”',r:''},{n:'融合开通',w:'匹配“融合”',r:''}],
+  'ftto':[{n:'FTTO',w:'拼音/编码 ftto',r:''}],
+  'ywt':[{n:'一网通宽带',w:'编码 ywt-*',r:''}],
+  '订单':[{n:'订单中心',w:'匹配“订单”',r:'最近'}],
+  '政企':[{n:'政企工作台',w:'匹配“政企”',r:'最近'}],
+  '场景':[{n:'场景化销售',w:'匹配“场景”',r:''}],
+};
+const RECENT=['政企工作台','订单中心','一网通宽带'];
+document.getElementById('smartTitle').addEventListener('input',e=>{
+  const v=e.target.value.trim();
+  const box=document.getElementById('smartChips');
+  if(!v){box.innerHTML='<div class="chip" style="opacity:.6">输入标题后自动推荐领域…<span class="why"></span></div>';return;}
+  let rec=RECENT.map(n=>({n,w:'最近使用',r:'置顶'}));
+  for(const k in SMART){if(v.toLowerCase().includes(k)){rec=SMART[k].map(x=>({n:x.n,w:x.w,r:x.r}));break;}}
+  box.innerHTML=rec.map(x=>`<div class="chip" onclick="pickDomain('${x.n}')">${x.n}<span class="why">${x.w}</span>${x.r?'<span class="rk">'+x.r+'</span>':''}</div>`).join('');
+});
+function pickDomain(n){document.getElementById('smartTitle').value='已选领域：'+n+'（domain_code 自动带出）';}
+document.getElementById('globalSearch').addEventListener('focus',()=>document.getElementById('searchHint').classList.add('show'));
+document.getElementById('globalSearch').addEventListener('blur',()=>setTimeout(()=>document.getElementById('searchHint').classList.remove('show'),200));
+
+/* 同步创建流程演示 */
+function runSync(){
+  const name=document.getElementById('mName').value.trim();
+  if(!name){alert('请填写领域名称');return;}
+  const g=document.getElementById('mGroup').value;
+  const steps=document.querySelectorAll('#syncSteps .step');
+  steps.forEach(s=>s.classList.remove('done'));
+  let i=0;
+  const timer=setInterval(()=>{
+    if(i<steps.length){steps[i].classList.add('done');i++;}
+    else{clearInterval(timer);
+      document.getElementById('syncResult').innerHTML='✅ 已在 <b style="font-family:var(--mono)">01-业务知识/'+g+'/'+name+'/</b> 建目录 + 5 子目录 + 主笔记（套 §3.8 模板），并回写 vault_path/obsidian_path。页面即见，无需手工去 Obsidian。';
+      DOMAINS.unshift({name:name,g:g,path:'01-业务知识/'+g+'/'+name,items:0,upd:'刚刚',auto:[0,0,0]});
+      renderGrid(document.querySelector('#grpTabs .gtab.on').dataset.g);
+      switchView('overview');
+    }
+  },420);
+}
+
+/* init */
+renderGrid();renderTimeline();renderBatch();
+</script>
+</body>
+</html>

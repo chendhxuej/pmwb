@@ -91,6 +91,12 @@ export const basicDataApi = {
   getDomainRelated(code) {
     return request.get(`basic-data/business-domains/${code}/related`)
   },
+  suggestDomains(title, top = 5) {
+    return request.get('basic-data/business-domains/suggest', { params: { title, top } })
+  },
+  batchSetDomain(data) {
+    return request.post('basic-data/business-domains/batch-set-domain', data)
+  },
 }
 
 // ---------------------------------------------------------------------------

@@ -42,6 +42,7 @@ from services.business_domain import (
     get_related as get_domain_related,
     list_all as list_business_domains_all,
     list_tree as list_business_domains_tree,
+    suggest_domains,
     update as update_business_domain,
 )
 from services.basic_data import basic_data_service
@@ -107,6 +108,16 @@ def delete_bd(domain_code: str, db: Session = Depends(get_db)):
 def get_bd_related(domain_code: str, db: Session = Depends(get_db)):
     """聚合某业务领域关联的知识条目 / 需求 / 会议 / 运营工单（知识中心按领域浏览详情）。"""
     return success(data=get_domain_related(db, domain_code))
+
+
+@router.get("/business-domains/suggest")
+def suggest_business_domains(
+    title: str = Query(..., description="待匹配标题"),
+    top: int = Query(5, ge=1, le=20, description="返回条数"),
+    db: Session = Depends(get_db),
+):
+    """根据标题智能推荐业务领域（关键词 + 名称 + 编码 + 首字母）。"""
+    return success(data=suggest_domains(db, title=title, top=top))
 
 
 class BatchSetDomainItem(BaseModel):

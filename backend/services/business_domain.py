@@ -665,3 +665,76 @@ def batch_set_domain(db: Session, payloads: List[dict], overwrite: bool = True) 
         updated += 1
     db.commit()
     return {"updated": updated, "skipped": skipped, "errors": errors}
+
+
+def suggest_domains(
+    db: Session, title: str, top: int = 5, recent_codes: Optional[List[str]] = None
+) -> List[dict]:
+    """根据标题智能推荐业务领域。
+
+    匹配规则（按优先级排序）：
+    1. 最近使用（recent_codes 置顶，取前 3）
+    2. 精确命中 domain_name
+    3. 命中 match_keywords
+    4. 命中 domain_code / 拼音首字母（简单包含）
+    返回列表含 reason 字段说明推荐理由。
+    """
+    if not title or not title.strip():
+        return []
+    title = title.strip().lower()
+    recent_codes = recent_codes or []
+
+    domains = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.enabled == True)
+        .order_by(PmwbBusinessDomain.sort_order, PmwbBusinessDomain.domain_name)
+        .all()
+    )
+
+    def _score(d: PmwbBusinessDomain):
+        name = (d.domain_name or "").lower()
+        code = (d.domain_code or "").lower()
+        keywords = (d.match_keywords or "").lower().split(",")
+        if d.domain_code in recent_codes:
+            return 100
+        if title == name:
+            return 90
+        if title in name or name in title:
+            return 80
+        if any(title in k.strip() for k in keywords if k.strip()):
+            return 70
+        if title in code or title in code.replace("-", ""):
+            return 60
+        # 简单首字母匹配：例如 ywt -> 一网通
+        if title and name:
+            initials = "".join([c[0] for c in name.split() if c]).lower()
+            if title in initials:
+                return 50
+        return 0
+
+    scored = []
+    for d in domains:
+        s = _score(d)
+        if s > 0:
+            if s >= 100:
+                reason = "最近使用"
+            elif s >= 90:
+                reason = "精确匹配"
+            elif s >= 80:
+                reason = "名称包含"
+            elif s >= 70:
+                reason = "关键词匹配"
+            elif s >= 60:
+                reason = "编码匹配"
+            else:
+                reason = "首字母匹配"
+            scored.append({
+                "domain_code": d.domain_code,
+                "domain_name": d.domain_name,
+                "domain_group": d.domain_group,
+                "score": s,
+                "reason": reason,
+            })
+
+    scored.sort(key=lambda x: (-x["score"], x["domain_name"]))
+    return scored[:top]

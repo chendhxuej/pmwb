@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -42,17 +43,21 @@ from routers import (
 
 
 def setup_logging() -> logging.Logger:
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    log_dir = Path(os.environ.get("PMWB_LOG_DIR", "logs"))
+    log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"pmwb_{datetime.now().strftime('%Y%m%d')}.log"
+
+    handlers = [logging.StreamHandler()]
+    try:
+        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+    except OSError:
+        # 日志文件被运行实例占用时（如 import smoke 门禁），降级到控制台
+        pass
 
     logging.basicConfig(
         level=logging.INFO if not settings.DEBUG else logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
+        handlers=handlers,
     )
     return logging.getLogger("pmwb")
 

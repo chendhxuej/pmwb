@@ -886,6 +886,68 @@ def business_timeline(
     }
 
 
+def business_timeline_global(
+    db: Session,
+    event_type: Optional[str] = None,
+    group: Optional[str] = None,
+    limit: Optional[int] = 50,
+) -> Dict:
+    """聚合所有业务领域的全过程时间线（全局 Feed）。
+
+    对每个启用领域调用 business_timeline 拿到事件，合并后按 event_date 倒序，
+    缺失日期垫底。返回全局统计 + 事件列表 + 分组计数。
+    """
+    domains = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.enabled == True)
+        .order_by(PmwbBusinessDomain.sort_order, PmwbBusinessDomain.domain_name)
+        .all()
+    )
+    if group:
+        domains = [d for d in domains if d.domain_group == group]
+
+    all_events = []
+    type_counts: Dict[str, int] = {}
+    group_counts: Dict[str, int] = {}
+    for d in domains:
+        res = business_timeline(db, d.domain_code, event_type=None, limit=None)
+        for ev in res.get("events", []):
+            ev["domain_code"] = d.domain_code
+            ev["domain_name"] = d.domain_name
+            ev["domain_group"] = d.domain_group
+            et = ev.get("event_type") or ev.get("source_type")
+            type_counts[et] = type_counts.get(et, 0) + 1
+            group_counts[d.domain_group] = group_counts.get(d.domain_group, 0) + 1
+            all_events.append(ev)
+
+    # 倒序：event_date 大的在前，缺失日期垫底（与原函数一致）
+    def _sort_key(e):
+        ev_date = e.get("event_date")
+        if ev_date is None:
+            return (0, "")
+        return (1, ev_date)
+
+    all_events.sort(key=_sort_key, reverse=True)
+
+    if event_type:
+        all_events = [e for e in all_events if e.get("event_type") == event_type]
+    if limit:
+        all_events = all_events[:limit]
+
+    event_types = [
+        {"value": k, "count": v, "label": EVENT_LABELS.get(k, k)}
+        for k, v in sorted(type_counts.items())
+    ]
+
+    return {
+        "total": len(domains),
+        "event_count": len(all_events),
+        "group_counts": group_counts,
+        "events": all_events,
+        "event_types": event_types,
+    }
+
+
 def create_main_note(db: Session, domain_code: str) -> dict:
     """新建业务知识主笔记：生成标准模板文件 + 建知识索引（幂等：已存在则返回现有）。
 
