@@ -3,7 +3,22 @@
 ## 项目状态
 - 技术栈：FastAPI + Vue3 + Element Plus + MySQL + Obsidian 联动；GitHub chendhxuej/pmwb (main)。拓扑：主后端 8000 / 人员中台 8001 / 前端 5173 / MySQL 3306 / 统一邮件中心 3210。
 - 前端 IA：首页看板 → 任务中心 → 需求与交付 → 运营监控 → 会议日程 → 个人待办 → 重点工作 → 人员中台 → 知识中心 → 邮件中心。
-- Obsidian 业务知识路径唯一化：`01-业务知识/商客业务/{领域名}/`。
+- **Obsidian 业务知识路径「四类分目录」铁律（2026-08-30 老大确认，防复发）**：业务笔记/系统平台笔记/公共能力/通用 分目录存放、互不串门。模板：`01-业务知识/商客业务/{领域名}/`、`01-业务知识/系统平台/{平台名}/`、`01-业务知识/公共能力/{能力名}/`、`01-业务知识/通用/{...}/`。**商客业务目录下不得存放系统平台主笔记**。工作核心=商客业务+系统平台，其他政企业务（专线/短信/卫星/国铁/国际）弱化处理（enabled=0、不进知识中心主线、保留仓库待查）。历史"政企业务知识库/其他政企业务知识库"虚构中间层已取消；`domain_group` 仅取 4 值。家客业务知识库（21领域）旧资产不纳入商客主线。新增领域/写 Obsidian 必须回归此规则，DB `vault_path` 须与真实目录严格一致。
+- **主笔记内容结构「三类差异化模板 + 与自动沉淀协同」铁律（2026-08-30 老大确认，防复发）**：业务/系统平台/公共能力 三类主笔记用**同一编号体系(§1–§N)但语义不同**的模板，**不得混用一套业务模板**。`MAIN_NOTE_SECTIONS` 须按 `domain_group`(business/platform/capability) 取三套、编号前缀与生成器/手写严格一致（修复 `get_main_note_structured` 按 "2.1" 匹配却生成 "## 2." 的 bug，否则前端永远"暂无数据"）。每类分 `人工维护区(baseline，自动沉淀绝不覆盖)`/`自动区(auto)`/`系统维护区(system)`；**每个自动区须预先绑定事件源+写入格式**，使 P1 自动汇聚按图索骥。自动沉淀 `sync_main_note_from_links` 须按 `domain_group` 选模板写自动区（业务接需求/运营/邮件/会议；系统平台接工单/版本/系统问题；公共能力接调用日志），幂等回写、人工区零覆盖。详见 `docs/知识中心优化方案评估.md` §3.8。
+- **领域/主笔记「页面化同步创建」铁律（2026-08-30 老大确认，防复发）**：页面新增业务子领域须**一键同步**在 Obsidian vault 自动建目录+子目录+主笔记（套 §3.8 三类模板）+回写 `vault_path/obsidian_path`，**禁止"页面建完再手工去 vault 建文件夹/笔记/模板"**。`business_domain.create/update` 必须调用 `obsidian_paths` 权威源（`resolve_domain_path`→`ensure_domain_dir`→`build_main_note_skeleton`）建 vault，vault 不可达时记 warning 但 DB 仍建（不致命）；主笔记已存在则不覆盖。**所有写 vault 动作走 `obsidian_paths` 权威源，杜绝硬编码路径**。业务笔记（子笔记/知识条目）也须页面化新建并登记 `pmwb_knowledge_item`，不再开 Obsidian 手工建。详见 `docs/知识中心优化方案评估.md` §3.8.5。
+- **知识中心前端页面设计方向（2026-08-30 评估，推荐 B+C 融合）**：业务全景呈现**不局限于**「产品圣经+时间线」单一 tab。评估 4 方案（A 产品圣经+时间线 / B 领域驾驶舱门户 / C Obsidian Bases 式数据库视图 / D 知识图谱可视化）后，**推荐 B+C 融合**：以「领域驾驶舱」（总分结构：总览驾驶舱 + 4类分组领域导航 + 领域详情 Dashboard + 全局时间线 Feed + 统一检索 + 知识运营看板）为主框架，业务全景用「Bases 式可筛选聚合视图」(thin client 复用 vault frontmatter) 呈现；时间线降为详情页 tab + 全局 Feed（不再是唯一主角）；图谱(D)作 P3+ 增强。P0 先止血（统一菜单/修崩溃/删孤儿/浅色主题/骨架屏），P3 按 B+C 重做。呈现层强耦合 §3.8 frontmatter + §3.9 同步创建（frontmatter 建目录时即写入），**须协同落地**。详见 `docs/知识中心优化方案评估.md` §3.10。
+- **各模块业务领域关联「便捷性优先」铁律（2026-08-30 评估，待 P0 落地）**：关联领域这一步必须"好用"，否则沉淀再好也白费。`BusinessDomainSelect` 须升级为**智能推荐**（表单输标题即按 `match_keywords` 关键词 + 最近使用 Top3 置顶 + 拼音首字母/domain_code 搜索推荐领域，一键带出 `domain_code`）；列表支持**批量关联**（新增 `batch-set-domain` 接口，多选即设，不再逐条重开弹窗）；8 个模块**必填口径统一**（业务类强制、其余鼓励且可事后批量补）；放开一级大类可选 + 模糊搜索（业务不在二级时不再被迫塞"通用/综合"失真）。P0 做组件增强**不改表结构、低风险高收益**；P1 接事件总线实现"录单即沉淀"（关联即回流自动区，呼应 §3.8）；P3 升级 LLM 语义推荐并让 AI 周报/问答吃 domain 维度（修 `report_collector.py`/`ai_qa.py` 命中 0）。痛点根因：`domain_code` 从源工单继承，源头填错污染整条链路（目录/frontmatter/时间线/主笔记），故"易填对 + 易纠正"是硬要求。详见 `docs/知识中心优化方案评估.md` §3.11。
+
+## 知识中心领域树权威标准（2026-08-30 老大确认，整治基准）
+- **业务知识主笔记统一在 `01-业务知识` 下**；`domain_group` 取值**仅 4 类**：`商客业务` / `公共能力` / `系统平台` / `通用`。
+- **禁止**"政企业务知识库""其他政企业务知识库"等中间层（均为错误历史残留，DB `vault_path` 里写的"政企业务知识库"中间层是虚构的，真实目录无此层）。
+- `家客业务知识库`（21 领域）是老大旧领域，**不在商客主线内整治**，保留原样、暂不纳入 PMWB 知识中心索引。
+- 旧 `政企业务` group(6) 归并：专线/集团短信/卫星宽带/国铁项目/国际业务 → 商客业务；电子协议平台 → 系统平台。
+- 合并重复领域：FTTO/一网通FTTO、和目业务/商客和目、云无线/商客云无线、安防/商客安防（以"商客前缀"为准）。
+- `vault_path` 须与真实目录一致（`01-业务知识/{group}/{domain_name}/`）；NULL 的 8 个 domain 须补编。
+- 迁移安全铁律：dry-run 清单优先 → 整目录备份 → 迁移后校验 domain_code 与目录名一致 → 全量重跑 `vault_sync`。
+- **vault 目录迁移实战（2026-08-30 T9 完成）**：真实 vault 早已是规范四类布局，DB `vault_path` 残留大量死路径。整治节奏：① `compute_remediation_plan` dry-run；② 整库备份（`D:\项目\知识图谱_backup_<ts>`）；③ `exec_remediation.py` 提交 DB 字段修正 + `os.rename` 移动目录（目标已存在则 skip）；④ `verify_vault_paths.py` 校验至 OK=33 MISS=0。`platform-group` umbrella 子目录被清理后改指向分组父目录，与 `commercial-group`/`general-group` 模式暂不一致，后续按需补齐。
+- 知识中心重构方案：`docs/知识中心优化方案评估.md`（保留 Obsidian 存储底座，治理升级汇聚层+知识层+呈现层，P0-P3 分阶段）。
 
 ## 启动/看门狗常驻
 - `C:\pmwb-scripts\pmwb-keeper.py` 每 15s 查 3306/8000/5173/3210/8001，DOWN 用 DETACHED 拉起；桌面 启动PMWB.bat/重启PMWB.bat。
@@ -43,6 +58,7 @@
 
 ## 验证纪律（铁律）
 - 穿测须真实验证（TDD，puppeteer 真实点击+DOM 断言+控制台错误捕获），禁以"页面能渲染"冒充。运行态≠代码态：改完重启单实例 vite（清僵尸），curl/puppeteer 确认服务的是新代码。基准对比先证伪。
+- **知识中心 E2E 模板（2026-08-30 T10 落地）**：`frontend/tests/e2e/knowledge-center.e2e.cjs` 用 `puppeteer-core` + 系统 Chrome 验证 `/knowledge-center/hub` 与 `/knowledge-center/domain` 的 DOM 渲染、点击交互、控制台/API 报错捕获。后续新增前端模块可参照此模式扩展 `frontend/tests/e2e/`。
 
 ## 模块纪要
 - AI总结/WorkReport：routers/work_report.py(/api/v1/work-reports)，模型 PmwbWorkReport(含 cc)，前端 WorkReportView.vue；归档 Obsidian 15-工作总结/{类型}/{日期}.md。
