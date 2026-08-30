@@ -33,6 +33,7 @@ from db.models import (
 from utils.obsidian import (
     append_or_replace_section,
     extract_section,
+    parse_title,
     read_frontmatter,
     read_markdown,
     replace_section,
@@ -1028,3 +1029,102 @@ def rebuild_main_note_subnotes(db: Session, domain_code: str) -> bool:
     if new_content != content:
         write_markdown(main.obsidian_path, new_content)
     return True
+
+
+# ---------------------------------------------------------------------------
+# kc-4 T7：向后兼容别名（原 services/knowledge_link.py 收敛到本模块单一实现）
+# 关联逻辑只此一处：维护 DB 关联 + frontmatter related_* + 正文「## 7. 关联过程性内容索引」。
+# services/knowledge_link.py 仅做 re-export 薄壳，外部统一从本模块导入。
+# ---------------------------------------------------------------------------
+
+# 早期「## 关联对象」章节同步版的向后兼容标签（现统一用正文第 7 章索引）
+SOURCE_LABELS_LEGACY = {
+    "requirement": "需求",
+    "ticket": "开发工单",
+    "operation": "运营工单",
+    "meeting": "会议",
+    "deliverable": "交付物",
+    "key_work": "重点工作",
+}
+
+
+def _get_or_create_item_by_path(
+    db: Session, obsidian_path: str, domain_code: Optional[str] = None
+) -> PmwbKnowledgeItem:
+    """按 Obsidian 路径获取或新建知识条目（来自早期 knowledge_link 的兼容实现）。"""
+    existing = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.obsidian_path == obsidian_path)
+        .first()
+    )
+    if existing:
+        return existing
+    from services.knowledge import knowledge_item_service  # 局部导入避免循环依赖
+
+    content = read_markdown(obsidian_path) or ""
+    title = parse_title(content) or obsidian_path.split("/")[-1].replace(".md", "")
+    return knowledge_item_service.create(
+        db,
+        {
+            "item_id": f"KNOW-AUTO-{abs(hash(obsidian_path)) % 100000:05d}",
+            "title": title,
+            "category": "关联",
+            "sub_category": "业务知识",
+            "tags": "关联",
+            "obsidian_path": obsidian_path,
+            "source_type": "manual",
+            "source_id": obsidian_path,
+            "domain_code": domain_code,
+            "summary": title,
+        },
+    )
+
+
+def link_to_item(
+    db: Session,
+    source_type: str,
+    source_id: str,
+    knowledge_item_id: int,
+    link_type: str = "main",
+    note: Optional[str] = None,
+    domain_code: Optional[str] = None,
+) -> dict:
+    """兼容别名：原 services.knowledge_link.link_to_item（按来源关联指定知识条目）。"""
+    return link_note(
+        db,
+        knowledge_item_id=knowledge_item_id,
+        source_type=source_type,
+        source_id=source_id,
+        link_type=link_type,
+        domain_code=domain_code,
+        note=note,
+    )
+
+
+def link_to_path(
+    db: Session,
+    source_type: str,
+    source_id: str,
+    obsidian_path: str,
+    link_type: str = "main",
+    note: Optional[str] = None,
+    domain_code: Optional[str] = None,
+) -> dict:
+    """兼容别名：原 services.knowledge_link.link_to_path（按 Obsidian 路径关联）。"""
+    item = _get_or_create_item_by_path(db, obsidian_path, domain_code)
+    return link_to_item(db, source_type, source_id, item.id, link_type, note, domain_code)
+
+
+def unlink_by_link_id(db: Session, link_id: int) -> bool:
+    """兼容别名：按 link_id 取消关联（原 services.knowledge_link.unlink）。"""
+    link = db.query(PmwbKnowledgeLink).filter(PmwbKnowledgeLink.id == link_id).first()
+    if not link:
+        return False
+    return unlink(db, link.knowledge_item_id, link.source_type, link.source_id)
+
+
+# 别名：list_links == list_by_source（同签名）
+list_links = list_by_source
+
+# 别名：早期「## 关联对象」章节同步 == 现 frontmatter+正文索引同步（superset）
+_sync_backlinks = _sync_frontmatter_and_section

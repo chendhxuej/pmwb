@@ -12,11 +12,11 @@ from schemas.knowledge import (
     KnowledgeLinkBatch,
 )
 from services.knowledge import knowledge_item_service
-from services.knowledge_link import (
+from services.knowledge_link_service import (
     link_to_item,
     link_to_path,
     list_links,
-    unlink,
+    unlink_by_link_id as unlink,
 )
 from services.knowledge_link_service import (
     business_timeline,
