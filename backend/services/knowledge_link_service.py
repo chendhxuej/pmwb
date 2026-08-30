@@ -454,6 +454,21 @@ def build_main_note_markdown(
     lines.append("")
     lines.append(_auto_block("timeline"))
     lines.append("")
+
+    # §10 关联系统（business/platform 有，capability/general 无）
+    if domain.domain_group in ("business", "platform"):
+        sec10_title = (
+            "关联系统与接口" if domain.domain_group == "business"
+            else "关联系统集成（上下游系统对接）"
+        )
+        lines.append(f"## 10. {sec10_title}")
+        lines.append("")
+        lines.append("> 人工维护区：列出本业务/平台涉及的上下游系统、对接接口与依赖关系。")
+        lines.append("")
+        lines.append("| 系统/接口 | 对接方式 | 负责团队 | 备注 |")
+        lines.append("|-----------|----------|----------|------|")
+        lines.append("|           |          |          |      |")
+        lines.append("")
     return "\n".join(lines) + "\n"
 
 
@@ -1128,3 +1143,92 @@ list_links = list_by_source
 
 # 别名：早期「## 关联对象」章节同步 == 现 frontmatter+正文索引同步（superset）
 _sync_backlinks = _sync_frontmatter_and_section
+
+
+# ---------------------------------------------------------------------------
+# kc-4 T8：主笔记落盘完整性 + 结构清理（幂等、不破坏 vault 文件）
+# ---------------------------------------------------------------------------
+
+def strip_bases_metadata(content: str) -> str:
+    """剥离 Obsidian Bases 污染正文的内容（如 `## page: 平台概述 | category: 首页` 等 page 定义）。
+
+    仅移除 Bases 专属标记行（page 定义行、独立 properties: 块及其缩进子行），不触碰业务章节。幂等。
+    """
+    lines = content.split("\n")
+    out: List[str] = []
+    skip_bases_props = False
+    for ln in lines:
+        if re.match(r"^#{1,6}\s*page\s*:", ln):
+            continue
+        if re.match(r"^\s*properties\s*:\s*$", ln):
+            skip_bases_props = True
+            continue
+        if skip_bases_props:
+            if re.match(r"^\s+\S", ln):
+                continue
+            skip_bases_props = False
+        out.append(ln)
+    return "\n".join(out)
+
+
+def dedup_duplicate_sections(content: str) -> str:
+    """移除正文中重复出现的同级 H2 章节（保留首次出现）。
+
+    针对「末尾重复 ## 7. 关联过程性内容索引」等增量写入未去重乱象：当某个 H2 标题文本
+    此前已出现过，则删除该标题及其后文（直到下一个 H2/H1 或文件尾）。幂等。
+    """
+    lines = content.split("\n")
+    h2_pat = re.compile(r"^##\s+(.*)$")
+    seen: set = set()
+    out: List[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        m = h2_pat.match(lines[i])
+        if m:
+            title = m.group(1).strip()
+            if title in seen:
+                i += 1
+                while i < n and not re.match(r"^#{1,2}\s+", lines[i]):
+                    i += 1
+                continue
+            seen.add(title)
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
+def cleanup_duplicate_main_notes(db: Session) -> dict:
+    """按 domain_code 去重主笔记索引（DB 级，非破坏 vault 文件）。
+
+    同域存在多份 note_type='main' 时，保留 obsidian_path 匹配规范路径的那份（或首份），
+    其余软标记为 'main_dup'（从主笔记视图排除，vault 文件保留）。幂等。
+    """
+    mains = db.query(PmwbKnowledgeItem).filter(PmwbKnowledgeItem.note_type == "main").all()
+    by_domain: Dict[str, List[PmwbKnowledgeItem]] = {}
+    for it in mains:
+        by_domain.setdefault(it.domain_code or "", []).append(it)
+
+    relabeled = 0
+    domains_with_dups = 0
+    for dc, items in by_domain.items():
+        if len(items) <= 1:
+            continue
+        domains_with_dups += 1
+        keep = None
+        domain = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.domain_code == dc).first()
+        if domain:
+            canonical = _op.main_note_rel_path(domain.domain_name, domain.domain_group)
+            for it in items:
+                if it.obsidian_path == canonical:
+                    keep = it
+                    break
+        if keep is None:
+            keep = items[0]
+        for it in items:
+            if it.id != keep.id:
+                it.note_type = "main_dup"
+                relabeled += 1
+    if relabeled:
+        db.commit()
+    return {"domains_with_dups": domains_with_dups, "notes_relabeled": relabeled}
