@@ -68,7 +68,7 @@ async function run() {
     // 页面标题/主导航
     await page.waitForSelector('.hub-title', { timeout: TIMEOUT });
     const hubTitle = await page.$eval('.hub-title', (el) => el.textContent.trim());
-    if (hubTitle === '业务领域') {
+    if (hubTitle.includes('总览驾驶舱')) {
       log('PASS', `业务全景标题: ${hubTitle}`);
       passed += 1;
     } else {
@@ -76,20 +76,19 @@ async function run() {
       failed += 1;
     }
 
-    // 领域分组至少 1 个
-    await page.waitForSelector('.hub-group', { timeout: TIMEOUT });
-    const groupCount = await page.$$eval('.hub-group', (els) => els.length);
-    if (groupCount > 0) {
-      log('PASS', `领域分组数量: ${groupCount}`);
-      passed += 1;
-    } else {
-      log('FAIL', '领域分组数量为 0');
-      failed += 1;
-    }
+    // KPI 条存在
+    await page.waitForSelector('.kpi-strip', { timeout: TIMEOUT });
+    log('PASS', 'KPI 条已渲染');
+    passed += 1;
+
+    // 分组 tab 存在
+    await page.waitForSelector('.grp-tabs', { timeout: TIMEOUT });
+    log('PASS', '分组 tab 已渲染');
+    passed += 1;
 
     // 领域卡片至少 1 个
-    await page.waitForSelector('.hub-group-grid .dk-card', { timeout: TIMEOUT });
-    const cardCount = await page.$$eval('.hub-group-grid .dk-card', (els) => els.length);
+    await page.waitForSelector('.domain-grid .domain-card', { timeout: TIMEOUT });
+    const cardCount = await page.$$eval('.domain-grid .domain-card', (els) => els.length);
     if (cardCount > 0) {
       log('PASS', `领域卡片数量: ${cardCount}`);
       passed += 1;
@@ -99,19 +98,18 @@ async function run() {
     }
 
     // 点击第一个卡片
-    await page.click('.hub-group-grid .dk-card');
-    await page.waitForSelector('.hub-detail', { timeout: TIMEOUT });
+    await page.click('.domain-grid .domain-card');
+    await page.waitForSelector('.domain-detail', { timeout: TIMEOUT });
     log('PASS', '点击领域卡片后详情区已渲染');
     passed += 1;
 
     // 主笔记标准化区
-    await page.waitForSelector('.hub-bible', { timeout: TIMEOUT });
-    const secCount = await page.$$eval('.hub-sec', (els) => els.length);
-    log('INFO', `主笔记标准化章节数: ${secCount}`);
+    await page.waitForSelector('.bible-list', { timeout: TIMEOUT });
+    log('PASS', '主笔记标准化结构区已渲染');
     passed += 1;
 
     // 时间线区
-    await page.waitForSelector('.hub-timeline-wrap', { timeout: TIMEOUT });
+    await page.waitForSelector('.detail-timeline', { timeout: TIMEOUT });
     log('PASS', '业务全过程时间线区已渲染');
     passed += 1;
 

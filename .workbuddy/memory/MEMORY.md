@@ -59,6 +59,7 @@
 ## 验证纪律（铁律）
 - 穿测须真实验证（TDD，puppeteer 真实点击+DOM 断言+控制台错误捕获），禁以"页面能渲染"冒充。运行态≠代码态：改完重启单实例 vite（清僵尸），curl/puppeteer 确认服务的是新代码。基准对比先证伪。
 - **知识中心 E2E 模板（2026-08-30 T10 落地）**：`frontend/tests/e2e/knowledge-center.e2e.cjs` 用 `puppeteer-core` + 系统 Chrome 验证 `/knowledge-center/hub` 与 `/knowledge-center/domain` 的 DOM 渲染、点击交互、控制台/API 报错捕获。后续新增前端模块可参照此模式扩展 `frontend/tests/e2e/`。
+- **人员中台/测试防御（2026-08-30 实证，防复发）**：backend `/api/v1/basic-data/*` 是代理层，真实数据在 `services/master`（8001）MySQL `pmwb_master`；conftest 的 `dependency_overrides[get_db]` 拦不住代理层 HTTP 调用 → CRM_xxxxxxxx 测试污染。修复：新增 `backend/tests/fake_master.py`（FakeMasterBackend 纯内存实现全量接口），conftest 模块级 install_fake_master 替换 master_service_client._request，测试全程离线零污染。前端 PersonnelCenterView 三表列宽优化：组织表补描述/来源、身份表补创建时间、人员表补来源/创建时间。
 
 ## 模块纪要
 - AI总结/WorkReport：routers/work_report.py(/api/v1/work-reports)，模型 PmwbWorkReport(含 cc)，前端 WorkReportView.vue；归档 Obsidian 15-工作总结/{类型}/{日期}.md。

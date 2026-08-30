@@ -1,10 +1,10 @@
 <template>
   <div class="hub-panel">
-    <!-- 领域卡片网格 -->
+    <!-- 顶部 -->
     <div class="hub-header">
       <div class="hub-header-titles">
-        <h3 class="hub-title">业务领域</h3>
-        <span class="hub-subtitle">选择领域查看其知识全景（标准结构 + 全过程时间线）</span>
+        <h3 class="hub-title">知识中心 · 总览驾驶舱</h3>
+        <span class="hub-subtitle">业务领域全景、主笔记标准化、关联事件时间线</span>
       </div>
       <div class="hub-header-actions">
         <el-button plain @click="goManage">
@@ -18,141 +18,201 @@
       </div>
     </div>
 
-    <div v-loading="loading" class="hub-cards">
-      <div v-for="grp in domainTree" :key="grp.domain_code" class="hub-group">
-        <div class="hub-group-head" @click="toggleGroup(grp.domain_code)">
-          <span class="hub-group-caret">{{ expandedGroups.has(grp.domain_code) ? '▾' : '▸' }}</span>
-          <span class="hub-group-name">{{ grp.domain_name }}</span>
-          <span class="hub-group-tag">{{ grp.domain_code }}</span>
-          <span class="hub-group-count">{{ (grp.children || []).length }} 个领域</span>
-        </div>
-        <div v-show="expandedGroups.has(grp.domain_code)" class="hub-group-grid">
-          <button
-            v-for="d in (grp.children || [])"
-            :key="d.domain_code"
-            class="dk-card"
-            :class="{ active: selectedDomain?.domain_code === d.domain_code }"
-            @click="selectDomain(d)"
-          >
-            <span class="dk-avatar">{{ d.domain_name.slice(0, 1) }}</span>
-            <span class="dk-card-body">
-              <span class="dk-card-name">{{ d.domain_name }}</span>
-              <span class="dk-card-code">{{ d.domain_code }}</span>
-            </span>
-          </button>
-          <el-empty v-if="!(grp.children || []).length" description="该大类暂无子领域" :image-size="60" />
-        </div>
+    <!-- KPI 条 -->
+    <div class="kpi-strip">
+      <div class="kpi-card">
+        <div class="kpi-value">{{ stats.total }}</div>
+        <div class="kpi-label">业务领域总数</div>
+        <div class="kpi-delta">{{ groupNames.length }} 个分组</div>
       </div>
-      <el-empty v-if="!loading && !domainTree.length" description="暂无业务领域" />
+      <div class="kpi-card">
+        <div class="kpi-value">{{ stats.withMainNote }}</div>
+        <div class="kpi-label">主笔记已建</div>
+        <div class="kpi-delta" :class="{ warn: stats.withMainNote < stats.total }">覆盖率 {{ coverageText }}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">{{ stats.recentEvents }}</div>
+        <div class="kpi-label">本周动态</div>
+        <div class="kpi-delta">关联事件</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value warn">{{ stats.incomplete }}</div>
+        <div class="kpi-label">待完善领域</div>
+        <div class="kpi-delta warn">缺主笔记或结构不全</div>
+      </div>
     </div>
 
-    <!-- 选中领域详情：左知识标准化管理 / 右时间线 -->
-    <div v-if="selectedDomain" class="hub-detail">
-      <div class="hub-detail-head">
-        <div class="hub-detail-title">
-          <el-icon class="hub-detail-ico"><DataBoard /></el-icon>
+    <!-- 分组 tab -->
+    <div class="grp-tabs">
+      <button
+        v-for="g in groupTabs"
+        :key="g.code"
+        class="grp-tab"
+        :class="{ on: activeGroup === g.code }"
+        @click="activeGroup = g.code"
+      >
+        {{ g.name }}
+        <span class="grp-count">{{ g.count }}</span>
+      </button>
+    </div>
+
+    <!-- 快捷卡片行 -->
+    <div class="action-row">
+      <div class="action-card">
+        <div class="action-head">
+          <el-icon><Lightning /></el-icon>
+          <span>本周新增 · 领域动态</span>
+        </div>
+        <div class="feed">
+          <div v-for="(ev, idx) in recentFeed" :key="idx" class="feed-item">
+            <span class="feed-dot" :style="{ background: groupColor(ev.domain_group) }"></span>
+            <span class="feed-text">{{ ev.text }}</span>
+            <span class="feed-time">{{ ev.time }}</span>
+          </div>
+          <el-empty v-if="!recentFeed.length" description="暂无领域动态" :image-size="60" />
+        </div>
+      </div>
+
+      <div class="action-card">
+        <div class="action-head">
+          <el-icon><FirstAidKit /></el-icon>
+          <span>需补领域（无主笔记 / 结构不全）</span>
+        </div>
+        <div class="mini-list">
+          <div v-for="d in incompleteDomains.slice(0, 6)" :key="d.domain_code" class="mini-item">
+            <span class="mini-dot" :style="{ background: groupColor(d.domain_group) }"></span>
+            <span class="mini-name">{{ d.domain_name }}</span>
+            <span class="mini-badge">{{ d.reason }}</span>
+          </div>
+          <el-empty v-if="!incompleteDomains.length" description="暂无待补领域" :image-size="60" />
+        </div>
+        <div class="action-note">点击「一键同步全部主笔记」可批量补齐缺失主笔记。</div>
+      </div>
+    </div>
+
+    <!-- 领域网格 -->
+    <div v-loading="loading" class="domain-grid-wrap">
+      <div class="grid-head">
+        <span class="grid-title">领域驾驶舱</span>
+        <span class="grid-count">{{ filteredDomains.length }} 个领域</span>
+      </div>
+      <div class="domain-grid">
+        <button
+          v-for="d in filteredDomains"
+          :key="d.domain_code"
+          class="domain-card"
+          :class="{ active: selectedDomain?.domain_code === d.domain_code }"
+          @click="selectDomain(d)"
+        >
+          <div class="domain-card-top">
+            <span class="domain-avatar">{{ d.domain_name.slice(0, 1) }}</span>
+            <span class="domain-name">{{ d.domain_name }}</span>
+            <span class="domain-tag">{{ d.domain_group }}</span>
+          </div>
+          <div class="domain-code">{{ d.domain_code }}</div>
+          <div class="domain-meta">
+            <span>知识 {{ d.knowledge_count || 0 }}</span>
+            <span>需求 {{ d.req_count || 0 }}</span>
+            <span>工单 {{ d.issue_count || 0 }}</span>
+            <span>会议 {{ d.meeting_count || 0 }}</span>
+          </div>
+          <div class="domain-bar">
+            <i class="bar-seg b1" :style="{ width: barSeg(d.knowledge_count || 0) }"></i>
+            <i class="bar-seg b2" :style="{ width: barSeg(d.req_count || 0) }"></i>
+            <i class="bar-seg b3" :style="{ width: barSeg(d.issue_count || 0) }"></i>
+          </div>
+          <div class="domain-barlbl">
+            <span><b>{{ (d.knowledge_count || 0) + (d.req_count || 0) + (d.issue_count || 0) + (d.meeting_count || 0) }}</b> 关联对象</span>
+            <span v-if="healthMap[d.domain_code]?.hasMainNote"><b>主笔记已建</b></span>
+            <span v-else class="text-warn"><b>缺主笔记</b></span>
+          </div>
+        </button>
+      </div>
+      <el-empty v-if="!loading && !filteredDomains.length" description="该分组暂无领域" />
+    </div>
+
+    <!-- 领域详情 -->
+    <div v-if="selectedDomain" v-loading="detailLoading" class="domain-detail">
+      <div class="detail-head">
+        <div class="detail-title">
+          <span class="detail-tag" :style="groupStyle(selectedDomain.domain_group)">{{ selectedDomain.domain_group }}</span>
           <span>{{ selectedDomain.domain_name }} · 业务全景</span>
         </div>
-        <div class="hub-detail-actions">
+        <div class="detail-actions">
           <el-button plain :loading="syncOneLoading" @click="syncOne">
             <el-icon><Refresh /></el-icon>
             <span>同步此领域</span>
           </el-button>
-          <el-button
-            v-if="mainNotePath"
-            plain
-            type="primary"
-            @click="openObsidianNote(mainNotePath)"
-          >
+          <el-button v-if="mainNotePath" plain type="primary" @click="openObsidianNote(mainNotePath)">
             <el-icon><FolderOpened /></el-icon>
             <span>打开主笔记</span>
           </el-button>
         </div>
       </div>
 
-      <!-- 主笔记说明条 -->
-      <div v-if="mainNoteTitle" class="hub-note-bar">
-        <el-icon class="hub-note-ico"><Notebook /></el-icon>
-        <span class="hub-note-text">
-          主笔记：<strong>{{ mainNoteTitle }}</strong>
-          <span class="hub-note-hint">展示主笔记标准结构（业务概述 / 产商品 / 场景 SOP / 规则 / 时间线等）；编辑后点「同步此领域」自动回流。</span>
-        </span>
-      </div>
-
-      <!-- 左右分栏 -->
-      <div class="hub-split">
-        <!-- 左：知识标准化管理 -->
-        <section class="hub-col">
-          <div class="hub-col-label">
-            <el-icon><Notebook /></el-icon>
-            <span>知识标准化管理（主笔记标准结构）</span>
-          </div>
-          <div v-loading="bibleLoading" class="hub-bible">
-            <template v-if="bibleSections.length">
-              <article v-for="sec in bibleSections" :key="sec.key" class="hub-sec">
-                <header class="hub-sec-head">
-                  <span class="hub-sec-badge" :class="'badge-' + sec.kind">{{ sec.kind_label }}</span>
-                  <h4 class="hub-sec-title">{{ sec.title }}</h4>
-                </header>
-                <div class="hub-sec-body" v-if="sec.markdown && sec.markdown !== '_暂无数据_'">
-                  <MarkdownRender :content="sec.markdown" />
-                </div>
-                <div class="hub-sec-empty" v-else>暂无内容</div>
-              </article>
-            </template>
-            <el-empty v-else-if="!bibleLoading" description="暂无主笔记内容（同步后自动生成）" :image-size="80" />
-          </div>
-          <div v-if="fullMarkdown" class="hub-full-note">
-            <div class="hub-full-head" @click="showFull = !showFull">
-              <span class="hub-caret">{{ showFull ? '▾' : '▸' }}</span>
-              <span class="hub-full-title">完整主笔记原文</span>
-              <span class="hub-full-hint">含结构化视图未涵盖的章节</span>
+      <div class="detail-grid">
+        <!-- 左侧：概览 + 结构 -->
+        <div class="detail-col">
+          <div class="detail-card">
+            <div class="detail-card-head">
+              <span>主笔记标准结构</span>
+              <span v-if="mainNoteTitle" class="detail-sub">{{ mainNoteTitle }}</span>
             </div>
-            <div v-show="showFull" class="hub-full-body">
-              <MarkdownRender :content="fullMarkdown" />
+            <div class="bible-list">
+              <div v-for="sec in bibleSections" :key="sec.key" class="bible-item">
+                <span class="bible-badge" :class="'kind-' + sec.kind">{{ sec.kind_label }}</span>
+                <span class="bible-title">{{ sec.title }}</span>
+              </div>
+              <el-empty v-if="!bibleSections.length && !bibleLoading" description="暂无主笔记内容" :image-size="60" />
             </div>
           </div>
-        </section>
 
-        <!-- 右：时间线 -->
-        <section class="hub-col">
-          <div class="hub-col-label">
+          <div class="detail-card">
+            <div class="detail-card-head">全景指标</div>
+            <div class="mini-list">
+              <div class="mini-item"><span>知识条目</span><b>{{ selectedDomain.knowledge_count || 0 }}</b></div>
+              <div class="mini-item"><span>关联需求</span><b>{{ selectedDomain.req_count || 0 }}</b></div>
+              <div class="mini-item"><span>运营工单</span><b>{{ selectedDomain.issue_count || 0 }}</b></div>
+              <div class="mini-item"><span>会议</span><b>{{ selectedDomain.meeting_count || 0 }}</b></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧：时间线 -->
+        <div class="detail-card detail-timeline">
+          <div class="detail-card-head">
             <el-icon><Clock /></el-icon>
             <span>业务全过程时间线</span>
           </div>
-          <div class="hub-timeline-wrap">
-            <BusinessTimeline
-              :domain-code="selectedDomain.domain_code"
-            />
-          </div>
-        </section>
+          <BusinessTimeline :domain-code="selectedDomain.domain_code" />
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, Notebook, FolderOpened, DataBoard, Clock, SetUp } from '@element-plus/icons-vue'
+import {
+  Refresh, Notebook, FolderOpened, SetUp, Clock, Lightning, FirstAidKit
+} from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { basicDataApi, loadBusinessDomains } from '@/api/basicData.js'
 import { knowledgeApi } from '@/api/knowledge.js'
 import { obsidianApi } from '@/api/obsidian.js'
 import BusinessTimeline from '@/components/Common/BusinessTimeline.vue'
-import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import { productBibleApi } from '@/api/productBible.js'
 import { bus, EVT_DOMAINS_CHANGED } from '@/utils/bus'
 import { openObsidianNote } from '@/utils/obsidian.js'
 
 const router = useRouter()
-const goManage = () => {
-  router.push('/knowledge-center/business-domains')
-}
+const goManage = () => router.push('/knowledge-center/business-domains')
 
 const loading = ref(false)
 const domainTree = ref([])
-const expandedGroups = ref(new Set())
+const allDomains = ref([])
+const activeGroup = ref('all')
 const selectedDomain = ref(null)
 const syncLoading = ref(false)
 const syncOneLoading = ref(false)
@@ -160,31 +220,102 @@ const mainNoteTitle = ref('')
 const mainNotePath = ref('')
 const bibleSections = ref([])
 const bibleLoading = ref(false)
-const fullMarkdown = ref('')
-const showFull = ref(false)
+const detailLoading = ref(false)
+const healthMap = ref({})
+const recentFeed = ref([])
+
+const GROUP_META = {
+  商客业务: { color: '#2f6fed', bg: 'rgba(47,111,237,.10)' },
+  系统平台: { color: '#06b6d4', bg: 'rgba(6,182,212,.10)' },
+  公共能力: { color: '#10b981', bg: 'rgba(16,185,129,.10)' },
+  通用: { color: '#8b5cf6', bg: 'rgba(139,92,246,.10)' },
+}
+
+const groupColor = (g) => GROUP_META[g]?.color || '#64748b'
+const groupStyle = (g) => {
+  const m = GROUP_META[g] || GROUP_META.通用
+  return { color: m.color, background: m.bg }
+}
+
+const groupNames = computed(() => domainTree.value.map((g) => g.domain_name))
+
+const groupTabs = computed(() => {
+  const tabs = [{ code: 'all', name: '全部', count: allDomains.value.length }]
+  for (const g of domainTree.value) {
+    tabs.push({
+      code: g.domain_code,
+      name: g.domain_name,
+      count: (g.children || []).length,
+    })
+  }
+  return tabs
+})
+
+const filteredDomains = computed(() => {
+  if (activeGroup.value === 'all') return allDomains.value
+  const g = domainTree.value.find((x) => x.domain_code === activeGroup.value)
+  return g?.children || []
+})
+
+const stats = computed(() => {
+  const total = allDomains.value.length
+  const withMainNote = Object.values(healthMap.value).filter((h) => h.hasMainNote).length
+  const incomplete = total - withMainNote
+  const recentEvents = recentFeed.value.length
+  return { total, withMainNote, incomplete, recentEvents }
+})
+
+const coverageText = computed(() => {
+  if (!stats.value.total) return '-'
+  return Math.round((stats.value.withMainNote / stats.value.total) * 100) + '%'
+})
+
+const incompleteDomains = computed(() => {
+  return allDomains.value
+    .filter((d) => {
+      const h = healthMap.value[d.domain_code]
+      return !h || !h.hasMainNote
+    })
+    .map((d) => ({ ...d, reason: '缺主笔记' }))
+})
+
+function barSeg(n) {
+  // 占位进度条，按最大值归一
+  return Math.min(100, Math.max(6, n * 8)) + 'px'
+}
 
 const loadDomains = async () => {
   loading.value = true
   try {
     const tree = await loadBusinessDomains({ tree: true }, true)
     domainTree.value = tree || []
-    // 默认展开全部大类
-    expandedGroups.value = new Set(domainTree.value.map((g) => g.domain_code))
-    // 自动选中第一个子领域
-    const firstChild = domainTree.value[0]?.children?.[0]
-    if (firstChild && !selectedDomain.value) {
-      selectDomain(firstChild)
+    const flat = []
+    for (const g of domainTree.value) {
+      for (const d of g.children || []) flat.push(d)
     }
+    allDomains.value = flat
+    // 默认选中第一个
+    if (!selectedDomain.value && flat.length) {
+      selectDomain(flat[0])
+    }
+    // 后台健康扫描
+    scanHealth()
   } finally {
     loading.value = false
   }
 }
 
-const toggleGroup = (code) => {
-  const s = new Set(expandedGroups.value)
-  if (s.has(code)) s.delete(code)
-  else s.add(code)
-  expandedGroups.value = s
+const scanHealth = async () => {
+  for (const d of allDomains.value) {
+    try {
+      const res = await basicDataApi.getDomainRelated(d.domain_code)
+      healthMap.value[d.domain_code] = {
+        hasMainNote: !!res?.main_note?.obsidian_path,
+      }
+    } catch {
+      healthMap.value[d.domain_code] = { hasMainNote: false }
+    }
+  }
 }
 
 const selectDomain = async (d) => {
@@ -192,26 +323,13 @@ const selectDomain = async (d) => {
   selectedDomain.value = d
   mainNoteTitle.value = ''
   mainNotePath.value = ''
-  fullMarkdown.value = ''
-  // 预取知识标准化管理标准结构（切到主笔记 Tab 时直接渲染）
-  loadBible(d.domain_code)
-
+  bibleSections.value = []
+  detailLoading.value = true
   try {
-    const res = await basicDataApi.getDomainRelated(d.domain_code)
-    if (res?.main_note) {
-      mainNoteTitle.value = res.main_note.title || ''
-      mainNotePath.value = res.main_note.obsidian_path || ''
-      if (mainNotePath.value) {
-        try {
-          const noteRes = await obsidianApi.getNoteContent(mainNotePath.value)
-          fullMarkdown.value = noteRes?.content || ''
-        } catch {
-          fullMarkdown.value = ''
-        }
-      }
-    }
-  } catch {
-    // 静默
+    await Promise.all([loadBible(d.domain_code), loadDomainMeta(d)])
+    await loadTimelineFeed(d.domain_code)
+  } finally {
+    detailLoading.value = false
   }
 }
 
@@ -227,11 +345,38 @@ const loadBible = async (code) => {
   }
 }
 
+const loadDomainMeta = async (d) => {
+  try {
+    const res = await basicDataApi.getDomainRelated(d.domain_code)
+    if (res?.main_note) {
+      mainNoteTitle.value = res.main_note.title || ''
+      mainNotePath.value = res.main_note.obsidian_path || ''
+    }
+  } catch {
+    // 静默
+  }
+}
+
+const loadTimelineFeed = async (code) => {
+  try {
+    const res = await knowledgeApi.getBusinessTimeline({ domain_code: code, limit: 4 })
+    const list = Array.isArray(res) ? res : (res?.data || [])
+    recentFeed.value = list.slice(0, 4).map((ev) => ({
+      text: `${ev.domain_name || code} · ${ev.event_title || ev.title || '事件'}`,
+      time: ev.event_date || ev.created_at || '',
+      domain_group: selectedDomain.value?.domain_group || '通用',
+    }))
+  } catch {
+    recentFeed.value = []
+  }
+}
+
 const syncAll = async () => {
   syncLoading.value = true
   try {
-    await knowledgeApi.ensureMainNotes()
-    ElMessage.success('已确保所有领域主笔记')
+    const res = await knowledgeApi.ensureMainNotes()
+    ElMessage.success(res?.message || '已确保所有领域主笔记')
+    await loadDomains()
   } catch {
     ElMessage.error('同步失败')
   } finally {
@@ -245,8 +390,7 @@ const syncOne = async () => {
   try {
     await knowledgeApi.syncMainNote(selectedDomain.value.domain_code)
     ElMessage.success(`${selectedDomain.value.domain_name} 主笔记已同步`)
-    // 同步后知识标准化管理内容可能更新，刷新
-    loadBible(selectedDomain.value.domain_code)
+    await loadBible(selectedDomain.value.domain_code)
   } catch {
     ElMessage.error('同步失败')
   } finally {
@@ -255,10 +399,7 @@ const syncOne = async () => {
 }
 
 onMounted(loadDomains)
-// 领域增删改后全局通知刷新（kc-5：跨模块联动）
 bus.on(EVT_DOMAINS_CHANGED, loadDomains)
-onBeforeUnmount(() => bus.off(EVT_DOMAINS_CHANGED, loadDomains))
-defineExpose({ reload: loadDomains })
 </script>
 
 <style scoped>
@@ -266,8 +407,11 @@ defineExpose({ reload: loadDomains })
   display: flex;
   flex-direction: column;
   gap: 18px;
-  height: 100%;
+  padding: 16px 18px 24px;
+  background: #f5f7fa;
+  min-height: 100%;
 }
+
 .hub-header {
   display: flex;
   align-items: flex-end;
@@ -278,324 +422,409 @@ defineExpose({ reload: loadDomains })
 .hub-header-titles {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 .hub-title {
   margin: 0;
-  font-size: var(--fs-lg);
+  font-size: 20px;
   font-weight: 700;
+  color: #1f2d3d;
   letter-spacing: .3px;
 }
 .hub-subtitle {
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
+  font-size: 13px;
+  color: #64748b;
 }
 .hub-header-actions {
   display: flex;
-  align-items: center;
   gap: 10px;
 }
-.hub-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.hub-group {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--surface-soft);
-  overflow: hidden;
-}
-.hub-group-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  cursor: pointer;
-  user-select: none;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border-subtle);
-}
-.hub-group-head:hover {
-  background: var(--accent-soft);
-}
-.hub-group-caret {
-  font-size: 12px;
-  color: var(--text-muted);
-  width: 14px;
-  flex-shrink: 0;
-}
-.hub-group-name {
-  font-size: var(--fs-md);
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.hub-group-tag {
-  font-size: var(--fs-xs);
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border-subtle);
-}
-.hub-group-count {
-  margin-left: auto;
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-}
-.hub-group-grid {
+
+/* KPI 条 */
+.kpi-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  padding: 12px 14px;
-}
-.hub-full-note {
-  margin-top: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  overflow: hidden;
-}
-.hub-full-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  user-select: none;
-  background: var(--surface-soft);
-  border-bottom: 1px solid var(--border-subtle);
-}
-.hub-full-head:hover {
-  background: var(--accent-soft);
-}
-.hub-caret {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.hub-full-title {
-  font-size: var(--fs-sm);
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.hub-full-hint {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-}
-.hub-full-body {
-  padding: 6px 16px 14px;
-  max-height: 520px;
-  overflow: auto;
-}
-.dk-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  transition: all var(--transition-fast);
-}
-.dk-card:hover {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-card);
-  transform: translateY(-1px);
-}
-.dk-card.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.dk-avatar {
-  flex-shrink: 0;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--fs-md);
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), #5b8af1);
-}
-.dk-card.active .dk-avatar {
-  background: linear-gradient(135deg, var(--accent-hover), var(--accent));
-}
-.dk-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-.dk-card-name {
-  font-size: var(--fs-base);
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.dk-card-code {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-}
-.dk-card-tag {
-  flex-shrink: 0;
-  font-size: var(--fs-xs);
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--surface-soft);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-subtle);
-  max-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hub-detail {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: repeat(4, 1fr);
   gap: 14px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
 }
-.hub-detail-head {
+.kpi-card {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+.kpi-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: #1f2d3d;
+  letter-spacing: -.5px;
+  line-height: 1.1;
+}
+.kpi-value.warn { color: #f0a64a; }
+.kpi-label {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 6px;
+}
+.kpi-delta {
+  font-size: 12px;
+  color: #10b981;
+  margin-top: 8px;
+}
+.kpi-delta.warn { color: #f0a64a; }
+
+/* 分组 tab */
+.grp-tabs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
-.hub-detail-title {
+.grp-tab {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #e4e7ed;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 13px;
+  transition: .15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.grp-tab:hover {
+  border-color: #2f6fed;
+  color: #2f6fed;
+}
+.grp-tab.on {
+  background: #2f6fed;
+  color: #fff;
+  border-color: #2f6fed;
+}
+.grp-count {
+  font-size: 11px;
+  background: rgba(255,255,255,.2);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+/* 快捷卡片行 */
+.action-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+}
+.action-card {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+.action-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--fs-md);
+  font-size: 14px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #1f2d3d;
+  margin-bottom: 12px;
 }
-.hub-detail-ico {
-  color: var(--accent);
-  font-size: var(--fs-lg);
-}
-.hub-detail-actions {
+.action-head .el-icon { color: #2f6fed; }
+.feed {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 9px;
 }
-.hub-note-bar {
+.feed-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-soft);
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  flex-wrap: wrap;
+  gap: 10px;
+  padding: 9px 10px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  font-size: 13px;
 }
-.hub-note-ico {
-  color: var(--accent);
+.feed-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
-.hub-note-text {
+.feed-text {
+  flex: 1;
+  color: #1f2d3d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-time {
+  font-size: 12px;
+  color: #909399;
+  flex-shrink: 0;
+}
+.mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mini-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.mini-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mini-name {
+  flex: 1;
+  color: #1f2d3d;
+}
+.mini-badge {
+  font-size: 11px;
+  background: #fdf2e8;
+  color: #f0a64a;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.action-note {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 10px;
   line-height: 1.5;
 }
-.hub-note-text strong {
-  color: var(--text-primary);
+
+/* 领域网格 */
+.domain-grid-wrap {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 12px;
+  padding: 14px 16px 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
 }
-.hub-note-hint {
-  color: var(--text-muted);
-}
-.hub-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  min-height: 420px;
-}
-.hub-col {
+.grid-head {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.hub-col-label {
-  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 7px;
-  font-size: var(--fs-sm);
+  margin-bottom: 14px;
+}
+.grid-title {
+  font-size: 15px;
   font-weight: 700;
-  color: var(--text-primary);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-bottom: none;
+  color: #1f2d3d;
 }
-.hub-col-label .el-icon {
-  color: var(--accent);
+.grid-count {
+  font-size: 12px;
+  color: #909399;
 }
-.hub-bible {
-  flex: 1;
-  padding: 14px 16px;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  min-height: 220px;
+.domain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 14px;
 }
-.hub-timeline-wrap {
-  flex: 1;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  min-height: 220px;
+.domain-card {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 12px;
+  padding: 14px 15px;
+  cursor: pointer;
+  text-align: left;
+  transition: .16s;
+  position: relative;
+  overflow: hidden;
 }
-.hub-sec {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border-subtle);
+.domain-card:hover {
+  transform: translateY(-2px);
+  border-color: #2f6fed;
+  box-shadow: 0 6px 18px rgba(47,111,237,.12);
 }
-.hub-sec:first-child {
-  padding-top: 0;
+.domain-card.active {
+  border-color: #2f6fed;
+  background: rgba(47,111,237,.04);
 }
-.hub-sec:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.hub-sec-head {
+.domain-card-top {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
 }
-.hub-sec-badge {
-  font-size: var(--fs-xs);
-  padding: 2px 9px;
-  border-radius: 999px;
+.domain-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #2f6fed, #5b8af1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.domain-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2d3d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.domain-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f5f7fa;
+  color: #64748b;
   font-weight: 600;
   flex-shrink: 0;
 }
-.badge-baseline { background: #ecf5ff; color: #409eff; }
-.badge-auto { background: #f0f9eb; color: #67c23a; }
-.badge-system { background: #f4f4f5; color: #909399; }
-.hub-sec-title {
-  margin: 0;
-  font-size: var(--fs-base);
+.domain-code {
+  font-size: 12px;
+  color: #909399;
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 10px;
+}
+.domain-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 10px;
+}
+.domain-bar {
+  height: 6px;
+  border-radius: 4px;
+  background: #ebeef5;
+  overflow: hidden;
+  display: flex;
+  gap: 2px;
+}
+.bar-seg {
+  height: 100%;
+  display: block;
+  min-width: 4px;
+}
+.bar-seg.b1 { background: #2f6fed; }
+.bar-seg.b2 { background: #06b6d4; }
+.bar-seg.b3 { background: #10b981; }
+.domain-barlbl {
+  font-size: 11px;
+  color: #909399;
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.domain-barlbl b { color: #1f2d3d; }
+.text-warn { color: #f0a64a !important; }
+
+/* 领域详情 */
+.domain-detail {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+.detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #1f2d3d;
 }
-.hub-sec-body {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  line-height: 1.65;
+.detail-tag {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 600;
 }
-.hub-sec-empty {
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-  padding: 4px 0;
+.detail-actions { display: flex; gap: 10px; }
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 16px;
+}
+.detail-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.detail-card {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.detail-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2d3d;
+  margin-bottom: 12px;
+}
+.detail-sub {
+  font-size: 12px;
+  color: #909399;
+  font-weight: 400;
+}
+.bible-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bible-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 7px 10px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+.bible-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.bible-badge.kind-baseline { background: #ecf5ff; color: #409eff; }
+.bible-badge.kind-auto { background: #f0f9eb; color: #67c23a; }
+.bible-badge.kind-system { background: #f4f4f5; color: #909399; }
+.bible-title {
+  color: #1f2d3d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-timeline {
+  min-height: 320px;
+}
+
+@media (max-width: 1200px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+  .action-row, .detail-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .kpi-strip { grid-template-columns: 1fr; }
+  .domain-grid { grid-template-columns: 1fr; }
 }
 </style>
