@@ -15,6 +15,14 @@ from db.models import (
     PmwbRequirementExt,
     SentEmail,
 )
+from pathlib import Path
+
+import logging
+import os
+import re
+import uuid
+
+from core.config import settings
 from schemas.business_domain import (
     BusinessDomainCreate,
     BusinessDomainOut,
@@ -24,6 +32,9 @@ from schemas.business_domain import (
     DomainRelatedItem,
     DomainRelatedOut,
 )
+from services import obsidian_paths as op
+
+logger = logging.getLogger(__name__)
 
 
 def _to_out(domain: PmwbBusinessDomain, counts: Optional[Tuple[dict, dict, dict, dict]] = None) -> BusinessDomainOut:
@@ -445,6 +456,10 @@ def create(db: Session, data: BusinessDomainCreate) -> BusinessDomainOut:
     db.add(domain)
     db.commit()
     db.refresh(domain)
+
+    # 页面化同步创建：建 vault 目录树 + 主笔记 + 回写 vault_path（§3.8.5）
+    _sync_create_vault(db, domain)
+
     return _to_out(domain)
 
 
@@ -463,9 +478,18 @@ def update(db: Session, domain_code: str, data: BusinessDomainUpdate) -> Busines
         pc = update_data.pop("parent_domain_code")
         domain.parent_id = _resolve_parent(db, pc)
 
+    # 改名/改组前记录旧路径（用于原子重命名 vault 目录 + 主笔记）
+    old_rel = domain.vault_path or op.resolve_domain_path(db, domain_code)
+    old_name = domain.domain_name
+    old_group = domain.domain_group
+
     for key, val in update_data.items():
         setattr(domain, key, val)
 
+    new_rel = op.resolve_domain_path(db, domain_code)
+    if new_rel != old_rel:
+        _sync_rename_vault(old_rel, new_rel, old_name, domain.domain_name, domain.domain_group)
+        domain.vault_path = new_rel
     db.commit()
     db.refresh(domain)
     return _to_out(domain)
@@ -482,3 +506,118 @@ def delete(db: Session, domain_code: str) -> dict:
     domain.enabled = False
     db.commit()
     return {"domain_code": domain_code, "deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# 页面化同步创建（§3.8.5）：vault 目录/主笔记/子笔记与 DB 单一来源同步
+# ---------------------------------------------------------------------------
+
+def _sync_create_vault(db: Session, domain: PmwbBusinessDomain) -> None:
+    """写 DB 后同步建 vault 目录树 + 主笔记骨架，并回写 vault_path。
+
+    vault 不可达（盘符缺失/无权限/路径非法）时仅告警，不阻断 DB 记录，
+    保证「页面建领域」永远成功（绝不因 vault 故障回滚业务数据）。
+    """
+    try:
+        if not domain.vault_path:
+            domain.vault_path = op.resolve_domain_path(db, domain.domain_code)
+        op.ensure_domain_dir(db, domain.domain_code)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        try:
+            if not domain.vault_path:
+                domain.vault_path = op.resolve_domain_path(db, domain.domain_code)
+            db.commit()
+        except Exception:
+            db.rollback()
+        logger.warning("领域[%s] 同步建 vault 失败(已忽略，DB 仍建): %s", domain.domain_code, exc)
+
+
+def _patch_note_frontmatter(note_path: Path, name: str, group: str) -> None:
+    """重命名后将主笔记 frontmatter 的 domain/group 与标题对齐新名称。"""
+    try:
+        txt = note_path.read_text(encoding="utf-8")
+        txt = re.sub(r"^group: .*$", f"group: {group}", txt, flags=re.M)
+        txt = re.sub(r"^domain: .*$", f"domain: {name}", txt, flags=re.M)
+        txt = re.sub(r"^# .*业务知识主笔记$", f"# {name} 业务知识主笔记", txt, flags=re.M)
+        note_path.write_text(txt, encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("主笔记 frontmatter 更新失败(已忽略): %s", exc)
+
+
+def _sync_rename_vault(old_rel, new_rel, old_name, new_name, new_group) -> None:
+    """领域改名/改组时原子重命名 vault 目录 + 主笔记文件名，并校正 frontmatter。
+
+    规则：旧目录存在且新目录不存在才移动（不覆盖已有内容）；若新目录已存在
+    则视为手工预建，仅校正主笔记 frontmatter 的 group/domain。
+    """
+    try:
+        vroot = Path(settings.OBSIDIAN_VAULT_PATH)
+        old_abs = vroot / old_rel
+        new_abs = vroot / new_rel
+        if old_abs.exists() and not new_abs.exists():
+            new_abs.parent.mkdir(parents=True, exist_ok=True)
+            old_abs.rename(new_abs)
+            old_note = new_abs / op.main_note_filename(old_name)
+            new_note = new_abs / op.main_note_filename(new_name)
+            if old_note.exists() and not new_note.exists():
+                old_note.rename(new_note)
+            if new_note.exists():
+                _patch_note_frontmatter(new_note, new_name, new_group)
+        elif new_abs.exists() and not old_abs.exists():
+            new_note = new_abs / op.main_note_filename(new_name)
+            if new_note.exists():
+                _patch_note_frontmatter(new_note, new_name, new_group)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("领域重命名 vault 同步失败(已忽略): %s", exc)
+
+
+def create_note(db: Session, domain_code: str, note_name: str,
+                note_type: str = "sub", category: str = "operation") -> PmwbKnowledgeItem:
+    """页面化新建业务子笔记：在 vault 建 .md 并登记 pmwb_knowledge_item。
+
+    主笔记(main)由领域字典唯一保活，子笔记走此入口登记，避免再开 Obsidian 手工建。
+    vault 不可达仅告警，DB 索引仍登记（路径解析不依赖可达）。
+    """
+    domain = db.query(PmwbBusinessDomain).filter(
+        PmwbBusinessDomain.domain_code == domain_code
+    ).first()
+    if not domain:
+        raise NotFoundException(message=f"业务领域不存在：{domain_code}")
+
+    root_rel = op.resolve_domain_path(db, domain_code)
+    rel = f"{root_rel}/{note_name}.md"
+    try:
+        vroot = Path(settings.OBSIDIAN_VAULT_PATH)
+        (vroot / root_rel).mkdir(parents=True, exist_ok=True)
+        note_path = vroot / rel
+        if not note_path.exists():
+            note_path.write_text(
+                "---\n"
+                "type: 业务子笔记\n"
+                f"domain: {domain.domain_name}\n"
+                f"group: {domain.domain_group}\n"
+                "tags: []\n"
+                "---\n\n"
+                f"# {note_name}\n\n"
+                "> 由 PMWB 知识中心页面化创建。\n",
+                encoding="utf-8",
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("子笔记建 vault 失败(已忽略): %s", exc)
+
+    item = PmwbKnowledgeItem(
+        item_id=f"kn-{uuid.uuid4().hex[:10]}",
+        title=note_name,
+        category=category,
+        obsidian_path=rel,
+        source_type="manual",
+        domain_code=domain_code,
+        note_type=note_type,
+        summary="",
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
