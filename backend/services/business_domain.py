@@ -684,9 +684,12 @@ def suggest_domains(
     title = title.strip().lower()
     recent_codes = recent_codes or []
 
+    # 排除 parent_id 为空的分组伞节点（商客业务/系统平台/公共能力/通用），
+    # 否则推荐结果里会出现容器节点，用户选了等于没选到具体业务领域。
     domains = (
         db.query(PmwbBusinessDomain)
         .filter(PmwbBusinessDomain.enabled == True)
+        .filter(PmwbBusinessDomain.parent_id.isnot(None))
         .order_by(PmwbBusinessDomain.sort_order, PmwbBusinessDomain.domain_name)
         .all()
     )

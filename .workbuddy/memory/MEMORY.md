@@ -19,6 +19,7 @@
 - 迁移安全铁律：dry-run 清单优先 → 整目录备份 → 迁移后校验 domain_code 与目录名一致 → 全量重跑 `vault_sync`。
 - **vault 目录迁移实战（2026-08-30 T9 完成）**：真实 vault 早已是规范四类布局，DB `vault_path` 残留大量死路径。整治节奏：① `compute_remediation_plan` dry-run；② 整库备份（`D:\项目\知识图谱_backup_<ts>`）；③ `exec_remediation.py` 提交 DB 字段修正 + `os.rename` 移动目录（目标已存在则 skip）；④ `verify_vault_paths.py` 校验至 OK=33 MISS=0。`platform-group` umbrella 子目录被清理后改指向分组父目录，与 `commercial-group`/`general-group` 模式暂不一致，后续按需补齐。
 - 知识中心重构方案：`docs/知识中心优化方案评估.md`（保留 Obsidian 存储底座，治理升级汇聚层+知识层+呈现层，P0-P3 分阶段）。
+- **主笔记同步铁律（2026-08-31 修复）**：`domain_main_note_health()` 和 `ensure_domain_main_notes()` 必须**同时检查 DB 记录和 Obsidian 文件系统**。`obsidian_files` 字典用 `.resolve()` + 反斜杠规范化路径构建；`has_main_note = mc > 0 or obsidian_exists`。缺主笔记领域同步后从 8 个降至 2 个（public-capability、mrljs 目录本身不存在需后续创建）。
 
 ## 启动/看门狗常驻
 - `C:\pmwb-scripts\pmwb-keeper.py` 每 15s 查 3306/8000/5173/3210/8001，DOWN 用 DETACHED 拉起；桌面 启动PMWB.bat/重启PMWB.bat。

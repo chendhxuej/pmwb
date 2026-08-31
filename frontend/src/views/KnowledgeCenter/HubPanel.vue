@@ -360,7 +360,11 @@ const filteredDomains = computed(() => {
 
 const stats = computed(() => {
   const total = allDomains.value.length
-  const withMainNote = Object.values(healthMap.value).filter((h) => h.has_main_note).length
+  // 必须以 allDomains 为分母口径统计：healthMap 可能含分组伞节点等额外条目，
+  // 直接用它的数量做分子会算出 >100% 的覆盖率（曾出现 107%）。
+  const withMainNote = allDomains.value.filter(
+    (d) => healthMap.value[d.domain_code]?.has_main_note,
+  ).length
   const incomplete = total - withMainNote
   // 从 healthMap 中获取本周新增和僵尸知识（取第一个元素的值，因为全局统一）
   const firstHealth = Object.values(healthMap.value)[0] || {}
@@ -372,12 +376,17 @@ const stats = computed(() => {
 })
 
 const incompleteDomains = computed(() => {
+  // 卡片标题为「无主笔记 / 结构不全」，两类都要纳入；
+  // 结构不全 = 有主笔记但没有子笔记摘要，需要优先补齐。
   return allDomains.value
-    .filter((d) => {
+    .map((d) => {
       const h = healthMap.value[d.domain_code]
-      return !h || !h.has_main_note
+      if (!h || !h.has_main_note) return { ...d, reason: '缺主笔记', level: 1 }
+      if (!h.structure_ok) return { ...d, reason: '结构不全', level: 2 }
+      return null
     })
-    .map((d) => ({ ...d, reason: '缺主笔记' }))
+    .filter(Boolean)
+    .sort((a, b) => a.level - b.level)
 })
 
 function barSeg(n) {
@@ -473,11 +482,26 @@ const loadTimelineFeed = async (code) => {
 const syncAll = async () => {
   syncLoading.value = true
   try {
+    // 拦截器已解包到 data，拿不到外层 message，需用返回字段自行拼装结果
     const res = await knowledgeApi.ensureMainNotes()
-    ElMessage.success(res?.message || '已确保所有领域主笔记')
+    const scanned = res?.domains_scanned ?? 0
+    const created = res?.main_notes_created ?? 0
+    const ensured = res?.main_notes_ensured ?? 0
+    const indexed = res?.db_indexed_from_obsidian ?? 0
+    const errors = Array.isArray(res?.errors) ? res.errors : []
+
+    if (errors.length) {
+      ElMessage.warning(
+        `同步完成但有 ${errors.length} 个领域失败：${errors.map((e) => e.domain_code).join('、')}`,
+      )
+    } else if (created || indexed) {
+      ElMessage.success(`同步完成：扫描 ${scanned} 个领域，新建 ${created} 个，补索引 ${indexed} 个`)
+    } else {
+      ElMessage.success(`同步完成：扫描 ${scanned} 个领域，${ensured} 个主笔记已是最新`)
+    }
     await loadDomains()
-  } catch {
-    ElMessage.error('同步失败')
+  } catch (e) {
+    ElMessage.error(e?.message || '同步失败，请查看后端日志')
   } finally {
     syncLoading.value = false
   }

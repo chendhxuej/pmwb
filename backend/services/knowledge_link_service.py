@@ -11,6 +11,7 @@
 本模块是 spec 要求的标准实现，routers 新增端点调用本模块。
 """
 import json
+import logging
 import os
 import re
 from datetime import date, datetime
@@ -18,6 +19,8 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from core.exceptions import NotFoundException
 from db.models import (
@@ -1045,9 +1048,12 @@ def domain_main_note_health(db: Session) -> list:
     from datetime import datetime, timedelta
     from pathlib import Path
     from core.config import settings
+    # 只统计真实业务领域：parent_id 为空的是分组容器（商客业务/系统平台/公共能力/通用伞节点），
+    # 不是业务领域，混入会把覆盖率等业务指标算错（曾导致驾驶舱出现 107% 覆盖率）。
     domains = (
         db.query(PmwbBusinessDomain)
         .filter(PmwbBusinessDomain.enabled == True)
+        .filter(PmwbBusinessDomain.parent_id.isnot(None))
         .order_by(PmwbBusinessDomain.domain_group, PmwbBusinessDomain.sort_order)
         .all()
     )
@@ -1161,7 +1167,13 @@ def ensure_domain_main_notes(db: Session) -> dict:
     """
     from pathlib import Path
     from core.config import settings
-    domains = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.enabled == True).all()
+    # 同样排除 parent_id 为空的分组伞节点，避免为容器节点误建主笔记。
+    domains = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.enabled == True)
+        .filter(PmwbBusinessDomain.parent_id.isnot(None))
+        .all()
+    )
     created = 0
     ensured = 0
     indexed = 0  # 新增：从 Obsidian 补全 DB 索引
@@ -1170,62 +1182,38 @@ def ensure_domain_main_notes(db: Session) -> dict:
     vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
     obsidian_files = {}
     for d in domains:
-        vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
-        filename = f"{d.domain_name}业务知识主笔记.md"
-        note_file = vpath_norm / filename
-        if note_file.exists():
-            obsidian_files[d.domain_code] = str(note_file.relative_to(vault_path))
+        # vault_path 为空的领域直接跳过文件探测，避免 None.replace 抛错拖垮整批
+        if not d.vault_path:
+            continue
+        try:
+            vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
+            filename = f"{d.domain_name}业务知识主笔记.md"
+            note_file = vpath_norm / filename
+            if note_file.exists():
+                obsidian_files[d.domain_code] = str(note_file.relative_to(vault_path))
+        except Exception as exc:  # 单个领域路径异常不影响全局
+            logger.warning("ensure_main_notes: 探测 Obsidian 主笔记失败 %s: %s", d.domain_code, exc)
+
+    errors = []  # 单领域失败明细，避免一个领域异常导致整批 500
 
     for d in domains:
-        # 检查 DB 中是否已有主笔记记录
-        main = (
-            db.query(PmwbKnowledgeItem.id)
-            .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
-            .filter(PmwbKnowledgeItem.note_type == "main")
-            .first()
-        )
-
-        # 情况1: DB 有记录 → 重建子笔记摘要
-        if main:
-            rebuild_main_note_subnotes(db, d.domain_code)
-            ensured += 1
+        try:
+            kind = _ensure_one_domain_main_note(db, d, obsidian_files)
+        except Exception as exc:
+            # 回滚该领域未提交的改动，保证后续领域不受污染
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            logger.warning("ensure_main_notes: 领域 %s 处理失败: %s", d.domain_code, exc)
+            errors.append({"domain_code": d.domain_code, "reason": str(exc)})
             continue
 
-        # 情况2: DB 无记录，但 Obsidian 文件存在 → 补全 DB 索引
-        if d.domain_code in obsidian_files:
-            obsidian_rel_path = obsidian_files[d.domain_code]
-            # 创建 DB 记录但不覆盖 Obsidian 文件
-            item = PmwbKnowledgeItem(
-                item_id=_gen_item_id(),
-                title=f"{d.domain_name} 业务知识主笔记",
-                category="product",
-                sub_category="主笔记",
-                tags="业务知识，主笔记",
-                obsidian_path=obsidian_rel_path,
-                source_type="manual",
-                source_id=d.domain_code,
-                domain_code=d.domain_code,
-                note_type="main",
-                summary=f"{d.domain_name} 业务知识主笔记（业务概述/产商品资费/SOP/规则/变更轨迹/交付物）",
-            )
-            db.add(item)
-            db.commit()
-            db.refresh(item)
-            indexed += 1
-            ensured += 1
-            continue
-
-        # 情况3: DB 无记录，Obsidian 文件也不存在 → 创建新主笔记
-        has_sub = (
-            db.query(PmwbKnowledgeItem.id)
-            .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
-            .filter(PmwbKnowledgeItem.note_type != "main")
-            .first()
-        )
-        if has_sub:
-            ensure_domain_main_note(db, d.domain_code)
+        if kind == "created":
             created += 1
-            rebuild_main_note_subnotes(db, d.domain_code)
+        elif kind == "indexed":
+            indexed += 1
+        if kind:
             ensured += 1
 
     return {
@@ -1233,7 +1221,64 @@ def ensure_domain_main_notes(db: Session) -> dict:
         "main_notes_created": created,
         "main_notes_ensured": ensured,
         "db_indexed_from_obsidian": indexed,
+        "errors": errors,
     }
+
+
+def _ensure_one_domain_main_note(db: Session, d, obsidian_files: dict) -> str:
+    """处理单个领域的主笔记保活，异常由调用方兜底。
+
+    返回处理类型：created（新建主笔记）/ indexed（从 Obsidian 补 DB 索引）/
+    ensured（已有主笔记，重建子笔记摘要）/ 空字符串（无需处理）。
+    """
+    # 检查 DB 中是否已有主笔记记录
+    main = (
+        db.query(PmwbKnowledgeItem.id)
+        .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+
+    # 情况1: DB 有记录 → 重建子笔记摘要
+    if main:
+        rebuild_main_note_subnotes(db, d.domain_code)
+        return "ensured"
+
+    # 情况2: DB 无记录，但 Obsidian 文件存在 → 补全 DB 索引
+    if d.domain_code in obsidian_files:
+        obsidian_rel_path = obsidian_files[d.domain_code]
+        # 创建 DB 记录但不覆盖 Obsidian 文件
+        item = PmwbKnowledgeItem(
+            item_id=_gen_item_id(),
+            title=f"{d.domain_name} 业务知识主笔记",
+            category="product",
+            sub_category="主笔记",
+            tags="业务知识，主笔记",
+            obsidian_path=obsidian_rel_path,
+            source_type="manual",
+            source_id=d.domain_code,
+            domain_code=d.domain_code,
+            note_type="main",
+            summary=f"{d.domain_name} 业务知识主笔记（业务概述/产商品资费/SOP/规则/变更轨迹/交付物）",
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        return "indexed"
+
+    # 情况3: DB 无记录，Obsidian 文件也不存在 → 若有子笔记则创建新主笔记
+    has_sub = (
+        db.query(PmwbKnowledgeItem.id)
+        .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
+        .filter(PmwbKnowledgeItem.note_type != "main")
+        .first()
+    )
+    if has_sub:
+        ensure_domain_main_note(db, d.domain_code)
+        rebuild_main_note_subnotes(db, d.domain_code)
+        return "created"
+
+    return ""
 
 
 def rebuild_main_note_subnotes(db: Session, domain_code: str) -> bool:

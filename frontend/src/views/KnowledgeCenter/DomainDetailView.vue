@@ -12,7 +12,7 @@
         <span class="bc-current">{{ detail.domain_name }} · 领域详情</span>
       </div>
       <div class="detail-actions">
-        <el-button plain @click="syncMainNote">
+        <el-button plain :loading="syncing" @click="syncMainNote">
           <el-icon><Refresh /></el-icon>
           <span>同步主笔记</span>
         </el-button>
@@ -144,17 +144,17 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, FolderOpened } from '@element-plus/icons-vue'
 import { basicDataApi } from '@/api/basicData'
+import { knowledgeApi } from '@/api/knowledge'
 import { productBibleApi } from '@/api/productBible'
 import BusinessTimeline from '@/components/Common/BusinessTimeline.vue'
 import { openObsidianNote } from '@/utils/obsidian'
 import { marked } from 'marked'
 
 const route = useRoute()
-const router = useRouter()
 const code = route.params.code
 
 const loading = ref(false)
@@ -232,8 +232,25 @@ async function loadBible() {
   }
 }
 
-function syncMainNote() {
-  router.push('/knowledge-center/manage')
+const syncing = ref(false)
+
+async function syncMainNote() {
+  // 原实现只是跳转到管理页，用户点「同步主笔记」却没执行任何同步；改为直接调用同步接口
+  syncing.value = true
+  try {
+    const res = await knowledgeApi.syncMainNote(code)
+    const blocks = res?.blocks_written || []
+    if (res?.changed) {
+      ElMessage.success(`主笔记已同步，写入 ${blocks.length} 个自动区章节`)
+    } else {
+      ElMessage.info('主笔记无变更（关联数据未发生变化）')
+    }
+    await loadBible()
+  } catch (e) {
+    ElMessage.error(e?.message || '同步失败')
+  } finally {
+    syncing.value = false
+  }
 }
 
 function openObsidian() {
