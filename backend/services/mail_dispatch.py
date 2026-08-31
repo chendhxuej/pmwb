@@ -46,6 +46,7 @@ class MailScene:
     default_subject: Optional[str] = None
     fallback_template: Optional[str] = None  # 3210 不可用时的 Markdown 兜底
     add_signature: bool = True
+    widen_frame: bool = False  # 会议类：3210 frame 加宽后处理（600→90%、内层 680→100%）
 
 
 # 场景注册表：所有发邮件触点在此声明统一样式/签名/类型。
@@ -56,12 +57,12 @@ class MailScene:
 SCENES: dict[str, MailScene] = {
     "meeting_notice": MailScene(
         "meeting_notice", email_type="meeting_notice", source="pmwb_meeting",
-        template_key="meeting_notice", raw=False,
+        template_key="meeting_notice", raw=False, widen_frame=True,
         fallback_template="## 会议通知\n\n会议主题与安排请查看系统通知或联系主持人。",
     ),
     "meeting_minutes": MailScene(
         "meeting_minutes", email_type="meeting_minutes", source="pmwb_meeting",
-        template_key="meeting_minutes", raw=False,
+        template_key="meeting_minutes", raw=False, widen_frame=True,
         fallback_template="## 会议纪要\n\n纪要正文请查看系统或邮件中心。",
     ),
     "action_dispatch": MailScene(
@@ -176,6 +177,19 @@ def _render_templated(
     return body, subject, fmt
 
 
+def _widen_meeting_email(body_html: str) -> str:
+    """会议类 3210 模板 frame 加宽后处理。
+
+    3210 模板 frame 固定 `max-width:600px`（双层叠加 markdown_to_email_html 的 680px 最窄），
+    且 3210 是外部服务、无可靠更新接口（PUT/PATCH 404、POST 行为不明、重启可能重置），
+    故在 PMWB 侧渲染后做宽度重写：外层 600px→90% 居中、内层 markdown 680px→100%，
+    与周报幽灵单元格 90% 统一口径。仅会议通知/纪要场景（widen_frame=True）启用。
+    """
+    return body_html.replace("max-width:600px", "width:90%").replace(
+        "max-width:680px", "width:100%"
+    )
+
+
 def _render_mail(
     *,
     scene: str = "",
@@ -221,11 +235,15 @@ def _render_mail(
             body_html, rendered_subject, body_format = _render_templated(
                 sc, variables, template_id, template_data
             )
+            if sc.widen_frame:
+                body_html = _widen_meeting_email(body_html)
         except Exception as exc:  # noqa: BLE001
             logger.warning("3210 模版渲染失败，走降级: %s", exc)
             # 降级优先用调用方正文（variables.body，信息完整），其次场景通用 Markdown 兜底
             fb = raw_content or sc.fallback_template or ""
             body_html = markdown_to_email_html(fb, inject_signature=False)
+            if sc.widen_frame:
+                body_html = _widen_meeting_email(body_html)
             rendered_subject = None
             body_format = "html"
     elif html_passthrough:

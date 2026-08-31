@@ -94,6 +94,9 @@ def test_dispatch_meeting_html_and_signature(monkeypatch):
     assert calls["render"] == 1
     assert "需求评审会" in captured["body"]
     assert "<li>行动项A</li>" in captured["body"]
+    # 会议类 frame 加宽后处理：外层 600px→90% 居中，无残留固定窄宽
+    assert "width:90%" in captured["body"]
+    assert "max-width:600px" not in captured["body"]
     assert "陈大海" in captured["body"]
     assert "font-family" in captured["body"]
 
