@@ -163,5 +163,6 @@ def send_email_endpoint(req: dict, db=Depends(get_db)):
         req_id=req.get("req_id"),
         req_name=req.get("req_name"),
         html_passthrough=req.get("htmlPassthrough", False),
+        confirm_send=bool(req.get("confirm_send", False)),
     )
     return success(data=res)

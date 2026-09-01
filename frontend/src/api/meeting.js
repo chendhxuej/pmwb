@@ -54,6 +54,7 @@ export const meetingApi = {
   },
 
   sendMeetingMail(meetingId, data) {
-    return request.post(`/meetings/${meetingId}/send-mail`, data)
+    // confirm_send 固定为 true：代表用户在页面上的显式发送操作（后端 dry_run 护栏据此放行真发）
+    return request.post(`/meetings/${meetingId}/send-mail`, { ...data, confirm_send: true })
   }
 }

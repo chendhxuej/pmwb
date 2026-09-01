@@ -802,6 +802,7 @@ class TaskCenterService:
             req_id=";".join(f"{t.source}:{t.source_id}" for t in obj_in.tasks)[:64],
             req_name=(first_title or "任务中心邮件")[:255],
             raise_on_error=False,
+            confirm_send=True,
         )
         return {"success": result.get("success", False), "record_ids": [result.get("record_id")] if result.get("record_id") else [], "message": result.get("message", "")}
 

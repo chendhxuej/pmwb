@@ -54,6 +54,7 @@ class PluginService:
             body_format="html",
             attachments=attachments,
             raise_on_error=True,
+            confirm_send=True,
         )
         return {
             "success": result.get("success", False),

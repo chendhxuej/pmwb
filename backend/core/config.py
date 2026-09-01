@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     EMAIL_CENTER_URL: str = "http://localhost:3210"
     EMAIL_CENTER_API_KEY: str = ""  # 可选，若邮件中心配置了 API_KEY 则填写
 
+    # 邮件发送安全护栏（铁律：防 AI/程序误将测试邮件发给真实同事）
+    # 默认开启 dry_run：dispatch_email 在未收到 confirm_send=True 时只落库 email_records、
+    # 绝不调用 3210 真发。前端真实点发送 / 系统自动发信必须显式传 confirm_send=True。
+    MAIL_DRY_RUN: bool = True
+    # 收件人白名单（可选）：填陈大海邮箱后生效；confirm_send 但含白名单外收件人时记高危告警。
+    # .env 示例：MAIL_OWNER_EMAILS=["chend@cmcc.example.com"]
+    MAIL_OWNER_EMAILS: list = []
+
     # 邮件统一治理：本人标识（用于会议遗留任务归属分流）+ 默认邮件签名
     SELF_NAME: str = "陈大海"
     EMAIL_SIGNATURE: str = "陈大海\n中国移动通信集团江苏有限公司 · 数智化部\n13901581364"

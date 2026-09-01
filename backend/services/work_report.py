@@ -344,6 +344,7 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
         variables={"body": raw_body, "report_type": r.report_type},
         add_signature=True,
         raise_on_error=False,
+        confirm_send=True,
     )
     if not result.get("success"):
         r.error_msg = f"send: {result.get('message')}"

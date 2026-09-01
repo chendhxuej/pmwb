@@ -237,6 +237,7 @@ def send_feedback_mail(
             },
             req_id=f"kw{kw_id}-{week}",
             req_name=name,
+            confirm_send=True,
         )
         if res.get("success"):
             sent.append({"assignee": name, "email": email, "record_id": res.get("record_id")})

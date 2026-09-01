@@ -238,6 +238,7 @@ class MeetingService(BaseService[PmwbMeeting]):
                     req_id=meeting.meeting_id,
                     req_name=meeting.title,
                     source="pmwb_meeting",
+                    confirm_send=True,
                 )
                 dispatched = res["success"]
                 note = res["message"]
@@ -274,6 +275,7 @@ class MeetingService(BaseService[PmwbMeeting]):
         body: str,
         mail_type: str = "meeting_notice",
         recipient_names: Optional[List[str]] = None,
+        confirm_send: bool = False,
     ) -> dict:
         """一键发送会议邮件（通知/纪要），写入 email_records 并走统一邮件中心发信。
 
@@ -312,6 +314,7 @@ class MeetingService(BaseService[PmwbMeeting]):
             req_id=meeting.meeting_id,
             req_name=meeting.title,
             source="pmwb_meeting",
+            confirm_send=confirm_send,
         )
         return {
             "success": result["success"],

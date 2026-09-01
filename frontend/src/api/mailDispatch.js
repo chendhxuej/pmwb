@@ -10,6 +10,7 @@ export function previewEmail(data) {
 
 // 统一邮件发送入口（全场景收口）
 // 请求体：{ to, cc?, subject?, scene?, rawContent?|body?, variables?, templateId?, templateData? }
+// confirm_send 固定为 true：代表用户在页面上的显式发送操作（后端 dry_run 护栏据此放行真发）
 export function sendEmail(data) {
-  return request.post(`${BASE}/send`, data)
+  return request.post(`${BASE}/send`, { ...data, confirm_send: true })
 }

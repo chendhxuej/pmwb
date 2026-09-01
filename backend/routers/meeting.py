@@ -173,4 +173,5 @@ def send_meeting_mail(meeting_id: int, obj_in: MeetingMailSendRequest, db: Sessi
         body=obj_in.body,
         mail_type=obj_in.mail_type,
         recipient_names=obj_in.recipient_names,
+        confirm_send=obj_in.confirm_send,
     ))

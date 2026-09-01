@@ -420,11 +420,11 @@ async function onSend() {
     const payload = buildSendPayload()
     payload.to = toList
     payload.cc = normalizeRecipients(cc.value)
-    emit('send', payload)
     let res
     if (typeof props.customSend === 'function') {
       res = await props.customSend(payload)
     } else {
+      emit('send', payload)
       res = await sendEmail(payload)
     }
     if (res?.success) {

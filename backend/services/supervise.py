@@ -45,6 +45,7 @@ def _render_and_send(
         variables=template_data,
         attachments=attachments,
         raise_on_error=False,
+        confirm_send=True,
     )
     if not result.get("success"):
         logger.warning("督办邮件发送失败: %s", result.get("message"))

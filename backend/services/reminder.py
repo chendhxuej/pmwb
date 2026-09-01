@@ -125,6 +125,7 @@ class ReminderService:
             req_name=obj_in.req_name,
             recipient_name=obj_in.recipient_name,
             raise_on_error=False,
+            confirm_send=True,
         )
         return result
 

@@ -292,6 +292,7 @@ def dispatch_email(
     attachments: Optional[list] = None,
     html_passthrough: bool = False,
     raise_on_error: bool = False,
+    confirm_send: bool = False,
 ) -> dict:
     """统一发信入口。
 
@@ -320,6 +321,55 @@ def dispatch_email(
     final_subject = rendered["subject"]
     final_body = rendered["html"]
     fmt = body_format or rendered["body_format"] or "html"
+
+    # ── 邮件发送安全护栏 ───────────────────────────────────────────────────
+    # 1) dry_run 模式（默认开启）：未显式 confirm_send 的请求只落库、不真发，
+    #    彻底杜绝 AI 自测 / 程序误调用把测试邮件发给真实同事。
+    owner_emails = [e.strip().lower() for e in (settings.MAIL_OWNER_EMAILS or [])]
+    if settings.MAIL_DRY_RUN and not confirm_send:
+        dry_record = None
+        if db is not None:
+            dry_record = EmailRecord(
+                req_id=req_id,
+                req_name=req_name,
+                email_type=etype or None,
+                recipient=",".join(to_list),
+                recipient_name=recipient_name or ",".join(to_list),
+                subject=final_subject,
+                content=final_body,
+                send_status="dry_run",
+                source=src,
+                sender="pmwb",
+            )
+            db.add(dry_record)
+            db.commit()
+            db.refresh(dry_record)
+        logger.info(
+            "dispatch_email dry_run（未实际发送，仅落库验证）scene=%s to=%s record_id=%s",
+            scene, to_list, dry_record.id if dry_record else None,
+        )
+        return {
+            "success": True,
+            "record_id": dry_record.id if dry_record else None,
+            "message": "（dry_run 模式：邮件未实际发送，仅记录用于验证）",
+            "dry_run": True,
+            "body_format": fmt,
+            "subject": final_subject,
+            "rendered_body": final_body,
+            "message_id": None,
+        }
+
+    # 2) 收件人白名单高危告警（白名单配置后生效）：
+    #    confirm_send=True 但收件人含白名单外真实邮箱时，记红色高危告警（不拦截，因 confirm 即授权）。
+    if owner_emails:
+        all_addrs = [a.strip().lower() for a in (to_list + cc_list)]
+        outside = [a for a in all_addrs if "@" in a and a not in owner_emails]
+        if outside:
+            logger.warning(
+                "⚠️ 高危发信：confirm_send=True 但收件人超出白名单 %s：%s",
+                owner_emails, outside,
+            )
+    # ───────────────────────────────────────────────────────────────────────
 
     record = None
     if db is not None:

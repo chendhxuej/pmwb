@@ -188,6 +188,10 @@ class MeetingMailSendRequest(BaseModel):
         description="邮件类型：meeting_notice(会议通知) / meeting_minutes(会议纪要)",
     )
     recipient_names: Optional[List[str]] = Field(None, description="收件人姓名列表（用于记录展示）")
+    confirm_send: bool = Field(
+        False,
+        description="显式确认发送：True 才真发（防 AI/程序误发）。前端真实点发送固定传 True。",
+    )
 
 
 # ---------------------------------------------------------------------------

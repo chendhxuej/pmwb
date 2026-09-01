@@ -700,7 +700,7 @@
       :default-body="mailBody"
       :scene="mailType === 'notice' ? 'meeting_notice' : 'meeting_minutes'"
       :variables="mailVariables"
-      @send="onComposeSend"
+      :custom-send="onComposeSend"
     />
   </div>
 </template>
@@ -1440,39 +1440,20 @@ const openMailDialog = (type) => {
 
 const onComposeSend = async (payload) => {
   const m = detailMeeting.value
-  if (!m) return
+  if (!m) throw new Error('会议信息不存在')
   const to = (payload.to || []).filter(Boolean)
   const cc = (payload.cc || []).filter(Boolean)
   const body = (payload.body || '').trim()
-  if (!to.length) {
-    ElMessage.warning('请选择收件人')
-    return
-  }
-  if (!body) {
-    ElMessage.warning('请输入邮件正文')
-    return
-  }
-  sendingMail.value = true
-  try {
-    const res = await meetingApi.sendMeetingMail(m.id, {
-      to,
-      cc: cc.length ? cc : null,
-      subject: payload.subject || '',
-      body,
-      mail_type: mailType.value === 'notice' ? 'meeting_notice' : 'meeting_minutes',
-      recipient_names: null,
-    })
-    if (res && res.success) {
-      ElMessage.success(res.message || '邮件发送成功')
-      mailVisible.value = false
-    } else {
-      ElMessage.error((res && res.message) || '邮件发送失败')
-    }
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.message || '发送失败')
-  } finally {
-    sendingMail.value = false
-  }
+  if (!to.length) throw new Error('请选择收件人')
+  if (!body) throw new Error('请输入邮件正文')
+  return meetingApi.sendMeetingMail(m.id, {
+    to,
+    cc: cc.length ? cc : null,
+    subject: payload.subject || '',
+    body,
+    mail_type: mailType.value === 'notice' ? 'meeting_notice' : 'meeting_minutes',
+    recipient_names: null,
+  })
 }
 
 /* ── 新增 / 编辑（会议登记） ── */
