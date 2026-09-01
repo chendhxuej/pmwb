@@ -391,6 +391,7 @@ function buildSendPayload() {
     to: to.value,
     cc: cc.value || [],
     subject: subject.value,
+    body: body.value,
   }
 }
 
