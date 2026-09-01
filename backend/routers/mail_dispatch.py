@@ -13,6 +13,7 @@ from core.config import settings
 from core.exceptions import ValidationException
 from core.response import success
 from db.base import get_db
+from sqlalchemy.orm import Session
 from services.mail_dispatch import dispatch_email, _render_mail
 from utils.email import EmailCenterClient
 from utils.markdown_mail import inject_signature_inline, markdown_to_email_html
@@ -58,17 +59,39 @@ def _resolve_recipients(raw_list: list) -> list[str]:
 
 
 @router.post("/preview")
-def preview_email(req: dict):
+def preview_email(req: dict, db: Session = Depends(get_db)):
     """渲染邮件正文 HTML 供前端实时预览。
 
-    新调用（统一场景）：{ scene, to?, cc?, subject?, variables? | rawContent? | body?, htmlPassthrough?, templateId?, templateData?, add_signature? }
+    新调用（统一场景）：{ scene, to?, cc?, subject?, variables? | rawContent? | body?, htmlPassthrough?, templateId?, templateData?, add_signature?, attachmentIssueId? }
     兼容旧调用（仅 Markdown 预览）：{ body, body_format?"html", add_signature?true }
+
+    attachmentIssueId：传入运营工单 id 时，自动把该工单挂靠的全部附件清单渲染进正文
+    （与正式发送共用 build_operation_attachment_block，保证「预览即实发」）。
     """
     scene = req.get("scene")
+    variables = dict(req.get("variables") or {})
+    # 运营工单附件自动带出（预览 = 正式一致）
+    att_issue_id = req.get("attachmentIssueId")
+    if att_issue_id is not None:
+        try:
+            from services.operation import operation_issue_service
+            issue = operation_issue_service.get(db, att_issue_id)
+            if issue and issue.attachments:
+                import json
+                att_metas = json.loads(issue.attachments) if issue.attachments else []
+                from utils.operation_attachment import build_operation_attachment_block
+                section, _ = build_operation_attachment_block(att_issue_id, att_metas)
+                if section:
+                    base = variables.get("desc") or variables.get("description") or ""
+                    full = (base + "\n\n" + section) if base else section
+                    variables["desc"] = full
+                    variables["description"] = full
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("预览带出工单附件失败: %s", exc)
     if scene:
         out = _render_mail(
             scene=scene,
-            variables=req.get("variables"),
+            variables=variables,
             raw_content=req.get("rawContent") or req.get("body"),
             subject=req.get("subject"),
             html_passthrough=req.get("htmlPassthrough", False),

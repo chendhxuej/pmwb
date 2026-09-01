@@ -1,5 +1,6 @@
 """督办邮件路由 - 统一出站口，各工单模块复用的督办接口。"""
 
+import json
 import logging
 from typing import Optional
 
@@ -45,6 +46,11 @@ def _build_ticket_info(ticket_type: str, ticket_id: int | str, db: Session) -> d
         row = operation_service.get(db, ticket_id)
         if not row:
             return None
+        atts: list = []
+        try:
+            atts = json.loads(row.attachments) if row.attachments else []
+        except Exception:  # noqa: BLE001
+            atts = []
         return {
             "issue_no": row.issue_no,
             "title": row.title,
@@ -55,6 +61,9 @@ def _build_ticket_info(ticket_type: str, ticket_id: int | str, db: Session) -> d
             "status": row.status,
             "situation_desc": row.situation_desc or "",
             "source": "运营问题/工单",
+            # 自动带出工单附件：供 supervise 服务把附件清单 + 真实文件塞进邮件
+            "issue_id": ticket_id,
+            "attachments": atts,
         }
 
     if ticket_type == "dev_ticket":

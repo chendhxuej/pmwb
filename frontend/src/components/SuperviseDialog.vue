@@ -42,10 +42,19 @@
 
     <template #footer>
       <el-button @click="handleCancel">取消</el-button>
+      <el-button :loading="loadingPreview" :disabled="!canSend" @click="previewMail">
+        预览
+      </el-button>
       <el-button type="primary" :loading="loading" :disabled="!canSend" @click="confirmSend">
         发送督办
       </el-button>
     </template>
+  </el-dialog>
+
+  <!-- 邮件预览弹窗：iframe 隔离渲染，自动带出工单附件清单 -->
+  <el-dialog v-model="previewVisible" title="邮件预览（含工单附件）" width="74%" append-to-body destroy-on-close>
+    <iframe v-if="previewHtml" :srcdoc="previewHtml" class="supervise-preview-frame" />
+    <div v-else class="supervise-preview-empty">暂无预览内容</div>
   </el-dialog>
 </template>
 
@@ -54,6 +63,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import StaffSelect from './Common/StaffSelect.vue'
 import { superviseTicket } from '../api/supervise'
+import { previewEmail } from '../api/mailDispatch'
 import { useDrawerDraft } from '../composables/useDrawerDraft'
 
 const props = defineProps({
@@ -77,6 +87,28 @@ const form = reactive({
 })
 
 const loading = ref(false)
+
+// 邮件预览：调后端 /mail-dispatch/preview，自动带出工单附件清单（预览 = 正式）
+const loadingPreview = ref(false)
+const previewVisible = ref(false)
+const previewHtml = ref('')
+async function previewMail() {
+  if (props.ticketId == null) return
+  loadingPreview.value = true
+  try {
+    const res = await previewEmail({
+      scene: form.scene === 'sync' ? 'supervise_sync' : 'supervise_urge',
+      attachmentIssueId: props.ticketId,
+      variables: {},
+    })
+    previewHtml.value = res?.html || ''
+    previewVisible.value = true
+  } catch (e) {
+    ElMessage.error(e?.message || '预览失败，请稍后重试')
+  } finally {
+    loadingPreview.value = false
+  }
+}
 
 const sceneHint = computed(() =>
   form.scene === 'sync' ? '信息同步：将工单进展同步通知给相关人员' : '催办：提醒相关人员跟进工单',
@@ -161,5 +193,17 @@ function handleCancel() {
   color: var(--el-text-color-secondary, #909399);
   line-height: 1.5;
   margin-top: 4px;
+}
+.supervise-preview-frame {
+  width: 100%;
+  height: 70vh;
+  border: 1px solid var(--el-border-color, #e5e6eb);
+  border-radius: 6px;
+  background: #fff;
+}
+.supervise-preview-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--el-text-color-secondary, #909399);
 }
 </style>

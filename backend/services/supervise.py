@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from services.mail_dispatch import dispatch_email
 from utils.email import email_client
@@ -17,6 +17,7 @@ def _render_and_send(
     scene: str,
     template_data: dict[str, Any],
     recipients: list[str],
+    attachments: Optional[list] = None,
 ) -> dict:
     """按场景选督办模版 → 解析收件人邮箱 → 走统一邮件治理门面发信。
 
@@ -42,6 +43,7 @@ def _render_and_send(
         subject="",  # 由模版渲染产出
         scene=scene_key,
         variables=template_data,
+        attachments=attachments,
         raise_on_error=False,
     )
     if not result.get("success"):
@@ -70,6 +72,12 @@ def supervise_ticket(
     Returns:
         {"ok": True, ...} | {"ok": False, "error": ...}
     """
+    desc_text = (
+        ticket.get("situation_desc")
+        or ticket.get("description")
+        or ticket.get("desc")
+        or ""
+    )
     template_data = {
         "no": ticket.get("issue_no") or ticket.get("no") or "",
         "title": ticket.get("title") or "",
@@ -78,12 +86,22 @@ def supervise_ticket(
         "due": ticket.get("due") or ticket.get("plan_end") or "",
         "status": ticket.get("status") or "",
         "source": ticket.get("source") or "",
-        "desc": ticket.get("situation_desc")
-                or ticket.get("description")
-                or ticket.get("desc")
-                or "",
+        "desc": desc_text,
     }
-    return _render_and_send(scene, template_data, recipients)
+    # 自动带出运营工单挂靠的全部附件：清单注入正文 + 真实文件作为邮件附件
+    issue_id = ticket.get("issue_id")
+    att_metas = ticket.get("attachments") or []
+    att_section = ""
+    real_atts = []
+    if issue_id is not None and att_metas:
+        from utils.operation_attachment import build_operation_attachment_block
+        att_section, real_atts = build_operation_attachment_block(issue_id, att_metas)
+    if att_section:
+        full_desc = (desc_text + "\n\n" + att_section) if desc_text else att_section
+        # 双写 desc/description：兼容 3210 supervise 模板变量名（模板用 {{{description}}}，历史传 desc）
+        template_data["desc"] = full_desc
+        template_data["description"] = full_desc
+    return _render_and_send(scene, template_data, recipients, attachments=real_atts)
 
 
 def supervise_action(

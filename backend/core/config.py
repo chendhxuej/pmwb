@@ -62,6 +62,9 @@ class Settings(BaseSettings):
 
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000
+    # 对外可访问基址：用于邮件正文内工单附件下载链接。公网部署时配置 PUBLIC_BASE_URL 覆盖默认值；
+    # 留空则回退 http://{BACKEND_HOST}:{BACKEND_PORT}（仅本机/局域网可达，正式发送已真带附件，链接为辅助）。
+    PUBLIC_BASE_URL: str = ""
 
     # ===== LLM 用户故事智能生成（继承 WorkBuddy models.json 的 Kimi Coding Plan） =====
     # 支持提供商：kimi / ollama / openai / deepseek / 任意 OpenAI 兼容接口
