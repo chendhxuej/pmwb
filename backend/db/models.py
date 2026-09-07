@@ -104,6 +104,15 @@ class PmwbUserStory(Base):
     acceptance = Column(Text, comment="验收标准(JSON数组)")
     rules = Column(Text, comment="业务规则(JSON数组，每条一个规则描述)")
     finalized = Column(Integer, default=0, comment="是否已定稿(0:草稿 1:定稿)")
+    # 生成元信息：记录这批故事由什么策略/哪个大模型生成，用于追溯与降级可见化
+    gen_strategy = Column(
+        String(32),
+        comment="生成策略: rules_v2/rules_v1/llm/rules_v2_fallback",
+    )
+    gen_provider = Column(String(128), comment="生成命中的大模型名称")
+    gen_model = Column(String(128), comment="生成命中的模型标识")
+    gen_at = Column(DateTime, comment="生成时间")
+    gen_fallback_reason = Column(Text, comment="AI降级原因(仅降级时有值)")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,

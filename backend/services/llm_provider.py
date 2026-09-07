@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -17,6 +18,10 @@ from db.models import PmwbLlmProvider
 from utils.secret import decrypt_secret, encrypt_secret, mask_secret
 
 logger = logging.getLogger(__name__)
+
+# 状态探测结果缓存（秒）。真实探测会真发一次请求，避免每次打开页面都打供应商接口。
+_STATUS_PROBE_TTL = 60
+_status_probe_cache: Dict[str, Any] = {"ts": 0.0, "data": None}
 
 PROVIDER_PRESETS: Dict[str, Dict[str, str]] = {
     "kimi": {
@@ -117,24 +122,82 @@ def list_providers(db: Session) -> List[Dict[str, Any]]:
     return [_to_view(r) for r in rows]
 
 
-def get_status(db: Session) -> Dict[str, Any]:
-    """返回 AI 问答可用的大模型状态概览（供 ai_qa /status 端点使用）。"""
-    rows = list_providers(db)
-    enabled = [r for r in rows if r.get("is_enabled")]
-    default = next((r for r in rows if r.get("is_default")), None)
-    if enabled:
-        best = default if (default and default.get("is_enabled")) else enabled[0]
+def get_status(db: Session, *, force: bool = False) -> Dict[str, Any]:
+    """返回大模型状态概览（供 ai_qa /status、用户故事 llm-status 端点使用）。
+
+    注意：本函数做**真实连通探测**（对已启用提供方发一次轻量 ping），
+    而非只看数据库里有没有 enabled 记录 —— 后者会导致「配置存在但密钥失效」
+    时页面仍显示"已连接"，掩盖 AI 静默降级。
+
+    探测结果缓存 _STATUS_PROBE_TTL 秒；force=True 可强制立即重测。
+    """
+    now = time.time()
+    cached = _status_probe_cache.get("data")
+    if (
+        not force
+        and cached
+        and (now - float(_status_probe_cache.get("ts") or 0.0)) < _STATUS_PROBE_TTL
+    ):
+        data = dict(cached)
+        data["cached"] = True
+        return data
+
+    data = probe_status(db)
+    _status_probe_cache["ts"] = now
+    _status_probe_cache["data"] = data
+    return data
+
+
+def probe_status(db: Session) -> Dict[str, Any]:
+    """真实连通探测：按优先级逐个 ping 已启用提供方，返回首个连通的。
+
+    返回字段在原有 available/provider_name/provider_count/notice 基础上，
+    增加 probed（是否真实探测过）、provider_model、error（首个/汇总错误）。
+    """
+    providers = _load_enabled_providers(db)
+    if not providers:
         return {
-            "available": True,
-            "provider_name": best.get("name"),
-            "provider_count": len(enabled),
-            "notice": "",
+            "available": False,
+            "provider_name": None,
+            "provider_model": None,
+            "provider_count": 0,
+            "probed": True,
+            "cached": False,
+            "error": None,
+            "notice": "未配置任何可用的大模型（请到「大模型管理」添加并启用一个）",
         }
+
+    errors: List[str] = []
+    for p in providers:
+        try:
+            r = test_provider(p)
+        except Exception as e:  # noqa: BLE001
+            r = {"reachable": False, "error": str(e)[:200]}
+        if r.get("reachable"):
+            logger.info("大模型连通探测成功：%s / %s", p.name, p.model)
+            return {
+                "available": True,
+                "provider_name": p.name,
+                "provider_model": p.model,
+                "provider_count": len(providers),
+                "probed": True,
+                "cached": False,
+                "error": None,
+                "notice": "",
+            }
+        errors.append(f"{p.name}: {r.get('error') or '未知错误'}")
+
+    joined = "；".join(errors)
+    logger.warning("大模型连通探测全部失败（%d 个已启用）：%s", len(providers), joined)
     return {
         "available": False,
-        "provider_name": None,
-        "provider_count": 0,
-        "notice": "未配置任何可用的大模型（请到「大模型管理」添加并启用一个）",
+        "provider_name": providers[0].name,
+        "provider_model": providers[0].model,
+        "provider_count": len(providers),
+        "probed": True,
+        "cached": False,
+        "error": joined,
+        "notice": f"已配置 {len(providers)} 个大模型，但全部连通失败：{joined}",
     }
 
 
@@ -321,6 +384,7 @@ def pick_provider(providers, call_fn, system: str, user: str, max_tokens: int | 
     if not providers:
         return {
             "text": "", "used_llm": False, "provider_name": None, "provider_id": None,
+            "model": None,
             "notice": "未配置任何可用的大模型（请到「大模型管理」添加并启用一个）",
         }
     errors: List[str] = []
@@ -331,13 +395,14 @@ def pick_provider(providers, call_fn, system: str, user: str, max_tokens: int | 
                 return {
                     "text": text.strip(), "used_llm": True,
                     "provider_name": getattr(p, "name", None),
-                    "provider_id": getattr(p, "id", None), "notice": "",
+                    "provider_id": getattr(p, "id", None),
+                    "model": getattr(p, "model", None), "notice": "",
                 }
             raise ValueError("模型返回空内容")
         except Exception as e:  # noqa: BLE001
             errors.append(f"{getattr(p, 'name', '?')}: {str(e)[:200]}")
     notice = "所有已启用的大模型均不可用，已生成规则模板版（非 AI 润色）。" + "；".join(errors)
-    return {"text": "", "used_llm": False, "provider_name": None, "provider_id": None, "notice": notice}
+    return {"text": "", "used_llm": False, "provider_name": None, "provider_id": None, "model": None, "notice": notice}
 
 
 def call_best_available(db: Session, system: str, user: str, max_tokens: int | None = None, timeout: int | None = None) -> Dict[str, Any]:

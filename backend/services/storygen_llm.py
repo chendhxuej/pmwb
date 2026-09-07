@@ -173,18 +173,25 @@ def generate_with_llm(
 # 统一大模型入口（复用 AI 中心注册表）
 # ---------------------------------------------------------------------------
 
-def generate_via_unified(db, source: str, ddd: Dict[str, str], *, max_retries: int = 2):
+def generate_via_unified(
+    db, source: str, ddd: Dict[str, str], *, max_retries: int = 2
+) -> Dict[str, Any]:
     """调用 AI 中心统一大模型注册表生成用户故事（复用 services.llm_provider.call_best_available）。
 
     与 AI总结 等模块共用同一套底层大模型配置（「大模型管理」统一维护），
     不再单独依赖 US_STORY_LLM_* 配置。全部模型不可用或解析失败时抛异常，
     由上层（requirement_delivery._generate_with_llm_fallback）降级到规则引擎 v2。
+
+    Returns:
+        {"stories": [...], "provider_name": str, "model": str}
+        命中模型信息一并返回，供上层/前端展示"到底用的哪个模型"。
     """
     from services.llm_provider import call_best_available
     from services.storygen_prompt import SYSTEM_PROMPT, build_user_message
 
     user_message = build_user_message(source, ddd)
     provider_label = ""
+    provider_model = ""
     last_err = ""
     for attempt in range(max_retries + 1):
         res = call_best_available(db, SYSTEM_PROMPT, user_message)
@@ -193,18 +200,27 @@ def generate_via_unified(db, source: str, ddd: Dict[str, str], *, max_retries: i
                 res.get("notice") or "AI 中心未配置可用的大模型（请到「大模型管理」启用一个）"
             )
         provider_label = res.get("provider_name") or ""
+        provider_model = res.get("model") or ""
+        logger.info(
+            "AI 统一大模型生成用户故事：尝试 provider=%s model=%s（第 %d 次）",
+            provider_label, provider_model, attempt + 1,
+        )
         try:
             stories = _validate_stories(_parse_llm_response(res["text"]), source)
             logger.info(
-                "AI 统一大模型生成用户故事成功：%d 条（%s，第 %d 次尝试）",
-                len(stories), provider_label, attempt + 1,
+                "AI 统一大模型生成用户故事成功：%d 条（%s / %s，第 %d 次尝试）",
+                len(stories), provider_label, provider_model, attempt + 1,
             )
-            return stories
+            return {
+                "stories": stories,
+                "provider_name": provider_label,
+                "model": provider_model,
+            }
         except (json.JSONDecodeError, ValueError) as e:
             last_err = str(e)
             logger.warning(
-                "AI 输出解析失败（%s，第 %d/%d 次）: %s",
-                provider_label, attempt + 1, max_retries + 1, str(e)[:150],
+                "AI 输出解析失败（%s / %s，第 %d/%d 次）: %s",
+                provider_label, provider_model, attempt + 1, max_retries + 1, str(e)[:150],
             )
             if attempt >= max_retries:
                 raise RuntimeError(

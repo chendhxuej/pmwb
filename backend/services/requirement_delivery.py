@@ -6,9 +6,11 @@ REQUIREMENT_DOC_DIR），与知识库同源，便于 Obsidian 直接索引。
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
+import time
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
@@ -18,10 +20,18 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
-from db.models import PmwbUserStory, PmwbRequirementEvaluation, PmwbRequirementExt, SentEmail
+from db.models import (
+    PmwbUserStory,
+    PmwbRequirementEvaluation,
+    PmwbRequirementExt,
+    SentEmail,
+    now_cn,
+)
 from core.config import settings
 from core.exceptions import NotFoundException, ValidationException
 from services.storygen_rules import split_into_user_stories
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -365,18 +375,34 @@ def _story_to_dict(st: PmwbUserStory) -> Dict[str, Any]:
         "acceptance": json.loads(st.acceptance) if st.acceptance else [],
         "rules": json.loads(st.rules) if st.rules else [],
         "finalized": bool(st.finalized),
+        # 生成元信息（可为空：手工新增或历史数据）
+        "gen_strategy": getattr(st, "gen_strategy", None),
+        "gen_provider": getattr(st, "gen_provider", None),
+        "gen_model": getattr(st, "gen_model", None),
+        "gen_at": st.gen_at.isoformat() if getattr(st, "gen_at", None) else None,
+        "gen_fallback_reason": getattr(st, "gen_fallback_reason", None),
     }
 
 
 def get_user_stories(db, req_id: str) -> Dict[str, Any]:
-    """从数据库读取需求下的用户故事列表。"""
+    """从数据库读取需求下的用户故事列表（含生成元信息，便于前端溯源展示）。"""
     rows = (
         db.query(PmwbUserStory)
         .filter(PmwbUserStory.req_id == req_id)
         .order_by(PmwbUserStory.seq.asc())
         .all()
     )
-    return {"req_id": req_id, "stories": [_story_to_dict(r) for r in rows]}
+    first = rows[0] if rows else None
+    return {
+        "req_id": req_id,
+        "stories": [_story_to_dict(r) for r in rows],
+        # 生成元信息：重新打开需求时也能看到这批故事是谁生成的
+        "gen_strategy": getattr(first, "gen_strategy", None),
+        "gen_provider": getattr(first, "gen_provider", None),
+        "gen_model": getattr(first, "gen_model", None),
+        "gen_at": first.gen_at.isoformat() if (first is not None and first.gen_at) else None,
+        "gen_fallback_reason": getattr(first, "gen_fallback_reason", None),
+    }
 
 
 def search_user_stories(
@@ -457,8 +483,31 @@ def get_user_story_stats(db) -> Dict[str, int]:
     return {"total": total, "finalized": finalized, "draft": draft}
 
 
-def save_user_stories(db, req_id: str, stories: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """全量替换需求下的用户故事。"""
+def save_user_stories(
+    db,
+    req_id: str,
+    stories: List[Dict[str, Any]],
+    gen_meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """全量替换需求下的用户故事。
+
+    gen_meta: 生成元信息（gen_strategy/gen_provider/gen_model/gen_fallback_reason）。
+    未显式传入时继承该需求原有的元信息，避免「确认落库」二次保存把生成来源抹掉。
+    """
+    if gen_meta is None:
+        prev = (
+            db.query(PmwbUserStory)
+            .filter(PmwbUserStory.req_id == req_id)
+            .order_by(PmwbUserStory.seq.asc())
+            .first()
+        )
+        gen_meta = {
+            "gen_strategy": getattr(prev, "gen_strategy", None),
+            "gen_provider": getattr(prev, "gen_provider", None),
+            "gen_model": getattr(prev, "gen_model", None),
+            "gen_fallback_reason": getattr(prev, "gen_fallback_reason", None),
+            "gen_at": getattr(prev, "gen_at", None),
+        } if prev is not None else {}
     # 删除旧记录
     db.query(PmwbUserStory).filter(PmwbUserStory.req_id == req_id).delete()
     # 插入新记录
@@ -472,6 +521,13 @@ def save_user_stories(db, req_id: str, stories: List[Dict[str, Any]]) -> Dict[st
             acceptance=json.dumps(s.get("acceptance") or [], ensure_ascii=False),
             rules=json.dumps(s.get("rules") or [], ensure_ascii=False),
             finalized=1 if s.get("finalized") else 0,
+            gen_strategy=s.get("gen_strategy") or gen_meta.get("gen_strategy"),
+            gen_provider=s.get("gen_provider") or gen_meta.get("gen_provider"),
+            gen_model=s.get("gen_model") or gen_meta.get("gen_model"),
+            gen_fallback_reason=(
+                s.get("gen_fallback_reason") or gen_meta.get("gen_fallback_reason")
+            ),
+            gen_at=gen_meta.get("gen_at") or now_cn(),
         )
         db.add(st)
     db.commit()
@@ -498,6 +554,12 @@ def generate_user_stories(
 
     旧版兼容：不传 strategy 走 v2。
     """
+    started = time.perf_counter()
+    llm_meta: Dict[str, Any] = {
+        "provider_name": None,
+        "model": None,
+        "fallback_reason": None,
+    }
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     req_name = item.req_name if item else req_id
     system_name = item.system_name if item else None
@@ -516,21 +578,42 @@ def generate_user_stories(
         stories = _generate_v1(source, ddd, db, req_id)
         strategy_used = "rules_v1"
     elif strategy == "llm":
-        # LLM 策略：尝试调用 LLM，失败回退 rules_v2
-        stories, strategy_used = _generate_with_llm_fallback(source, ddd, db, req_id)
+        # LLM 策略：尝试调用 LLM，失败回退 rules_v2（降级原因回传，不再静默）
+        stories, strategy_used, llm_meta = _generate_with_llm_fallback(source, ddd, db, req_id)
     else:
         # 默认 rules_v2
         stories = _generate_v2(source, ddd)
         strategy_used = "rules_v2"
 
+    fallback = strategy_used == "rules_v2_fallback"
+    gen_meta = {
+        "gen_strategy": strategy_used,
+        "gen_provider": llm_meta.get("provider_name"),
+        "gen_model": llm_meta.get("model"),
+        "gen_fallback_reason": llm_meta.get("fallback_reason"),
+    }
     # 落库并返回持久化后的完整数据
-    saved = save_user_stories(db, req_id, stories)
+    saved = save_user_stories(db, req_id, stories, gen_meta=gen_meta)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    logger.info(
+        "用户故事生成完成 req_id=%s requested=%s used=%s provider=%s model=%s "
+        "fallback=%s count=%d elapsed=%dms",
+        req_id, strategy, strategy_used, llm_meta.get("provider_name"),
+        llm_meta.get("model"), fallback, len(stories), elapsed_ms,
+    )
     return {
         "req_id": req_id,
         "ddd": ddd,
         "proposer": proposer,
         "stories": saved["stories"],
         "strategy_used": strategy_used,
+        # —— 生成溯源：让「到底有没有用 AI / 用的哪个模型 / 为何降级」对外可见 ——
+        "strategy_requested": strategy,
+        "fallback": fallback,
+        "fallback_reason": llm_meta.get("fallback_reason"),
+        "llm_provider_name": llm_meta.get("provider_name"),
+        "llm_model": llm_meta.get("model"),
+        "elapsed_ms": elapsed_ms,
     }
 
 
@@ -593,15 +676,30 @@ def _generate_with_llm_fallback(
 
     不再单独依赖 US_STORY_LLM_* 配置；可用性以前端 llm-status 探测的
     AI 中心统一状态为准（有任一 enabled 提供方即可用）。
+
+    Returns:
+        (stories, strategy_used, meta)
+        meta 含 provider_name / model / fallback_reason，供上层回传前端，
+        使「到底有没有用 AI、用的哪个模型、为何降级」对外可见。
     """
+    meta: Dict[str, Any] = {
+        "provider_name": None,
+        "model": None,
+        "fallback_reason": None,
+    }
     try:
         from services.storygen_llm import generate_via_unified
-        stories = generate_via_unified(db, source, ddd)
-        return stories, "llm"
-    except Exception:
-        # 降级到 v2
+
+        res = generate_via_unified(db, source, ddd)
+        meta["provider_name"] = res.get("provider_name")
+        meta["model"] = res.get("model")
+        return res["stories"], "llm", meta
+    except Exception as e:  # noqa: BLE001
+        # 降级到 v2：必须留下完整堆栈 + 原因，不再静默吞掉异常
+        logger.exception("用户故事 AI 生成失败，降级到规则引擎 v2（req_id=%s）", req_id)
+        meta["fallback_reason"] = str(e)[:500]
         stories = _generate_v2(source, ddd)
-        return stories, "rules_v2_fallback"
+        return stories, "rules_v2_fallback", meta
 
 
 # ---------------------------------------------------------------------------

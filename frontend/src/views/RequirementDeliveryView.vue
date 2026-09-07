@@ -668,6 +668,7 @@
               <div class="card-header">
                 <span class="card-label">用户故事</span>
                 <span v-if="strategyLabel" class="pm-tag gray ml-8" style="font-size: 11px">{{ strategyLabel }} · {{ stories.length }} 条</span>
+                <span v-if="genMeta.gen_at" class="pm-tag gray ml-8" style="font-size: 11px">生成于 {{ formatGenTime(genMeta.gen_at) }}</span>
                 <div class="flex gap-8" style="margin-left:auto">
                   <template v-if="stories.length && !storiesConfirmed">
                     <el-badge :value="stories.length" :max="99" class="confirm-badge">
@@ -683,6 +684,13 @@
                 </div>
               </div>
               <div class="card-body">
+
+                <!-- AI 降级告警：明确告知「你选的是 AI，实际跑的是规则引擎」 -->
+                <div v-if="genMeta.gen_fallback_reason" class="story-fallback-bar">
+                  <div class="sfb-title">⚠️ 本次未真正使用 AI：已自动降级为「合并优先」规则生成</div>
+                  <div class="sfb-reason">原因：{{ genMeta.gen_fallback_reason }}</div>
+                  <div class="sfb-hint">规则引擎对同一份澄清内容输出固定不变，这就是为什么反复生成结果都一样。请到「大模型管理」检查模型配置后重试。</div>
+                </div>
 
                 <!-- 生成中遮罩 -->
                 <div v-if="storyGenLoading" class="story-loading-overlay">
@@ -1771,8 +1779,16 @@ const evaluations = ref([])
 const evalLoading = ref(false)
 const stories = ref([])
 const strategyLabel = ref('')
+// 生成溯源：本次/上次生成实际用的策略与模型；AI 降级时带原因，必须显式暴露
+const genMeta = ref({
+  gen_strategy: null,
+  gen_provider: null,
+  gen_model: null,
+  gen_at: null,
+  gen_fallback_reason: null,
+})
 const storiesConfirmed = ref(false)
-const llmStatus = ref({ available: false, provider_name: '', provider_count: 0, notice: '' })
+const llmStatus = ref({ available: false, provider_name: '', provider_model: '', provider_count: 0, notice: '', error: '' })
 const llmChecking = ref(false)
 const docTemplate = ref('std')
 const docFileName = ref('')
@@ -1857,9 +1873,20 @@ async function loadStories(reqId) {
       finalized: s.finalized,
     }))
     storiesConfirmed.value = stories.value.length > 0
+    // 恢复上次生成元信息：重新打开需求也能看到这批故事是谁生成的
+    genMeta.value = {
+      gen_strategy: res.gen_strategy || null,
+      gen_provider: res.gen_provider || null,
+      gen_model: res.gen_model || null,
+      gen_at: res.gen_at || null,
+      gen_fallback_reason: res.gen_fallback_reason || null,
+    }
+    strategyLabel.value = genLabelText(genMeta.value)
   } catch (err) {
     stories.value = []
     storiesConfirmed.value = false
+    genMeta.value = { gen_strategy: null, gen_provider: null, gen_model: null, gen_at: null, gen_fallback_reason: null }
+    strategyLabel.value = ''
   }
 }
 
@@ -2059,6 +2086,30 @@ const storyGenLoading = ref(false)                // 生成中
 const storyGenElapsed = ref(0)                    // 已耗时（秒）
 let _storyGenTimer = null                         // 耗时计时器
 
+// 策略展示名：rules_v2_fallback 必须标出「AI降级」，不能再伪装成「合并优先」
+const STRATEGY_LABELS = {
+  rules_v2: '合并优先',
+  rules_v1: '按工作量拆分',
+  rules_v2_fallback: 'AI降级·合并优先',
+  llm: 'AI智能生成',
+}
+function genLabelText(meta) {
+  if (!meta || !meta.gen_strategy) return ''
+  const base = STRATEGY_LABELS[meta.gen_strategy] || meta.gen_strategy
+  if (meta.gen_strategy === 'llm') {
+    const m = [meta.gen_provider, meta.gen_model].filter(Boolean).join(' / ')
+    return m ? `${base}（${m}）` : base
+  }
+  return base
+}
+function formatGenTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 const llmProviderLabel = computed(() => {
   const p = llmStatus.value.provider_name
   return p || 'AI'
@@ -2067,9 +2118,11 @@ async function checkLlmStatus() {
   llmChecking.value = true
   try {
     const res = await getLlmStatus()
-    llmStatus.value = res
+    // 整体赋值：新增的 provider_model / probed / error / cached 一并带回，
+    // 用于区分「未配置模型」与「配了但连不通（如密钥失效）」
+    llmStatus.value = { ...llmStatus.value, ...(res || {}) }
   } catch {
-    llmStatus.value = { available: false, provider_name: '', provider_count: 0, notice: '' }
+    llmStatus.value = { available: false, provider_name: '', provider_model: '', provider_count: 0, notice: '', error: '状态接口不可用', probed: false }
   } finally {
     llmChecking.value = false
   }
@@ -2114,9 +2167,32 @@ async function generateStories(strategy = 'rules_v2') {
       finalized: false,
     }))
     storiesConfirmed.value = false
-    const labelMap = { rules_v2: '合并优先', rules_v1: '按工作量拆分', rules_v2_fallback: '合并优先', llm: 'AI智能生成' }
-    strategyLabel.value = labelMap[res.strategy_used] || res.strategy_used || ''
-    ElMessage.success(`已生成 ${stories.value.length} 条用户故事（${strategyLabel.value}），请预览后点击「确认落库」保存`)
+
+    // 生成溯源：记录本次实际使用的策略与模型，AI 降级必须显式暴露
+    genMeta.value = {
+      gen_strategy: res.strategy_used || null,
+      gen_provider: res.llm_provider_name || null,
+      gen_model: res.llm_model || null,
+      gen_at: new Date().toISOString(),
+      gen_fallback_reason: res.fallback_reason || null,
+    }
+    strategyLabel.value = genLabelText(genMeta.value)
+
+    if (res.fallback) {
+      // 用户选的是 AI，实际却跑了规则引擎 —— 必须明确告警，不能伪装成「合并优先」
+      ElMessage({
+        type: 'warning',
+        duration: 8000,
+        showClose: true,
+        message: `⚠️ AI 生成失败，已自动降级为「合并优先」规则生成。原因：${res.fallback_reason || '未知'}。请到「大模型管理」检查模型配置。`,
+      })
+    } else if (res.strategy_used === 'llm') {
+      const modelTxt = [res.llm_provider_name, res.llm_model].filter(Boolean).join(' / ')
+      const sec = ((res.elapsed_ms || 0) / 1000).toFixed(1)
+      ElMessage.success(`已生成 ${stories.value.length} 条用户故事（AI智能生成 · ${modelTxt || 'AI'} · ${sec}s）`)
+    } else {
+      ElMessage.success(`已生成 ${stories.value.length} 条用户故事（${strategyLabel.value}），请预览后点击「确认落库」保存`)
+    }
   } catch (err) {
     ElMessage.error('生成失败，请重试')
   } finally {
@@ -2518,6 +2594,13 @@ onBeforeUnmount(() => {
   background: #fffbe6; border: 1px solid #ffe58f; border-radius: 8px;
   padding: 10px 14px; margin-bottom: 14px; font-size: 12.5px; color: #8c6d00
 }
+.story-fallback-bar {
+  background: #fff2f0; border: 1px solid #ffccc7; border-left: 3px solid #ff4d4f;
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
+}
+.story-fallback-bar .sfb-title { font-size: 13px; font-weight: 700; color: #cf1322; margin-bottom: 4px }
+.story-fallback-bar .sfb-reason { font-size: 12.5px; color: #a8071a; word-break: break-all; margin-bottom: 4px }
+.story-fallback-bar .sfb-hint { font-size: 12px; color: #8c6d00; line-height: 1.6 }
 .confirm-badge :deep(.el-badge__content) { margin-top: 2px }
 
 /* 用户故事只读详情 */

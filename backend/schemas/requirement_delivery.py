@@ -34,11 +34,23 @@ class UserStoryItem(BaseModel):
     acceptance: List[str] = []
     rules: List[str] = []
     finalized: bool = False
+    # 生成元信息（可选，历史数据与手工新增为空）
+    gen_strategy: Optional[str] = None
+    gen_provider: Optional[str] = None
+    gen_model: Optional[str] = None
+    gen_at: Optional[str] = None
+    gen_fallback_reason: Optional[str] = None
 
 
 class UserStoryListOut(BaseModel):
     req_id: str
     stories: List[UserStoryItem]
+    # 生成元信息（取自该需求首条故事，便于重新打开页面时溯源）
+    gen_strategy: Optional[str] = None
+    gen_provider: Optional[str] = None
+    gen_model: Optional[str] = None
+    gen_at: Optional[str] = None
+    gen_fallback_reason: Optional[str] = None
 
 
 class UserStorySearchItem(BaseModel):
@@ -76,6 +88,13 @@ class UserStoryGenOut(BaseModel):
     ddd: DDDView
     stories: List[UserStoryItem]
     strategy_used: str = "rules_v2"
+    # —— 生成溯源：暴露 AI 降级，避免「以为在用 AI，其实跑的是规则引擎」——
+    strategy_requested: Optional[str] = None
+    fallback: bool = False
+    fallback_reason: Optional[str] = None
+    llm_provider_name: Optional[str] = None
+    llm_model: Optional[str] = None
+    elapsed_ms: Optional[int] = None
 
 
 class DocGenIn(BaseModel):
