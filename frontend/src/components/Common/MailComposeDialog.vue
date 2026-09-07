@@ -382,7 +382,10 @@ const scenesMap = ref({})
 
 const fieldList = computed(() => {
   if (props.fieldSchema && props.fieldSchema.length) return props.fieldSchema
-  return (scenesMap.value[props.scene] && scenesMap.value[props.scene].fields) || []
+  const raw = (scenesMap.value[props.scene] && scenesMap.value[props.scene].fields) || []
+  // 过滤掉后端专用类型（task_list 等）：这些字段仅作 schema 标识，装配由后端独占，
+  // 不应渲染为表单输入项，否则会覆盖 props.variables 透传的完整结构化数据。
+  return raw.filter((f) => !['task_list'].includes(f.type))
 })
 
 async function ensureScenes() {

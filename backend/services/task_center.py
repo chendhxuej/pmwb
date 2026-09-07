@@ -46,6 +46,9 @@ logger = logging.getLogger("pmwb.task_center")
 
 DUE_SOON_DAYS = 3
 
+# 各任务来源 detail 中承载「任务描述」的字段名（按优先级取其一）
+DESC_KEYS = ["需求描述", "情况说明", "行动项", "内容", "说明", "备注", "风险说明"]
+
 # 运营问题细分类型中文（issue_type 子类 / category 大类）
 _ISSUE_TYPE_LABEL = {
     "bug": "BUG管理",
@@ -706,7 +709,6 @@ class TaskCenterService:
         工单内容（源模块关键字段摘要），确保「收到邮件即清楚是什么事」。
         """
         # 不同任务来源 detail 中承载「任务描述」的字段名不一，按优先级取其一
-        desc_keys = ["需求描述", "情况说明", "行动项", "内容", "说明", "备注", "风险说明"]
         intro = (
             "各位：\n\n以下任务已到跟进节点，麻烦尽快处理并反馈进展，辛苦了！\n"
             if send_type == "urge"
@@ -722,7 +724,7 @@ class TaskCenterService:
                 continue
             due = f"完成时间：{item.due_date}" if item.due_date else "完成时间：未设定"
             overdue = "【已超期】" if item.is_overdue else ("【即将到期】" if item.is_due_soon else "")
-            desc = next((item.detail.get(k) for k in desc_keys if item.detail.get(k)), None)
+            desc = next((item.detail.get(k) for k in DESC_KEYS if item.detail.get(k)), None)
             content = str(desc).strip() if desc else "（无补充说明）"
             blocks.append(
                 f"{idx}. {item.title}\n"
@@ -734,12 +736,65 @@ class TaskCenterService:
             )
         return intro + "—— 待办事项明细 ——\n" + "\n".join(blocks) + "\n\n—— 产品经理工作台（PMWB）"
 
+    def _build_structured_tasks(
+        self, db: Session, task_refs: List[TaskRef]
+    ) -> List[Dict[str, Any]]:
+        """按 TaskRef 列表聚合出结构化任务数组（每条含详情、状态、超期标记）。
+
+        2026-09-07 改造：取代前端 buildTaskListHtml 的扁平 HTML 列表，
+        邮件正文的每条任务都能拿到标题/背景/工单描述/截止日期/责任人/状态。
+        """
+        out: List[Dict[str, Any]] = []
+        for idx, ref in enumerate(task_refs, 1):
+            item = self.get_detail(db, f"{ref.source}:{ref.source_id}")
+            if item is None:
+                continue
+            desc = next((item.detail.get(k) for k in DESC_KEYS if item.detail.get(k)), "")
+            out.append(
+                {
+                    "index": idx,
+                    "title": item.title or "",
+                    "source_label": item.source_label,
+                    "source": item.source,
+                    "source_id": item.source_id,
+                    "owner": item.owner or "未分配",
+                    "due_date": item.due_date.isoformat() if item.due_date else "",
+                    "status_label": item.status_label,
+                    "priority": item.priority or "",
+                    "description": str(desc).strip(),
+                    "is_overdue": bool(item.is_overdue),
+                    "is_due_soon": bool(item.is_due_soon),
+                    "source_url": item.source_url,
+                }
+            )
+        return out
+
+    def _aggregate_owners(self, tasks: List[Dict[str, Any]]) -> str:
+        """聚合去重后的负责人姓名（"X、Y"），用于称呼生成。
+
+        多人称呼由 render_greeting 自动判定（1 人/2 人用名字，3+ 降级"各位同事，"）。
+        """
+        names: List[str] = []
+        seen: set[str] = set()
+        for t in tasks or []:
+            raw_owner = (t.get("owner") or "").strip()
+            if not raw_owner or raw_owner in ("我", "未分配"):
+                continue
+            for sub in re.split(r"[,;，；、\s]+", raw_owner):
+                sub = sub.strip()
+                if sub and sub not in seen:
+                    seen.add(sub)
+                    names.append(sub)
+        return "、".join(names)
+
     def send_notification(self, db: Session, obj_in: TaskSendRequest) -> Dict[str, Any]:
         """发送任务通知/催办邮件，落 email_records（source=task-center）。
 
         dry_run=True 时仅返回模板渲染正文（用于前端预览，所见即所得）。
-        scene 模式（task_center_notify/urge）：3210 模板渲染正文；
-        模板变量优先取前端 template_data（tasks HTML 列表），缺失时后端兜底生成文本清单。
+        scene 模式（task_center_notify/urge）：正文由 PMWB 装配器渲染
+        （utils.mail_content.render_task_center_section），
+        模板变量优先取前端 template_data.tasks（结构化数组），
+        缺失时后端按 TaskRef 实时聚合（_build_structured_tasks）。
         """
         if not obj_in.tasks:
             raise ValidationException("请至少选择一个任务")
@@ -747,10 +802,18 @@ class TaskCenterService:
         scene = "task_center_urge" if obj_in.send_type == "urge" else "task_center_notify"
         tdata = obj_in.template_data or {}
 
-        # 模板变量：tasks 列表（{{{tasks}}} 透传 HTML）+ sendType；body 承载可编辑正文（模板渲染降级时兜底）
+        # 模板变量：结构化任务列表（task_center 装配器消费）+ sendType + recipient_name；
+        # body 仅作 fallback（3210 模板不可用时使用）。
+        tdata_tasks = tdata.get("tasks") if isinstance(tdata.get("tasks"), list) else None
+        if not tdata_tasks:
+            tdata_tasks = self._build_structured_tasks(db, obj_in.tasks)
+
+        recipient_name = tdata.get("recipient_name") or self._aggregate_owners(tdata_tasks)
+
         variables: Dict[str, Any] = {
-            "tasks": tdata.get("tasks") or self.build_email_body(db, obj_in.tasks, obj_in.send_type),
+            "tasks": tdata_tasks,
             "sendType": tdata.get("sendType") or obj_in.send_type,
+            "recipient_name": recipient_name,
             "body": obj_in.body or tdata.get("body") or "",
         }
 
@@ -759,7 +822,9 @@ class TaskCenterService:
             rendered = _render_mail(
                 scene=scene,
                 variables=variables,
+                fields={"tasks": tdata_tasks} if tdata_tasks else None,
                 subject=obj_in.subject,
+                recipient_name=recipient_name,
             )
             return {"success": True, "preview": True, "body": rendered["rendered_body"], "subject": rendered["subject"]}
 
@@ -797,7 +862,9 @@ class TaskCenterService:
             subject=obj_in.subject,
             scene=scene,
             variables=variables,
+            fields={"tasks": tdata_tasks} if tdata_tasks else None,
             raw_content=obj_in.body,
+            recipient_name=recipient_name,
             email_type=email_type,
             req_id=";".join(f"{t.source}:{t.source_id}" for t in obj_in.tasks)[:64],
             req_name=(first_title or "任务中心邮件")[:255],

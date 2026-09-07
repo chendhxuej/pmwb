@@ -42,8 +42,10 @@
 
 ## 邮件统一治理与 HTML 渲染铁律（核心）
 - 所有发信收口 dispatch_email（SCENES 12 场景）；预览 POST /api/v1/mail-dispatch/preview，发送 POST /api/v1/mail-dispatch/send。
-- 统一宽度写法：**幽灵单元格 90% 居中**（左右各 5% + 中间 90%，align="center" 兜底）。**严禁 `max-width:Npx;margin:0 auto`**（Outlook 忽略→偏左，Foxmail 固定窄列）。`_wrap_content_responsive` 为全项目唯一宽度写法，周报已用；通用 Markdown 邮件（markdown_to_email_html）暂保留 680px 待统一方案全量执行。
-- **3210 模板双层窄（根因）**：邮件 = 3210 frame(`max-width:600px`) 包裹 markdown_to_email_html 输出(`680px`)，双层叠加最窄。3210 是外部服务（模板存 3210 自有 DB，无 PUT/PATCH 更新接口、POST 行为不明、重启可能重置），故**PMWB 侧用 `widen_frame` 后处理改宽最稳可控**：meeting_notice/meeting_minutes 场景渲染后把外层 `max-width:600px`→`width:90%`、内层 `max-width:680px`→`width:100%`。其他 3210 场景（任务催办/督办/工单同步/需求催办等）暂保持，待统一方案批量处理。
+- **正文由 PMWB 装配器渲染（2026-09-07 改造）**：13 MailScene 中 11 个 `renderer=True`，不再调 3210 `render_template`；work_report / plugin 仍走 raw markdown。装配器入口 `utils.mail_content.build_mail_body`，统一输出 品牌色带 + 称呼 + 字段表 + Markdown 正文（幽灵表格 90% 居中）+ 签名；3210 仅做发信通道。新增场景须在 `MailScene` 注册 + 在 `SCENE_META` 配品牌色/主标题/引导语 + 在 `SCENE_FIELDS` 配字段。
+- **统一宽度写法**：幽灵单元格 90% 居中（外层 100% + align="center"，内层 width="90%"）。**严禁 `max-width:Npx;margin:0 auto`**（Outlook 忽略→偏左，Foxmail 固定窄列）。`_wrap_content_responsive` 为全项目唯一宽度写法，周报已用；通用 Markdown 邮件（markdown_to_email_html）暂保留 680px 待统一方案全量执行。
+- **会议类 widen_frame 后处理**：装配器模式下同样生效（`meeting_notice` / `meeting_minutes` 场景），外层 100% 幽灵表格 + 内层 90% 居中，确保 Outlook/Foxmail 渲染一致。
+- **运营督办特殊字段映射**：`build_ticket_fields` 把工单数据转 `category/handler/resolveDate/description`，与模板字段对齐；纯文本 `description` 经 Markdown 段落渲染保留换行；`extra_msg` 注入正文「补充说明」。`POST /api/v1/supervise/preview` 复用同一装配链路（预览即实发）。
 - **运营监控督办邮件自动带出工单附件（2026-09-01）**：supervise_sync/supervise_urge 场景，`supervise_ticket` 自动读 `pmwb_operation_issue.attachments`（JSON 元信息 `{name,bytes,size}`）+ 真实文件 `uploads/operation/{id}/{name}`，经 `utils/operation_attachment.build_operation_attachment_block`：① 正文追加 HTML 附件清单（文件名+大小+系统下载链接 `http://{BACKEND_HOST}:{BACKEND_PORT}/api/v1/operation/issues/{id}/attachments/download`，公网部署配 `PUBLIC_BASE_URL` 覆盖）；② 未超限真实文件转 base64 作 `dispatch_email(attachments=)` 参数（真 MIME 附件）。超限策略：单文件>20MB 或累计>50MB 跳过并正文标注「体积过大未随信附上」。3210 supervise 模板用 `{{{description}}}` 变量（非 body），清单须 HTML 注入且**双写 `desc`/`description`** 兼容（历史传 desc）。预览端点 `/preview` 加 `attachmentIssueId` 参数复用同函数，保证「预览即实发」。前端 SuperviseDialog 加「预览」按钮调 `/preview`（iframe srcdoc 展示）。
 - 邮件抬头：4px 品牌色带（日报/周报 #165dff、月报 #722ed1）；正式汇报邮件不用 emoji。
 - 双栏卡片：内部 table height="260"、内容 td valign="top"；_render_dual_overview 提取 Part A/B 结束条件锚定 H2/Part B 字样，不能锚定任意 <strong>；正则匹配标签写 <tag[^>]*>。
@@ -53,7 +55,7 @@
 
 ## 协同开发/git 安全
 - 禁 main 直开发：feature 分支 → 审查合版；禁 git checkout -b/branch/worktree。提交走 scripts/git-safe-commit.sh（含 /d/fixbk 备份 → 重锚 main → 精确 add → commit-gate）。
-- git push 后本地 origin/main 跟踪引用不更新（沙箱怪象）：判据以 git ls-remote 为权威；修正 sed .git/packed-refs。
+- git push 后本地 origin/main 跟踪引用不更新（沙箱怪象）。**判断 origin 真实状态必须用 `git ls-remote origin refs/heads/main`**（权威），绝不用 `git rev-parse origin/main` 或 `git rev-list origin/main..main`（本地跟踪引用可能滞后多日，造成 31/3 这种数量级误判，2026-09-07 真实案例）。修正动作：`git fetch origin main`（首选）或 `sed .git/packed-refs`。
 - 提交对象丢失恢复：直接跑 git-safe-commit.sh（脚本重锚 main + reset --mixed + 仅 add 指定文件），勿手敲 checkout -b/reset --hard。
 
 ## 验证纪律

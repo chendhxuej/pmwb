@@ -98,13 +98,13 @@ SCENES: dict[str, MailScene] = {
     "task_center_notify": MailScene(
         "task_center_notify", email_type="pmwb_task_notify", source="task-center",
         template_key="task_center_notify", raw=False, renderer=True,
-        default_subject="任务同步通知",
+        default_subject="通知：{title}",
         fallback_template="## 任务同步通知\n\n任务清单请查看系统任务中心。",
     ),
     "task_center_urge": MailScene(
         "task_center_urge", email_type="pmwb_task_urge", source="task-center",
         template_key="task_center_urge", raw=False, renderer=True,
-        default_subject="任务催办提醒",
+        default_subject="催办：{title}",
         fallback_template="## 任务催办提醒\n\n请查看系统任务中心，尽快处理并反馈进展。",
     ),
     "plugin": MailScene("plugin", email_type="xqemail_plugin", source="plugin"),
@@ -321,6 +321,17 @@ def _render_mail(
     # 由场景默认主题 + 字段值格式化生成
     if "{" in final_subject:
         ctx = {**(variables or {}), **(fields or {})}
+        # task_center_* 主题格式化（2026-09-07）：
+        # 单任务 → 催办：{title}；多任务 → 催办：{first_title[:30]} 等 {N} 项任务
+        if scene in ("task_center_notify", "task_center_urge"):
+            tasks_val = (fields or {}).get("tasks")
+            if isinstance(tasks_val, list) and tasks_val:
+                ctx["count"] = len(tasks_val)
+                if len(tasks_val) == 1:
+                    ctx["title"] = tasks_val[0].get("title") or ""
+                else:
+                    first_title = (tasks_val[0].get("title") or "")[:30]
+                    ctx["title"] = f"{first_title} 等 {len(tasks_val)} 项任务"
         try:
             final_subject = final_subject.format_map(_SafeDict(ctx))
         except Exception:  # noqa: BLE001

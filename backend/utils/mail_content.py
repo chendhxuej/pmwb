@@ -44,6 +44,7 @@ __all__ = [
     "render_greeting",
     "default_body_md",
     "build_mail_body",
+    "render_task_center_section",
 ]
 
 
@@ -172,10 +173,10 @@ SCENE_FIELDS: dict[str, list[MailField]] = {
         _f("items", "需求清单", type="textarea", in_body=True),
     ],
     "task_center_notify": [
-        _f("tasks", "任务清单", type="textarea", in_body=True),
+        _f("tasks", "任务清单", type="task_list", in_body=True),
     ],
     "task_center_urge": [
-        _f("tasks", "任务清单", type="textarea", in_body=True),
+        _f("tasks", "任务清单", type="task_list", in_body=True),
     ],
     "meeting_notice": [
         _f("meetingTopic", "会议主题"),
@@ -288,6 +289,63 @@ def default_body_md(scene: str, values: dict) -> str:
     return "\n\n".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# 任务中心专用装配（2026-09-07）
+# ---------------------------------------------------------------------------
+def render_task_center_section(tasks: list[dict], send_type: str = "urge") -> str:
+    """结构化任务列表 → Markdown 段（每条 = H3 标题 + 字段表 + 工单内容）。
+
+    任务中心邮件的硬伤（不连贯 / 详情缺失 / 批量不完整）由本函数根治：
+    - 不再依赖前端硬编码问候或 buildTaskListHtml 的 `<ul>` 拼接
+    - 每条任务独占一段（H3 + 字段表 + 工单内容），空 description 优雅跳过
+    - 超期红色标记、临期橙色标记
+    - 由 build_mail_body 自动纳入正文（in_body=True 等价效果），无需前端感知
+
+    输入每个 task dict 的字段：
+        title, source_label, owner, due_date, status_label,
+        priority, description (str, \n 保留), is_overdue, is_due_soon,
+        source_url (预留字段字段可暂未使用), index (1-based)
+
+    返回 Markdown 字符串，由 build_mail_body 经 markdown_fragment 渲染为 HTML。
+    """
+    if not tasks:
+        return ""
+
+    blocks: list[str] = []
+    for t in tasks:
+        idx = t.get("index") or (len(blocks) + 1)
+        title = (t.get("title") or "（无标题）").strip()
+        # 超期/临期标记
+        badge = ""
+        if t.get("is_overdue"):
+            badge = " <span style=\"color:#f53f3f;font-weight:600;\">【超期】</span>"
+        elif t.get("is_due_soon"):
+            badge = " <span style=\"color:#ff7d00;font-weight:600;\">【临期】</span>"
+        heading = f"### {idx}. {title}{badge}" if badge else f"### {idx}. {title}"
+
+        # 字段表（5 列：来源 / 负责人 / 截止 / 状态 / 优先级）
+        cells = [
+            str(t.get("source_label") or "—"),
+            str(t.get("owner") or "未分配"),
+            str(t.get("due_date") or "未设定"),
+            str(t.get("status_label") or "—"),
+            str(t.get("priority") or "—"),
+        ]
+        field_table = (
+            "| 来源 | 负责人 | 截止 | 状态 | 优先级 |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} | {cells[4]} |"
+        )
+
+        parts = [heading, "", field_table]
+        desc = (t.get("description") or "").strip()
+        if desc:
+            parts.extend(["", "**工单内容**：", "", desc])
+        blocks.append("\n".join(parts))
+
+    return "\n\n---\n\n".join(blocks)
+
+
 def _render_fields_table(scene: str, values: dict) -> str:
     """结构化字段表（表格项 = 非 in_body 字段）。"""
     rows: list[str] = []
@@ -352,9 +410,27 @@ def build_mail_body(
     # 为什么是拼接而非二选一：任务中心等场景正文只是一句引导语，任务清单在 tasks 字段里，
     # 若二选一会直接丢掉清单；而去重判断可避免工单描述在正文中重复出现两次。
     md = (body_md or "").strip()
+
+    # task_center_* 专用装配（2026-09-07）：当 fields.tasks 是结构化列表时
+    # 走 render_task_center_section，输出每条任务的 H3+字段表+工单内容。
+    # 兼容旧调用方：tasks 是 str（HTML）时保持原 auto_parts 拼接。
+    tc_skip_keys: set[str] = set()
+    if scene in ("task_center_notify", "task_center_urge"):
+        tasks_val = (values or {}).get("tasks")
+        if isinstance(tasks_val, list) and tasks_val:
+            send_type = "urge" if "urge" in scene else "notify"
+            section_md = render_task_center_section(tasks_val, send_type)
+            if section_md:
+                if section_md.strip() not in md:
+                    md = (md + "\n\n" if md else "") + section_md
+            # 标记跳过通用 in_body 拼接，避免重复出现 "### 任务清单"
+            tc_skip_keys.add("tasks")
+
     auto_parts: list[str] = []
     for f in get_scene_fields(scene):
         if not f.in_body:
+            continue
+        if f.key in tc_skip_keys:
             continue
         val = (values or {}).get(f.key)
         if val is None or not str(val).strip():

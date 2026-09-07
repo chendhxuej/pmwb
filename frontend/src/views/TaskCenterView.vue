@@ -586,44 +586,71 @@ function handleMailSuccess() {
   }
 }
 
-// T-E：构建任务清单 HTML（{{{tasks}}} 透传，3210 模板引擎不支持循环，由调用方格式化）
-function escapeHtmlText(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+// T-E：构建结构化任务数组（2026-09-07 改造）：
+// 取代旧的 buildTaskListHtml(HTML 列表)——每条任务都带详情（来源/负责人/截止/状态/优先级/工单内容/超期标记），
+// 后端 utils.mail_content.render_task_center_section 据此渲染每条任务卡片（H3+字段表+工单内容）。
+const TASK_DESC_KEYS = ['需求描述', '情况说明', '行动项', '内容', '说明', '备注', '风险说明']
+
+function pickTaskDescription(detail) {
+  if (!detail) return ''
+  for (const k of TASK_DESC_KEYS) {
+    if (detail[k]) return String(detail[k]).trim()
+  }
+  return ''
 }
 
-function buildTaskListHtml(rows) {
-  const items = (rows || [])
-    .map((t) => {
-      const title = escapeHtmlText(t.title || '（无标题）')
-      const owner = escapeHtmlText(t.owner || '未分配')
-      const due = escapeHtmlText(t.due_date || '')
-      const status = escapeHtmlText(t.status_label || t.status || '')
-      const dueText = due ? ` · 截止：${due}` : ''
-      const statusText = status ? ` · 状态：${status}` : ''
-      return `<li><b>${title}</b>（负责人：${owner}${dueText}${statusText}）</li>`
-    })
-    .join('')
-  return `<ul style="padding-left:20px;margin:8px 0;line-height:1.8;">${items}</ul>`
+function buildStructuredTasks(rows) {
+  return (rows || []).map((t, idx) => ({
+    index: idx + 1,
+    title: t.title || '（无标题）',
+    source_label: t.source_label || t.source || '',
+    source: t.source,
+    source_id: t.source_id,
+    owner: t.owner || '未分配',
+    due_date: t.due_date || '',
+    status_label: t.status_label || t.status || '',
+    priority: t.priority || '',
+    description: pickTaskDescription(t.detail || {}),
+    is_overdue: !!t.is_overdue,
+    is_due_soon: !!t.is_due_soon,
+    source_url: t.source_url || '',
+  }))
+}
+
+function aggregateOwners(rows) {
+  const seen = new Set()
+  const names = []
+  for (const t of rows || []) {
+    const owner = (t.owner || '').trim()
+    if (!owner || owner === '我' || owner === '未分配') continue
+    for (const sub of owner.split(/[,;，；、\s]+/)) {
+      const s = sub.trim()
+      if (s && !seen.has(s)) {
+        seen.add(s)
+        names.push(s)
+      }
+    }
+  }
+  return names.join('、')
 }
 
 async function openTaskEmail(rows, sendType) {
   if (!rows.length) return
   mailDialogMode.value = 'task'
-  // T-E：task 模式切 task_center_notify/urge 场景，正文由 3210 模板渲染（tasks HTML 列表）
+  // T-F：task 模式切 task_center_notify/urge 场景，正文由 PMWB 装配器
+  // (utils.mail_content.render_task_center_section) 按结构化 tasks 渲染每条任务卡片。
   mailDialogScene.value = sendType === 'urge' ? 'task_center_urge' : 'task_center_notify'
   mailDialogVariables.value = {
-    tasks: buildTaskListHtml(rows),
+    tasks: buildStructuredTasks(rows),     // 结构化数组（不再是 <ul> HTML）
     sendType: sendType === 'urge' ? 'urge' : 'notify',
+    recipient_name: aggregateOwners(rows),  // 聚合负责人，后端 render_greeting 据此生成称呼
   }
   mailDialogTitle.value = sendType === 'urge' ? '发送催办邮件' : '发送通知邮件'
-  const first = rows[0]
-  mailDialogSubject.value =
-    (sendType === 'urge' ? '催办：' : '通知：') +
-    (rows.length === 1 ? (first.title || '') : `${rows.length} 项待办任务`)
-  mailDialogBody.value =
-    sendType === 'urge'
-      ? '各位：\n\n以下任务已到跟进节点，麻烦尽快处理并反馈进展，辛苦了！\n\n——产品经理工作台（PMWB）'
-      : '各位：\n\n同步以下任务的当前情况，请知悉。\n\n——产品经理工作台（PMWB）'
+  // 主题交给后端 default_subject + 装配器格式化生成（单任务：催办：{title}；
+  // 多任务：催办：{first_title} 等 {N} 项任务），前端不再硬编码。
+  mailDialogSubject.value = ''
+  // 正文完全由后端装配（品牌带+称呼+引导语+任务卡片+签名），前端留空。
+  mailDialogBody.value = ''
   mailDialogContext.value = { tasks: rows.slice(), send_type: sendType }
   // 预填负责人姓名（StaffSelect 会按姓名解析邮箱）
   const names = [
