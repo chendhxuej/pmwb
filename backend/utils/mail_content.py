@@ -43,6 +43,7 @@ __all__ = [
     "text_to_html",
     "render_greeting",
     "default_body_md",
+    "build_mail_body_md",
     "build_mail_body",
     "render_task_center_section",
 ]
@@ -376,6 +377,82 @@ def _render_fields_table(scene: str, values: dict) -> str:
 # ---------------------------------------------------------------------------
 # 主装配入口
 # ---------------------------------------------------------------------------
+def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
+    """拼装正文 Markdown 源：用户编辑的 body_md + 结构化字段段落（去重）。
+
+    与 build_mail_body 的正文 Markdown 拼装逻辑完全一致，是它的"纯函数版"——
+    不渲染 HTML、不加品牌色带，只产出 Markdown 字符串，供前端编辑用。
+    """
+    md = (body_md or "").strip()
+
+    # task_center_* 专用装配（2026-09-07）：当 fields.tasks 是结构化列表时
+    # 走 render_task_center_section，输出每条任务的 H3+字段表+工单内容。
+    # 兼容旧调用方：tasks 是 str（HTML）时保持原 auto_parts 拼接。
+    # 2026-09-07 增强：用户编辑 body_md 后若保留任意一条任务的 title，认为用户已接管正文，跳过追加避免重复。
+    tc_skip_keys: set[str] = set()
+    if scene in ("task_center_notify", "task_center_urge"):
+        tasks_val = (values or {}).get("tasks")
+        if isinstance(tasks_val, list) and tasks_val:
+            send_type = "urge" if "urge" in scene else "notify"
+            section_md = render_task_center_section(tasks_val, send_type)
+            # 检测 md 是否含任意一条任务 title：保留→跳过追加；全部删空→重拼完整卡片。
+            task_titles = [
+                t.get("title") for t in tasks_val
+                if isinstance(t, dict) and t.get("title")
+            ]
+            md_has_any_task = any(t and t in md for t in task_titles)
+            if section_md and not md_has_any_task:
+                md = (md + "\n\n" if md else "") + section_md
+            # list 路径：跳过通用 auto_parts，避免重复拼出 "### 任务清单"
+            tc_skip_keys.add("tasks")
+
+    auto_parts: list[str] = []
+    for f in get_scene_fields(scene):
+        if not f.in_body:
+            continue
+        if f.key in tc_skip_keys:
+            continue
+        val = (values or {}).get(f.key)
+        if val is None:
+            continue
+        # 空 list / 空 dict 也跳过（避免拼出 `### 任务清单\n\n[]` 之类的占位文本）
+        if isinstance(val, (list, dict)) and not val:
+            continue
+        sval = str(val).strip()
+        if not sval:
+            continue
+        if sval in md:  # 正文已包含该内容，跳过避免重复
+            continue
+        auto_parts.append(f"### {f.label}\n\n{sval}")
+    if auto_parts:
+        md = (md + "\n\n" if md else "") + "\n\n".join(auto_parts)
+    return md
+
+
+def build_mail_body_md(
+    *,
+    scene: str,
+    fields: Optional[dict] = None,
+    body_md: Optional[str] = None,
+    recipient_name: Optional[str] = None,
+) -> str:
+    """拼装正文 Markdown 草稿（不含品牌色带/称呼/字段表，仅内容区）。
+
+    用于前端"左侧 Markdown 编辑区"的默认值：让用户能基于已拼装好的正文继续编辑。
+    与 build_mail_body 走同一条 _compose_body_md，避免渲染口径双份维护。
+
+    Args:
+        scene: 场景 key
+        fields: 字段值 dict（key 对应 SCENE_FIELDS）
+        body_md: 已存在的 Markdown 正文（前端编辑后再调用时透传）
+        recipient_name: 收件人姓名（本函数不直接消费，仅与 build_mail_body 接口对齐）
+
+    Returns:
+        Markdown 字符串（不含 HTML 外壳）
+    """
+    return _compose_body_md(scene, fields or {}, body_md)
+
+
 def build_mail_body(
     *,
     scene: str,
@@ -409,38 +486,7 @@ def build_mail_body(
     # 正文 = 调用方/用户编辑的 Markdown + 未出现在其中的 in_body 字段段落。
     # 为什么是拼接而非二选一：任务中心等场景正文只是一句引导语，任务清单在 tasks 字段里，
     # 若二选一会直接丢掉清单；而去重判断可避免工单描述在正文中重复出现两次。
-    md = (body_md or "").strip()
-
-    # task_center_* 专用装配（2026-09-07）：当 fields.tasks 是结构化列表时
-    # 走 render_task_center_section，输出每条任务的 H3+字段表+工单内容。
-    # 兼容旧调用方：tasks 是 str（HTML）时保持原 auto_parts 拼接。
-    tc_skip_keys: set[str] = set()
-    if scene in ("task_center_notify", "task_center_urge"):
-        tasks_val = (values or {}).get("tasks")
-        if isinstance(tasks_val, list) and tasks_val:
-            send_type = "urge" if "urge" in scene else "notify"
-            section_md = render_task_center_section(tasks_val, send_type)
-            if section_md:
-                if section_md.strip() not in md:
-                    md = (md + "\n\n" if md else "") + section_md
-            # 标记跳过通用 in_body 拼接，避免重复出现 "### 任务清单"
-            tc_skip_keys.add("tasks")
-
-    auto_parts: list[str] = []
-    for f in get_scene_fields(scene):
-        if not f.in_body:
-            continue
-        if f.key in tc_skip_keys:
-            continue
-        val = (values or {}).get(f.key)
-        if val is None or not str(val).strip():
-            continue
-        sval = str(val).strip()
-        if sval in md:  # 正文已包含该内容，跳过避免重复
-            continue
-        auto_parts.append(f"### {f.label}\n\n{sval}")
-    if auto_parts:
-        md = (md + "\n\n" if md else "") + "\n\n".join(auto_parts)
+    md = _compose_body_md(scene, values, body_md)
     body_html = markdown_fragment(md)
 
     blocks: list[str] = []

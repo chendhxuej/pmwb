@@ -217,3 +217,83 @@ def test_build_mail_body_keeps_brand_color_on_overdue():
     )
     # 外层 4px 品牌色带在文档开头
     assert html.startswith("<table") and "background:#f53f3f" in html
+
+
+# ---------------------------------------------------------------------------
+# build_mail_body_md：左侧 Markdown 编辑区默认值（2026-09-07）
+# ---------------------------------------------------------------------------
+def test_build_mail_body_md_single_task():
+    """单任务：返回 Markdown 草稿，含 H3 + 字段表 + 工单内容。"""
+    md = mail_content.build_mail_body_md(
+        scene="task_center_urge",
+        fields={"tasks": [_task()]},
+    )
+    assert "### 1. [REQ-001] 一网通开户流程优化" in md
+    assert "| 来源 | 负责人 | 截止 | 状态 | 优先级 |" in md
+    assert "**工单内容**" in md
+    assert "针对一网通宽带开户流程的优化建议" in md
+    # 草稿不含 HTML 标签（让用户能在 textarea 里编辑）
+    assert "<table" not in md and "<h3" not in md and "<span" not in md
+
+
+def test_build_mail_body_md_multiple_tasks():
+    """多任务：每个任务独立卡片 + --- 分隔。"""
+    md = mail_content.build_mail_body_md(
+        scene="task_center_urge",
+        fields={"tasks": [
+            _task(index=1, title="任务A", is_overdue=True),
+            _task(index=2, title="任务B", is_due_soon=True),
+        ]},
+    )
+    assert "### 1. 任务A" in md
+    assert "### 2. 任务B" in md
+    assert md.count("**工单内容**") == 2
+    assert "---" in md  # 任务间分隔
+
+
+def test_build_mail_body_md_passthrough_when_user_keeps_titles():
+    """用户编辑后保留任意任务 title：跳过 section 追加（不重复）。"""
+    tasks = [_task(title="任务A"), _task(index=2, title="任务B")]
+    user_md = "### 1. 任务A\n\n| 自定义 |\n| --- |\n| 用户编辑 |\n"
+    md = mail_content.build_mail_body_md(
+        scene="task_center_urge",
+        fields={"tasks": tasks},
+        body_md=user_md,
+    )
+    # 任务B 标题未出现 → section 跳过追加，避免重复
+    assert "### 2. 任务B" not in md
+    # 用户编辑的"任务A"保留
+    assert "### 1. 任务A" in md
+    assert "用户编辑" in md
+
+
+def test_build_mail_body_md_rebuilds_when_user_empties_body():
+    """用户清空 body：重新拼装完整 section_md。"""
+    tasks = [_task(title="任务A")]
+    md = mail_content.build_mail_body_md(
+        scene="task_center_urge",
+        fields={"tasks": tasks},
+        body_md="",
+    )
+    # body_md 为空时 section_md 完整追加
+    assert "### 1. 任务A" in md
+    assert "**工单内容**" in md
+
+
+def test_build_mail_body_md_notify_scene_uses_notify_branch():
+    """notify 场景：引导语义走 notify，但 render_task_center_section 与 urge 同形。"""
+    md = mail_content.build_mail_body_md(
+        scene="task_center_notify",
+        fields={"tasks": [_task()]},
+    )
+    # 结构化装配与 urge 一致；scene 区分在 build_mail_body 的引导语/标题/品牌色
+    assert "### 1. [REQ-001]" in md
+
+
+def test_build_mail_body_md_empty_tasks_returns_empty():
+    """空任务列表：返回空字符串。"""
+    md = mail_content.build_mail_body_md(
+        scene="task_center_urge",
+        fields={"tasks": []},
+    )
+    assert md == ""

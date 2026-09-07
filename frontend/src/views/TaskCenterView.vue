@@ -325,7 +325,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Plus } from '@element-plus/icons-vue'
-import { getTaskStats, getTasks, sendTaskEmail } from '@/api/taskCenter.js'
+import { getTaskStats, getTasks, sendTaskEmail, requestTaskCenterDraft } from '@/api/taskCenter.js'
 import { getPendingReminders, sendReminder } from '@/api/reminder.js'
 import { todoApi } from '@/api/todo'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
@@ -663,6 +663,21 @@ async function openTaskEmail(rows, sendType) {
   ]
   mailDialogTo.value = names
   mailDialogCc.value = []
+  // T-G：拉取后端按场景拼装好的 Markdown 草稿，作为左侧 Markdown 编辑区默认值。
+  // 让用户基于已装配的内容（引导语 + 每条任务 H3+字段表+工单内容）继续编辑调整。
+  // 编辑后再点发送，body 走 TaskSendRequest.body 透传，最终由 build_mail_body 再次渲染。
+  try {
+    const res = await requestTaskCenterDraft(
+      buildStructuredTasks(rows),
+      sendType === 'urge' ? 'urge' : 'notify',
+      '',
+    )
+    mailDialogBody.value = (res && res.data && res.data.body_md) || ''
+  } catch (e) {
+    // 拉取失败兜底为空（MailComposeDialog 内已有"按字段重置"按钮可重新生成）
+    mailDialogBody.value = ''
+    console.warn('[TaskCenter] requestTaskCenterDraft failed:', e && e.message)
+  }
   mailDialogVisible.value = true
 }
 

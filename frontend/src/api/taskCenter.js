@@ -33,3 +33,14 @@ export function previewTaskEmail(tasks, sendType) {
     dry_run: true,
   })
 }
+
+// 邮件正文 Markdown 草稿（左侧 Markdown 编辑区默认值）
+// 2026-09-07：后端按场景装配引导语 + 任务卡片 Markdown 源（含 H3/超期/字段表/工单内容），
+// 用户可基于此继续编辑；编辑后通过 TaskSendRequest.body 透传回后端再次渲染。
+export function requestTaskCenterDraft(tasks, sendType, body) {
+  return request.post('/task-center/draft', {
+    tasks,
+    send_type: sendType || 'urge',
+    body: body || '',
+  })
+}

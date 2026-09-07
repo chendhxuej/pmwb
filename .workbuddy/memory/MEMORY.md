@@ -11,6 +11,7 @@
   2. 验证邮件发送功能 = 确认接口返回结构正确 + `email_records` 落库（send_status 应为 dry_run 或 success）+ 3210 渲染成功。**不需要、也不允许真发。**
   3. 真发邮件只能由老大在页面上显式点击触发；AI 不得以任何理由（含"验证""测试"）用 curl/脚本向真实收件人发信。
   4. 收尾自审必须确认本次会话没有向真实外部收件人发出任何测试邮件。
+  5. **2026-09-07 二度事故**：自测时误用 `test@example.com`（假域名）走 `/task-center/send`（无 dry_run）→ record_id=202 send_status=success。虽 3210 投递失败未送达外部，但触发原因 = curl 自测走真实发信路径。**新规**：自测只能用 (a) `dispatch_email` 不带 confirm_send (b) `/mail-dispatch/preview` (c) `_render_mail` 纯函数。**绝不用**真实邮箱 curl `/task-center/send` 或 `/mail-dispatch/send`，即使假域名也不行。
 - **关闭 dry_run（仅限老大显式要求全局真发验证）**：在 `.env` 设 `MAIL_DRY_RUN=false`。日常使用保持默认 True 即可，前端/系统均带 confirm_send 不受影响。
 
 ## 项目状态

@@ -101,3 +101,20 @@ class TaskSendResponse(BaseModel):
     success: bool
     record_ids: List[int] = Field(default_factory=list)
     message: str = ""
+
+
+class TaskDraftRequest(BaseModel):
+    """任务中心邮件正文 Markdown 草稿请求（2026-09-07）。
+
+    用于前端"左侧 Markdown 编辑区"默认值：后端按场景装配好引导语 + 任务卡片
+    Markdown 源（含超期/临期标签 + GFM 字段表 + 工单内容），用户可继续编辑。
+    """
+
+    tasks: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="结构化任务数组（前端 buildStructuredTasks 产出）",
+    )
+    send_type: str = Field("urge", description="notify=通知 / urge=催办")
+    body: Optional[str] = Field(
+        None, description="已存在的 Markdown 正文（前端编辑后再调用时透传）"
+    )

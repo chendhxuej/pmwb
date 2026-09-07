@@ -8,8 +8,9 @@ from pydantic import BaseModel
 from core.exceptions import ValidationException
 from core.response import success
 from db.base import get_db
-from schemas.task_center import TaskSendRequest
+from schemas.task_center import TaskDraftRequest, TaskSendRequest
 from services.task_center import task_center_service
+from utils.mail_content import build_mail_body_md
 
 router = APIRouter(prefix="/task-center", tags=["任务中心"])
 
@@ -76,3 +77,21 @@ def send_task_email(obj_in: TaskSendRequest, db=Depends(get_db)):
     """发送任务通知/催办邮件（正文自动附任务清单，落 email_records）。"""
     data = task_center_service.send_notification(db, obj_in)
     return success(data=data)
+
+
+@router.post("/draft")
+def draft_task_email_body(req: TaskDraftRequest):
+    """任务中心邮件正文 Markdown 草稿（左侧 Markdown 编辑区默认值）。
+
+    输入结构化任务数组 + send_type，调 utils.mail_content.build_mail_body_md
+    返回拼装好的 Markdown 字符串（引导语 + 每条任务 H3+字段表+工单内容）。
+    前端拿到后填入 MailComposeDialog.body，用户可继续编辑；编辑后通过
+    TaskSendRequest.template_data.body 透传，最终由 build_mail_body 再次渲染。
+    """
+    scene = "task_center_urge" if req.send_type == "urge" else "task_center_notify"
+    md = build_mail_body_md(
+        scene=scene,
+        fields={"tasks": req.tasks},
+        body_md=req.body,
+    )
+    return success(data={"body_md": md})
