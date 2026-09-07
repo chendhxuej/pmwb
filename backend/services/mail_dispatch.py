@@ -24,6 +24,7 @@ from core.config import settings
 from db.models import EmailRecord
 from utils.attachment_compress import compress_attachments_for_mail_center
 from utils.email import EmailCenterClient
+from utils.mail_content import build_mail_body
 from utils.markdown_mail import (
     _sanitize,
     inject_signature_inline,
@@ -47,6 +48,7 @@ class MailScene:
     fallback_template: Optional[str] = None  # 3210 不可用时的 Markdown 兜底
     add_signature: bool = True
     widen_frame: bool = False  # 会议类：3210 frame 加宽后处理（600→90%、内层 680→100%）
+    renderer: bool = False  # True=正文由 PMWB 装配器渲染（utils.mail_content），3210 仅发信
 
 
 # 场景注册表：所有发邮件触点在此声明统一样式/签名/类型。
@@ -57,56 +59,69 @@ class MailScene:
 SCENES: dict[str, MailScene] = {
     "meeting_notice": MailScene(
         "meeting_notice", email_type="meeting_notice", source="pmwb_meeting",
-        template_key="meeting_notice", raw=False, widen_frame=True,
+        template_key="meeting_notice", raw=False, widen_frame=True, renderer=True,
+        default_subject="【会议通知】{meetingTopic}",
         fallback_template="## 会议通知\n\n会议主题与安排请查看系统通知或联系主持人。",
     ),
     "meeting_minutes": MailScene(
         "meeting_minutes", email_type="meeting_minutes", source="pmwb_meeting",
-        template_key="meeting_minutes", raw=False, widen_frame=True,
+        template_key="meeting_minutes", raw=False, widen_frame=True, renderer=True,
+        default_subject="【会议纪要】{meetingTitle}",
         fallback_template="## 会议纪要\n\n纪要正文请查看系统或邮件中心。",
     ),
     "action_dispatch": MailScene(
         "action_dispatch", email_type="action_dispatch", source="pmwb_meeting",
-        template_key="action_dispatch", raw=False,
+        template_key="action_dispatch", raw=False, renderer=True,
+        default_subject="【任务派发】{meetingTitle}",
         fallback_template="## 会议行动项派发\n\n请查看邮件中心对应会议的行动项清单，及时跟进处理。",
     ),
     "action_supervise": MailScene(
         "action_supervise", email_type="action_supervise", source="pmwb_supervise",
-        template_key="action_supervise", raw=False,
+        template_key="action_supervise", raw=False, renderer=True,
+        default_subject="会议行动项督办：{owner}",
         fallback_template="## 会议行动项督办\n\n请查看系统内行动项详情并及时反馈进展。",
     ),
     "task_reminder": MailScene(
         "task_reminder", email_type="task_reminder", source="pmwb_task",
-        template_key="task_reminder", raw=False,
+        template_key="task_reminder", raw=False, renderer=True,
+        default_subject="任务督办提醒：{taskTitle}",
         fallback_template="## 任务督办提醒\n\n任务详情请查看系统或邮件中心。",
     ),
     "requirement_reminder": MailScene(
         "requirement_reminder", email_type="pmwb_reminder", source="pmwb_reminder",
-        template_key="xqemail_reminder", raw=False,
+        template_key="xqemail_reminder", raw=False, renderer=True,
+        default_subject="催办：{reqName}",
         fallback_template="## 需求催办通知\n\n请查看系统内需求详情并及时处理。",
     ),
     # 新增/改造场景（收口后统一走门面）
     "work_report": MailScene("work_report", email_type="work_report", source="pmwb_work_report"),
     "task_center_notify": MailScene(
         "task_center_notify", email_type="pmwb_task_notify", source="task-center",
-        template_key="task_center_notify", raw=False,
+        template_key="task_center_notify", raw=False, renderer=True,
+        default_subject="任务同步通知",
         fallback_template="## 任务同步通知\n\n任务清单请查看系统任务中心。",
     ),
     "task_center_urge": MailScene(
         "task_center_urge", email_type="pmwb_task_urge", source="task-center",
-        template_key="task_center_urge", raw=False,
+        template_key="task_center_urge", raw=False, renderer=True,
+        default_subject="任务催办提醒",
         fallback_template="## 任务催办提醒\n\n请查看系统任务中心，尽快处理并反馈进展。",
     ),
     "plugin": MailScene("plugin", email_type="xqemail_plugin", source="plugin"),
     # supervise 场景：3210 模板已由 T-A 建设（supervise_urge/supervise_sync type）
+    # supervise 场景：正文改由 PMWB 装配器渲染（renderer=True），
+    # 根因修复：原 3210 模板变量（category/handler/resolveDate/description）与代码传的
+    # type/owner/due/desc 错配 → 类型/处理人/截止日期/问题描述 恒空；且纯文本 \n 不换行。
     "supervise_sync": MailScene(
         "supervise_sync", email_type="supervise_sync", source="pmwb_supervise",
-        template_key="supervise_sync", raw=False,
+        template_key="supervise_sync", raw=False, renderer=True,
+        default_subject="同步：{title}",
         fallback_template="## 工单进展同步\n\n工单详情请查看系统运营监控。",
     ),
     "supervise_urge": MailScene(
         "supervise_urge", email_type="supervise_urge", source="pmwb_supervise",
-        template_key="supervise_urge", raw=False,
+        template_key="supervise_urge", raw=False, renderer=True,
+        default_subject="催办：{title}",
         fallback_template="## 催办通知\n\n工单详情请查看系统运营监控，请尽快处理。",
     ),
     "active_optimization_urge": MailScene(
@@ -119,6 +134,7 @@ SCENES: dict[str, MailScene] = {
     ),
     "keywork_feedback": MailScene(
         "keywork_feedback", email_type="keywork_feedback", source="pmwb_keywork",
+        renderer=True, default_subject="周反馈请求：{title}",
         fallback_template="## 周反馈请求\n\n请按邮件正文要求反馈本周工作进展。",
     ),
 }
@@ -126,6 +142,13 @@ SCENES: dict[str, MailScene] = {
 
 def get_scene(key: str) -> MailScene:
     return SCENES.get(key, MailScene(key))
+
+
+class _SafeDict(dict):
+    """format_map 缺省安全字典：缺失键渲染为「—」而非抛异常。"""
+
+    def __missing__(self, key):  # noqa: D105
+        return "—"
 
 
 def _norm_list(v) -> list[str]:
@@ -201,8 +224,15 @@ def _render_mail(
     template_data: Optional[dict] = None,
     add_signature: Optional[bool] = None,
     signature: Optional[str] = None,
+    fields: Optional[dict] = None,
+    recipient_name: Optional[str] = None,
+    extra_html: Optional[str] = None,
 ) -> dict:
     """渲染邮件正文（预览与发送共用，保证预览=实发）。
+
+    fields:        结构化字段值（装配器模式，key 见 utils.mail_content.SCENE_FIELDS）
+    recipient_name: 收件人姓名，用于生成「X 您好，」称呼
+    extra_html:    追加到正文末尾的 HTML 片段（如工单附件清单）
 
     返回 {html, subject, body_format, rendered_body}。
     """
@@ -230,6 +260,38 @@ def _render_mail(
         body_html = render_work_report_html(raw_content, report_type, person_name)
         body_html = _sanitize(body_html)
         body_format = "html"
+    elif sc.renderer:
+        # ── PMWB 正文装配器（新链路）──────────────────────────────────────
+        # 正文完全由 PMWB 渲染：品牌色带 + 称呼 + 字段表 + Markdown 正文，
+        # 3210 不再参与渲染（模板改不动 + 变量错配 + 宽度不可控）。
+        # 优先级：显式 fields > variables（剔除 body/content）> 空。
+        # 正文：显式 raw_content/body_md > 按 in_body 字段自动生成。
+        fields_dict = dict(fields or {})
+        if not fields_dict:
+            # 兼容存量调用方：variables / template_data 里除 body/content 外即字段值
+            src = variables or template_data or {}
+            fields_dict = {k: v for k, v in src.items() if k not in ("body", "content")}
+        try:
+            body_html = build_mail_body(
+                scene=scene,
+                fields=fields_dict,
+                body_md=raw_content if raw_content and raw_content.strip() else None,
+                recipient_name=recipient_name,
+                extra_html=extra_html or "",
+            )
+            body_html = _sanitize(body_html)
+            body_format = "html"
+            # 会议类：装配器输出后仍走 widen_frame 后处理（与 3210 模板链路一致口径）
+            if sc.widen_frame:
+                body_html = _widen_meeting_email(body_html)
+        except Exception as exc:  # noqa: BLE001
+            # 装配器异常：回退原链路，保证正文不空（不因新逻辑影响发信）
+            logger.warning("正文装配器渲染失败，回退原链路: %s", exc)
+            fb = raw_content or sc.fallback_template or ""
+            body_html = markdown_to_email_html(fb, inject_signature=False)
+            if sc.widen_frame:
+                body_html = _widen_meeting_email(body_html)
+            body_format = "html"
     elif use_templated:
         try:
             body_html, rendered_subject, body_format = _render_templated(
@@ -255,6 +317,14 @@ def _render_mail(
         body_format = "html"
 
     final_subject = subject or rendered_subject or sc.default_subject or ""
+    # 支持 default_subject 模板（如 "催办：{title}"）：装配器模式下没有 3210 模板产出主题，
+    # 由场景默认主题 + 字段值格式化生成
+    if "{" in final_subject:
+        ctx = {**(variables or {}), **(fields or {})}
+        try:
+            final_subject = final_subject.format_map(_SafeDict(ctx))
+        except Exception:  # noqa: BLE001
+            pass
 
     if sig_on:
         sig = signature if signature is not None else _resolve_signature(sc)
@@ -293,6 +363,8 @@ def dispatch_email(
     html_passthrough: bool = False,
     raise_on_error: bool = False,
     confirm_send: bool = False,
+    fields: Optional[dict] = None,
+    extra_html: Optional[str] = None,
 ) -> dict:
     """统一发信入口。
 
@@ -317,6 +389,9 @@ def dispatch_email(
         template_data=template_data,
         add_signature=add_signature,
         signature=signature,
+        fields=fields,
+        recipient_name=recipient_name,
+        extra_html=extra_html,
     )
     final_subject = rendered["subject"]
     final_body = rendered["html"]

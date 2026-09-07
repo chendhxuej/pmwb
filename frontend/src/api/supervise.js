@@ -30,7 +30,23 @@ export function superviseAction(data) {
   return request.post('/supervise/action', data)
 }
 
+/**
+ * 督办邮件预览（只渲染不发送）
+ * 与 /supervise/ticket 共用后端同一装配链路，保证「预览即实发」
+ * @param {Object} data
+ * @param {'sync'|'urge'} data.scene
+ * @param {'work_order'|'operation'|'dev_ticket'|'requirement'} data.ticket_type
+ * @param {number|string} data.ticket_id
+ * @param {string[]} [data.recipients] 收件人（用于生成「X 您好」称呼）
+ * @param {string} [data.extra_msg] 留言
+ * @param {string} [data.body_md] 编辑区 Markdown 正文（为空则按字段自动生成）
+ */
+export function previewSupervise(data) {
+  return request.post('/supervise/preview', data)
+}
+
 export default {
   superviseTicket,
   superviseAction,
+  previewSupervise,
 }

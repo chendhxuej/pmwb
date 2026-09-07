@@ -55,18 +55,25 @@ def test_build_block_over_size(tmp_path, monkeypatch):
 
 
 def test_supervise_ticket_attaches(tmp_path, monkeypatch):
+    """运营督办：自动把工单附件清单注入正文 + 真实文件作为 MIME 附件。
+
+    注：自 2026-09-07 T2 改造后，supervise_ticket 走装配器链路
+    （renderer=True，fields/extra_html），不再直接通过 variables.desc/description
+    拼接正文。装配器行为详见 tests/test_supervise_mail.py，
+    本测试聚焦附件清单与 MIME 附件在装配器链路上是否正确带出。
+    """
     monkeypatch.setattr("utils.operation_attachment._UPLOAD_ROOT", str(tmp_path))
     issue_id = 9
     name = "a.docx"
     _write_issue_file(str(tmp_path), issue_id, name, b"content")
     from services import supervise as svc
+    from services.mail_dispatch import dispatch_email
 
     captured = {}
 
-    def fake(to, subject, scene, variables, attachments=None, raise_on_error=False, **kw):
-        captured["scene"] = scene
-        captured["variables"] = variables
-        captured["attachments"] = attachments
+    def fake(**kwargs):
+        # 适配 dispatch_email 新签名（关键字参数：to/subject/scene/variables/fields/extra_html/attachments/...）
+        captured.update(kwargs)
         return {"success": True, "subject": "s", "rendered_body": "b"}
 
     ticket = {
@@ -74,11 +81,14 @@ def test_supervise_ticket_attaches(tmp_path, monkeypatch):
         "handler": "h", "status": "open", "situation_desc": "desc文本", "source": "运营",
         "issue_id": issue_id, "attachments": [{"name": name, "size": "7 B"}],
     }
-    with mock.patch.object(svc, "dispatch_email", side_effect=fake):
-        res = svc.supervise_ticket("urge", ticket, ["陈大海"])
+    monkeypatch.setattr(svc, "dispatch_email", fake)
+    res = svc.supervise_ticket("urge", ticket, ["陈大海"])
     assert res.get("ok") is True
-    assert "工单附件" in captured["variables"]["desc"]
-    assert "工单附件" in captured["variables"]["description"]
-    assert captured["variables"]["desc"] == captured["variables"]["description"]
-    assert len(captured["attachments"]) == 1
-    assert captured["attachments"][0]["filename"] == name
+
+    # 装配器链路：附件清单注入 extra_html；真实文件作为 MIME 附件
+    extra = captured.get("extra_html") or ""
+    assert "工单附件" in extra
+    assert name in extra
+    attachments = captured.get("attachments") or []
+    assert len(attachments) == 1
+    assert attachments[0]["filename"] == name

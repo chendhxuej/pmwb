@@ -125,25 +125,98 @@
           <span class="compose-label">主题</span>
           <el-input v-model="subject" placeholder="邮件主题" />
         </div>
+
+        <!-- 结构化字段表单：按场景 schema 渲染，改动即驱动右侧预览 -->
+        <div v-if="fieldList.length" class="compose-fields">
+          <el-form :model="fieldVals" label-width="96px" size="small">
+            <el-form-item v-for="f in fieldList" :key="f.key" :label="f.label">
+              <el-select
+                v-if="f.type === 'select'"
+                v-model="fieldVals[f.key]"
+                :placeholder="`请选择${f.label}`"
+                clearable
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="opt in f.options"
+                  :key="opt.value || opt"
+                  :label="opt.label || opt"
+                  :value="opt.value !== undefined ? opt.value : opt"
+                />
+              </el-select>
+              <el-date-picker
+                v-else-if="f.type === 'date'"
+                v-model="fieldVals[f.key]"
+                type="date"
+                value-format="YYYY-MM-DD"
+                :placeholder="`选择${f.label}`"
+                style="width: 100%"
+              />
+              <el-input
+                v-else-if="f.type === 'textarea'"
+                v-model="fieldVals[f.key]"
+                type="textarea"
+                :rows="3"
+                :disabled="f.editable === false"
+              />
+              <el-input
+                v-else
+                v-model="fieldVals[f.key]"
+                :disabled="f.editable === false"
+              />
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- 补充说明（留言）：注入邮件正文「补充说明」段 -->
+        <div v-if="extraMsgLabel" class="compose-row">
+          <span class="compose-label">{{ extraMsgLabel }}</span>
+          <el-input
+            v-model="extraMsg"
+            type="textarea"
+            :rows="2"
+            placeholder="补充说明（可选），将随正文一并发送"
+          />
+        </div>
+
         <div v-if="editableBody" class="compose-row compose-body">
           <span class="compose-label">
             正文
-            <em class="compose-hint">支持 Markdown，右侧实时预览</em>
+            <em class="compose-hint">
+              支持 Markdown，右侧实时预览
+              <el-button link type="primary" size="small" @click="resetBodyFromFields">
+                按字段重置
+              </el-button>
+            </em>
           </span>
           <el-input
             v-model="body"
             type="textarea"
-            :rows="15"
-            placeholder="支持 Markdown：# 标题、**加粗**、- 列表、| 表格 | 等"
+            :rows="fieldList.length ? 8 : 15"
+            placeholder="支持 Markdown：# 标题、**加粗**、- 列表、| 表格 | 等；留空则按上方字段自动生成"
             @input="onBodyInput"
           />
         </div>
       </div>
 
-      <!-- 右：预览区 -->
+      <!-- 右：预览区（iframe 隔离，避免页面 CSS 污染邮件样式） -->
       <div class="compose-preview">
-        <div class="compose-preview-title">邮件预览</div>
-        <div class="compose-preview-body" v-html="previewHtml"></div>
+        <div class="compose-preview-title">
+          <span>邮件预览</span>
+          <span v-if="subject || previewSubject" class="compose-preview-subject">
+            {{ subject || previewSubject }}
+          </span>
+          <el-tag v-if="loadingPreview" size="small" type="info">渲染中…</el-tag>
+        </div>
+        <iframe
+          v-if="previewHtml"
+          :srcdoc="previewHtml"
+          class="compose-preview-frame"
+          title="邮件预览"
+        />
+        <div v-else class="compose-preview-empty">
+          {{ loadingPreview ? '正在渲染预览…' : '暂无预览内容' }}
+        </div>
       </div>
     </div>
 
@@ -246,7 +319,7 @@ import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Plus, Delete, Edit } from '@element-plus/icons-vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
-import { previewEmail, sendEmail } from '@/api/mailDispatch.js'
+import { getMailScenes, previewEmail, sendEmail } from '@/api/mailDispatch.js'
 import {
   getSceneTemplates,
   addTemplate,
@@ -278,6 +351,14 @@ const props = defineProps({
   customSend: { type: Function, default: null },
   // StaffSelect 取值键：'value' 返回姓名，'email' 返回邮箱（无邮箱回退姓名）
   valueKey: { type: String, default: 'value' },
+  // 结构化字段 schema（[{key,label,type,options,editable,inBody}]）；不传则按 scene 自动拉 /mail-dispatch/scenes
+  fieldSchema: { type: Array, default: () => [] },
+  // 字段初始值 / 当前值（父组件可 v-bind 一个对象）
+  fieldValues: { type: Object, default: () => ({}) },
+  // 非空时在表单区渲染「补充说明（留言）」输入，值随 payload.extraMsg 传出
+  extraMsgLabel: { type: String, default: '' },
+  // 自定义预览函数：async (payload) => ({ html, subject })。督办等需走自有预览接口的场景使用
+  customPreview: { type: Function, default: null },
 })
 
 const emit = defineEmits(['update:modelValue', 'send', 'success', 'error'])
@@ -288,6 +369,40 @@ const subject = ref('')
 const body = ref('')
 const previewHtml = ref('')
 const sending = ref(false)
+const loadingPreview = ref(false)
+const previewSubject = ref('')
+
+// 结构化字段（场景 schema 驱动）+ 补充说明
+const fieldVals = ref({})
+const extraMsg = ref('')
+
+// 场景 schema 缓存：{ [sceneKey]: { title, brandColor, fields: [...] } }
+let scenesCache = null
+const scenesMap = ref({})
+
+const fieldList = computed(() => {
+  if (props.fieldSchema && props.fieldSchema.length) return props.fieldSchema
+  return (scenesMap.value[props.scene] && scenesMap.value[props.scene].fields) || []
+})
+
+async function ensureScenes() {
+  if (scenesCache) return
+  try {
+    const res = await getMailScenes()
+    const items = res?.items || res?.data?.items || []
+    scenesCache = items.reduce((m, s) => { m[s.key] = s; return m }, {})
+    scenesMap.value = scenesCache
+  } catch (e) {
+    console.warn('[MailComposeDialog] 场景 schema 拉取失败：', e)
+    scenesCache = {}
+  }
+}
+
+/** 清空正文 → 由后端按当前字段值自动生成（保证「改字段即改正文」） */
+function resetBodyFromFields() {
+  body.value = ''
+  refreshPreview(true)
+}
 
 let timer = null
 let lastBody = ''
@@ -314,23 +429,42 @@ const currentTemplates = computed(() => {
 
 watch(
   () => props.modelValue,
-  (v) => {
+  async (v) => {
     if (v) {
       to.value = [...(props.defaultTo || [])]
       cc.value = [...(props.defaultCc || [])]
       subject.value = props.defaultSubject || ''
       body.value = props.defaultBody || ''
+      fieldVals.value = { ...(props.fieldValues || {}) }
+      extraMsg.value = ''
       // 重置模板编辑状态，防止残留弹窗被异常打开
       showEditTemplateDialog.value = false
       showEditStaffSelectDialog.value = false
       editStaffSelectTarget.value = ''
+      // 未显式传 schema 时按场景拉取（内部有缓存）
+      if (props.scene && !(props.fieldSchema && props.fieldSchema.length)) {
+        await ensureScenes()
+      }
       refreshPreview(true)
     }
   },
 )
 
+// 全量联动：字段 / 正文 / 主题 / 收件人 / 抄送 / 留言 任一变化都刷新预览
 watch(
-  () => [props.scene, props.variables, props.editableBody],
+  () => [
+    props.scene,
+    props.variables,
+    props.editableBody,
+    props.fieldSchema,
+    props.fieldValues,
+    fieldVals.value,
+    body.value,
+    subject.value,
+    to.value,
+    cc.value,
+    extraMsg.value,
+  ],
   () => {
     if (props.modelValue) {
       refreshPreview(true)
@@ -344,25 +478,64 @@ function onBodyInput() {
   timer = setTimeout(refreshPreview, 250)
 }
 
+function previewErrorHtml(e) {
+  return `<div style="color:#909399;padding:20px;text-align:center;">预览加载失败：${
+    e?.message || '请检查后端邮件服务'
+  }</div>`
+}
+
 async function refreshPreview(force = false) {
   if (!force && body.value === lastBody) return
   lastBody = body.value
+  loadingPreview.value = true
   try {
     const payload = buildPreviewPayload()
-    const data = await previewEmail(payload)
+    let data
+    if (typeof props.customPreview === 'function') {
+      // 督办等场景：走自有预览接口（后端与发送共用装配链路）
+      data = await props.customPreview(payload)
+    } else {
+      data = await previewEmail(payload)
+    }
     previewHtml.value = data?.html || data?.rendered_body || ''
+    // 主题为空时用预览返回的场景默认主题回填，保证「所见即所发」
+    if (!subject.value && data?.subject) {
+      previewSubject.value = data.subject
+    } else {
+      previewSubject.value = ''
+    }
   } catch (e) {
     console.warn('[MailComposeDialog] 邮件预览失败：', e)
-    previewHtml.value = `<div style="color:#909399;padding:20px;text-align:center;">预览加载失败：${e?.message || '请检查后端邮件服务'}</div>`
+    previewHtml.value = previewErrorHtml(e)
+  } finally {
+    loadingPreview.value = false
   }
 }
 
+/** 收件人姓名串，用于生成「X 您好」称呼（后端 recipientName） */
+function recipientNameText() {
+  return normalizeRecipients(to.value)
+    .map((s) => (/@/.test(s) ? s.split('@')[0] : s))
+    .join('、')
+}
+
 function buildPreviewPayload() {
+  const base = {
+    recipientName: recipientNameText(),
+    extraMsg: extraMsg.value,
+    add_signature: props.addSignature,
+  }
   if (isRawMode.value) {
+    return { ...base, body: body.value, body_format: props.bodyFormat }
+  }
+  // 装配器场景（有字段 schema）：字段 + 正文直传，不再走 3210 模板变量
+  if (fieldList.value.length) {
     return {
-      body: body.value,
-      body_format: props.bodyFormat,
-      add_signature: props.addSignature,
+      ...base,
+      scene: props.scene,
+      subject: subject.value,
+      fields: { ...fieldVals.value },
+      body_md: body.value,
     }
   }
   const variables = { ...props.variables }
@@ -371,28 +544,29 @@ function buildPreviewPayload() {
     // 若父组件已在 variables 里传了 body/content，会被当前编辑内容覆盖，保证预览=实发
     variables.body = body.value
   }
-  return {
-    scene: props.scene,
-    subject: subject.value,
-    variables,
-    add_signature: props.addSignature,
-  }
+  return { ...base, scene: props.scene, subject: subject.value, variables }
 }
 
 function buildSendPayload() {
-  const payload = isRawMode.value
-    ? { body: body.value, body_format: props.bodyFormat }
-    : { scene: props.scene, variables: { ...props.variables } }
-  if (props.editableBody && !isRawMode.value) {
-    payload.variables.body = body.value
-  }
-  return {
-    ...payload,
+  const base = {
     to: to.value,
     cc: cc.value || [],
     subject: subject.value,
     body: body.value,
+    recipientName: recipientNameText(),
+    extraMsg: extraMsg.value,
   }
+  if (isRawMode.value) {
+    return { ...base, body_format: props.bodyFormat }
+  }
+  if (fieldList.value.length) {
+    return { ...base, scene: props.scene, fields: { ...fieldVals.value }, body_md: body.value }
+  }
+  const variables = { ...props.variables }
+  if (props.editableBody) {
+    variables.body = body.value
+  }
+  return { ...base, scene: props.scene, variables }
 }
 
 function normalizeRecipients(list) {
@@ -412,7 +586,8 @@ async function onSend() {
     ElMessage.warning('请选择收件人')
     return
   }
-  if (props.editableBody && !body.value.trim()) {
+  // 装配器场景正文可留空（由后端按字段自动生成），其余场景仍要求填写
+  if (props.editableBody && !body.value.trim() && !fieldList.value.length) {
     ElMessage.warning('请输入邮件正文')
     return
   }
@@ -573,6 +748,9 @@ defineExpose({ sending, refreshPreview })
   overflow: hidden;
 }
 .compose-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   font-size: 13px;
   font-weight: 600;
@@ -580,11 +758,39 @@ defineExpose({ sending, refreshPreview })
   background: #f5f7fa;
   border-bottom: 1px solid #ebeef5;
 }
-.compose-preview-body {
+.compose-preview-subject {
   flex: 1;
-  padding: 14px 16px;
+  font-weight: 400;
+  color: #909399;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compose-preview-frame {
+  flex: 1;
+  width: 100%;
+  height: 60vh;
+  border: 0;
+  background: #fff;
+}
+.compose-preview-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #909399;
+  font-size: 13px;
+}
+.compose-fields {
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  padding: 10px 12px 0;
+  background: #fcfcfd;
+  max-height: 34vh;
   overflow: auto;
-  max-height: 60vh;
+}
+.compose-fields :deep(.el-form-item) {
+  margin-bottom: 10px;
 }
 .compose-row {
   display: flex;

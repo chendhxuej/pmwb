@@ -8,6 +8,12 @@ export function previewEmail(data) {
   return request.post(`${BASE}/preview`, data)
 }
 
+// 场景注册表：返回全部邮件场景及字段 schema（供前端按 schema 渲染字段表单）
+// 返回 { items: [{ key, emailType, title, brandColor, intro, renderer, fields: [...] }] }
+export function getMailScenes() {
+  return request.get(`${BASE}/scenes`)
+}
+
 // 统一邮件发送入口（全场景收口）
 // 请求体：{ to, cc?, subject?, scene?, rawContent?|body?, variables?, templateId?, templateData? }
 // confirm_send 固定为 true：代表用户在页面上的显式发送操作（后端 dry_run 护栏据此放行真发）

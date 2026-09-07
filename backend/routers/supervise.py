@@ -15,7 +15,7 @@ from services.dev_ticket import dev_ticket_service
 from services.meeting import meeting_service
 from services.operation import operation_issue_service as operation_service
 
-from services import supervise as supervise_service
+from . import supervise as supervise_service
 
 logger = logging.getLogger("pmwb.routers.supervise")
 
@@ -29,6 +29,21 @@ class SuperviseTicketRequest(BaseModel):
     ticket_id: int | str
     recipients: list[str]
     extra_msg: Optional[str] = None
+    body_md: Optional[str] = None  # 前端 Markdown 编辑区正文（为空则按字段自动生成）
+
+
+class SupervisePreviewRequest(BaseModel):
+    """督办邮件预览请求（只渲染不发送）。
+
+    与 /ticket 共用同一装配链路（build_ticket_fields + 附件块 + 正文），
+    修复此前「预览传空 variables、工单信息全空、改了不刷新」的问题。
+    """
+    scene: str
+    ticket_type: str
+    ticket_id: int | str
+    recipients: list[str] = []
+    extra_msg: Optional[str] = None
+    body_md: Optional[str] = None
 
 
 class SuperviseActionRequest(BaseModel):
@@ -109,8 +124,36 @@ def supervise_ticket(req: SuperviseTicketRequest, db: Session = Depends(get_db))
     if not ticket:
         raise HTTPException(status_code=404, detail=f"工单不存在: {req.ticket_type}#{req.ticket_id}")
 
-    result = supervise_service.supervise_ticket(req.scene, ticket, req.recipients)
+    result = supervise_service.supervise_ticket(
+        req.scene,
+        ticket,
+        req.recipients,
+        extra_msg=req.extra_msg,
+        body_md=req.body_md,
+    )
     return success(data=result)
+
+
+@router.post("/preview")
+def preview_supervise(req: SupervisePreviewRequest, db: Session = Depends(get_db)):
+    """督办邮件预览：只渲染不发送，输出与实发逐字一致的 HTML。"""
+    ticket = _build_ticket_info(req.ticket_type, req.ticket_id, db)
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"工单不存在: {req.ticket_type}#{req.ticket_id}")
+
+    fields = supervise_service.build_ticket_fields(ticket)
+    att_section, _ = supervise_service.collect_attachment_block(ticket)
+    out = supervise_service.render_supervise_preview(
+        req.scene,
+        fields,
+        body_md=req.body_md,
+        extra_msg=req.extra_msg,
+        extra_html=att_section,
+        recipients=req.recipients,
+    )
+    if not out.get("ok"):
+        raise HTTPException(status_code=500, detail=out.get("error", "预览渲染失败"))
+    return success(data={"html": out.get("html", ""), "subject": out.get("subject", "")})
 
 
 @router.post("/action")
@@ -136,5 +179,10 @@ def supervise_action(req: SuperviseActionRequest, db: Session = Depends(get_db))
         "meeting_title": meeting_title,
     }
 
-    result = supervise_service.supervise_action(req.scene, action_data, req.recipients)
+    result = supervise_service.supervise_action(
+        req.scene,
+        action_data,
+        req.recipients,
+        extra_msg=req.extra_msg,
+    )
     return success(data=result)

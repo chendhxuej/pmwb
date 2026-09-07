@@ -47,36 +47,28 @@ def test_inject_signature_inline_escapes_html():
 
 
 def test_dispatch_meeting_html_and_signature(monkeypatch):
-    """meeting_minutes 场景模板化：走 3210 模板渲染 + 统一签名注入。"""
+    """meeting_minutes 已迁入 PMWB 装配器渲染（renderer=True，2026-09-07）。
+
+    验证：场景识别 + 装配器输出（品牌色带+称呼+字段表+正文）+ widen_frame 后处理
+    + 统一签名 + 不调 3210 render_template。
+    """
     captured = {}
-    calls = {"render": 0}
-
-    def fake_list(self, template_type):
-        return [{"id": "tpl-minutes", "type": template_type, "isDefault": True}]
-
-    def fake_render(self, template_id, data):
-        calls["render"] += 1
-        v = data.get("variables", {})
-        return {
-            "subject": f"【会议纪要】{v.get('meetingTitle')}",
-            "body": (
-                '<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">'
-                f"<h2>{v.get('meetingTitle')}</h2>"
-                f"<div>{v.get('content')}</div>"
-                f"<div>{v.get('actionItems')}</div></div>"
-            ),
-            "bodyFormat": "html",
-        }
+    calls = {"render": 0, "send": 0}
 
     def fake_send(self, **kwargs):
+        calls["send"] += 1
         captured.update(kwargs)
         return {"ok": True, "data": {}}
 
-    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "list_templates", fake_list)
-    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "render_template", fake_render)
+    def fake_render(self, template_id, data):
+        calls["render"] += 1
+        return {"subject": "占位", "body": "占位", "bodyFormat": "html"}
+
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "render_template", fake_render)
+
     res = mail_dispatch.dispatch_email(
-        to=["a@b.com"], subject="测试",
+        to=["a@b.com"], subject="【会议纪要】需求评审会",
         scene="meeting_minutes",
         variables={
             "meetingTitle": "需求评审会",
@@ -86,18 +78,21 @@ def test_dispatch_meeting_html_and_signature(monkeypatch):
             "actionItems": "<ul><li>行动项A</li></ul>",
             "body": "# 纪要\n- 项",
         },
+        confirm_send=True,
     )
     assert res["success"] is True
     assert res["body_format"] == "html"
     assert captured["body_format"] == "html"
     assert captured["email_type"] == "meeting_minutes"
-    assert calls["render"] == 1
+    # 不再调 3210 渲染，正文由 PMWB 装配器生成
+    assert calls["render"] == 0
+    assert calls["send"] == 1
+    # 装配器统一特征：称呼（"X 您好" 或多人"各位同事"）+ 品牌色带 + 字段表 + 正文 + 签名 + 90% 幽灵表格
     assert "需求评审会" in captured["body"]
-    assert "<li>行动项A</li>" in captured["body"]
-    # 会议类 frame 加宽后处理：外层 600px→90% 居中，无残留固定窄宽
-    assert "width:90%" in captured["body"]
+    assert ("您好" in captured["body"]) or ("各位同事" in captured["body"])
+    assert ('width="90%"' in captured["body"]) or ("width:90%" in captured["body"])
     assert "max-width:600px" not in captured["body"]
-    assert "陈大海" in captured["body"]
+    assert "陈大海" in captured["body"]  # 统一签名
     assert "font-family" in captured["body"]
 
 
@@ -110,7 +105,7 @@ def test_dispatch_text_body_is_wrapped_as_html(monkeypatch):
 
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
     res = mail_dispatch.dispatch_email(
-        to=["a@b.com"], subject="s", body="纯文本正文", body_format="text"
+        to=["a@b.com"], subject="s", body="纯文本正文", body_format="text", confirm_send=True
     )
     assert res["body_format"] == "text"
     assert "纯文本正文" in captured["body"]
@@ -132,7 +127,7 @@ def test_dispatch_failure_downgrades(monkeypatch):
 
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
     res = mail_dispatch.dispatch_email(
-        to=["a@b.com"], subject="s", body="x", scene="meeting_notice"
+        to=["a@b.com"], subject="s", body="x", scene="meeting_notice", confirm_send=True
     )
     assert res["success"] is False
     assert "邮件中心挂了" in res["message"]
@@ -146,7 +141,7 @@ def test_dispatch_raise_on_error(monkeypatch):
     raised = False
     try:
         mail_dispatch.dispatch_email(
-            to=["a@b.com"], subject="s", body="x", raise_on_error=True
+            to=["a@b.com"], subject="s", body="x", raise_on_error=True, confirm_send=True
         )
     except RuntimeError:
         raised = True
@@ -183,7 +178,8 @@ def test_render_mail_preview_equals_send_body(monkeypatch):
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
     preview = mail_dispatch._render_mail(scene="work_report", raw_content="# 周报\n- 项1")
     send = mail_dispatch.dispatch_email(
-        to=["a@b.com"], subject="周报", scene="work_report", raw_content="# 周报\n- 项1"
+        to=["a@b.com"], subject="周报", scene="work_report", raw_content="# 周报\n- 项1",
+        confirm_send=True,
     )
     assert preview["html"] == send["rendered_body"]
     assert "陈大海" in preview["html"]
@@ -191,76 +187,87 @@ def test_render_mail_preview_equals_send_body(monkeypatch):
 
 
 def test_templated_scene_render_and_fallback(monkeypatch):
-    """supervise 场景模板化：scene 直接走 3210 模板渲染；失败降级 variables.body → fallback_template。"""
+    """装配器场景：正文由 PMWB 装配器渲染（renderer=True，2026-09-07 改造）。
+
+    验证：
+    1. 场景标识正确（email_type=task_center_urge）；
+    2. 不再调 3210 render_template；
+    3. 渲染输出含字段值（任务清单）、统一签名（陈大海）；
+    4. 装配器任何异常时回退 fallback_template，正文不空。
+
+    历史：原任务链路（走 3210 模板）已被正文装配器取代；模板变量的
+    「静默丢弃」风险（编辑内容不生效）随之根除。
+    """
     calls = {"render": 0, "send": 0}
+    captured: list[dict] = []
 
     def fake_render(self, template_id, data):
         calls["render"] += 1
-        v = data.get("variables", {})
-        return {
-            "subject": f"催办：{v.get('title')}",
-            "body": f"<p>{v.get('title')}</p><div>{v.get('description', '')}</div>",
-            "bodyFormat": "html",
-        }
-
-    def fake_list(self, template_type):
-        return [{"id": "tpl-1", "type": template_type, "isDefault": True}]
+        return {"subject": "占位", "body": "占位", "bodyFormat": "html"}
 
     def fake_send(self, **kwargs):
         calls["send"] += 1
+        captured.append(kwargs)
         return {"ok": True, "data": {}}
 
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "render_template", fake_render)
-    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "list_templates", fake_list)
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
 
-    # supervise_urge 模板化：scene 直接走模板渲染（不再 raw）
+    # 正常路径：装配器渲染，含字段值与签名
     res = mail_dispatch.dispatch_email(
         to=["a@b.com"],
-        scene="supervise_urge",
-        variables={"no": "T-001", "title": "测试工单", "body": "请尽快处理该工单。"},
+        scene="task_center_urge",
+        variables={"tasks": "1. 测试工单 A\n2. 测试工单 B"},
+        confirm_send=True,
     )
     assert res["success"] is True
-    assert calls["render"] == 1
+    assert calls["render"] == 0  # 不再调 3210 渲染
     assert calls["send"] == 1
-    assert "测试工单" in res["rendered_body"]
+    assert "测试工单 A" in res["rendered_body"]
     assert "陈大海" in res["rendered_body"]  # 统一签名注入
 
-    # template_id 直接传参时同样走模板渲染
+    # template_id 透传不再改变正文来源（装配器模式覆盖 3210）
     res2 = mail_dispatch.dispatch_email(
         to=["a@b.com"],
-        scene="supervise_urge",
+        scene="task_center_urge",
         template_id="tpl-1",
-        variables={"no": "T-001", "title": "测试工单"},
+        variables={"tasks": "测试工单清单"},
+        confirm_send=True,
     )
     assert res2["success"] is True
-    assert calls["render"] >= 2
-    assert "催办：测试工单" in res2["subject"]
-    assert "测试工单" in res2["rendered_body"]
+    assert calls["render"] == 0
+    assert "测试工单清单" in res2["rendered_body"]
     assert "陈大海" in res2["rendered_body"]
 
-    # 3210 渲染失败：优先用 variables.body（raw_content）降级，正文不空
+    # 3210 模板接口不应被本链路触达（已切到装配器）
     def fake_render_fail(self, template_id, data):
-        raise RuntimeError("渲染服务不可用")
+        raise RuntimeError("装配器不可用")
 
     monkeypatch.setattr(mail_dispatch.EmailCenterClient, "render_template", fake_render_fail)
+
+    # 3210 异常不影响装配器：仍正常出正文
     res3 = mail_dispatch.dispatch_email(
         to=["a@b.com"],
-        scene="supervise_urge",
-        variables={"no": "T-002", "title": "测试", "body": "降级测试正文"},
+        scene="task_center_urge",
+        variables={"tasks": "降级测试正文"},
+        confirm_send=True,
     )
     assert res3["success"] is True
-    assert "降级测试正文" in res3["rendered_body"]
-    assert "陈大海" in res3["rendered_body"]
+    body = res3["rendered_body"]
+    assert "降级测试正文" in body  # 装配器仍正常返回
+    assert "陈大海" in body        # 签名始终注入
 
-    # 无 body 时降级用场景 fallback_template（通用 Markdown 兜底）
+    # 无字段时：装配器走 fallback_template，正文不空
     res4 = mail_dispatch.dispatch_email(
         to=["a@b.com"],
-        scene="supervise_urge",
-        variables={"no": "T-003", "title": "测试"},
+        scene="task_center_urge",
+        variables={},
+        confirm_send=True,
     )
     assert res4["success"] is True
-    assert "催办通知" in res4["rendered_body"]  # supervise_urge.fallback_template
+    assert res4["rendered_body"] and "陈大海" in res4["rendered_body"]
+    # fallback_template 含「任务催办提醒」主标题
+    assert "任务催办提醒" in res4["rendered_body"]
 
 
 def test_plugin_html_passthrough(monkeypatch):

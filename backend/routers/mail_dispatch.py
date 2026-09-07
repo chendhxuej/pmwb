@@ -14,8 +14,9 @@ from core.exceptions import ValidationException
 from core.response import success
 from db.base import get_db
 from sqlalchemy.orm import Session
-from services.mail_dispatch import dispatch_email, _render_mail
+from services.mail_dispatch import SCENES, dispatch_email, _render_mail
 from utils.email import EmailCenterClient
+from utils.mail_content import get_scene_meta, scene_schema
 from utils.markdown_mail import inject_signature_inline, markdown_to_email_html
 from utils.validators import split_and_validate_emails
 
@@ -58,6 +59,29 @@ def _resolve_recipients(raw_list: list) -> list[str]:
     return emails
 
 
+@router.get("/scenes")
+def list_mail_scenes():
+    """返回全部邮件场景及字段 schema，供前端统一渲染「字段表单 + Markdown 正文」。
+
+    前端不再各页面硬编码模板变量，改为按本接口 schema 驱动，从根上消除
+    「前端传的变量名与模板对不上 → 字段空白」的问题。
+    """
+    items = []
+    for key, sc in SCENES.items():
+        meta = get_scene_meta(key)
+        items.append({
+            "key": key,
+            "emailType": sc.email_type,
+            "title": meta.get("title", ""),
+            "brandColor": meta.get("brand_color", "#165dff"),
+            "intro": meta.get("intro", ""),
+            "renderer": sc.renderer,
+            "addSignature": sc.add_signature,
+            "fields": scene_schema(key),
+        })
+    return success(data={"items": items})
+
+
 @router.post("/preview")
 def preview_email(req: dict, db: Session = Depends(get_db)):
     """渲染邮件正文 HTML 供前端实时预览。
@@ -98,6 +122,9 @@ def preview_email(req: dict, db: Session = Depends(get_db)):
             template_id=req.get("templateId"),
             template_data=req.get("templateData"),
             add_signature=req.get("add_signature", True),
+            fields=req.get("fields"),
+            recipient_name=req.get("recipientName"),
+            extra_html=req.get("extraHtml") or "",
         )
         return success(data={"html": out["html"], "subject": out["subject"], "body_format": out["body_format"]})
 
@@ -164,5 +191,8 @@ def send_email_endpoint(req: dict, db=Depends(get_db)):
         req_name=req.get("req_name"),
         html_passthrough=req.get("htmlPassthrough", False),
         confirm_send=bool(req.get("confirm_send", False)),
+        fields=req.get("fields"),
+        recipient_name=req.get("recipientName") or req.get("recipient_name"),
+        extra_html=req.get("extraHtml") or "",
     )
     return success(data=res)
