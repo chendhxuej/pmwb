@@ -1492,3 +1492,88 @@ class PmwbLlmProvider(Base):
         Index("ix_llm_provider_default", "is_default"),
         {"comment": "底层大模型提供方注册表"},
     )
+
+
+class PmwbMaterialCategory(Base):
+    """业务资料库 - 材料分类树（两级，支持增删改与启停）。"""
+
+    __tablename__ = "pmwb_material_category"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    code = Column(String(64), nullable=False, unique=True, comment="分类编码，全局唯一")
+    name = Column(String(128), nullable=False, comment="分类名称")
+    parent_id = Column(
+        Integer,
+        ForeignKey("pmwb_material_category.id"),
+        nullable=True,
+        comment="父分类ID，空表示一级分类",
+    )
+    sort_order = Column(Integer, default=0, comment="排序号，越小越靠前")
+    enabled = Column(Boolean, default=True, comment="是否启用，停用后不出现在下拉但保留历史归属")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        Index("ix_mat_cat_parent", "parent_id"),
+        {"comment": "业务资料库材料分类树"},
+    )
+
+
+class PmwbMaterial(Base):
+    """业务资料库 - 统一材料索引。
+
+    只登记指针、不搬迁物理文件：汇聚时记录来源与相对路径，
+    下载/预览时按 storage_root + rel_path 还原绝对路径。
+    """
+
+    __tablename__ = "pmwb_material"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+
+    category_id = Column(
+        Integer,
+        ForeignKey("pmwb_material_category.id"),
+        nullable=True,
+        comment="所属分类ID",
+    )
+    domain_code = Column(String(64), comment="业务领域编码，复用 pmwb_business_domain")
+
+    source_type = Column(
+        String(64),
+        nullable=False,
+        comment="来源类型: operation_issue/research_issue/requirement/"
+        "dev_deliverable/keywork_deliverable/req_manual/manual_upload",
+    )
+    source_id = Column(String(255), comment="来源业务对象ID（运营工单id / req_id / 重点工作id）")
+    source_no = Column(String(128), comment="冗余来源单号（issue_no / req_id），供搜索与展示")
+    source_title = Column(String(500), comment="冗余来源标题，避免列表页N次联表")
+
+    file_name = Column(String(500), nullable=False, comment="原始文件名（展示与搜索用）")
+    stored_name = Column(String(500), nullable=False, comment="落盘文件名（UUID前缀防覆盖）")
+    storage_root = Column(String(16), default="uploads", comment="存储根: uploads / vault")
+    rel_path = Column(String(1024), nullable=False, comment="相对 storage_root 的路径")
+    rel_path_hash = Column(
+        String(64),
+        nullable=False,
+        comment="rel_path 的 sha256 十六进制，用于唯一约束（MySQL utf8mb4 索引 3072 字节限制）",
+    )
+    file_size = Column(Integer, comment="文件大小(字节)")
+    file_ext = Column(String(32), comment="扩展名小写，如 xlsx")
+    file_type = Column(String(128), comment="MIME 类型")
+
+    origin = Column(String(32), default="manual", comment="来源方式: manual 手工上传 / auto 汇聚登记")
+    uploaded_by = Column(String(64), comment="上传人")
+    note = Column(Text, comment="备注，参与模糊搜索")
+    tags = Column(String(512), comment="标签，逗号分隔")
+    download_count = Column(Integer, default=0, comment="下载次数")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        Index("idx_mat_source", "source_type", "source_id"),
+        Index("idx_mat_category", "category_id"),
+        Index("idx_mat_domain", "domain_code"),
+        Index("idx_mat_ext", "file_ext"),
+        UniqueConstraint("source_type", "source_id", "rel_path_hash", name="uk_mat_dedup"),
+        {"comment": "业务资料库统一材料索引表"},
+    )

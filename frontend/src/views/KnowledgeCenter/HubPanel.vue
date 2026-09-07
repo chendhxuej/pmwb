@@ -202,6 +202,10 @@
             <el-icon><FolderOpened /></el-icon>
             <span>打开主笔记</span>
           </el-button>
+          <el-button plain type="success" @click="openDetailPage">
+            <el-icon><View /></el-icon>
+            <span>领域详情 Dashboard</span>
+          </el-button>
         </div>
       </div>
 
@@ -250,7 +254,7 @@
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  Refresh, Notebook, FolderOpened, SetUp, Clock, Lightning, FirstAidKit, Search
+  Refresh, Notebook, FolderOpened, SetUp, Clock, Lightning, FirstAidKit, Search, View
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { basicDataApi, loadBusinessDomains } from '@/api/basicData.js'
@@ -439,6 +443,16 @@ const selectDomain = async (d) => {
   } finally {
     detailLoading.value = false
   }
+}
+
+// 跳转到领域详情 Dashboard（路由需真实领域编码，不能从侧边栏菜单直接进）
+const openDetailPage = () => {
+  const code = selectedDomain.value?.domain_code
+  if (!code) {
+    ElMessage.warning('请先选择一个业务领域')
+    return
+  }
+  router.push({ name: 'KcDomainDetail', params: { code } })
 }
 
 const loadBible = async (code) => {

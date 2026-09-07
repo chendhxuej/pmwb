@@ -22,6 +22,7 @@ from routers import (
     llm_provider,
     mail_center,
     mail_dispatch,
+    material,
     meeting,
     meeting_action,
     obsidian,
@@ -131,6 +132,8 @@ app.include_router(obsidian.router, prefix="/api/v1", tags=["Obsidian 联动"])
 app.include_router(work_report.router, prefix="/api/v1", tags=["AI总结报告"])
 app.include_router(llm_provider.router, prefix="/api/v1", tags=["大模型管理"])
 app.include_router(ai_qa.router, prefix="/api/v1", tags=["AI问答"])
+app.include_router(material.router, prefix="/api/v1", tags=["业务资料库-材料"])
+app.include_router(material.cat_router, prefix="/api/v1", tags=["业务资料库-分类"])
 
 
 @app.on_event("startup")

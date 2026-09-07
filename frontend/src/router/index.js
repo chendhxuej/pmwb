@@ -174,7 +174,23 @@ const routes = [
             path: 'domain/:code',
             name: 'KcDomainDetail',
             component: () => import('@/views/KnowledgeCenter/DomainDetailView.vue'),
-            meta: { title: '领域详情', icon: 'Grid' },
+            meta: { title: '领域详情', icon: 'Grid', hidden: true },
+            // hidden: true — 该路由依赖动态领域编码，侧边栏菜单无法正确构造路径。
+            // 用户通过 HubPanel 「领域详情 Dashboard」按钮进入，路径含真实 code 参数。
+            // beforeEnter 守卫保留作为安全兜底，防止直接输入无效 URL 时 404。
+            beforeEnter: (to) => {
+              const code = String(to.params.code || '')
+              if (!code || code === 'undefined' || code === 'null' || code.includes(':')) {
+                return { name: 'KcHub' }
+              }
+              return true
+            },
+          },
+          // 无编码兜底入口：从菜单进入时回落到总览驾驶舱，避免 404
+          {
+            path: 'domain',
+            redirect: { name: 'KcHub' },
+            meta: { hidden: true },
           },
           {
             path: 'timeline',
@@ -232,6 +248,13 @@ const routes = [
             meta: { title: '知识沉淀', icon: 'Files', hidden: true },
           },
         ],
+      },
+      // ── 业务资料库 ──
+      {
+        path: 'material-library',
+        name: 'MaterialLibrary',
+        component: () => import('@/views/MaterialLibraryView.vue'),
+        meta: { title: '业务资料库', icon: 'Files' },
       },
       // 旧催办中心深链兼容（隐藏于菜单，重定向到任务中心）
       {

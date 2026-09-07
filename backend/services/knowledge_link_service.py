@@ -550,9 +550,11 @@ def get_main_note_structured(db: Session, domain_code: str) -> Dict:
         })
     return {
         "domain_code": domain_code,
+        "item_id": item.id,  # 新增：供前端按 item_id 更新内容
         "title": item.title or "",
         "obsidian_path": item.obsidian_path,
         "sections": sections,
+        "content": content,  # 完整 markdown 内容，供前端分段渲染
     }
 
 

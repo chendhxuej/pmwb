@@ -68,6 +68,12 @@ class Settings(BaseSettings):
         "01-业务知识/政企业务知识库",
     ]
 
+    # ===== 业务资料库：统一文件存储 =====
+    # 上传根目录（项目内 uploads/）。留空则自动推导为项目根/uploads，与现有 uploads/operation 保持一致。
+    UPLOAD_ROOT: str = ""
+    # 单文件最大体积(MB)。现有上传点均无限制且全量读入内存，资料库先收口到此值。
+    MAX_UPLOAD_SIZE_MB: int = 100
+
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000
     # 对外可访问基址：用于邮件正文内工单附件下载链接。公网部署时配置 PUBLIC_BASE_URL 覆盖默认值；

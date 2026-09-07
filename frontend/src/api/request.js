@@ -30,7 +30,30 @@ request.interceptors.response.use(
     return data
   },
   (error) => {
-    ElMessage.error(error.message || '网络错误')
+    // 关键修复：必须透出后端返回的真实错误文案，而非仅显示 axios 的
+    // 通用 "Request failed with status code 4xx"，否则业务校验（如
+    // "分类编码已存在"）对用户完全不可见，看起来像无解的 bug。
+    const res = error.response
+    let msg = '网络错误'
+    if (res) {
+      const data = res.data || {}
+      const detail = data.detail
+      if (typeof detail === 'string') {
+        msg = detail
+      } else if (Array.isArray(detail)) {
+        // Pydantic 校验错误：detail 形如 [{loc, msg, type}, ...]
+        msg = detail
+          .map((d) => (d && d.msg ? d.msg : JSON.stringify(d)))
+          .join('；')
+      } else if (data.message) {
+        msg = data.message
+      } else {
+        msg = `请求失败（HTTP ${res.status}）`
+      }
+    } else if (error.message) {
+      msg = error.message
+    }
+    ElMessage.error(msg)
     return Promise.reject(error)
   }
 )

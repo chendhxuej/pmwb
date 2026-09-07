@@ -328,18 +328,18 @@ def create_item(obj_in: KnowledgeItemCreate, db: Session = Depends(get_db)):
     return success(data=knowledge_item_service.create_with_content(db, obj_in))
 
 
-@router.put("/{item_id}")
-def update_item(item_id: int, obj_in: KnowledgeItemUpdate, db: Session = Depends(get_db)):
-    """更新知识条目元数据。"""
-    return success(data=knowledge_item_service.update(db, item_id, obj_in.model_dump(exclude_unset=True)))
-
-
 @router.put("/{item_id}/content")
 def update_item_content(item_id: int, payload: Dict[str, Any], db: Session = Depends(get_db)):
     """更新知识条目 Markdown 内容。"""
     content = payload.get("content", "")
     ok = knowledge_item_service.update_content(db, item_id, content)
     return success(data=ok)
+
+
+@router.put("/{item_id}")
+def update_item(item_id: int, obj_in: KnowledgeItemUpdate, db: Session = Depends(get_db)):
+    """更新知识条目元数据。"""
+    return success(data=knowledge_item_service.update(db, item_id, obj_in.model_dump(exclude_unset=True)))
 
 
 @router.delete("/{item_id}")

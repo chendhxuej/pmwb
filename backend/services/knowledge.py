@@ -111,14 +111,26 @@ class KnowledgeItemService(BaseService[PmwbKnowledgeItem]):
         }
 
     def update_content(self, db: Session, id: int, content: str) -> bool:
-        item = self.get(db, id)
-        if not item:
-            return False
-        write_markdown(item.obsidian_path, content)
-        item.updated_at = datetime.now()
-        db.commit()
-        db.refresh(item)
-        return True
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            item = self.get(db, id)
+            if not item:
+                logger.error(f"[update_content] Item {id} not found")
+                return False
+            logger.info(f"[update_content] Updating item {id}, path={item.obsidian_path}")
+            write_markdown(item.obsidian_path, content)
+            logger.info(f"[update_content] write_markdown success")
+            item.updated_at = datetime.now()
+            db.commit()
+            db.refresh(item)
+            logger.info(f"[update_content] db.commit success, new updated_at={item.updated_at}")
+            return True
+        except Exception as e:
+            logger.error(f"[update_content] FAILED for item {id}: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise
 
     def get_categories(self, db: Session) -> List[str]:
         rows = db.query(self.model.category).distinct().all()

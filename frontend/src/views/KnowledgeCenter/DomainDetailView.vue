@@ -12,6 +12,17 @@
         <span class="bc-current">{{ detail.domain_name }} · 领域详情</span>
       </div>
       <div class="detail-actions">
+        <el-button v-if="!isEditing" plain type="primary" @click="startEdit">
+          <el-icon><Edit /></el-icon>
+          <span>编辑主笔记</span>
+        </el-button>
+        <template v-else>
+          <el-button :loading="saving" @click="cancelEdit">取消</el-button>
+          <el-button type="success" :loading="saving" @click="saveAllChanges">
+            <el-icon><Check /></el-icon>
+            <span>全部保存</span>
+          </el-button>
+        </template>
         <el-button plain :loading="syncing" @click="syncMainNote">
           <el-icon><Refresh /></el-icon>
           <span>同步主笔记</span>
@@ -34,7 +45,14 @@
             <span v-if="bibleTitle" class="dcard-sub">{{ bibleTitle }}</span>
           </div>
           <div class="bible-list">
-            <div v-for="sec in bibleSections" :key="sec.key" class="bible-item">
+            <div
+              v-for="sec in bibleSections"
+              :key="sec.key"
+              class="bible-item"
+              :class="{ 'bible-item--active': activeSection === sec.key }"
+              @click="scrollToSection(sec.key)"
+              title="点击查看对应章节"
+            >
               <span class="bible-badge" :class="'kind-' + sec.kind">{{ sec.kind_label }}</span>
               <span class="bible-title">{{ sec.title }}</span>
             </div>
@@ -79,8 +97,39 @@
         </div>
         <div class="dbody">
           <!-- 产品圣经 tab -->
-          <div v-if="activeTab === 'bible'" class="tab-content">
-            <div v-if="bibleContent" class="markdown-body" v-html="renderedBible"></div>
+          <div v-if="activeTab === 'bible'" class="tab-content bible-content">
+            <div v-if="bibleSections.length" class="bible-full">
+              <div
+                v-for="sec in bibleSections"
+                :key="sec.key"
+                :id="`section-${sec.key}`"
+                class="bible-section"
+                :class="{ 'bible-section--active': activeSection === sec.key }"
+              >
+                <div class="section-header">
+                  <h2 class="section-title">{{ sec.title }}</h2>
+                  <span class="section-badge" :class="'kind-' + sec.kind">{{ sec.kind_label }}</span>
+                  <div class="section-actions" v-if="isEditing">
+                    <el-button size="small" @click="startEditSection(sec.key)">编辑</el-button>
+                    <el-button size="small" type="success" @click="saveSection(sec.key)" :loading="savingSection === sec.key">保存</el-button>
+                  </div>
+                </div>
+                <!-- 编辑模式：textarea -->
+                <div v-if="isEditing && editingSection === sec.key" class="section-edit">
+                  <textarea
+                    v-model="editingContent"
+                    class="section-textarea"
+                    spellcheck="false"
+                  ></textarea>
+                  <div class="edit-preview">
+                    <div class="preview-label">预览</div>
+                    <div class="preview-content" v-html="renderMarkdown(editingContent)"></div>
+                  </div>
+                </div>
+                <!-- 只读模式：渲染 markdown -->
+                <div v-else class="section-content" v-html="renderMarkdown(sec.markdown)"></div>
+              </div>
+            </div>
             <el-empty v-else :description="bibleLoading ? '加载中...' : '暂无主笔记内容'" />
           </div>
 
@@ -146,7 +195,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, FolderOpened } from '@element-plus/icons-vue'
+import { Refresh, FolderOpened, Edit, Check } from '@element-plus/icons-vue'
 import { basicDataApi } from '@/api/basicData'
 import { knowledgeApi } from '@/api/knowledge'
 import { productBibleApi } from '@/api/productBible'
@@ -160,13 +209,23 @@ const code = route.params.code
 const loading = ref(false)
 const detail = ref({})
 const bibleSections = ref([])
-const bibleContent = ref('')
+const bibleContent = ref('') // 存储原始完整内容，用于重建
 const bibleTitle = ref('')
 const bibleLoading = ref(false)
 const relations = ref([])
 const timelineEvents = ref([])
 const relFilter = ref('all')
 const activeTab = ref('bible')
+const activeSection = ref('1')
+
+// 编辑模式状态
+const isEditing = ref(false)
+const editingSection = ref(null)
+const savingSection = ref(null)
+const saving = ref(false)
+const editingContent = ref('')
+const originalSections = ref([]) // 备份，用于取消时恢复
+const mainNoteItemId = ref(null) // item_id from backend
 
 const GROUP_META = {
   '商客业务': { color: '#2f6fed', bg: 'rgba(47,111,237,.10)' },
@@ -193,10 +252,18 @@ const filteredRelations = computed(() => {
   return relations.value.filter(r => r.status === map[relFilter.value])
 })
 
-const renderedBible = computed(() => {
-  if (!bibleContent.value) return ''
-  return marked.parse(bibleContent.value)
-})
+function renderMarkdown(md) {
+  if (!md) return ''
+  return marked.parse(md)
+}
+
+function scrollToSection(key) {
+  activeSection.value = key
+  const el = document.getElementById(`section-${key}`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
 
 async function loadDetail() {
   loading.value = true
@@ -222,14 +289,101 @@ async function loadBible() {
   try {
     const res = await productBibleApi.getMainNote(code)
     bibleSections.value = res?.sections || []
-    bibleContent.value = res?.content || ''
+    bibleContent.value = res?.content || '' // 保存原始完整内容
     bibleTitle.value = res?.title || ''
+    mainNoteItemId.value = res?.item_id || null
+    activeSection.value = bibleSections.value.length ? bibleSections.value[0].key : '1'
   } catch {
     bibleSections.value = []
-    bibleContent.value = ''
   } finally {
     bibleLoading.value = false
   }
+}
+
+// 编辑模式管理
+function startEdit() {
+  isEditing.value = true
+  // 备份当前内容，用于取消恢复
+  originalSections.value = JSON.parse(JSON.stringify(bibleSections.value))
+  ElMessage.info('已进入编辑模式，点击各章节的「编辑」按钮开始修改')
+}
+
+function cancelEdit() {
+  isEditing.value = false
+  editingSection.value = null
+  // 恢复原始内容
+  bibleSections.value = JSON.parse(JSON.stringify(originalSections.value))
+  ElMessage.info('已取消编辑，内容已恢复')
+}
+
+function startEditSection(key) {
+  editingSection.value = key
+  // 找到对应 section 的原始 markdown 作为初始内容
+  const sec = bibleSections.value.find(s => s.key === key)
+  editingContent.value = sec?.markdown || ''
+}
+
+async function saveSection(key) {
+  if (!mainNoteItemId.value) {
+    ElMessage.error('主笔记 ID 未找到，无法保存')
+    return
+  }
+  savingSection.value = key
+  try {
+    // 更新 sections 数组中的 markdown
+    const sec = bibleSections.value.find(s => s.key === key)
+    if (sec) {
+      sec.markdown = editingContent.value
+    }
+    // 重建完整 content（保持原有 section 顺序）
+    const fullContent = buildFullContent(bibleSections.value)
+    // 调用 API 保存
+    await knowledgeApi.updateItemContent(mainNoteItemId.value, fullContent)
+    ElMessage.success(`章节 ${key} 已保存`)
+    editingSection.value = null
+    // 刷新 sections（重新读取，确保与 Obsidian 一致）
+    await loadBible()
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally {
+    savingSection.value = null
+  }
+}
+
+async function saveAllChanges() {
+  if (!mainNoteItemId.value) {
+    ElMessage.error('主笔记 ID 未找到，无法保存')
+    return
+  }
+  saving.value = true
+  try {
+    // 重建完整 content
+    const fullContent = buildFullContent(bibleSections.value)
+    await knowledgeApi.updateItemContent(mainNoteItemId.value, fullContent)
+    ElMessage.success('所有更改已保存')
+    isEditing.value = false
+    editingSection.value = null
+    await loadBible()
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+// 根据 sections 重建完整 markdown 内容
+function buildFullContent(sections) {
+  // 使用保存的原始 content 作为基底，逐段替换
+  let result = bibleContent.value
+  if (!result) return ''
+  for (const sec of sections) {
+    const escapedKey = sec.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // 匹配 ## key. 标题 ... 直到下一个 ## 或文件末尾
+    const regex = new RegExp(`(##\\s+${escapedKey}\\s*[^\n]*\n)(.*?)(?=\n##\\s|$)`, 's')
+    const replacement = `$1${sec.markdown}\n`
+    result = result.replace(regex, replacement)
+  }
+  return result
 }
 
 const syncing = ref(false)
@@ -366,6 +520,18 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.bible-item {
+  cursor: pointer;
+  transition: background 0.2s, border-left 0.2s;
+}
+.bible-item:hover {
+  background: #e8f0fe;
+}
+.bible-item--active {
+  background: #d4e4ff;
+  border-left: 3px solid #2f6fed;
+  padding-left: 7px;
+}
 .mini-list { display: flex; flex-direction: column; gap: 8px; }
 .mini-item {
   display: flex;
@@ -476,6 +642,133 @@ onMounted(() => {
 }
 .markdown-body p { margin: 8px 0; }
 .markdown-body ul { padding-left: 20px; }
+
+/* 分段渲染样式 */
+.bible-content { padding-right: 8px; }
+.bible-full { display: flex; flex-direction: column; gap: 16px; }
+.bible-section {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 16px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.bible-section--active {
+  border-color: #2f6fed;
+  box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.1);
+}
+.section-title {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2d3d;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e4e7ed;
+}
+.section-content {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #374151;
+}
+.section-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.section-content th, .section-content td {
+  border: 1px solid #e4e7ed;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 12px;
+}
+.section-content th {
+  background: #f5f7fa;
+  font-weight: 600;
+}
+.section-content ul { padding-left: 18px; }
+.section-content li { margin: 4px 0; }
+
+/* 编辑模式样式 */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e4e7ed;
+}
+.section-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.section-badge.kind-baseline { background: #ecf5ff; color: #409eff; }
+.section-badge.kind-auto { background: #f0f9eb; color: #67c23a; }
+.section-badge.kind-system { background: #f4f4f5; color: #909399; }
+.section-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+.section-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.section-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+.section-textarea:focus {
+  outline: none;
+  border-color: #2f6fed;
+  box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.1);
+}
+.edit-preview {
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.preview-label {
+  padding: 6px 12px;
+  background: #f5f7fa;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  border-bottom: 1px solid #e4e7ed;
+}
+.preview-content {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #fff;
+}
+.preview-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.preview-content th, .preview-content td {
+  border: 1px solid #e4e7ed;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.preview-content th {
+  background: #f5f7fa;
+  font-weight: 600;
+}
 
 @media (max-width: 1200px) {
   .detail-body { grid-template-columns: 1fr; }

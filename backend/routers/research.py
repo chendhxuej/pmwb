@@ -162,7 +162,14 @@ def upload_issue_attachment(
         f.write(content)
     meta = {"name": safe_name, "bytes": len(content), "size": _human_size(len(content))}
     atts = _parse_attachments(obj)
-    atts.append(meta)
+    replaced = False
+    for i, a in enumerate(atts):
+        if isinstance(a, dict) and a.get("name") == safe_name:
+            atts[i] = meta
+            replaced = True
+            break
+    if not replaced:
+        atts.append(meta)
     obj.attachments = json.dumps(atts, ensure_ascii=False)
     db.commit()
     return success(data=atts, message="上传成功")

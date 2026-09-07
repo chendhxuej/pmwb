@@ -108,8 +108,19 @@ def test_ensure_main_notes_creates_missing_main(client: TestClient, db, monkeypa
     monkeypatch.setattr(kls, "write_markdown", lambda path, content: None)
     from db.models import PmwbBusinessDomain
 
+    # 业务领域字典是两级结构：一级大类（parent_id=NULL）+ 二级细分领域。
+    # 批量保活只处理二级细分领域（一级是分组容器，不是业务领域），故先建父类。
+    parent = PmwbBusinessDomain(
+        domain_code="group-zhengqi", domain_name="政企业务", domain_group="政企业务", enabled=True
+    )
+    db.add(parent)
+    db.commit()
     domain = PmwbBusinessDomain(
-        domain_code="ftto2", domain_name="FTTO2", domain_group="政企业务", enabled=True
+        domain_code="ftto2",
+        domain_name="FTTO2",
+        domain_group="政企业务",
+        enabled=True,
+        parent_id=parent.id,
     )
     db.add(domain)
     db.commit()

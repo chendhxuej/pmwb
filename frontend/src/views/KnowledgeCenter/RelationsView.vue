@@ -212,8 +212,6 @@ async function applyBatch() {
       skipped: data?.skipped ?? 0,
       errors: Array.isArray(data?.errors) ? data.errors : [],
     }
-    lastResult.value = result
-
     if (result.errors.length) {
       ElMessage.warning(`成功 ${result.updated} 条，失败 ${result.errors.length} 条`)
     } else {
@@ -221,6 +219,8 @@ async function applyBatch() {
     }
     // 重新拉取列表，确保「当前领域」显示的是中文名而不是刚写入的 code
     await loadBatch()
+    // loadBatch 会重置 lastResult，刷新完成后再回填，保证结果明细可见
+    lastResult.value = result
   } catch (e) {
     ElMessage.error(e?.message || '批量设置失败')
   } finally {
