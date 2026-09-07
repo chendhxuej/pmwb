@@ -62,10 +62,12 @@
 ## 验证纪律
 - 运行态≠代码态：改完重启后端/前端，curl/puppeteer 确认服务新代码。穿测须真实 DOM 断言，禁"能渲染"冒充。
 - 知识中心 E2E 模板 frontend/tests/e2e/knowledge-center.e2e.cjs（puppeteer-core + 系统 Chrome）。
+- **前端编译冒烟不能用默认 `vite build`**：清空 `dist/assets`（>50 文件）会被 safe-delete 钩子拦截报 "Build failed"，且失败时产物可能是旧目录残留。改用临时 outDir（如 `npx vite build --outDir <系统temp路径> --emptyOutDir`），再 grep 产物关键字符串确认新代码已编译进去（函数名压缩后会重命名，属正常）。
 - 人员中台测试防御：fake_master.py 替换 master_service_client._request，离线零污染。
 
 ## 模块纪要
 - AI总结/WorkReport：routers/work_report.py，归档 Obsidian 15-工作总结/{类型}/{日期}.md。
+- 用户故事生成（需求与交付）：落库=delete+insert 全量覆盖，无缓存；「生成结果不变」只可能是内容相同。**AI 失败必降级但不可静默**：`_generate_with_llm_fallback` 记 logger.exception + 回传 fallback_reason，前端 `STRATEGY_LABELS` 把 `rules_v2_fallback` 显示为「AI降级·合并优先」并弹红色告警条。**禁止**把 fallback 标签伪装成「合并优先」。溯源元信息存 `pmwb_user_story.gen_strategy/gen_provider/gen_model/gen_at/gen_fallback_reason`（迁移 a7c3e91d4b28）；`get_status` 是真实连通探测（60s TTL），`available` 不能只看有没有 enabled 记录。前端仍无模型下拉框，换模型须在「大模型管理」设默认/调优先级。
 - 大模型管理：pmwb_llm_provider 多模型注册表；call_best_available 全不可用时落规则模板。
 - 知识标准化（产品圣经）：MAIN_NOTE_SECTIONS 14 章节；GET/PUT /knowledge/main-note/{domain_code}/section。
 - Obsidian 打开统一入口 openObsidianNote(relPath)，vault 固定「知识图谱」。
