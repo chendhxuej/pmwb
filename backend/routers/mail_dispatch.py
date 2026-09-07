@@ -116,14 +116,14 @@ def preview_email(req: dict, db: Session = Depends(get_db)):
         out = _render_mail(
             scene=scene,
             variables=variables,
-            raw_content=req.get("rawContent") or req.get("body"),
+            raw_content=req.get("rawContent") or req.get("body") or req.get("body_md"),
             subject=req.get("subject"),
             html_passthrough=req.get("htmlPassthrough", False),
             template_id=req.get("templateId"),
             template_data=req.get("templateData"),
             add_signature=req.get("add_signature", True),
             fields=req.get("fields"),
-            recipient_name=req.get("recipientName"),
+            recipient_name=req.get("recipientName") or req.get("recipient_name"),
             extra_html=req.get("extraHtml") or "",
         )
         return success(data={"html": out["html"], "subject": out["subject"], "body_format": out["body_format"]})
