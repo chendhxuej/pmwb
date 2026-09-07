@@ -323,8 +323,12 @@ def _render_mail(
         ctx = {**(variables or {}), **(fields or {})}
         # task_center_* 主题格式化（2026-09-07）：
         # 单任务 → 催办：{title}；多任务 → 催办：{first_title[:30]} 等 {N} 项任务
+        # 兼容全局 /preview（variables 路径）与 /task-center/send（fields 路径）：
+        # 优先 fields.tasks，回退 variables.tasks。
         if scene in ("task_center_notify", "task_center_urge"):
             tasks_val = (fields or {}).get("tasks")
+            if not isinstance(tasks_val, list) and variables:
+                tasks_val = (variables or {}).get("tasks")
             if isinstance(tasks_val, list) and tasks_val:
                 ctx["count"] = len(tasks_val)
                 if len(tasks_val) == 1:
