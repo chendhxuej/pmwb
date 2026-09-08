@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     UPLOAD_ROOT: str = ""
     # 单文件最大体积(MB)。现有上传点均无限制且全量读入内存，资料库先收口到此值。
     MAX_UPLOAD_SIZE_MB: int = 100
+    # 批量上传单次允许的文件数量上限（业务资料库）。超限直接 400，避免一次请求拖垮服务。
+    MAX_BATCH_UPLOAD_FILES: int = 50
 
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000

@@ -9,6 +9,7 @@ import os
 import uuid
 from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -331,3 +332,205 @@ def upload_material(
 
 def abs_path_of(m: PmwbMaterial) -> str:
     return fs.abs_path(m.storage_root, m.rel_path)
+
+
+# --------------------------------------------------------------- 批量操作
+def _dup_query(db: Session, *, category_id: Optional[int], safe_name: str):
+    """构造（分类 + 文件名）重名查询；category_id 为空时按「未分类」桶匹配。"""
+    q = db.query(PmwbMaterial).filter(PmwbMaterial.file_name == safe_name)
+    if category_id is None:
+        return q.filter(PmwbMaterial.category_id.is_(None))
+    return q.filter(PmwbMaterial.category_id == category_id)
+
+
+def _category_exists(db: Session, category_id: Optional[int]) -> bool:
+    if not category_id:
+        return True  # 未分类，无需校验
+    return (
+        db.query(PmwbMaterialCategory)
+        .filter(PmwbMaterialCategory.id == category_id)
+        .first()
+        is not None
+    )
+
+
+def check_upload_conflicts(
+    db: Session, *, category_id: Optional[int], file_names: list
+) -> list:
+    """上传前重名预检：返回与已入库材料同 (category_id, file_name) 的冲突清单。"""
+    conflicts = []
+    seen: set = set()
+    for name in file_names:
+        safe_name = fs.sanitize_filename(name or "未命名文件")
+        if safe_name in seen:
+            continue
+        seen.add(safe_name)
+        row = _dup_query(db, category_id=category_id, safe_name=safe_name).first()
+        if row:
+            conflicts.append({"file_name": safe_name, "existing_id": row.id})
+    return conflicts
+
+
+def batch_upload_materials(
+    db: Session,
+    *,
+    files: list,
+    category_id: Optional[int],
+    note: Optional[str],
+    uploaded_by: Optional[str],
+    dup_action: str = "skip",
+) -> dict:
+    """批量上传：逐文件独立落盘+入库，单文件失败不影响其他文件。
+
+    - dup_action=skip：同分类下已存在同名文件（含本批次内重复）则跳过；
+      dup_action=force：仍上传，生成独立副本。
+    - 落盘成功但入库失败时回滚事务并删除物理文件，不留孤儿。
+    """
+    if not _category_exists(db, category_id):
+        raise ValueError("目标分类不存在")
+
+    results: list = []
+    success_count = skipped_count = failed_count = 0
+    seen_in_batch: set = set()
+
+    for f in files:
+        safe_name = fs.sanitize_filename(getattr(f, "filename", None) or "未命名文件")
+        meta = None  # 落盘成功后才非 None，用于异常时清理物理文件
+        try:
+            # 1) 重名检测（skip 模式：库内已存在 或 本批次内已出现过）
+            if dup_action == "skip":
+                existed = _dup_query(
+                    db, category_id=category_id, safe_name=safe_name
+                ).first()
+                if existed is not None or safe_name in seen_in_batch:
+                    skipped_count += 1
+                    results.append(
+                        {
+                            "file_name": safe_name,
+                            "status": "skipped",
+                            "id": None,
+                            "category_id": category_id,
+                            "file_size": None,
+                            "reason": "同一分类下已存在同名文件",
+                        }
+                    )
+                    continue
+            seen_in_batch.add(safe_name)
+
+            # 2) 落盘（save_upload 内部校验大小/黑名单，超限会自行清理半截文件并抛 HTTPException）
+            meta = fs.save_upload(f, sub_dir="material", storage_root="uploads")
+            m = PmwbMaterial(
+                category_id=category_id,
+                source_type="manual_upload",
+                source_id=str(uuid.uuid4().hex),
+                file_name=meta["file_name"],
+                stored_name=meta["stored_name"],
+                storage_root=meta["storage_root"],
+                rel_path=meta["rel_path"],
+                rel_path_hash=meta["rel_path_hash"],
+                file_size=meta["file_size"],
+                file_ext=meta["file_ext"],
+                file_type=meta["file_type"],
+                origin="manual",
+                uploaded_by=uploaded_by,
+                note=note,
+            )
+            db.add(m)
+            db.commit()
+            db.refresh(m)
+            success_count += 1
+            results.append(
+                {
+                    "file_name": m.file_name,
+                    "status": "success",
+                    "id": m.id,
+                    "category_id": m.category_id,
+                    "file_size": m.file_size or 0,
+                    "reason": None,
+                }
+            )
+        except HTTPException as e:
+            # 超限 / 非法后缀：save_upload 已清理半截文件
+            failed_count += 1
+            results.append(
+                {
+                    "file_name": safe_name,
+                    "status": "failed",
+                    "id": None,
+                    "category_id": category_id,
+                    "file_size": None,
+                    "reason": getattr(e, "detail", None) or "文件超限或类型不支持",
+                }
+            )
+        except Exception as e:  # noqa: BLE001 - 入库/IO 异常：回滚并清理已落盘文件
+            db.rollback()
+            if meta is not None:
+                try:
+                    full = fs.abs_path(meta["storage_root"], meta["rel_path"])
+                    if os.path.isfile(full):
+                        os.remove(full)
+                except Exception:  # noqa: BLE001
+                    pass
+            failed_count += 1
+            results.append(
+                {
+                    "file_name": safe_name,
+                    "status": "failed",
+                    "id": None,
+                    "category_id": category_id,
+                    "file_size": None,
+                    "reason": f"入库失败：{e}",
+                }
+            )
+
+    return {
+        "total": success_count + skipped_count + failed_count,
+        "success_count": success_count,
+        "skipped_count": skipped_count,
+        "failed_count": failed_count,
+        "results": results,
+    }
+
+
+def batch_reassign_category(
+    db: Session, *, ids: list, category_id: Optional[int]
+) -> dict:
+    """批量改分类：一次 UPDATE 提交，返回更新条数与未找到的 id。"""
+    ids = list(dict.fromkeys(int(i) for i in ids))  # 去重并保持顺序
+    if not _category_exists(db, category_id):
+        raise ValueError("目标分类不存在")
+    existing = {
+        r[0]
+        for r in db.query(PmwbMaterial.id).filter(PmwbMaterial.id.in_(ids)).all()
+    }
+    not_found = [i for i in ids if i not in existing]
+    if existing:
+        db.query(PmwbMaterial).filter(PmwbMaterial.id.in_(existing)).update(
+            {PmwbMaterial.category_id: category_id}, synchronize_session=False
+        )
+        db.commit()
+    return {"updated": len(existing), "not_found": not_found}
+
+
+def batch_delete_materials(
+    db: Session, *, ids: list, remove_physical: bool = False
+) -> dict:
+    """批量删除索引：复用单条 delete_material（自带物理清理与 manual 保护）。"""
+    ids = list(dict.fromkeys(int(i) for i in ids))
+    existing = {
+        r[0]
+        for r in db.query(PmwbMaterial.id).filter(PmwbMaterial.id.in_(ids)).all()
+    }
+    not_found = [i for i in ids if i not in existing]
+    deleted = 0
+    physical_removed = 0
+    for mid in existing:
+        info = delete_material(db, mid, remove_physical=remove_physical)
+        deleted += 1
+        if info.get("physical_removed"):
+            physical_removed += 1
+    return {
+        "deleted": deleted,
+        "physical_removed": physical_removed,
+        "not_found": not_found,
+    }

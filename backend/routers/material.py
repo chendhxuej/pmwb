@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 import os
+from typing import List
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from urllib.parse import quote
 
+from core.config import settings
 from core.response import success
 from db.base import get_db
 from db.models import PmwbMaterial
@@ -126,9 +128,9 @@ def delete_material(
 @router.post("/upload")
 def upload_material(
     file: UploadFile = File(...),
-    category_id: int = Query(None, description="归属分类ID"),
-    note: str = Query("", description="备注"),
-    uploaded_by: str = Query("陈大海", description="上传人"),
+    category_id: int = Form(None, description="归属分类ID（multipart 表单字段）"),
+    note: str = Form("", description="备注"),
+    uploaded_by: str = Form("陈大海", description="上传人"),
     db: Session = Depends(get_db),
 ):
     """手工上传材料：落盘 uploads/material/ 并登记索引。
@@ -155,6 +157,74 @@ def upload_material(
             category_id=m.category_id,
         ).model_dump()
     )
+
+
+# ---------------------------------------------------------- 批量上传 / 批量归类
+@router.post("/upload-check")
+def check_upload_conflicts(body: sch.MaterialUploadCheckIn, db: Session = Depends(get_db)):
+    """上传前重名预检：返回同分类下已存在的同名文件清单，供前端二次确认。不落盘。"""
+    conflicts = mat_service.check_upload_conflicts(
+        db, category_id=body.category_id, file_names=body.file_names
+    )
+    return success(data=sch.MaterialUploadCheckOut(conflicts=conflicts).model_dump())
+
+
+@router.post("/upload-batch")
+def upload_materials_batch(
+    files: List[UploadFile] = File(..., description="批量文件，字段名 files"),
+    category_id: int = Form(None, description="归属分类ID，统一设置（multipart 表单字段）"),
+    note: str = Form("", description="备注，批量同写"),
+    uploaded_by: str = Form("陈大海", description="上传人"),
+    dup_action: str = Form("skip", description="重名处理：skip=跳过 / force=仍上传副本"),
+    db: Session = Depends(get_db),
+):
+    """同类批量上传：一次选择多个文件 + 统一设置分类/备注，一步到位。
+
+    逐文件独立落盘入库，单个文件失败（超限/非法类型/入库异常）不影响其他文件，
+    失败清单连同原因一并返回；落盘后入库失败的会清理物理文件，不留孤儿。
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="未选择任何文件")
+    if len(files) > settings.MAX_BATCH_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"单次最多上传 {settings.MAX_BATCH_UPLOAD_FILES} 个文件，当前 {len(files)} 个",
+        )
+    if dup_action not in ("skip", "force"):
+        raise HTTPException(status_code=400, detail="dup_action 只能是 skip 或 force")
+    try:
+        res = mat_service.batch_upload_materials(
+            db,
+            files=files,
+            category_id=category_id,
+            note=note or None,
+            uploaded_by=uploaded_by,
+            dup_action=dup_action,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=sch.MaterialBatchUploadResult(**res).model_dump())
+
+
+@router.post("/batch-reassign")
+def batch_reassign_category(body: sch.MaterialBatchReassignIn, db: Session = Depends(get_db)):
+    """批量改分类：多选材料统一归到同一分类（置空则取消分类）。"""
+    try:
+        res = mat_service.batch_reassign_category(
+            db, ids=body.ids, category_id=body.category_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=sch.MaterialBatchReassignOut(**res).model_dump())
+
+
+@router.post("/batch-delete")
+def batch_delete_materials(body: sch.MaterialBatchDeleteIn, db: Session = Depends(get_db)):
+    """批量删除索引。默认只取消登记，不删物理文件。"""
+    res = mat_service.batch_delete_materials(
+        db, ids=body.ids, remove_physical=body.remove_physical
+    )
+    return success(data=sch.MaterialBatchDeleteOut(**res).model_dump())
 
 
 # ---------------------------------------------------------- 分类树接口

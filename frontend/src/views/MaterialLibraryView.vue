@@ -9,8 +9,8 @@
         <el-button @click="handleSync">
           <el-icon><Refresh /></el-icon> 汇聚同步
         </el-button>
-        <el-button type="primary" @click="uploadVisible = true">
-          <el-icon><Upload /></el-icon> 上传材料
+        <el-button type="primary" @click="openUpload">
+          <el-icon><Upload /></el-icon> 批量上传
         </el-button>
       </div>
     </div>
@@ -66,9 +66,30 @@
           <el-button @click="handleSearch"><el-icon><Refresh /></el-icon> 刷新</el-button>
         </div>
 
+        <!-- 批量操作条：选中任意卡片后出现 -->
+        <div v-if="selectedIds.length" class="batch-bar">
+          <span class="batch-count">已选 {{ selectedIds.length }} 项</span>
+          <el-button size="small" link type="primary" @click="toggleSelectAll">
+            {{ allCurrentSelected ? '取消全选本页' : '全选本页' }}
+          </el-button>
+          <el-button size="small" type="primary" @click="openBatchReassign">
+            <el-icon><FolderOpened /></el-icon> 批量改分类
+          </el-button>
+          <el-button size="small" type="danger" @click="handleBatchDelete">
+            <el-icon><Delete /></el-icon> 批量删除索引
+          </el-button>
+          <el-button size="small" link @click="selectedIds = []">取消选择</el-button>
+        </div>
+
         <div v-loading="loading" class="material-grid">
-          <el-empty v-if="!loading && items.length === 0" description="暂无材料，点「汇聚同步」或「上传材料」" />
-          <el-card v-for="m in items" :key="m.id" class="material-card" shadow="hover">
+          <el-empty v-if="!loading && items.length === 0" description="暂无材料，点「汇聚同步」或「批量上传」" />
+          <el-card v-for="m in items" :key="m.id" class="material-card" shadow="hover"
+                   :class="{ 'is-selected': selectedIds.includes(m.id) }">
+            <el-checkbox
+              class="mc-check"
+              :model-value="selectedIds.includes(m.id)"
+              @change="(v) => toggleSelect(m.id, v)"
+            />
             <div class="mc-top">
               <el-icon class="mc-icon" :style="{ color: extColor(m.file_ext) }">
                 <component :is="extIcon(m.file_ext)" />
@@ -151,21 +172,27 @@
       </template>
     </el-dialog>
 
-    <!-- 上传对话框 -->
-    <el-dialog v-model="uploadVisible" title="上传材料" width="480px">
+    <!-- 批量上传对话框 -->
+    <el-dialog v-model="uploadVisible" title="批量上传材料" width="560px" @closed="resetUploadForm">
       <el-form label-width="80px">
         <el-form-item label="文件">
           <el-upload
+            ref="uploaderRef"
             drag
+            multiple
             :auto-upload="false"
-            :limit="1"
-            :on-change="onUploadChange"
-            :on-remove="() => (uploadFile = null)"
+            :limit="50"
+            :on-change="syncUploadList"
+            :on-remove="syncUploadList"
+            :on-exceed="onUploadExceed"
             accept="*"
           >
             <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-            <div class="el-upload__text">拖入文件或 <em>点击选择</em></div>
+            <div class="el-upload__text">拖入多个文件或 <em>点击选择</em>（单次最多 50 个）</div>
           </el-upload>
+          <div v-if="uploadRawList.length" class="upload-tip">
+            已选 {{ uploadRawList.length }} 个文件，将统一归入下方分类
+          </div>
         </el-form-item>
         <el-form-item label="归类">
           <el-tree-select
@@ -181,12 +208,14 @@
           />
         </el-form-item>
         <el-form-item label="备注">
-          <el-input v-model="uploadForm.note" type="textarea" :rows="2" placeholder="可选，参与模糊搜索" />
+          <el-input v-model="uploadForm.note" type="textarea" :rows="2" placeholder="可选，批量同写，参与模糊搜索" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!uploadFile" :loading="uploading" @click="submitUpload">上传</el-button>
+        <el-button type="primary" :disabled="!uploadRawList.length" :loading="uploading" @click="submitUpload">
+          上传{{ uploadRawList.length ? ` (${uploadRawList.length})` : '' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -200,7 +229,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getMaterials, syncMaterials, previewMaterial, reassignMaterialCategory, deleteMaterial,
-  uploadMaterial, getCategories, inlineMaterialUrl, downloadMaterialUrl,
+  checkUploadConflict, batchUploadMaterials, batchReassignCategory, batchDeleteMaterials,
+  getCategories, inlineMaterialUrl, downloadMaterialUrl,
 } from '@/api/material.js'
 import MaterialCategoryManage from '@/views/MaterialCategoryManage.vue'
 
@@ -225,10 +255,14 @@ const previewTitle = ref('')
 const reassignVisible = ref(false)
 const reassignForm = reactive({ id: null, category_id: null })
 
+const uploaderRef = ref(null)
+const uploadRawList = ref([]) // 选中的原生 File 列表
 const uploadVisible = ref(false)
-const uploadFile = ref(null)
 const uploading = ref(false)
 const uploadForm = reactive({ category_id: null, note: '' })
+
+const selectedIds = ref([]) // 卡片多选
+const BATCH_CHUNK = 5 // 每批 5 个文件串行上传，规避 request 全局 120s 超时
 
 const categoryManageVisible = ref(false)
 
@@ -302,8 +336,8 @@ const extOptions = computed(() => {
   return Array.from(set)
 })
 
-function handleSearch() { page.value = 1; loadMaterials() }
-function onPage(p) { page.value = p; loadMaterials() }
+function handleSearch() { page.value = 1; selectedIds.value = []; loadMaterials() }
+function onPage(p) { page.value = p; selectedIds.value = []; loadMaterials() }
 function onTreeNodeClick(node) {
   categoryId.value = node.id === 0 ? null : node.id
   handleSearch()
@@ -346,11 +380,24 @@ function openReassign(m) {
   reassignForm.category_id = m.category_id
   reassignVisible.value = true
 }
+// 批量模式：id 置 null，复用同一个对话框
+function openBatchReassign() {
+  if (!selectedIds.value.length) return
+  reassignForm.id = null
+  reassignForm.category_id = null
+  reassignVisible.value = true
+}
 async function submitReassign() {
   try {
-    await reassignMaterialCategory(reassignForm.id, reassignForm.category_id)
+    if (reassignForm.id != null) {
+      await reassignMaterialCategory(reassignForm.id, reassignForm.category_id)
+    } else {
+      const r = await batchReassignCategory(selectedIds.value, reassignForm.category_id)
+      if (r?.not_found?.length) ElMessage.warning(`${r.updated} 个已更新，${r.not_found.length} 个未找到（可能已被删除）`)
+    }
     ElMessage.success('分类已更新')
     reassignVisible.value = false
+    selectedIds.value = []
     loadMaterials()
     loadCategories()
   } catch (e) { /* 忽略 */ }
@@ -366,26 +413,117 @@ function handleDelete(m) {
   }).catch(() => {})
 }
 
-function onUploadChange(file) { uploadFile.value = file.raw }
-async function submitUpload() {
-  if (!uploadFile.value) return
-  uploading.value = true
-  try {
-    const fd = new FormData()
-    fd.append('file', uploadFile.value)
-    if (uploadForm.category_id) fd.append('category_id', uploadForm.category_id)
-    if (uploadForm.note) fd.append('note', uploadForm.note)
-    const r = await uploadMaterial(fd)
-    ElMessage.success(`已上传：${r.file_name}`)
-    uploadVisible.value = false
-    uploadFile.value = null
-    uploadForm.category_id = null
-    uploadForm.note = ''
+// ---------- 卡片多选 ----------
+const allCurrentSelected = computed(
+  () => items.value.length > 0 && selectedIds.value.length >= items.value.length
+)
+function toggleSelect(id, val) {
+  if (val) {
+    if (!selectedIds.value.includes(id)) selectedIds.value.push(id)
+  } else {
+    selectedIds.value = selectedIds.value.filter((x) => x !== id)
+  }
+}
+function toggleSelectAll() {
+  selectedIds.value = allCurrentSelected.value ? [] : items.value.map((m) => m.id)
+}
+function handleBatchDelete() {
+  if (!selectedIds.value.length) return
+  ElMessageBox.confirm(
+    `确定删除选中的 ${selectedIds.value.length} 个材料索引吗？（仅取消登记，不删物理文件）`,
+    '批量删除索引',
+    { type: 'warning' }
+  ).then(async () => {
+    const r = await batchDeleteMaterials(selectedIds.value, false)
+    if (r?.not_found?.length) ElMessage.warning(`${r.deleted} 个已删除，${r.not_found.length} 个未找到`)
+    ElMessage.success('已删除索引')
+    selectedIds.value = []
     loadMaterials()
     loadCategories()
-  } catch (e) { /* 忽略 */ }
+  }).catch(() => {})
+}
+
+// 打开上传弹窗：自动带入左侧树当前选中的分类（「全部分类」=0 视为未分类）
+function openUpload() {
+  uploadForm.category_id = categoryId.value && categoryId.value !== 0 ? categoryId.value : null
+  uploadVisible.value = true
+}
+// el-upload 的 on-change/on-remove 第二参数即当前全部待传文件（官方签名），比 ref 稳定
+function syncUploadList(_file, uploadFiles) {
+  uploadRawList.value = (uploadFiles || []).map((f) => f.raw).filter(Boolean)
+}
+function onUploadExceed(files) {
+  ElMessage.warning(`单次最多 50 个文件，当前选择了 ${uploadRawList.value.length + files.length} 个`)
+}
+function resetUploadForm() {
+  uploadRawList.value = []
+  uploadForm.category_id = null
+  uploadForm.note = ''
+  uploaderRef.value?.clearFiles()
+}
+
+async function submitUpload() {
+  const files = uploadRawList.value
+  if (!files.length) return
+  uploading.value = true
+  try {
+    // 1) 重名预检 → 二次确认（确认=仍上传副本 force；取消/关闭=默认跳过 skip）
+    let dupAction = 'skip'
+    try {
+      const checkRes = await checkUploadConflict({
+        category_id: uploadForm.category_id,
+        file_names: files.map((f) => f.name),
+      })
+      const conflicts = checkRes?.conflicts || []
+      if (conflicts.length) {
+        const names = conflicts.map((c) => c.file_name).join('、')
+        try {
+          await ElMessageBox.confirm(
+            `分类下已存在同名文件 ${conflicts.length} 个：${names}。将跳过这些文件；如确需保留副本，请点「仍然上传」。`,
+            '发现重名文件',
+            { confirmButtonText: '仍然上传', cancelButtonText: '跳过(默认)',
+              type: 'warning', distinguishCancelAndClose: true }
+          )
+          dupAction = 'force'
+        } catch (e) {
+          dupAction = 'skip' // 取消或关闭 → 默认跳过
+        }
+      }
+    } catch (e) { /* 预检失败不阻塞，上传端点内还会兜底 */ }
+
+    // 2) 分块串行上传，合并结果
+    const all = []
+    for (let i = 0; i < files.length; i += BATCH_CHUNK) {
+      const chunk = files.slice(i, i + BATCH_CHUNK)
+      const fd = new FormData()
+      chunk.forEach((f) => fd.append('files', f))
+      if (uploadForm.category_id) fd.append('category_id', uploadForm.category_id)
+      if (uploadForm.note) fd.append('note', uploadForm.note)
+      fd.append('dup_action', dupAction)
+      const r = await batchUploadMaterials(fd)
+      all.push(...(r?.results || []))
+    }
+
+    // 3) 汇总提示
+    const ok = all.filter((x) => x.status === 'success').length
+    const skip = all.filter((x) => x.status === 'skipped').length
+    const failed = all.filter((x) => x.status === 'failed')
+    let msg = `上传完成：成功 ${ok} 个`
+    if (skip) msg += `，跳过 ${skip} 个`
+    if (failed.length) {
+      msg += `，失败 ${failed.length} 个。失败详情：${failed.map((f) => `${f.file_name}（${f.reason}）`).join('；')}`
+      ElMessage.warning(msg)
+    } else {
+      ElMessage.success(msg)
+    }
+    uploadVisible.value = false
+    resetUploadForm()
+    loadMaterials()
+    loadCategories()
+  } catch (e) { /* 拦截器已提示 */ }
   finally { uploading.value = false }
 }
+
 function onCategorySaved() { loadCategories() }
 
 onMounted(() => { loadMaterials(); loadCategories() })
@@ -427,4 +565,18 @@ onMounted(() => { loadMaterials(); loadCategories() })
 .preview-text { white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 13px;
   background: var(--el-fill-color-light); padding: 12px; border-radius: 8px; max-height: 100%; overflow: auto; }
 .preview-iframe { width: 100%; height: 100%; border: none; }
+
+/* ---------- 卡片多选 / 批量操作条 ---------- */
+.batch-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px; padding: 6px 12px;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-5);
+  border-radius: 8px;
+}
+.batch-count { font-size: 13px; color: var(--el-color-primary); font-weight: 600; }
+.material-card { position: relative; }
+.material-card.is-selected { border-color: var(--el-color-primary); box-shadow: 0 0 0 1px var(--el-color-primary-light-5); }
+.mc-check { position: absolute; top: 6px; right: 6px; z-index: 1; height: 16px; }
+.upload-tip { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); }
 </style>

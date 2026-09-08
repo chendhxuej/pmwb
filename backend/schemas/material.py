@@ -96,6 +96,61 @@ class MaterialUploadResult(BaseModel):
     category_id: Optional[int]
 
 
+# ----------------------------------------------------------------- 批量上传
+class MaterialUploadCheckIn(BaseModel):
+    """上传前重名预检入参。category_id 为空表示「未分类」桶。"""
+    category_id: Optional[int] = Field(None, description="目标分类ID，空=未分类")
+    file_names: List[str] = Field(..., min_length=1, description="待检测的原始文件名列表")
+
+
+class MaterialConflictItem(BaseModel):
+    file_name: str
+    existing_id: int
+
+
+class MaterialUploadCheckOut(BaseModel):
+    conflicts: List[MaterialConflictItem] = []
+
+
+class MaterialBatchItemResult(BaseModel):
+    file_name: str
+    status: str = Field(..., description="success | skipped | failed")
+    id: Optional[int] = None
+    category_id: Optional[int] = None
+    file_size: Optional[int] = None
+    reason: Optional[str] = Field(None, description="skipped/failed 时的原因")
+
+
+class MaterialBatchUploadResult(BaseModel):
+    total: int
+    success_count: int
+    skipped_count: int
+    failed_count: int
+    results: List[MaterialBatchItemResult] = []
+
+
+# ----------------------------------------------------------------- 批量归类
+class MaterialBatchReassignIn(BaseModel):
+    ids: List[int] = Field(..., min_length=1)
+    category_id: Optional[int] = Field(None, description="置空则取消分类")
+
+
+class MaterialBatchReassignOut(BaseModel):
+    updated: int
+    not_found: List[int] = []
+
+
+class MaterialBatchDeleteIn(BaseModel):
+    ids: List[int] = Field(..., min_length=1)
+    remove_physical: bool = Field(False, description="是否同时删除物理文件（仅手工上传生效）")
+
+
+class MaterialBatchDeleteOut(BaseModel):
+    deleted: int
+    physical_removed: int
+    not_found: List[int] = []
+
+
 # ----------------------------------------------------------------- 汇聚
 class MaterialSyncResponse(BaseModel):
     added: int
