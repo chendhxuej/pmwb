@@ -66,6 +66,7 @@ def list_materials(
     keyword: Optional[str] = None,
     source_type: Optional[str] = None,
     category_id: Optional[int] = None,
+    uncategorized: bool = False,
     file_ext: Optional[str] = None,
     domain_code: Optional[str] = None,
     page: int = 1,
@@ -75,7 +76,10 @@ def list_materials(
     q = db.query(PmwbMaterial)
     cat_name_map: dict[int, str] = {}
 
-    if category_id is not None:
+    if uncategorized:
+        # 只看未分类（category_id 为空）；其它 filter 不重叠时此 flag 优先
+        q = q.filter(PmwbMaterial.category_id.is_(None))
+    elif category_id is not None:
         # 含子分类：把该分类及其子孙下的材料都查出来
         ids = _collect_category_ids(db, category_id)
         q = q.filter(PmwbMaterial.category_id.in_(ids))
@@ -126,6 +130,9 @@ def list_materials(
         for s, c in source_stats
     ]
 
+    # 未分类文件数（供前端树节点展示）
+    uncategorized_count = db.query(func.count()).filter(PmwbMaterial.category_id.is_(None)).scalar() or 0
+
     return {
         "items": items,
         "total": total,
@@ -133,6 +140,7 @@ def list_materials(
         "page_size": page_size,
         "pages": pages,
         "source_stats": stats,
+        "uncategorized_count": uncategorized_count,
     }
 
 

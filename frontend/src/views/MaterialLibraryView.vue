@@ -38,7 +38,7 @@
           <template #default="{ node, data }">
             <span class="tree-node">
               <span>{{ data.name }}</span>
-              <span class="tree-count">{{ data.material_count }}</span>
+              <span class="tree-count" :class="{ 'is-empty': !data.material_count }">{{ data.material_count ?? '—' }}</span>
             </span>
           </template>
         </el-tree>
@@ -292,7 +292,7 @@ function extLabel(e) {
   return map[e] || (e ? e.toUpperCase() : '其他')
 }
 
-function buildTree(list) {
+function buildTree(list, uncategorizedCount) {
   const map = {}
   list.forEach((c) => (map[c.id] = { ...c, children: [] }))
   const roots = []
@@ -303,9 +303,12 @@ function buildTree(list) {
   roots.sort((a, b) => a.sort_order - b.sort_order)
   const sortRec = (nodes) => nodes.sort((a, b) => a.sort_order - b.sort_order) || nodes.forEach((n) => sortRec(n.children))
   sortRec(roots)
-  return [{ id: 0, name: '全部分类', material_count: total.value, children: roots }]
+  return [
+    { id: 0, name: '全部分类', material_count: total.value, children: roots },
+    { id: -1, name: '未分类', material_count: uncategorizedCount, children: [] },
+  ]
 }
-const treeData = computed(() => buildTree(categories.value))
+const treeData = computed(() => buildTree(categories.value, uncategorizedCount.value))
 
 async function loadCategories() {
   try {
@@ -316,17 +319,24 @@ async function loadCategories() {
 async function loadMaterials() {
   loading.value = true
   try {
-    const data = await getMaterials({
+    const params = {
       keyword: keyword.value || undefined,
       source_type: sourceType.value || undefined,
-      category_id: categoryId.value || undefined,
       file_ext: fileExt.value || undefined,
       page: page.value,
       page_size: pageSize.value,
-    })
+    }
+    // 前端 tree id=-1 表示未分类，转义为服务端 uncategorized=true
+    if (categoryId.value === -1) {
+      params.uncategorized = true
+    } else if (categoryId.value != null) {
+      params.category_id = categoryId.value
+    }
+    const data = await getMaterials(params)
     items.value = data.items || []
     total.value = data.total || 0
     sourceStats.value = data.source_stats || []
+    uncategorizedCount.value = data.uncategorized_count ?? 0
   } catch (e) { /* 忽略 */ }
   finally { loading.value = false }
 }
@@ -335,6 +345,8 @@ const extOptions = computed(() => {
   items.value.forEach((m) => m.file_ext && set.add(m.file_ext))
   return Array.from(set)
 })
+// 未分类文件数（后端实时返回，供树节点红点计数）
+const uncategorizedCount = ref(0)
 
 function handleSearch() { page.value = 1; selectedIds.value = []; loadMaterials() }
 function onPage(p) { page.value = p; selectedIds.value = []; loadMaterials() }
