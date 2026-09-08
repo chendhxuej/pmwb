@@ -33,9 +33,10 @@ SUBDIR_MEETING = "会议"
 SUBDIR_DEV_TICKET = "开发交付"
 SUBDIR_RULES = "03-业务规则"
 SUBDIR_DELIVERABLE = "05-交付物"
+SUBDIR_INTERFACE_DOCS = "interface_docs"
 
 # 领域根下统一创建的子目录（页面化同步创建时一并建好）
-DOMAIN_SUBDIRS = [SUBDIR_RULES, SUBDIR_DELIVERABLE, SUBDIR_OPERATION, SUBDIR_MEETING, SUBDIR_DEV_TICKET]
+DOMAIN_SUBDIRS = [SUBDIR_RULES, SUBDIR_DELIVERABLE, SUBDIR_INTERFACE_DOCS, SUBDIR_OPERATION, SUBDIR_MEETING, SUBDIR_DEV_TICKET]
 
 # 主笔记文件名后缀
 MAIN_NOTE_SUFFIX = "业务知识主笔记.md"
@@ -218,3 +219,8 @@ def meeting_dir(db, domain_code: str) -> str:
 def dev_ticket_dir(db, domain_code: str) -> str:
     """开发工单沉淀目录（相对 vault）。"""
     return f"{resolve_domain_path(db, domain_code)}/{SUBDIR_DEV_TICKET}"
+
+
+def interface_docs_dir(db, domain_code: str) -> str:
+    """接口规范文档目录（相对 vault）。"""
+    return f"{resolve_domain_path(db, domain_code)}/{SUBDIR_DELIVERABLE}/{SUBDIR_INTERFACE_DOCS}"

@@ -482,6 +482,13 @@ class RequirementService:
         return result
 
     def _eval_to_dict(self, ev: "PmwbRequirementEvaluation") -> Dict[str, Any]:
+        # 开发单号统一从需求级 SentEmail 回填，评估记录自身字段不再写入/读取
+        item = (
+            db.query(SentEmail)
+            .filter(SentEmail.req_id == ev.req_id)
+            .order_by(SentEmail.id.desc())
+            .first()
+        )
         return {
             "id": ev.id,
             "req_id": ev.req_id,
@@ -493,7 +500,7 @@ class RequirementService:
             "review_workload": float(ev.review_workload) if ev.review_workload is not None else None,
             "opinion": ev.opinion or "",
             "send_datetime": ev.send_datetime,
-            "dev_ticket_no": ev.dev_ticket_no or "",
+            "dev_ticket_no": (item.dev_ticket_no or "") if item else "",
         }
 
     def create_evaluation(self, db: Session, req_id: str, obj_in: Dict[str, Any]) -> Dict[str, Any]:
@@ -507,7 +514,6 @@ class RequirementService:
             workload=obj_in.get("workload"),
             review_workload=obj_in.get("review_workload"),
             opinion=obj_in.get("opinion") or "",
-            dev_ticket_no=obj_in.get("dev_ticket_no"),
         )
         # 借用该需求下某条只读邮件的上下文补全展示字段
         if item:
@@ -541,7 +547,7 @@ class RequirementService:
         )
         if not ev:
             return None
-        allowed = {"sa_name", "system_name", "workload", "review_workload", "opinion", "dev_ticket_no"}
+        allowed = {"sa_name", "system_name", "workload", "review_workload", "opinion"}
         for key, value in obj_in.items():
             if key in allowed and hasattr(ev, key):
                 setattr(ev, key, value)
@@ -640,7 +646,7 @@ class RequirementService:
                 "system_name": r.system_name,
                 "sa_name": sa,
                 "workload": float(r.workload) if r.workload is not None else None,
-                "dev_ticket_no": r.dev_ticket_no,
+                "dev_ticket_no": dev_ticket_map.get(r.req_id) or "",
                 "propose_time": None,
                 "description": (desc_map.get(r.req_id) or "")[:500],
             })

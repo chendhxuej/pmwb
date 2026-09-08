@@ -127,7 +127,8 @@ def test_update_evaluation(client: TestClient, db):
     assert data["workload"] == 8.5
     assert data["review_workload"] == 9.0
     assert data["opinion"] == "需评审后确认"
-    assert data["dev_ticket_no"] == "DEV-2026-001"
+    # 开发单号统一从需求级 SentEmail 回填，评估记录自身不再存储
+    assert data["dev_ticket_no"] == ""
 
     # 回读确认持久化
     resp2 = client.get("/api/v1/requirements/REQ-UE-001/evaluations")
@@ -135,7 +136,7 @@ def test_update_evaluation(client: TestClient, db):
     assert row["workload"] == 8.5
     assert row["review_workload"] == 9.0
     assert row["opinion"] == "需评审后确认"
-    assert row["dev_ticket_no"] == "DEV-2026-001"
+    assert row["dev_ticket_no"] == ""
 
 
 def test_update_evaluation_not_found(client: TestClient, db):

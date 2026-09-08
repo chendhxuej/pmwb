@@ -6,6 +6,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from core.config import settings
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -304,3 +305,58 @@ def preview_manual(req_id: str, manual_id: int, db: Session = Depends(get_db)):
     if ext == ".pdf":
         return FileResponse(fp, media_type="application/pdf")
     raise HTTPException(status_code=400, detail="该格式不支持在线预览，请下载后查看")
+
+
+# ---------------------------------------------------------------------------
+# 接口规范文档（启动开发环节，按系统/团队）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{req_id}/interface-docs")
+def list_interface_docs(req_id: str, db: Session = Depends(get_db)):
+    """按当前需求的团队（评估记录系统）列出接口规范文档；无文档的系统也返回（doc=None）。"""
+    data = stage_svc.list_interface_docs(db, req_id)
+    return success(data=data)
+
+
+@router.post("/{req_id}/interface-docs/upload")
+def upload_interface_doc(
+    req_id: str,
+    file: UploadFile = File(...),
+    system_name: str = Form(...),
+    note: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """上传/替换某系统的接口规范文档（一系统一份）。"""
+    content = file.file.read()
+    try:
+        data = stage_svc.upload_interface_doc(
+            db, req_id, system_name, file.filename or "接口规范", content, note=note
+        )
+    except Exception as e:
+        status = getattr(e, "status_code", 500)
+        detail = getattr(e, "message", str(e))
+        raise HTTPException(status_code=status, detail=detail)
+    msg = "接口规范已更新（替换旧版本）" if data.get("replaced") else "接口规范已上传"
+    return success(data=data, message=msg)
+
+
+@router.delete("/{req_id}/interface-docs/{doc_id}")
+def delete_interface_doc(req_id: str, doc_id: int, db: Session = Depends(get_db)):
+    """删除某系统的接口规范文档（同时删除文件）。"""
+    ok = stage_svc.delete_interface_doc(db, req_id, doc_id)
+    return success(data={"deleted": ok}, message="已删除" if ok else "文档不存在")
+
+
+@router.get("/{req_id}/interface-docs/{doc_id}/download")
+def download_interface_doc(req_id: str, doc_id: int, db: Session = Depends(get_db)):
+    """下载接口规范文档文件。"""
+    d = db.query(PmwbReqInterfaceDoc).filter(
+        PmwbReqInterfaceDoc.id == doc_id, PmwbReqInterfaceDoc.req_id == req_id
+    ).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="接口规范文档不存在")
+    fp = os.path.join(settings.OBSIDIAN_VAULT_PATH, d.local_path) if d.local_path else None
+    if not fp or not os.path.isfile(fp):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(fp, filename=d.file_name or os.path.basename(fp))

@@ -212,6 +212,35 @@ class PmwbReqManual(Base):
     )
 
 
+class PmwbReqInterfaceDoc(Base):
+    """需求接口规范文档（启动开发环节，按系统/团队区分，一系统一份）。"""
+
+    __tablename__ = "pmwb_req_interface_doc"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号")
+    system_name = Column(String(255), nullable=False, comment="所属系统（来自团队评估）")
+    file_name = Column(String(500), comment="原始文件名")
+    local_path = Column(String(1024), comment="相对 vault 的文件路径")
+    obsidian_path = Column(String(512), comment="归档到业务知识后的 Obsidian 路径")
+    note = Column(String(500), comment="备注")
+    uploaded_by = Column(String(64), comment="上传人")
+    archived_at = Column(DateTime, comment="归档到业务知识时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("req_id", "system_name", name="uk_req_interface_doc_system"),
+        Index("idx_req_interface_doc_req_id", "req_id"),
+        {"comment": "需求接口规范文档（按系统）"},
+    )
+
+
 class PmwbDevTicket(Base):
     """开发工单主表。"""
 

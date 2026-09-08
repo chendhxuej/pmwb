@@ -463,7 +463,6 @@ class TaskCenterService:
                 PmwbRequirementEvaluation.proposer,
                 PmwbRequirementEvaluation.sa_name,
                 PmwbRequirementEvaluation.system_name,
-                PmwbRequirementEvaluation.dev_ticket_no,
             )
             .filter(
                 func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0,
@@ -475,6 +474,17 @@ class TaskCenterService:
             )
             .all()
         )
+        # 批量回填需求级开发单号（统一来源 SentEmail）
+        req_ids = [r.req_id for r in rows]
+        dev_ticket_map: Dict[str, str] = {}
+        if req_ids:
+            for rid, tno in (
+                db.query(SentEmail.req_id, SentEmail.dev_ticket_no)
+                .filter(SentEmail.req_id.in_(req_ids))
+                .all()
+            ):
+                if tno:
+                    dev_ticket_map[rid] = tno
 
         # 需求描述映射（优先 ext，回退 sent_email），用于催办正文
         req_ids = [r.req_id for r in rows if r.req_id not in closed_ids]
@@ -532,6 +542,7 @@ class TaskCenterService:
                     "评估团队(SA)": owner,
                     "团队评估状态": "评估未完成",
                     "需求描述": desc,
+                    "开发单号": dev_ticket_map.get(r.req_id) or "",
                 },
                 is_overdue=False,
                 is_due_soon=False,

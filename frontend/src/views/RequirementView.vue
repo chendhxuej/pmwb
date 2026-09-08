@@ -340,9 +340,6 @@
         <el-form-item label="复核工作量(人天)">
           <el-input-number v-model="evalForm.review_workload" :min="0" :precision="1" :step="0.5" controls-position="right" />
         </el-form-item>
-        <el-form-item label="开发单号">
-          <el-input v-model="evalForm.dev_ticket_no" placeholder="开发单号" />
-        </el-form-item>
         <el-form-item label="评估意见">
           <el-input v-model="evalForm.opinion" type="textarea" :rows="3" placeholder="评估意见登记" />
         </el-form-item>
@@ -468,7 +465,7 @@ const evalFormVisible = ref(false)
 const evalForm = reactive({
   req_id: '', req_name: '', id: null,
   sa_name: '', system_name: '', workload: null,
-  review_workload: null, opinion: '', dev_ticket_no: '',
+  review_workload: null, opinion: '',
 })
 const form = reactive({ req_id: '', req_name: '', status: '', priority: '', domain_code: '', tags: '', personal_note: '', dev_ticket_no: '' })
 const rules = {
@@ -590,7 +587,6 @@ async function handleEditEval(ev) {
     workload: ev.workload ?? null,
     review_workload: ev.review_workload ?? null,
     opinion: ev.opinion || '',
-    dev_ticket_no: ev.dev_ticket_no || '',
   })
   evalFormVisible.value = true
 }
@@ -665,7 +661,6 @@ async function handleEvalSubmit() {
       workload: evalForm.workload ?? null,
       review_workload: evalForm.review_workload ?? null,
       opinion: evalForm.opinion || '',
-      dev_ticket_no: evalForm.dev_ticket_no || '',
     }
     if (evalForm.id) {
       // 编辑模式：更新已存在评估
@@ -673,7 +668,7 @@ async function handleEvalSubmit() {
       const list = evaluationsMap.value[evalForm.req_id] || []
       const idx = list.findIndex((x) => x.id === evalForm.id)
       if (idx !== -1) {
-        const origKeys = { workload: updated.workload, opinion: updated.opinion, dev_ticket_no: updated.dev_ticket_no, review_workload: updated.review_workload }
+        const origKeys = { workload: updated.workload, opinion: updated.opinion, review_workload: updated.review_workload }
         list.splice(idx, 1, { ...list[idx], ...updated, _orig: origKeys })
       }
       ElMessage.success('已更新评估')
@@ -685,7 +680,7 @@ async function handleEvalSubmit() {
       }
       newEv._orig = {
         workload: newEv.workload, opinion: newEv.opinion,
-        dev_ticket_no: newEv.dev_ticket_no, review_workload: newEv.review_workload,
+        review_workload: newEv.review_workload,
       }
       evaluationsMap.value[evalForm.req_id].push(newEv)
       ElMessage.success('新增评估成功')

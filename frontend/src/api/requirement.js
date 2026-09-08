@@ -67,8 +67,8 @@ export function uploadRequirementManual(reqId, file, note = '操作手册') {
 }
 
 export function generateUserStories(reqId, content, strategy = 'rules_v2') {
-  // LLM 策略（kimi-k2.6 带 reasoning）响应较慢，单独放宽到 120s
-  const timeout = strategy === 'llm' ? 120000 : 30000
+  // LLM 策略：大需求可能需要 2-5 分钟，放宽到 5 分钟（300s）
+  const timeout = strategy === 'llm' ? 300000 : 30000
   return request.post(`/requirements/${reqId}/delivery/generate-user-stories`, { content, strategy }, { timeout })
 }
 
@@ -151,4 +151,30 @@ export function downloadManualUrl(reqId, manualId) {
 
 export function previewManualUrl(reqId, manualId) {
   return `/api/v1/requirements/${encodeURIComponent(reqId)}/manuals/${manualId}/preview`
+}
+
+// ---------------------------------------------------------------------------
+// 接口规范文档（启动开发环节）
+// ---------------------------------------------------------------------------
+
+export function listInterfaceDocs(reqId) {
+  return request.get(`/requirements/${reqId}/interface-docs`)
+}
+
+export function uploadInterfaceDoc(reqId, file, systemName, note = '') {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('system_name', systemName)
+  if (note) fd.append('note', note)
+  return request.post(`/requirements/${reqId}/interface-docs/upload`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+export function deleteInterfaceDoc(reqId, docId) {
+  return request.delete(`/requirements/${reqId}/interface-docs/${docId}`)
+}
+
+export function downloadInterfaceDocUrl(reqId, docId) {
+  return `/api/v1/requirements/${encodeURIComponent(reqId)}/interface-docs/${docId}/download`
 }

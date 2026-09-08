@@ -193,8 +193,13 @@ def generate_via_unified(
     provider_label = ""
     provider_model = ""
     last_err = ""
+    from core.config import settings
     for attempt in range(max_retries + 1):
-        res = call_best_available(db, SYSTEM_PROMPT, user_message)
+        res = call_best_available(
+            db, SYSTEM_PROMPT, user_message,
+            max_tokens=settings.US_STORY_LLM_MAX_TOKENS,
+            timeout=settings.US_STORY_LLM_TIMEOUT,
+        )
         if not res["used_llm"]:
             raise RuntimeError(
                 res.get("notice") or "AI 中心未配置可用的大模型（请到「大模型管理」启用一个）"

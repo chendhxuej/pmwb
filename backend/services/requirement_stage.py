@@ -22,6 +22,7 @@ from core.config import settings
 from core.exceptions import NotFoundException, ValidationException
 from db.models import (
     PmwbReqDevEvent,
+    PmwbReqInterfaceDoc,
     PmwbReqManual,
     PmwbRequirementEvaluation,
     PmwbRequirementExt,
@@ -474,8 +475,8 @@ def upload_manual(
     paths = _resolve_paths(req_id, item.req_name if item else None)
     manual_dir = os.path.join(paths["folder"], "操作手册")
     os.makedirs(manual_dir, exist_ok=True)
-    safe_sys = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", system_name).strip() or "系统"
-    safe_fn = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", filename or "操作手册")
+    safe_sys = re.sub(r'[\\/:*?<>\r\n\t]+', "_", system_name).strip() or "系统"
+    safe_fn = re.sub(r'[\\/:*?<>\r\n\t]+', "_", filename or "操作手册")
     stored_name = f"{safe_sys}_{safe_fn}"
     fp = os.path.join(manual_dir, stored_name)
     with open(fp, "wb") as f:
@@ -529,6 +530,13 @@ def upload_manual(
                 remove_requirement_deliverable(db, req_id, i)
         add_requirement_deliverable(db, req_id, filename, rel_local, note=tag)
     except Exception:  # noqa: BLE001 交付物登记失败不影响手册主流程
+        pass
+
+    # 自动归档到业务知识库
+    try:
+        from services.obsidian_link import archive_req_manual
+        archive_req_manual(db, req_id)
+    except Exception:  # noqa: BLE001 归档失败不影响主流程
         pass
 
     data = _manual_to_dict(m)
@@ -615,3 +623,157 @@ def manual_preview_html(m: PmwbReqManual) -> str:
 {body}
 </body>
 </html>"""
+
+
+# ---------------------------------------------------------------------------
+# 接口规范文档（启动开发环节，按系统区分）
+# ---------------------------------------------------------------------------
+
+def _iface_doc_to_dict(d: "PmwbReqInterfaceDoc") -> Dict[str, Any]:
+    return {
+        "id": d.id,
+        "req_id": d.req_id,
+        "system_name": d.system_name,
+        "file_name": d.file_name or "",
+        "local_path": d.local_path or "",
+        "obsidian_path": d.obsidian_path or "",
+        "note": d.note or "",
+        "uploaded_by": d.uploaded_by or "",
+        "archived_at": d.archived_at.strftime("%Y-%m-%d %H:%M:%S") if d.archived_at else None,
+        "created_at": d.created_at.strftime("%Y-%m-%d %H:%M:%S") if d.created_at else None,
+    }
+
+
+def list_interface_docs(db: Session, req_id: str) -> Dict[str, Any]:
+    """按评估系统中的系统列出接口规范文档；无文档的系统也返回（doc=None）。"""
+    evals = (
+        db.query(PmwbRequirementEvaluation.system_name)
+        .filter(PmwbRequirementEvaluation.req_id == req_id)
+        .distinct()
+        .all()
+    )
+    system_names = [e.system_name for e in evals if e.system_name]
+    # 也包含需求级 system_name
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if ext and ext.system_name and ext.system_name not in system_names:
+        system_names.append(ext.system_name)
+
+    docs_map: Dict[str, Optional[Dict]] = {}
+    for sn in system_names:
+        row = (
+            db.query(PmwbReqInterfaceDoc)
+            .filter(PmwbReqInterfaceDoc.req_id == req_id, PmwbReqInterfaceDoc.system_name == sn)
+            .first()
+        )
+        docs_map[sn] = _iface_doc_to_dict(row) if row else None
+
+    systems = [{"system_name": sn, "doc": docs_map.get(sn)} for sn in sorted(system_names)]
+    return {"req_id": req_id, "systems": systems}
+
+
+def upload_interface_doc(
+    db: Session,
+    req_id: str,
+    system_name: str,
+    filename: str,
+    content: bytes,
+    note: str = "",
+    uploaded_by: str = "",
+) -> Dict[str, Any]:
+    """上传/替换某系统的接口规范文档（一系统一份）。
+
+    文件落盘：01-业务知识/{group}/{name}/05-交付物/interface_docs/{系统名}_{原文件名}。
+    同步归档到业务知识库并登记主笔记。
+    """
+    from services import obsidian_paths
+
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    if not ext:
+        raise NotFoundException(f"需求不存在：{req_id}")
+
+    system_name = (system_name or "").strip()
+    if not system_name:
+        raise ValidationException("请选择/填写所属系统")
+
+    domain_code = getattr(ext, "domain_code", None)
+    if not domain_code:
+        raise ValidationException("需求未设置业务领域，无法归档接口规范")
+
+    domain_dir = obsidian_paths.resolve_domain_path(db, domain_code)
+    iface_dir = obsidian_paths.interface_docs_dir(db, domain_code)
+    abs_iface_dir = os.path.join(settings.OBSIDIAN_VAULT_PATH, iface_dir)
+    os.makedirs(abs_iface_dir, exist_ok=True)
+
+    safe_sys = re.sub(r"[\/:*?<>	]+", "_", system_name).strip() or "系统"
+    safe_fn = re.sub(r"[\/:*?<>	]+", "_", filename or "接口规范")
+    stored_name = f"{safe_sys}_{safe_fn}"
+    fp = os.path.join(abs_iface_dir, stored_name)
+    with open(fp, "wb") as f:
+        f.write(content)
+    rel_local = os.path.relpath(fp, settings.OBSIDIAN_VAULT_PATH).replace("\\", "/")
+
+    existing = (
+        db.query(PmwbReqInterfaceDoc)
+        .filter(PmwbReqInterfaceDoc.req_id == req_id, PmwbReqInterfaceDoc.system_name == system_name)
+        .first()
+    )
+    replaced = False
+    if existing:
+        if existing.local_path and existing.local_path != rel_local:
+            old_fp = os.path.join(settings.OBSIDIAN_VAULT_PATH, existing.local_path)
+            if os.path.isfile(old_fp):
+                try:
+                    os.remove(old_fp)
+                except OSError:
+                    pass
+        existing.file_name = filename
+        existing.local_path = rel_local
+        existing.note = note
+        existing.uploaded_by = uploaded_by
+        existing.obsidian_path = None
+        existing.archived_at = None
+        d = existing
+        replaced = True
+    else:
+        d = PmwbReqInterfaceDoc(
+            req_id=req_id,
+            system_name=system_name,
+            file_name=filename,
+            local_path=rel_local,
+            note=note,
+            uploaded_by=uploaded_by,
+        )
+        db.add(d)
+    db.commit()
+    db.refresh(d)
+
+    # 自动归档到业务知识库
+    try:
+        from services.obsidian_link import archive_req_interface_doc
+        archive_req_interface_doc(db, req_id)
+    except Exception:  # noqa: BLE001 归档失败不影响主流程
+        pass
+
+    data = _iface_doc_to_dict(d)
+    data["replaced"] = replaced
+    return data
+
+
+def delete_interface_doc(db: Session, req_id: str, doc_id: int) -> bool:
+    """删除某系统的接口规范文档（同时删除文件）。"""
+    d = (
+        db.query(PmwbReqInterfaceDoc)
+        .filter(PmwbReqInterfaceDoc.id == doc_id, PmwbReqInterfaceDoc.req_id == req_id)
+        .first()
+    )
+    if not d:
+        return False
+    fp = os.path.join(settings.OBSIDIAN_VAULT_PATH, d.local_path) if d.local_path else None
+    db.delete(d)
+    db.commit()
+    if fp and os.path.isfile(fp):
+        try:
+            os.remove(fp)
+        except OSError:
+            pass
+    return True

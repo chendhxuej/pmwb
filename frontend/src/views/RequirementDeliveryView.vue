@@ -696,7 +696,7 @@
                 <div v-if="storyGenLoading" class="story-loading-overlay">
                   <el-icon class="is-loading" :size="28"><Loading /></el-icon>
                   <p>{{ selectedStrategy === 'llm' ? 'AI 正在分析需求内容，识别角色/场景/闭环…' : '正在生成用户故事…' }}</p>
-                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? 'AI 带推理能力，通常需要 20-40 秒，请耐心等待' : '预计 1-3 秒完成' }}</p>
+                  <p class="story-loading-hint">{{ selectedStrategy === 'llm' ? `已耗时 ${storyGenElapsed}s，大需求可能需要 2-5 分钟，请耐心等待…` : '预计 1-3 秒完成' }}</p>
                 </div>
 
                 <!-- 未生成提示 -->
@@ -838,6 +838,41 @@
                 <div v-else class="empty-hint">
                   暂无开发事件。跟踪状态切为「开发中」时会自动记录一条「启动开发」事件；也可点击右上角手动新增。
                 </div>
+              </div>
+            </div>
+
+            <!-- 接口规范管理 -->
+            <div class="card" style="grid-column: span 12">
+              <div class="card-header flex-between">
+                <span class="card-label">接口规范管理（按系统 · 自动归档到业务知识库）</span>
+                <div class="flex gap-8">
+                  <el-select v-model="ifaceDocUploadSystem" placeholder="选择系统" style="width: 220px" size="small">
+                    <el-option v-for="sys in ifaceDocSystems" :key="sys.system_name" :label="sys.system_name" :value="sys.system_name" />
+                  </el-select>
+                  <input ref="ifaceDocFileInput" type="file" style="display:none" accept=".pdf,.doc,.docx,.xls,.xlsx,.pptx,.zip" @change="handleIfaceDocFileChange" />
+                  <el-button size="small" type="success" :loading="uploadingIfaceDoc" @click="triggerIfaceDocUpload">
+                    <el-icon><Upload /></el-icon> 上传接口规范
+                  </el-button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div v-for="sys in ifaceDocSystems" :key="sys.system_name" class="manual-system-block">
+                  <div class="manual-system-head">
+                    <span class="text-bold">{{ sys.system_name }}</span>
+                    <el-tag v-if="sys.doc" size="small" type="success" style="margin-left:8px">有规范</el-tag>
+                  </div>
+                  <div v-if="sys.doc" class="manual-item">
+                    <el-icon><Document /></el-icon>
+                    <span class="att-name">{{ sys.doc.file_name }}</span>
+                    <span class="att-size text-muted">{{ fmtSize(sys.doc.size || 0) }}</span>
+                    <a :href="downloadInterfaceDocUrl(reqId, sys.doc.id)" target="_blank" class="text-muted" style="font-size:11px">下载</a>
+                    <el-button link type="danger" size="small" @click="removeIfaceDoc(sys)">删除</el-button>
+                  </div>
+                  <div v-else class="manual-item empty">
+                    <span class="text-muted" style="font-size:12px">暂无接口规范，点击上方「上传接口规范」按钮</span>
+                  </div>
+                </div>
+                <div v-if="!ifaceDocSystems.length" class="empty-hint">暂无团队评估记录，请先完成团队评估</div>
               </div>
             </div>
           </div>
@@ -1039,7 +1074,6 @@
         <el-form-item label="工作量(人天)"><el-input-number v-model="evalForm.workload" :min="0" :step="0.5" style="width:100%" /></el-form-item>
         <el-form-item label="复核工作量(人天)"><el-input-number v-model="evalForm.review_workload" :min="0" :step="0.5" style="width:100%" /></el-form-item>
         <el-form-item label="评估意见"><EnlargeInput v-model="evalForm.opinion" type="textarea" :rows="3" /></el-form-item>
-        <el-form-item label="开发单号"><EnlargeInput v-model="evalForm.dev_ticket_no" placeholder="可选" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="evalDialog = false">取消</el-button>
@@ -1205,6 +1239,7 @@ import {
   saveUserStories, generateRequirementDoc, searchUserStories, getLlmStatus, getUserStoryStats,
   getStageLogs, updateStageLog, listDevEvents, createDevEvent, updateDevEvent, deleteDevEvent,
   listManuals, uploadManual, deleteManual, downloadManualUrl, previewManualUrl,
+  listInterfaceDocs, uploadInterfaceDoc, deleteInterfaceDoc, downloadInterfaceDocUrl,
 } from '@/api/requirement'
 import {
   getActiveOptimizations, getActiveOptimizationStats, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
@@ -1680,6 +1715,60 @@ async function loadManuals(reqId) {
     manualSystems.value = []
   }
 }
+
+/* ── 接口规范文档（按系统） ── */
+const ifaceDocSystems = ref([])
+const ifaceDocUploadSystem = ref('')
+const uploadingIfaceDoc = ref(false)
+const ifaceDocFileInput = ref(null)
+async function loadInterfaceDocs(reqId) {
+  try {
+    const res = await listInterfaceDocs(reqId)
+    ifaceDocSystems.value = res?.systems || []
+    if (!ifaceDocUploadSystem.value && ifaceDocSystems.value.length) {
+      ifaceDocUploadSystem.value = ifaceDocSystems.value[0].system_name
+    }
+  } catch (e) {
+    ifaceDocSystems.value = []
+  }
+}
+function triggerIfaceDocUpload() {
+  if (!ifaceDocUploadSystem.value) {
+    ElMessage.warning('请先选择系统')
+    return
+  }
+  ifaceDocFileInput.value?.click()
+}
+async function handleIfaceDocFileChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  if (!ifaceDocUploadSystem.value) {
+    ElMessage.warning('请先选择系统')
+    return
+  }
+  uploadingIfaceDoc.value = true
+  try {
+    await uploadInterfaceDoc(current.value.req_id, file, ifaceDocUploadSystem.value)
+    ElMessage.success('接口规范已上传并自动归档到业务知识库')
+    await loadInterfaceDocs(current.value.req_id)
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || err?.message || '上传失败')
+  } finally {
+    uploadingIfaceDoc.value = false
+    if (ifaceDocFileInput.value) ifaceDocFileInput.value.value = ''
+  }
+}
+async function removeIfaceDoc(sys) {
+  if (!sys.doc?.id) return
+  try {
+    await deleteInterfaceDoc(current.value.req_id, sys.doc.id)
+    ElMessage.success('已删除')
+    await loadInterfaceDocs(current.value.req_id)
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || err?.message || '删除失败')
+  }
+}
+
 function triggerManualUpload() {
   if (!manualUploadSystem.value) {
     ElMessage.warning('请先选择系统')
@@ -2055,10 +2144,10 @@ async function removeAttachment(f) {
 
 /* 评估弹层 */
 const evalDialog = ref(false)
-const evalForm = reactive({ id: null, system_name: '', sa_name: '', workload: 0, review_workload: null, opinion: '', dev_ticket_no: '' })
+const evalForm = reactive({ id: null, system_name: '', sa_name: '', workload: 0, review_workload: null, opinion: '' })
 function openEvalDialog(row) {
-  if (row) Object.assign(evalForm, { id: row.id, system_name: row.system_name, sa_name: row.sa_name, workload: row.workload, review_workload: row.review_workload, opinion: row.opinion, dev_ticket_no: row.dev_ticket_no })
-  else Object.assign(evalForm, { id: null, system_name: '', sa_name: '', workload: 0, review_workload: null, opinion: '', dev_ticket_no: '' })
+  if (row) Object.assign(evalForm, { id: row.id, system_name: row.system_name, sa_name: row.sa_name, workload: row.workload, review_workload: row.review_workload, opinion: row.opinion })
+  else Object.assign(evalForm, { id: null, system_name: '', sa_name: '', workload: 0, review_workload: null, opinion: '' })
   evalDialog.value = true
 }
 async function saveEval() {
@@ -2067,7 +2156,7 @@ async function saveEval() {
     await updateEvaluation(reqId, evalForm.id, { ...evalForm })
     ElMessage.success('评估已更新')
   } else {
-    await createEvaluation(reqId, { sa_name: evalForm.sa_name, system_name: evalForm.system_name, workload: evalForm.workload, review_workload: evalForm.review_workload, opinion: evalForm.opinion, dev_ticket_no: evalForm.dev_ticket_no })
+    await createEvaluation(reqId, { sa_name: evalForm.sa_name, system_name: evalForm.system_name, workload: evalForm.workload, review_workload: evalForm.review_workload, opinion: evalForm.opinion })
     ElMessage.success('评估已新增')
   }
   evalDialog.value = false

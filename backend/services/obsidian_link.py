@@ -25,6 +25,8 @@ from db.models import (
     PmwbKnowledgeItem,
     PmwbMeeting,
     PmwbOperationIssue,
+    PmwbReqInterfaceDoc,
+    PmwbReqManual,
     PmwbRequirementExt,
     PmwbUserStory,
     SentEmail,
@@ -1041,6 +1043,171 @@ def archive_requirement_manual(db, req_id: str) -> Dict:
         "archived": archived,
         "skipped": skipped,
         "main_note": main_note.title if main_note else None,
+    }
+
+
+def archive_req_manual(db, req_id: str) -> Dict:
+    """把需求生产部署环节上传的操作手册（PmwbReqManual）归档到业务知识交付物目录并登记主笔记。
+
+    复制文件到 01-知识图谱/{group}/{name}/05-交付物/attachments/，
+    回写 obsidian_path/archived_at，并在主笔记 frontmatter related_deliverables 登记。
+    返回 {archived: [...], skipped: [...]}。
+    """
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    domain_code = getattr(ext, "domain_code", None) if ext else None
+    if not domain_code:
+        return {"req_id": req_id, "archived": [], "skipped": [{"reason": "需求未设置业务领域"}]}
+
+    main_note = _find_main_note(db, domain_code)
+    domain = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.domain_code == domain_code).first()
+    if not domain:
+        return {"req_id": req_id, "archived": [], "skipped": [{"reason": f"业务领域不存在：{domain_code}"}]}
+
+    attachments_dir = f"01-业务知识/{domain.domain_group}/{domain.domain_name}/05-交付物/attachments"
+    vault = settings.OBSIDIAN_VAULT_PATH
+
+    manuals = (
+        db.query(PmwbReqManual)
+        .filter(PmwbReqManual.req_id == req_id)
+        .all()
+    )
+    archived = []
+    skipped = []
+    for m in manuals:
+        if m.archived_at:
+            continue  # 已归档，跳过
+        src = m.local_path
+        if not src:
+            skipped.append({"file_name": m.file_name, "reason": "无源文件路径"})
+            continue
+        src_path = os.path.join(vault, src) if not os.path.isabs(src) else src
+        if not os.path.exists(src_path):
+            skipped.append({"file_name": m.file_name, "reason": "源文件不存在"})
+            continue
+        dst_rel = _unique_target_path(vault, attachments_dir, src_path, m.file_name)
+        if not dst_rel:
+            # 目标已存在且内容相同，标记为已归档即可
+            m.obsidian_path = f"{attachments_dir}/{sanitize_filename(m.file_name)}"
+            m.archived_at = datetime.now()
+            archived.append({"file_name": m.file_name, "obsidian_path": m.obsidian_path, "status": "skip_same"})
+            continue
+        dst_path = os.path.join(vault, dst_rel)
+        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+        shutil.copy2(src_path, dst_path)
+        m.obsidian_path = dst_rel
+        m.archived_at = datetime.now()
+        archived.append({"file_name": m.file_name, "obsidian_path": dst_rel})
+
+    # 更新 ext 的归档标记
+    if ext:
+        ext.manual_archived = 1 if archived else ext.manual_archived
+        if archived:
+            ext.manual_obsidian_path = archived[0]["obsidian_path"]
+
+    # 登记主笔记 frontmatter related_deliverables
+    if main_note and main_note.obsidian_path:
+        fm = read_frontmatter(main_note.obsidian_path)
+        existing = fm.get("related_deliverables")
+        existing_list = existing if isinstance(existing, list) else ([existing] if existing else [])
+        changed = False
+        for a in archived:
+            if a["file_name"] not in existing_list:
+                existing_list.append(a["file_name"])
+                changed = True
+        if changed:
+            fm["related_deliverables"] = existing_list
+            write_frontmatter(main_note.obsidian_path, fm)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return {
+        "req_id": req_id,
+        "archived": archived,
+        "skipped": skipped,
+    }
+
+
+def archive_req_interface_doc(db, req_id: str) -> Dict:
+    """把需求启动开发环节上传的接口规范文档（PmwbReqInterfaceDoc）归档到业务知识交付物目录并登记主笔记。
+
+    复制文件到 01-业务知识/{group}/{name}/05-交付物/interface_docs/，
+    回写 obsidian_path/archived_at，并在主笔记 frontmatter related_deliverables 登记。
+    返回 {archived: [...], skipped: [...]}。
+    """
+    from services import obsidian_paths
+
+    ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
+    domain_code = getattr(ext, "domain_code", None) if ext else None
+    if not domain_code:
+        return {"req_id": req_id, "archived": [], "skipped": [{"reason": "需求未设置业务领域"}]}
+
+    main_note = _find_main_note(db, domain_code)
+    domain = db.query(PmwbBusinessDomain).filter(PmwbBusinessDomain.domain_code == domain_code).first()
+    if not domain:
+        return {"req_id": req_id, "archived": [], "skipped": [{"reason": f"业务领域不存在：{domain_code}"}]}
+
+    iface_dir = obsidian_paths.interface_docs_dir(db, domain_code)
+    vault = settings.OBSIDIAN_VAULT_PATH
+
+    docs = (
+        db.query(PmwbReqInterfaceDoc)
+        .filter(PmwbReqInterfaceDoc.req_id == req_id)
+        .all()
+    )
+    archived = []
+    skipped = []
+    for d in docs:
+        if d.archived_at:
+            continue
+        src = d.local_path
+        if not src:
+            skipped.append({"file_name": d.file_name, "reason": "无源文件路径"})
+            continue
+        src_path = os.path.join(vault, src) if not os.path.isabs(src) else src
+        if not os.path.exists(src_path):
+            skipped.append({"file_name": d.file_name, "reason": "源文件不存在"})
+            continue
+        dst_rel = _unique_target_path(vault, iface_dir, src_path, d.file_name)
+        if not dst_rel:
+            d.obsidian_path = f"{iface_dir}/{sanitize_filename(d.file_name)}"
+            d.archived_at = datetime.now()
+            archived.append({"file_name": d.file_name, "obsidian_path": d.obsidian_path, "status": "skip_same"})
+            continue
+        dst_path = os.path.join(vault, dst_rel)
+        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+        shutil.copy2(src_path, dst_path)
+        d.obsidian_path = dst_rel
+        d.archived_at = datetime.now()
+        archived.append({"file_name": d.file_name, "obsidian_path": dst_rel})
+
+    # 登记主笔记 frontmatter related_deliverables
+    if main_note and main_note.obsidian_path:
+        fm = read_frontmatter(main_note.obsidian_path)
+        existing = fm.get("related_deliverables")
+        existing_list = existing if isinstance(existing, list) else ([existing] if existing else [])
+        changed = False
+        for a in archived:
+            if a["file_name"] not in existing_list:
+                existing_list.append(a["file_name"])
+                changed = True
+        if changed:
+            fm["related_deliverables"] = existing_list
+            write_frontmatter(main_note.obsidian_path, fm)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return {
+        "req_id": req_id,
+        "archived": archived,
+        "skipped": skipped,
     }
 
 
