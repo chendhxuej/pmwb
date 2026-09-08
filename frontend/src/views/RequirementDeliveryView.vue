@@ -1936,7 +1936,7 @@ async function openWorkflow(row) {
   }
   await loadEvaluations(key)
   await loadStories(key)
-  await Promise.all([loadStageLogs(key), loadDevEvents(key), loadManuals(key)])
+  await Promise.all([loadStageLogs(key), loadDevEvents(key), loadManuals(key), loadInterfaceDocs(key)])
 }
 
 async function loadEvaluations(reqId) {
