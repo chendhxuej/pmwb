@@ -471,7 +471,7 @@ class RequirementService:
             src_map = {s.id: s for s in src_rows}
         result = []
         for ev in existing:
-            d = self._eval_to_dict(ev)
+            d = self._eval_to_dict(db, ev)
             src = src_map.get(ev.sent_email_id)
             if src:
                 if not d.get("sa_name"):
@@ -481,7 +481,7 @@ class RequirementService:
             result.append(d)
         return result
 
-    def _eval_to_dict(self, ev: "PmwbRequirementEvaluation") -> Dict[str, Any]:
+    def _eval_to_dict(self, db: Session, ev: "PmwbRequirementEvaluation") -> Dict[str, Any]:
         # 开发单号统一从需求级 SentEmail 回填，评估记录自身字段不再写入/读取
         item = (
             db.query(SentEmail)
@@ -536,7 +536,7 @@ class RequirementService:
         except Exception:  # noqa: BLE001
             pass
         db.refresh(ev)
-        return self._eval_to_dict(ev)
+        return self._eval_to_dict(db, ev)
 
     def update_evaluation(self, db: Session, eval_id: int, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """更新单条团队评估记录（按评估记录自身 id）。"""
@@ -553,7 +553,7 @@ class RequirementService:
                 setattr(ev, key, value)
         db.commit()
         db.refresh(ev)
-        return self._eval_to_dict(ev)
+        return self._eval_to_dict(db, ev)
 
     def delete_evaluation(self, db: Session, eval_id: int) -> bool:
         """删除单条团队评估记录。"""
