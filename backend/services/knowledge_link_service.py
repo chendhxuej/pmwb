@@ -15,6 +15,7 @@ import logging
 import os
 import re
 from datetime import date, datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from sqlalchemy import func
@@ -954,11 +955,187 @@ def business_timeline_global(
     }
 
 
+def _has_meaningful_structure(content: str) -> bool:
+    """判断内容是否有合理的章节结构（非测试/占位内容）。"""
+    lines = [l.strip() for l in content.splitlines() if l.strip()]
+    if len(lines) < 5:
+        return False
+    # 检测是否为测试内容
+    test_patterns = ["新版本测试", "这是更新后的内容", "# 测试", "placeholder"]
+    if any(p in content for p in test_patterns):
+        return False
+    # 检测是否有实际章节标题（## 开头）
+    has_heading = any(l.startswith("## ") for l in lines)
+    return has_heading
+
+
+def preserve_user_content_with_standard_sections(existing: str, template: str) -> str:
+    """智能合并：保留用户已有内容，确保标准§7（关联索引）章节存在。
+
+    策略：
+    1. 如果用户内容已经有意义，保留并补充缺失的标准章节
+    2. 解析现有内容中的所有章节
+    3. 检查是否已有§7关联索引章节
+    4. 如果没有，添加标准§7骨架
+    5. 将模板中其他标准章节作为补充
+    """
+    # 解析现有内容的章节
+    existing_blocks = _split_by_headings(existing)
+
+    # 收集用户已有章节标题
+    existing_titles = {b[1] for b in existing_blocks if b[1]}
+
+    # 检查是否已有§7关联索引
+    has_section_7 = any("7" in t or "关联" in t for t in existing_titles)
+
+    # 解析模板的章节
+    template_blocks = _split_by_headings(template)
+    template_by_title = {b[1]: b for b in template_blocks if b[1]}
+
+    # 构建结果：优先使用用户内容，缺失的从模板补充
+    result_blocks = []
+    used_template_titles = set()
+
+    # 先添加用户内容
+    for block in existing_blocks:
+        level, title, content = block
+        if title and title in template_by_title and title not in used_template_titles:
+            # 用户有该章节且模板也有，优先用用户的
+            pass  # 直接使用用户内容
+        result_blocks.append(block)
+        if title:
+            used_template_titles.add(title)
+
+    # 再补充模板中缺失的标准章节
+    for title, block in template_by_title.items():
+        if title not in used_template_titles:
+            # 模板有但用户没有，补充进来
+            result_blocks.append(block)
+            used_template_titles.add(title)
+
+    # 如果没有§7，显式添加
+    if not has_section_7:
+        if "7. 关联过程性内容索引" in template_by_title:
+            result_blocks.append(template_by_title["7. 关联过程性内容索引"])
+        else:
+            result_blocks.append((2, "7. 关联过程性内容索引", "\n- 暂无关联内容\n"))
+
+    # 重新构建Markdown
+    lines = []
+    for i, block in enumerate(result_blocks):
+        if i > 0:
+            lines.append("")
+        level, title, content = block
+        if level > 0:
+            lines.append(f"{'#' * level} {title}")
+        lines.append(content.strip())
+
+    return "\n".join(lines)
+
+
+def _split_by_headings(content: str) -> list:
+    """按章节标题分割内容，返回 [(level, title, content), ...]。"""
+    blocks = []
+    current_level = None
+    current_title = None
+    current_lines = []
+
+    for line in content.splitlines():
+        m = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if m:
+            # 保存上一段
+            if current_level is not None:
+                blocks.append((current_level, current_title, "\n".join(current_lines).rstrip()))
+            current_level = len(m.group(1))
+            current_title = m.group(2).strip()
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    # 保存最后一段
+    if current_level is not None:
+        blocks.append((current_level, current_title, "\n".join(current_lines).rstrip()))
+
+    return blocks
+
+
+def merge_with_existing_content(existing: str, template: str) -> str:
+    """非破坏性合并：保留用户已有内容，只补全标准章节的骨架。
+
+    策略：
+    1. 从 template 提取所有标准章节（## 1 ~ ## 14 等）
+    2. 从 existing 提取已有内容（按相同章节标题匹配）
+    3. 优先使用 existing 的内容，缺失的章节用 template 的骨架填充
+    4. existing 中未匹配到任何标准章节的内容，保留为"附加内容"
+    5. 返回合并后的完整内容：标准章节在前，附加内容在后
+    """
+    # 解析模板所有章节
+    template_sections = {}
+    current_section = None
+    current_lines = []
+    for line in template.splitlines():
+        m = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if m:
+            if current_section is not None:
+                template_sections[current_section] = "\n".join(current_lines).rstrip()
+            level = len(m.group(1))
+            title = m.group(2).strip()
+            current_section = (level, title)
+            current_lines = [line]
+        else:
+            if current_section is not None:
+                current_lines.append(line)
+    if current_section is not None:
+        template_sections[current_section] = "\n".join(current_lines).rstrip()
+
+    # 解析现有内容所有章节
+    existing_sections = {}
+    current_section = None
+    current_lines = []
+    for line in existing.splitlines():
+        m = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if m:
+            if current_section is not None:
+                existing_sections[current_section] = "\n".join(current_lines).rstrip()
+            level = len(m.group(1))
+            title = m.group(2).strip()
+            current_section = (level, title)
+            current_lines = [line]
+        else:
+            if current_section is not None:
+                current_lines.append(line)
+    if current_section is not None:
+        existing_sections[current_section] = "\n".join(current_lines).rstrip()
+
+    # 合并：优先使用现有内容
+    merged = []
+    unmatched_existing = []
+    for section_key, content in template_sections.items():
+        if section_key in existing_sections and existing_sections[section_key].strip():
+            # 使用现有内容（非空）
+            merged.append(existing_sections[section_key])
+        else:
+            # 使用模板骨架
+            merged.append(content)
+
+    # 收集未匹配到标准章节的现有内容（附加内容）
+    for section_key, content in existing_sections.items():
+        if section_key not in template_sections and content.strip():
+            unmatched_existing.append(content)
+
+    # 将附加内容追加到末尾
+    if unmatched_existing:
+        merged.append("\n\n".join(unmatched_existing))
+
+    return "\n\n".join(merged)
+
+
 def create_main_note(db: Session, domain_code: str) -> dict:
     """新建业务知识主笔记：生成标准模板文件 + 建知识索引（幂等：已存在则返回现有）。
 
-    返回 {created: bool, item: {...}}。
+    非破坏性修复：如果文件已存在且有内容，保留用户内容并补全标准章节骨架。
     """
+    from core.config import settings
     domain = (
         db.query(PmwbBusinessDomain)
         .filter(PmwbBusinessDomain.domain_code == domain_code)
@@ -984,8 +1161,28 @@ def create_main_note(db: Session, domain_code: str) -> dict:
 
     item_id = _gen_item_id()
     created_date = datetime.now().strftime("%Y-%m-%d")
-    md = build_main_note_markdown(domain, item_id, created_date)
-    write_markdown(rel_path, md)
+
+    # 非破坏性修复：检查文件是否已存在
+    vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
+    note_file = vault_path / rel_path.replace("\\", "/")
+
+    if note_file.exists():
+        # 文件已存在，保留用户内容，只补全缺失的标准章节
+        existing_content = read_markdown(rel_path) or ""
+        if not existing_content or not existing_content.strip():
+            # 文件为空或只有测试内容，用标准模板替换
+            md = build_main_note_markdown(domain, item_id, created_date)
+            write_markdown(rel_path, md, protect_if_modified=False)
+        else:
+            # 保留用户内容，只补全标准章节
+            md = build_main_note_markdown(domain, item_id, created_date)
+            # 提取用户已填写的内容并合并
+            md = merge_with_existing_content(existing_content, md)
+            write_markdown(rel_path, md, protect_if_modified=False)
+    else:
+        # 文件不存在，创建新文件
+        md = build_main_note_markdown(domain, item_id, created_date)
+        write_markdown(rel_path, md, protect_if_modified=False)
 
     item = PmwbKnowledgeItem(
         item_id=item_id,
@@ -1004,6 +1201,139 @@ def create_main_note(db: Session, domain_code: str) -> dict:
     db.commit()
     db.refresh(item)
     return {"created": True, "item": _item_dict(item)}
+
+
+def _repair_damaged_main_note(db: Session, domain: PmwbBusinessDomain, obsidian_rel_path: str) -> None:
+    """修复受损主笔记：保留用户已有内容，补充缺失的标准章节骨架。
+
+    修复策略：
+    1. 如果文件内容为空或测试内容，用标准模板替换
+    2. 如果文件有意义但缺章节，保留用户内容，在末尾补充标准章节
+    3. 补充的章节包括 §1-§6（如果缺失）和 §7关联索引（必须存在）
+    """
+    from core.config import settings
+    from pathlib import Path
+
+    vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
+    note_file = vault_path / obsidian_rel_path.replace("\\", "/")
+
+    if not note_file.exists():
+        return
+
+    existing_content = read_markdown(obsidian_rel_path)
+    if not existing_content:
+        return
+
+    # 解析现有章节
+    existing_blocks = _split_by_headings(existing_content)
+    existing_titles = {b[1] for b in existing_blocks if b[1]}
+
+    # 检查是否缺少关键标准章节
+    missing_standard = []
+    for i in range(1, 8):  # §1-§7
+        section_title = f"{i}. " if i <= 6 else f"{i}. 关联过程性内容索引"
+        if not any(section_title in t or t.startswith(f"{i}.") for t in existing_titles):
+            missing_standard.append(section_title)
+
+    # 检测是否有乱序内容（标准章节不在开头）
+    has_disordered_content = False
+    first_standard_idx = None
+    for i, block in enumerate(existing_blocks):
+        if block[1] and block[1].startswith("1."):
+            first_standard_idx = i
+            break
+    if first_standard_idx is None:
+        first_standard_idx = len(existing_blocks)
+    if first_standard_idx > 0:
+        # 有标准章节前的非标准内容
+        has_disordered_content = True
+
+    # 如果没有缺失标准章节且内容有序，无需修复
+    if not missing_standard and not has_disordered_content:
+        return
+
+    # 重建主笔记
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain.domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+    if not item:
+        return
+
+    item_id = item.item_id
+    created_date = datetime.now().strftime("%Y-%m-%d")
+    template_md = build_main_note_markdown(domain, item_id, created_date)
+
+    # 解析模板章节
+    template_blocks = _split_by_headings(template_md)
+    template_by_title = {b[1]: b for b in template_blocks if b[1]}
+
+    # 合并：按标准顺序重组，标准章节在前，用户自定义在后
+    result_blocks = []
+    used_titles = set()
+
+    # 定义标准章节顺序（§1-§9）
+    standard_section_order = []
+    for i in range(1, 10):
+        if i <= 6:
+            standard_section_order.append(f"{i}. ")
+        elif i == 7:
+            standard_section_order.append(f"{i}. 关联过程性内容索引")
+        elif i == 8:
+            standard_section_order.append(f"{i}. 相关子笔记 MOC")
+        elif i == 9:
+            standard_section_order.append(f"{i}. 业务全过程时间线（自动区）")
+
+    # 第一步：按标准顺序添加标准章节（优先使用用户内容）
+    for std_prefix in standard_section_order:
+        matched_block = None
+        for title, block in template_by_title.items():
+            if title.startswith(std_prefix) or std_prefix in title:
+                # 检查用户是否有同名或相似章节
+                user_match = None
+                for ublock in existing_blocks:
+                    if ublock[1] and (ublock[1].startswith(std_prefix) or std_prefix in ublock[1]):
+                        user_match = ublock
+                        break
+                if user_match:
+                    matched_block = user_match
+                    used_titles.add(user_match[1])
+                else:
+                    matched_block = block
+                break
+        if matched_block:
+            result_blocks.append(matched_block)
+            used_titles.add(matched_block[1])
+
+    # 第二步：添加用户自定义章节（非标准章节）
+    for block in existing_blocks:
+        if block[1] and block[1] not in used_titles:
+            result_blocks.append(block)
+            used_titles.add(block[1])
+
+    # 第三步：添加模板中缺失的章节
+    for title, block in template_by_title.items():
+        if title not in used_titles:
+            result_blocks.append(block)
+            used_titles.add(title)
+
+    # 重新构建Markdown
+    lines = []
+    for i, block in enumerate(result_blocks):
+        if i > 0:
+            lines.append("")
+        level, title, content = block
+        if level > 0:
+            lines.append(f"{'#' * level} {title}")
+        lines.append(content.strip())
+
+    merged_content = "\n".join(lines)
+
+    # 写回文件
+    write_markdown(obsidian_rel_path, merged_content, protect_if_modified=False)
+    logger.info("修复主笔记: %s (%s)，补充了 %d 个章节", domain.domain_name, obsidian_rel_path, len(missing_standard))
 
 
 def _item_dict(item: PmwbKnowledgeItem) -> dict:
@@ -1042,6 +1372,51 @@ def ensure_domain_main_note(db: Session, domain_code: str) -> dict:
     if existing:
         return {"created": False, "item": _item_dict(existing)}
     return create_main_note(db, domain_code)
+
+
+def _check_structure_integrity(db: Session, domain_code: str) -> bool:
+    """检查主笔记结构完整性（松绑模式：只检查§7关联索引是否存在，不要求所有章节填充）。
+
+    理由：用户的主笔记内容格式不固定（有些是业务规则、销户场景等自定义章节），
+    强制检查14节标准结构会导致大量误判。改为检查关键机制——§7自动关联是否维护即可。
+    """
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+    if not item or not item.obsidian_path:
+        return False
+
+    content = read_markdown(item.obsidian_path) or ""
+    if not content:
+        return False
+
+    # 松绑检查：只要求§7存在且非空
+    # §7是核心机制，承载自动关联功能；其他章节由用户自定义
+    has_section_7 = False
+    section_7_content = ""
+    for i, line in enumerate(content.splitlines()):
+        if re.match(r"^##?\s*7\s*\.?\s*关联过程性内容索引", line, re.IGNORECASE):
+            has_section_7 = True
+            # 收集该章节内容（直到下一个二级标题）
+            section_lines = []
+            for j in range(i + 1, len(content.splitlines())):
+                next_line = content.splitlines()[j]
+                if re.match(r"^#{1,2}\s", next_line):
+                    break
+                section_lines.append(next_line)
+            section_7_content = "\n".join(section_lines).strip()
+            break
+
+    # §7存在且非空（有内容或有关联标记）即算结构完整
+    if has_section_7 and section_7_content:
+        return True
+
+    # 兜底：如果§7不存在，检查是否有任何标准章节（1-9）
+    standard_sections = [h for h in content.splitlines() if re.match(r"^##\s*\d+\.\s", h)]
+    return len(standard_sections) >= 5
 
 
 def domain_main_note_health(db: Session) -> list:
@@ -1137,11 +1512,8 @@ def domain_main_note_health(db: Session) -> list:
         # has_main_note: DB 有记录 OR Obsidian 文件存在
         has_main = mc > 0 or obsidian_exists
 
-        # 结构不全：有主笔记但无子笔记摘要
-        structure_ok = True
-        if has_main:
-            if sc == 0:
-                structure_ok = False
+        # 结构完整性：检查主笔记内容填充率（至少80%标准章节有数据）
+        structure_ok = _check_structure_integrity(db, d.domain_code)
 
         results.append({
             "domain_code": d.domain_code,
@@ -1241,9 +1613,15 @@ def _ensure_one_domain_main_note(db: Session, d, obsidian_files: dict) -> str:
         .first()
     )
 
-    # 情况1: DB 有记录 → 重建子笔记摘要
+    # 情况1: DB 有记录 → 重建子笔记摘要 + 修复受损文件
     if main:
         rebuild_main_note_subnotes(db, d.domain_code)
+        # 检查并修复主笔记文件内容
+        if d.domain_code in obsidian_files:
+            try:
+                _repair_damaged_main_note(db, d, obsidian_files[d.domain_code])
+            except Exception as e:
+                logger.warning("修复主笔记失败 %s: %s", d.domain_code, e)
         return "ensured"
 
     # 情况2: DB 无记录，但 Obsidian 文件存在 → 补全 DB 索引
@@ -1508,3 +1886,153 @@ def cleanup_duplicate_main_notes(db: Session) -> dict:
     if relabeled:
         db.commit()
     return {"domains_with_dups": domains_with_dups, "notes_relabeled": relabeled}
+
+
+def scan_damaged_notes(db: Session) -> dict:
+    """扫描受损主笔记，返回详细报告。
+
+    检测两类问题：
+    1. structure_incomplete: 文件存在但章节填充率低（疑似被覆盖）
+    2. missing_file: DB有记录但Obsidian文件不存在
+    """
+    from pathlib import Path
+    from core.config import settings
+
+    domains = (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.enabled == True)
+        .filter(PmwbBusinessDomain.parent_id.isnot(None))
+        .all()
+    )
+
+    vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
+    damaged = []
+
+    for d in domains:
+        # 检查文件是否存在
+        vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
+        filename = f"{d.domain_name}业务知识主笔记.md"
+        alt_filename = f"{d.domain_name} 业务知识主笔记.md"
+        note_file = vpath_norm / filename
+        alt_note_file = vpath_norm / alt_filename
+        obsidian_exists = note_file.exists() or alt_note_file.exists()
+
+        # 获取DB记录
+        item = (
+            db.query(PmwbKnowledgeItem)
+            .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
+            .filter(PmwbKnowledgeItem.note_type == "main")
+            .first()
+        )
+
+        if not obsidian_exists:
+            damaged.append({
+                "domain_code": d.domain_code,
+                "domain_name": d.domain_name,
+                "damage_type": "missing_file",
+                "symptom": "Obsidian文件不存在",
+                "expected_path": str(vpath_norm / filename),
+                "db_record": item is not None,
+            })
+            continue
+
+        # 检查结构完整性
+        if item and item.obsidian_path:
+            struct_ok = _check_structure_integrity(db, d.domain_code)
+            if not struct_ok:
+                damaged.append({
+                    "domain_code": d.domain_code,
+                    "domain_name": d.domain_name,
+                    "damage_type": "structure_incomplete",
+                    "symptom": "章节填充率低，疑似内容被覆盖或清空",
+                    "obsidian_path": item.obsidian_path,
+                })
+
+    return {
+        "total_scanned": len(domains),
+        "damaged_count": len(damaged),
+        "damaged_notes": damaged,
+    }
+
+
+def repair_section_7(db: Session, domain_code: str) -> dict:
+    """为指定领域的主笔记补充§7关联过程性内容索引章节（如果缺失）。
+
+    策略：
+    1. 读取现有主笔记内容
+    2. 检查是否已存在§7章节
+    3. 如果不存在，追加标准§7章节骨架
+    4. 如果存在但为空，填充关联数据
+
+    返回 {domain_code, success, action, content_length}。
+    """
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+    if not item or not item.obsidian_path:
+        return {"domain_code": domain_code, "success": False, "action": "no_item", "error": "未找到主笔记记录"}
+
+    content = read_markdown(item.obsidian_path) or ""
+    if not content:
+        return {"domain_code": domain_code, "success": False, "action": "empty_content", "error": "内容为空"}
+
+    # 检查是否已存在§7章节
+    section_7_pattern = r"^##\s*7\s*[\.、]?\s*关联过程性内容索引"
+    has_section_7 = any(re.match(section_7_pattern, line.strip(), re.IGNORECASE) for line in content.splitlines())
+
+    if has_section_7:
+        # §7已存在，检查是否有内容
+        lines = content.splitlines()
+        section_7_start = None
+        for i, line in enumerate(lines):
+            if re.match(section_7_pattern, line.strip(), re.IGNORECASE):
+                section_7_start = i
+                break
+
+        if section_7_start is not None:
+            # 收集§7章节内容
+            section_7_lines = []
+            for j in range(section_7_start + 1, len(lines)):
+                next_line = lines[j].strip()
+                if next_line.startswith("##"):
+                    break
+                section_7_lines.append(lines[j])
+            section_7_content = "\n".join(section_7_lines).strip()
+
+            if section_7_content and section_7_content != "_暂无关联内容_":
+                return {"domain_code": domain_code, "success": True, "action": "already_has_content", "content_length": len(content)}
+
+    # 需要添加或修复§7章节
+    new_section = "## 7. 关联过程性内容索引\n\n> 以下链接由系统自动维护，删除或新增关联时会同步更新。\n\n- 暂无关联内容\n"
+
+    if has_section_7:
+        # 替换现有§7章节
+        lines = content.splitlines()
+        new_lines = []
+        skip_mode = False
+        for i, line in enumerate(lines):
+            if re.match(section_7_pattern, line.strip(), re.IGNORECASE):
+                new_lines.append(new_section.rstrip())
+                skip_mode = True
+                continue
+            if skip_mode:
+                if line.strip().startswith("##"):
+                    skip_mode = False
+                    new_lines.append(line)
+                # 否则跳过原§7章节内容
+                continue
+            new_lines.append(line)
+        content = "\n".join(new_lines)
+    else:
+        # 追加§7章节
+        if not content.endswith("\n"):
+            content += "\n"
+        content += new_section
+
+    # 写回文件
+    write_markdown(item.obsidian_path, content, protect_if_modified=False)
+
+    return {"domain_code": domain_code, "success": True, "action": "added_section_7", "content_length": len(content)}

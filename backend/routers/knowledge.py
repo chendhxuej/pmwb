@@ -21,12 +21,14 @@ from services.knowledge_link_service import (
 from services.knowledge_link_service import (
     business_timeline,
     business_timeline_global,
+    cleanup_duplicate_main_notes,
     create_main_note as create_main_note_service,
     domain_main_note_health,
     ensure_domain_main_notes,
     get_main_note_structured,
     link_note,
     list_by_item,
+    scan_damaged_notes,
     sync_main_note_from_links,
     unlink as unlink_by_source,
 )
@@ -309,77 +311,32 @@ def sediment_operation_rules_endpoint(issue_id: int, db: Session = Depends(get_d
     return success(data=sediment_operation_rules(db, issue_id))
 
 
-@router.get("/{item_id}")
-def get_item(item_id: int, db: Session = Depends(get_db)):
-    """获取知识条目详情。"""
-    return success(data=knowledge_item_service.get(db, item_id))
+@router.get("/scan-damage")
+def scan_damaged_notes_endpoint(db: Session = Depends(get_db)):
+    """扫描受损主笔记，返回详细报告。"""
+    result = scan_damaged_notes(db)
+    return success(data=result)
 
 
-@router.get("/{item_id}/content")
-def get_item_content(item_id: int, db: Session = Depends(get_db)):
-    """获取知识条目 Markdown 内容。"""
-    data = knowledge_item_service.get_content(db, item_id)
-    return success(data=data)
+@router.post("/repair-sections")
+def repair_sections_endpoint(payload: Dict[str, Any], db: Session = Depends(get_db)):
+    """批量修复受损主笔记的§7关联索引章节。
 
-
-@router.post("")
-def create_item(obj_in: KnowledgeItemCreate, db: Session = Depends(get_db)):
-    """创建知识条目，可选同时写入 Obsidian。"""
-    return success(data=knowledge_item_service.create_with_content(db, obj_in))
-
-
-@router.put("/{item_id}/content")
-def update_item_content(item_id: int, payload: Dict[str, Any], db: Session = Depends(get_db)):
-    """更新知识条目 Markdown 内容。"""
-    content = payload.get("content", "")
-    ok = knowledge_item_service.update_content(db, item_id, content)
-    return success(data=ok)
-
-
-@router.put("/{item_id}")
-def update_item(item_id: int, obj_in: KnowledgeItemUpdate, db: Session = Depends(get_db)):
-    """更新知识条目元数据。"""
-    return success(data=knowledge_item_service.update(db, item_id, obj_in.model_dump(exclude_unset=True)))
-
-
-@router.delete("/{item_id}")
-def delete_item(item_id: int, db: Session = Depends(get_db)):
-    """删除知识条目。"""
-    ok = knowledge_item_service.delete(db, item_id)
-    return success(data=ok)
-
-
-@router.get("/meta/categories")
-def get_categories(db: Session = Depends(get_db)):
-    """获取所有分类。"""
-    return success(data=knowledge_item_service.get_categories(db))
-
-
-@router.get("/meta/sub-categories")
-def get_sub_categories(
-    category: Optional[str] = Query(None, description="分类"),
-    db: Session = Depends(get_db),
-):
-    """获取子分类。"""
-    return success(data=knowledge_item_service.get_sub_categories(db, category))
-
-
-@router.get("/meta/tags")
-def get_tags(db: Session = Depends(get_db)):
-    """获取所有标签。"""
-    return success(data=knowledge_item_service.get_tags(db))
-
-
-@router.post("/sync-from-vault")
-def sync_knowledge_from_vault(
-    dirs: Optional[List[str]] = None,
-    dry_run: bool = False,
-    db: Session = Depends(get_db),
-):
-    """从 Obsidian Vault 反向同步笔记到知识索引。
-
-    - dirs: 要扫描的目录列表，默认扫描业务知识/会议/业务建设/运营/知识沉淀等目录
-    - dry_run: True 时只统计不写入
+    payload: {domain_codes: [str]} 或 {} (修复所有受损领域)
     """
-    result = sync_from_vault(db, dirs=dirs, dry_run=dry_run)
-    return success(data=result, message=f"同步完成：新增索引 {result['new_indexed']} 条，跳过已有 {result['skipped_existing']} 条")
+    from services.knowledge_link_service import repair_section_7
+
+    domain_codes = payload.get("domain_codes", [])
+    if not domain_codes:
+        # 自动获取受损领域
+        scan_result = scan_damaged_notes(db)
+        domain_codes = [n["domain_code"] for n in scan_result["damaged_notes"]]
+
+    results = []
+    for code in domain_codes:
+        result = repair_section_7(db, code)
+        results.append(result)
+
+    success_count = sum(1 for r in results if r.get("success"))
+    return success(data={"results": results, "success_count": success_count, "total": len(results)},
+                   message=f"修复完成：成功 {success_count}/{len(results)} 个领域")

@@ -1,10 +1,14 @@
 import os
 import re
+import time
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def get_vault_path() -> Path:
@@ -21,11 +25,23 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "_", name)
 
 
-def write_markdown(relative_path: str, content: str) -> str:
-    """写入 Markdown 文件到 Obsidian Vault，返回完整路径。"""
+def write_markdown(relative_path: str, content: str, protect_if_modified: bool = True) -> str:
+    """写入 Markdown 文件到 Obsidian Vault，返回完整路径。
+
+    写保护：如果文件最近5分钟内被修改过，跳过写入并记录警告日志。
+    调用方可传 protect_if_modified=False 强制写入（如新建文件场景）。
+    """
     vault = get_vault_path()
     file_path = vault / relative_path
     ensure_dir(file_path.parent)
+
+    # 写保护检查
+    if protect_if_modified and file_path.exists():
+        mtime = file_path.stat().st_mtime
+        if time.time() - mtime < 300:  # 5分钟窗口
+            logger.warning(f"write_markdown skipped: {relative_path} recently modified (< 5 min)")
+            return str(file_path)
+
     file_path.write_text(content, encoding="utf-8")
     return str(file_path)
 
