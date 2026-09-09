@@ -593,7 +593,6 @@ class RequirementService:
                 PmwbRequirementEvaluation.proposer,
                 PmwbRequirementEvaluation.sa_name,
                 PmwbRequirementEvaluation.system_name,
-                PmwbRequirementEvaluation.dev_ticket_no,
                 PmwbRequirementEvaluation.workload,
             )
             .filter(
@@ -628,6 +627,20 @@ class RequirementService:
                 for rid, d in sent_rows:
                     if d and rid not in desc_map:
                         desc_map[rid] = d
+
+        # 开发单号统一从需求级 SentEmail 回填（与 _eval_to_dict 口径一致，评估记录自身字段不再读取）
+        pending_ids = [r.req_id for r in rows]
+        dev_ticket_map: Dict[str, str] = {}
+        if pending_ids:
+            ticket_rows = (
+                db.query(SentEmail.req_id, SentEmail.dev_ticket_no)
+                .filter(SentEmail.req_id.in_(pending_ids))
+                .order_by(SentEmail.id.desc())
+                .all()
+            )
+            for rid, tno in ticket_rows:
+                if rid not in dev_ticket_map:  # id 倒序 → 每个 req_id 首个即最新
+                    dev_ticket_map[rid] = tno or ""
 
         grouped: Dict[str, List[Dict[str, Any]]] = {}
         seen = set()
