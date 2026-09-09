@@ -61,10 +61,13 @@ def get_business_timeline_global(
     event_type: Optional[str] = Query(None, description="按事件类型过滤"),
     group: Optional[str] = Query(None, description="按业务分组过滤"),
     limit: Optional[int] = Query(50, description="截断条数"),
+    days: Optional[int] = Query(None, ge=1, le=365, description="只保留最近N天的事件"),
     db: Session = Depends(get_db),
 ):
     """全局业务全过程时间线：聚合所有领域关联事件，按 event_date 倒序。"""
-    data = business_timeline_global(db, event_type=event_type, group=group, limit=limit)
+    data = business_timeline_global(
+        db, event_type=event_type, group=group, limit=limit, days=days
+    )
     return success(data=data)
 
 

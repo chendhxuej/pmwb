@@ -138,69 +138,69 @@
       </div>
     </div>
 
-    <!-- 领域网格 -->
+    <!-- 领域网格（两级分节：每组带色条头 + 二级卡片网格） -->
     <div v-loading="loading" class="domain-grid-wrap">
-      <div class="grid-head">
-        <span class="grid-title">领域驾驶舱</span>
-        <span class="grid-count">{{ filteredDomains.length }} 个领域</span>
+      <div v-for="sec in groupedSections" :key="sec.code" class="grid-section">
+        <div class="grid-section-head">
+          <span class="grid-section-dot" :style="{ background: sec.color }"></span>
+          <span class="grid-title">{{ sec.name }}</span>
+          <span class="grid-count">{{ sec.domains.length }} 个领域</span>
+        </div>
+        <div class="domain-grid">
+          <button
+            v-for="d in sec.domains"
+            :key="d.domain_code"
+            class="domain-card"
+            :class="{ active: selectedDomain?.domain_code === d.domain_code }"
+            @click="selectDomain(d)"
+            :title="d.domain_name"
+          >
+            <div class="domain-card-top">
+              <span class="domain-avatar">{{ d.domain_name.slice(0, 1) }}</span>
+              <span class="domain-name">{{ d.domain_name }}</span>
+              <span class="domain-tag">{{ d.domain_group }}</span>
+            </div>
+            <div class="domain-code">{{ d.domain_code }}</div>
+            <div class="domain-meta">
+              <span>知识 {{ d.knowledge_count || 0 }}</span>
+              <span>需求 {{ d.requirement_count || 0 }}</span>
+              <span>工单 {{ d.issue_count || 0 }}</span>
+              <span>会议 {{ d.meeting_count || 0 }}</span>
+            </div>
+            <div class="domain-bar">
+              <i class="bar-seg b1" :style="{ width: barSeg(d.knowledge_count || 0) }"></i>
+              <i class="bar-seg b2" :style="{ width: barSeg(d.requirement_count || 0) }"></i>
+              <i class="bar-seg b3" :style="{ width: barSeg(d.issue_count || 0) }"></i>
+            </div>
+            <div class="domain-barlbl">
+              <span><b>{{ (d.knowledge_count || 0) + (d.requirement_count || 0) + (d.issue_count || 0) + (d.meeting_count || 0) }}</b> 关联对象</span>
+              <span v-if="healthMap[d.domain_code]?.has_main_note"><b>主笔记已建</b></span>
+              <span v-else class="text-warn"><b>缺主笔记</b></span>
+            </div>
+            <!-- 一键同步按钮 -->
+            <div v-if="!healthMap[d.domain_code]?.has_main_note" class="domain-sync-btn">
+              <el-button size="small" type="primary" plain @click.stop="syncOneMainNote(d.domain_code)">
+                一键同步
+              </el-button>
+            </div>
+          </button>
+        </div>
+        <el-empty v-if="!loading && !sec.domains.length" description="该分组暂无领域" />
       </div>
-      <div class="domain-grid">
-        <button
-          v-for="d in filteredDomains"
-          :key="d.domain_code"
-          class="domain-card"
-          :class="{ active: selectedDomain?.domain_code === d.domain_code }"
-          @click="selectDomain(d)"
-          :title="d.domain_name"
-        >
-          <div class="domain-card-top">
-            <span class="domain-avatar">{{ d.domain_name.slice(0, 1) }}</span>
-            <span class="domain-name">{{ d.domain_name }}</span>
-            <span class="domain-tag">{{ d.domain_group }}</span>
-          </div>
-          <div class="domain-code">{{ d.domain_code }}</div>
-          <div class="domain-meta">
-            <span>知识 {{ d.knowledge_count || 0 }}</span>
-            <span>需求 {{ d.requirement_count || 0 }}</span>
-            <span>工单 {{ d.issue_count || 0 }}</span>
-            <span>会议 {{ d.meeting_count || 0 }}</span>
-          </div>
-          <div class="domain-bar">
-            <i class="bar-seg b1" :style="{ width: barSeg(d.knowledge_count || 0) }"></i>
-            <i class="bar-seg b2" :style="{ width: barSeg(d.requirement_count || 0) }"></i>
-            <i class="bar-seg b3" :style="{ width: barSeg(d.issue_count || 0) }"></i>
-          </div>
-          <div class="domain-barlbl">
-            <span><b>{{ (d.knowledge_count || 0) + (d.requirement_count || 0) + (d.issue_count || 0) + (d.meeting_count || 0) }}</b> 关联对象</span>
-            <span v-if="healthMap[d.domain_code]?.has_main_note"><b>主笔记已建</b></span>
-            <span v-else class="text-warn"><b>缺主笔记</b></span>
-          </div>
-          <!-- 一键同步按钮 -->
-          <div v-if="!healthMap[d.domain_code]?.has_main_note" class="domain-sync-btn">
-            <el-button size="small" type="primary" plain @click.stop="ensureMainNote(d.domain_code)">
-              一键同步
-            </el-button>
-          </div>
-        </button>
-      </div>
-      <el-empty v-if="!loading && !filteredDomains.length" description="该分组暂无领域" />
+      <el-empty v-if="!loading && !groupedSections.length" description="暂无业务领域" />
     </div>
 
-    <!-- 领域详情 -->
-    <div v-if="selectedDomain" v-loading="detailLoading" class="domain-detail">
-      <div class="detail-head">
+    <!-- 领域详情（内嵌 DomainDetailPanel，替代原「业务全景」单薄概览） -->
+    <div v-if="selectedDomain" class="domain-detail-embed">
+      <div class="embed-head">
         <div class="detail-title">
           <span class="detail-tag" :style="groupStyle(selectedDomain.domain_group)">{{ selectedDomain.domain_group }}</span>
-          <span>{{ selectedDomain.domain_name }} · 业务全景</span>
+          <span>{{ selectedDomain.domain_name }} · 领域详情</span>
         </div>
         <div class="detail-actions">
           <el-button plain :loading="syncOneLoading" @click="syncOne">
             <el-icon><Refresh /></el-icon>
             <span>同步此领域</span>
-          </el-button>
-          <el-button v-if="mainNotePath" plain type="primary" @click="openObsidianNote(mainNotePath)">
-            <el-icon><FolderOpened /></el-icon>
-            <span>打开主笔记</span>
           </el-button>
           <el-button plain type="success" @click="openDetailPage">
             <el-icon><View /></el-icon>
@@ -208,44 +208,7 @@
           </el-button>
         </div>
       </div>
-
-      <div class="detail-grid">
-        <!-- 左侧：概览 + 结构 -->
-        <div class="detail-col">
-          <div class="detail-card">
-            <div class="detail-card-head">
-              <span>主笔记标准结构</span>
-              <span v-if="mainNoteTitle" class="detail-sub">{{ mainNoteTitle }}</span>
-            </div>
-            <div class="bible-list">
-              <div v-for="sec in bibleSections" :key="sec.key" class="bible-item">
-                <span class="bible-badge" :class="'kind-' + sec.kind">{{ sec.kind_label }}</span>
-                <span class="bible-title">{{ sec.title }}</span>
-              </div>
-              <el-empty v-if="!bibleSections.length && !bibleLoading" description="暂无主笔记内容" :image-size="60" />
-            </div>
-          </div>
-
-          <div class="detail-card">
-            <div class="detail-card-head">全景指标</div>
-            <div class="mini-list">
-              <div class="mini-item"><span>知识条目</span><b>{{ selectedDomain.knowledge_count || 0 }}</b></div>
-              <div class="mini-item"><span>关联需求</span><b>{{ selectedDomain.requirement_count || 0 }}</b></div>
-              <div class="mini-item"><span>运营工单</span><b>{{ selectedDomain.issue_count || 0 }}</b></div>
-              <div class="mini-item"><span>会议</span><b>{{ selectedDomain.meeting_count || 0 }}</b></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 右侧：时间线 -->
-        <div class="detail-card detail-timeline">
-          <div class="detail-card-head">
-            <el-icon><Clock /></el-icon>
-            <span>业务全过程时间线</span>
-          </div>
-          <BusinessTimeline :domain-code="selectedDomain.domain_code" />
-        </div>
-      </div>
+      <DomainDetailPanel :key="selectedDomain.domain_code" :code="selectedDomain.domain_code" />
     </div>
   </div>
 </template>
@@ -254,16 +217,13 @@
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  Refresh, Notebook, FolderOpened, SetUp, Clock, Lightning, FirstAidKit, Search, View
+  Refresh, SetUp, Lightning, FirstAidKit, Search, View
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { basicDataApi, loadBusinessDomains } from '@/api/basicData.js'
 import { knowledgeApi } from '@/api/knowledge.js'
-import { obsidianApi } from '@/api/obsidian.js'
-import BusinessTimeline from '@/components/Common/BusinessTimeline.vue'
-import { productBibleApi } from '@/api/productBible.js'
 import { bus, EVT_DOMAINS_CHANGED } from '@/utils/bus'
-import { openObsidianNote } from '@/utils/obsidian.js'
+import DomainDetailPanel from './DomainDetailPanel.vue'
 
 const router = useRouter()
 const goManage = () => router.push('/knowledge-center/business-domains')
@@ -276,11 +236,6 @@ const activeGroup = ref('all')
 const selectedDomain = ref(null)
 const syncLoading = ref(false)
 const syncOneLoading = ref(false)
-const mainNoteTitle = ref('')
-const mainNotePath = ref('')
-const bibleSections = ref([])
-const bibleLoading = ref(false)
-const detailLoading = ref(false)
 const recentFeed = ref([])
 
 // 全局搜索智能推荐
@@ -358,8 +313,31 @@ const groupTabs = computed(() => {
 
 const filteredDomains = computed(() => {
   if (activeGroup.value === 'all') return allDomains.value
-  const g = domainTree.value.find((x) => x.domain_code === activeGroup.value)
-  return g?.children || []
+  return allDomains.value.filter((d) => d.domain_group === activeGroup.value)
+})
+
+// 驾驶舱按一级分组分节展示：activeGroup==='all' 产出全部4个分组（顺序与 groupTabs 一致），
+// 点某个分组则只产出一组包含该组的 sections。
+const groupedSections = computed(() => {
+  const sections = []
+  if (activeGroup.value === 'all') {
+    // 按 groupTabs 顺序，跳过 'all'
+    for (const g of groupTabs.value) {
+      if (g.code === 'all') continue
+      const domains = allDomains.value.filter((d) => d.domain_group === g.code)
+      if (!domains.length) continue
+      sections.push({ code: g.code, name: g.name, color: groupColor(g.name), domains })
+    }
+  } else {
+    // 只展示当前选中分组
+    sections.push({
+      code: activeGroup.value,
+      name: activeGroup.value,
+      color: groupColor(activeGroup.value),
+      domains: filteredDomains.value,
+    })
+  }
+  return sections
 })
 
 const stats = computed(() => {
@@ -433,16 +411,6 @@ const scanHealth = async () => {
 const selectDomain = async (d) => {
   if (selectedDomain.value?.domain_code === d.domain_code) return
   selectedDomain.value = d
-  mainNoteTitle.value = ''
-  mainNotePath.value = ''
-  bibleSections.value = []
-  detailLoading.value = true
-  try {
-    await Promise.all([loadBible(d.domain_code), loadDomainMeta(d)])
-    await loadTimelineFeed(d.domain_code)
-  } finally {
-    detailLoading.value = false
-  }
 }
 
 // 跳转到领域详情 Dashboard（路由需真实领域编码，不能从侧边栏菜单直接进）
@@ -455,38 +423,15 @@ const openDetailPage = () => {
   router.push({ name: 'KcDomainDetail', params: { code } })
 }
 
-const loadBible = async (code) => {
-  bibleLoading.value = true
+const loadGlobalFeed = async () => {
+  // 全局「本周新增 · 领域动态」接 global timeline（近7天），替代原来只查选中域的旧 feed
   try {
-    const res = await productBibleApi.getMainNote(code)
-    bibleSections.value = res?.sections || []
-  } catch {
-    bibleSections.value = []
-  } finally {
-    bibleLoading.value = false
-  }
-}
-
-const loadDomainMeta = async (d) => {
-  try {
-    const res = await basicDataApi.getDomainRelated(d.domain_code)
-    if (res?.main_note) {
-      mainNoteTitle.value = res.main_note.title || ''
-      mainNotePath.value = res.main_note.obsidian_path || ''
-    }
-  } catch {
-    // 静默
-  }
-}
-
-const loadTimelineFeed = async (code) => {
-  try {
-    const res = await knowledgeApi.getBusinessTimeline({ domain_code: code, limit: 4 })
-    const list = Array.isArray(res) ? res : (res?.data || [])
-    recentFeed.value = list.slice(0, 4).map((ev) => ({
-      text: `${ev.domain_name || code} · ${ev.event_title || ev.title || '事件'}`,
-      time: ev.event_date || ev.created_at || '',
-      domain_group: selectedDomain.value?.domain_group || '通用',
+    const res = await knowledgeApi.getGlobalTimeline({ days: 7, limit: 8 })
+    const list = Array.isArray(res) ? res : (res?.events || [])
+    recentFeed.value = list.slice(0, 8).map((ev) => ({
+      text: `${ev.domain_name || '未知领域'} · ${ev.event_label || ''} ${ev.source_title || ev.summary || '事件'}`,
+      time: ev.event_date || '',
+      domain_group: ev.domain_group || '通用',
     }))
   } catch {
     recentFeed.value = []
@@ -527,7 +472,6 @@ const syncOne = async () => {
   try {
     await knowledgeApi.syncMainNote(selectedDomain.value.domain_code)
     ElMessage.success(`${selectedDomain.value.domain_name} 主笔记已同步`)
-    await loadBible(selectedDomain.value.domain_code)
   } catch {
     ElMessage.error('同步失败')
   } finally {
@@ -535,8 +479,14 @@ const syncOne = async () => {
   }
 }
 
-onMounted(loadDomains)
-bus.on(EVT_DOMAINS_CHANGED, loadDomains)
+onMounted(() => {
+  loadDomains()
+  loadGlobalFeed()
+})
+bus.on(EVT_DOMAINS_CHANGED, () => {
+  loadDomains()
+  loadGlobalFeed()
+})
 </script>
 
 <style scoped>
@@ -878,15 +828,15 @@ bus.on(EVT_DOMAINS_CHANGED, loadDomains)
 .domain-barlbl b { color: #1f2d3d; }
 .text-warn { color: #f0a64a !important; }
 
-/* 领域详情 */
-.domain-detail {
+/* 领域详情内嵌面板 */
+.domain-detail-embed {
   background: #fff;
   border: 1px solid #e4e7ed;
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0,0,0,.04);
 }
-.detail-head {
+.embed-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -894,7 +844,7 @@ bus.on(EVT_DOMAINS_CHANGED, loadDomains)
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
-.detail-title {
+.embed-title {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -902,81 +852,17 @@ bus.on(EVT_DOMAINS_CHANGED, loadDomains)
   font-weight: 700;
   color: #1f2d3d;
 }
-.detail-tag {
+.embed-tag {
   font-size: 12px;
   padding: 3px 10px;
   border-radius: 6px;
   font-weight: 600;
 }
-.detail-actions { display: flex; gap: 10px; }
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 16px;
-}
-.detail-col {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.detail-card {
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-.detail-card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: #1f2d3d;
-  margin-bottom: 12px;
-}
-.detail-sub {
-  font-size: 12px;
-  color: #909399;
-  font-weight: 400;
-}
-.bible-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.bible-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  padding: 7px 10px;
-  background: #f5f7fa;
-  border-radius: 8px;
-}
-.bible-badge {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 6px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.bible-badge.kind-baseline { background: #ecf5ff; color: #409eff; }
-.bible-badge.kind-auto { background: #f0f9eb; color: #67c23a; }
-.bible-badge.kind-system { background: #f4f4f5; color: #909399; }
-.bible-title {
-  color: #1f2d3d;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.detail-timeline {
-  min-height: 320px;
-}
+.embed-actions { display: flex; gap: 10px; }
 
 @media (max-width: 1200px) {
   .kpi-strip { flex-direction: column; }
-  .action-row, .detail-grid { grid-template-columns: 1fr; }
+  .action-row { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
   .kpi-strip { flex-direction: column; }

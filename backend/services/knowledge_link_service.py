@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -46,6 +46,7 @@ from utils.obsidian import (
     write_frontmatter,
     write_markdown,
 )
+from services.obsidian_paths import main_note_filename
 
 # source_type -> frontmatter related_* 字段名
 SOURCE_FM_KEY = {
@@ -898,11 +899,14 @@ def business_timeline_global(
     event_type: Optional[str] = None,
     group: Optional[str] = None,
     limit: Optional[int] = 50,
+    days: Optional[int] = None,
 ) -> Dict:
     """聚合所有业务领域的全过程时间线（全局 Feed）。
 
     对每个启用领域调用 business_timeline 拿到事件，合并后按 event_date 倒序，
     缺失日期垫底。返回全局统计 + 事件列表 + 分组计数。
+
+    days：只保留最近 N 天（按 event_date 过滤，供首页「本周新增·领域动态」使用）。
     """
     domains = (
         db.query(PmwbBusinessDomain)
@@ -938,6 +942,13 @@ def business_timeline_global(
 
     if event_type:
         all_events = [e for e in all_events if e.get("event_type") == event_type]
+    if days:
+        # event_date 为 ISO 日期字符串，字典序可比；缺失日期的条目不纳入「最近N天」
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        all_events = [
+            e for e in all_events
+            if e.get("event_date") and str(e["event_date"]) >= cutoff
+        ]
     if limit:
         all_events = all_events[:limit]
 
@@ -1419,21 +1430,44 @@ def _check_structure_integrity(db: Session, domain_code: str) -> bool:
     return len(standard_sections) >= 5
 
 
+def _scannable_leaf_domains(db: Session) -> List[PmwbBusinessDomain]:
+    """返回所有应参与主笔记健康扫描/保活的启用业务领域（叶子领域）。
+
+    口径与 business_domain.list_tree 一致：
+    - 「伞节点」= 被其他领域引用为 parent_id 的分组容器（商客业务/系统平台/公共能力/通用
+      等大类），必须排除，否则覆盖率等业务指标会被算错（曾出现 107%）。
+    - 「孤儿叶子」= parent_id 为空且未被引用为 parent 的真实业务领域（如 zqzs 商客智企助手、
+      jtxz 集团选址），它们已被 list_tree 按 domain_group 挂到分组下、会出现在前端驾驶舱，
+      若漏扫会被前端误判「缺主笔记」。
+    """
+    umbrella_ids = {
+        row[0]
+        for row in db.query(PmwbBusinessDomain.parent_id)
+        .filter(PmwbBusinessDomain.parent_id.isnot(None))
+        .distinct()
+        .all()
+    }
+    return (
+        db.query(PmwbBusinessDomain)
+        .filter(PmwbBusinessDomain.enabled == True)
+        .filter(
+            (PmwbBusinessDomain.parent_id.isnot(None))
+            | (~PmwbBusinessDomain.id.in_(umbrella_ids))
+        )
+        .order_by(PmwbBusinessDomain.domain_group, PmwbBusinessDomain.sort_order)
+        .all()
+    )
+
+
 def domain_main_note_health(db: Session) -> list:
     """批量扫描启用领域的主笔记健康状态，供前端驾驶舱统计与一键修复入口。"""
     from db.models import PmwbKnowledgeItem, PmwbBusinessDomain, PmwbRequirementExt, PmwbOperationIssue, PmwbMeeting
     from datetime import datetime, timedelta
     from pathlib import Path
     from core.config import settings
-    # 只统计真实业务领域：parent_id 为空的是分组容器（商客业务/系统平台/公共能力/通用伞节点），
-    # 不是业务领域，混入会把覆盖率等业务指标算错（曾导致驾驶舱出现 107% 覆盖率）。
-    domains = (
-        db.query(PmwbBusinessDomain)
-        .filter(PmwbBusinessDomain.enabled == True)
-        .filter(PmwbBusinessDomain.parent_id.isnot(None))
-        .order_by(PmwbBusinessDomain.domain_group, PmwbBusinessDomain.sort_order)
-        .all()
-    )
+    # 只统计真实业务领域（叶子）：排除伞节点，但纳入孤儿叶子（见 _scannable_leaf_domains），
+    # 避免孤儿领域被前端误判「缺主笔记」。
+    domains = _scannable_leaf_domains(db)
     main_count = (
         db.query(PmwbKnowledgeItem.domain_code, func.count().label("c"))
         .filter(PmwbKnowledgeItem.note_type == "main")
@@ -1490,10 +1524,13 @@ def domain_main_note_health(db: Session) -> list:
     vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
     obsidian_files = {}  # domain_code -> rel_path
     for d in domains:
+        # vault_path 为空的领域跳过文件探测，避免 None.replace 抛错拖垮整批
+        if not d.vault_path:
+            continue
         # 规范化vault_path：统一使用正斜杠，确保跨平台兼容
         vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
-        # 文件名：domain_name + "业务知识主笔记.md"
-        filename = f"{d.domain_name}业务知识主笔记.md"
+        # 文件名统一用权威 main_note_filename（"{领域名} 业务知识主笔记.md"，带空格）
+        filename = main_note_filename(d.domain_name)
         note_file = vpath_norm / filename
         if note_file.exists():
             obsidian_files[d.domain_code] = str(note_file.relative_to(vault_path))
@@ -1541,13 +1578,8 @@ def ensure_domain_main_notes(db: Session) -> dict:
     """
     from pathlib import Path
     from core.config import settings
-    # 同样排除 parent_id 为空的分组伞节点，避免为容器节点误建主笔记。
-    domains = (
-        db.query(PmwbBusinessDomain)
-        .filter(PmwbBusinessDomain.enabled == True)
-        .filter(PmwbBusinessDomain.parent_id.isnot(None))
-        .all()
-    )
+    # 排除伞节点但纳入孤儿叶子（见 _scannable_leaf_domains），避免孤儿领域主笔记不被保活/补索引。
+    domains = _scannable_leaf_domains(db)
     created = 0
     ensured = 0
     indexed = 0  # 新增：从 Obsidian 补全 DB 索引
@@ -1561,7 +1593,7 @@ def ensure_domain_main_notes(db: Session) -> dict:
             continue
         try:
             vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
-            filename = f"{d.domain_name}业务知识主笔记.md"
+            filename = main_note_filename(d.domain_name)
             note_file = vpath_norm / filename
             if note_file.exists():
                 obsidian_files[d.domain_code] = str(note_file.relative_to(vault_path))
@@ -1613,9 +1645,10 @@ def _ensure_one_domain_main_note(db: Session, d, obsidian_files: dict) -> str:
         .first()
     )
 
-    # 情况1: DB 有记录 → 重建子笔记摘要 + 修复受损文件
+    # 情况1: DB 有记录 → 重建子笔记摘要 + §7 关联索引 + 修复受损文件
     if main:
         rebuild_main_note_subnotes(db, d.domain_code)
+        rebuild_main_note_section7(db, d.domain_code)
         # 检查并修复主笔记文件内容
         if d.domain_code in obsidian_files:
             try:
@@ -1644,6 +1677,7 @@ def _ensure_one_domain_main_note(db: Session, d, obsidian_files: dict) -> str:
         db.add(item)
         db.commit()
         db.refresh(item)
+        rebuild_main_note_section7(db, d.domain_code)
         return "indexed"
 
     # 情况3: DB 无记录，Obsidian 文件也不存在 → 若有子笔记则创建新主笔记
@@ -1656,9 +1690,100 @@ def _ensure_one_domain_main_note(db: Session, d, obsidian_files: dict) -> str:
     if has_sub:
         ensure_domain_main_note(db, d.domain_code)
         rebuild_main_note_subnotes(db, d.domain_code)
+        rebuild_main_note_section7(db, d.domain_code)
         return "created"
 
     return ""
+
+
+def rebuild_main_note_section7(db: Session, domain_code: str) -> bool:
+    """重建主笔记 §7「关联过程性内容索引」，让「结构不全(§7为空)」的领域同步后转完整。
+
+    - 主笔记已有 pmwb_knowledge_link 关联记录 → 委托 _rebuild_linked_section（权威口径）。
+    - 否则按 domain_code 直属对象（需求/运营工单/会议/子知识）聚合生成 §7；即使全部为空
+      也写占位，保证 §7 非空（_check_structure_integrity 要求），且绝不删除 §7。
+    - 只替换 §7 区块，人工区零覆盖；内容未变不写（幂等）。
+    """
+    item = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .first()
+    )
+    if not item or not item.obsidian_path:
+        return False
+
+    links = (
+        db.query(PmwbKnowledgeLink)
+        .filter(PmwbKnowledgeLink.knowledge_item_id == item.id)
+        .all()
+    )
+    if links:
+        _rebuild_linked_section(db, item, links)
+        return True
+
+    # 无 link 记录：从 domain_code 直属对象聚合（不依赖 link 表）
+    reqs = (
+        db.query(PmwbRequirementExt)
+        .filter(PmwbRequirementExt.domain_code == domain_code)
+        .all()
+    )
+    issues = (
+        db.query(PmwbOperationIssue)
+        .filter(PmwbOperationIssue.domain_code == domain_code)
+        .all()
+    )
+    meetings = (
+        db.query(PmwbMeeting)
+        .filter(PmwbMeeting.domain_code == domain_code)
+        .all()
+    )
+    sub_notes = (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.domain_code == domain_code)
+        .filter(PmwbKnowledgeItem.note_type != "main")
+        .all()
+    )
+
+    lines = ["> 以下链接由系统自动维护，删除或新增关联时会同步更新。", ""]
+    has_any = False
+    if reqs:
+        has_any = True
+        lines.append("### 关联需求")
+        for r in reqs:
+            lines.append(f"- [[{r.req_id}]] {r.req_name or ''}".rstrip())
+        lines.append("")
+    if issues:
+        has_any = True
+        lines.append("### 关联运营工单")
+        for it in issues:
+            lines.append(f"- [[{it.issue_no}]] {it.title or ''}".rstrip())
+        lines.append("")
+    if meetings:
+        has_any = True
+        lines.append("### 关联会议")
+        for mt in meetings:
+            lines.append(f"- [[{mt.meeting_id}]] {mt.title or ''}".rstrip())
+        lines.append("")
+    if sub_notes:
+        has_any = True
+        lines.append("### 关联知识")
+        for kn in sub_notes:
+            if kn.obsidian_path:
+                link_text = os.path.basename(kn.obsidian_path)
+                lines.append(f"- [[{kn.obsidian_path}|{link_text}]]")
+            else:
+                lines.append(f"- {kn.title or ''}".rstrip())
+        lines.append("")
+    if not has_any:
+        lines.append("_暂无关联内容_")
+
+    new_section = "\n".join(lines).rstrip()
+    content = read_markdown(item.obsidian_path) or ""
+    new_content = append_or_replace_section(content, "7. 关联过程性内容索引", new_section)
+    if new_content != content:
+        write_markdown(item.obsidian_path, new_content)
+    return True
 
 
 def rebuild_main_note_subnotes(db: Session, domain_code: str) -> bool:
@@ -1898,12 +2023,7 @@ def scan_damaged_notes(db: Session) -> dict:
     from pathlib import Path
     from core.config import settings
 
-    domains = (
-        db.query(PmwbBusinessDomain)
-        .filter(PmwbBusinessDomain.enabled == True)
-        .filter(PmwbBusinessDomain.parent_id.isnot(None))
-        .all()
-    )
+    domains = _scannable_leaf_domains(db)
 
     vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
     damaged = []
@@ -1911,8 +2031,9 @@ def scan_damaged_notes(db: Session) -> dict:
     for d in domains:
         # 检查文件是否存在
         vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
-        filename = f"{d.domain_name}业务知识主笔记.md"
-        alt_filename = f"{d.domain_name} 业务知识主笔记.md"
+        # 主文件名用权威 main_note_filename（带空格）；alt 保留兼容早期无空格历史文件
+        filename = main_note_filename(d.domain_name)
+        alt_filename = f"{d.domain_name}业务知识主笔记.md"
         note_file = vpath_norm / filename
         alt_note_file = vpath_norm / alt_filename
         obsidian_exists = note_file.exists() or alt_note_file.exists()
