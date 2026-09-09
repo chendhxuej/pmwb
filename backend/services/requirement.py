@@ -128,6 +128,8 @@ class RequirementService:
         self,
         db: Session,
         keyword: Optional[str] = None,
+        req_id: Optional[str] = None,
+        dev_ticket_no: Optional[str] = None,
         status: Optional[str] = None,
         priority: Optional[str] = None,
         system_name: Optional[str] = None,
@@ -156,6 +158,32 @@ class RequirementService:
             )
             matched_req_ids = [row[0] for row in matched_req_ids]
             base_query = base_query.filter(SentEmail.req_id.in_(matched_req_ids))
+
+        # 需求文号过滤：独立于 keyword，模糊匹配 SentEmail.req_id（按最新一条去重后 AND 过滤）
+        if req_id:
+            req_id_matched = (
+                db.query(SentEmail.req_id)
+                .filter(SentEmail.req_id.ilike(f"%{req_id}%"))
+                .distinct()
+                .all()
+            )
+            req_id_matched = [row[0] for row in req_id_matched]
+            base_query = base_query.filter(SentEmail.req_id.in_(req_id_matched))
+
+        # 开发单号过滤：从 SentEmail.dev_ticket_no 模糊匹配（与 2026-09-08 dev_ticket_no 统一从 SentEmail 回填口径一致）
+        if dev_ticket_no:
+            ticket_matched = (
+                db.query(SentEmail.req_id)
+                .filter(
+                    SentEmail.dev_ticket_no.isnot(None),
+                    SentEmail.dev_ticket_no != "",
+                    SentEmail.dev_ticket_no.ilike(f"%{dev_ticket_no}%"),
+                )
+                .distinct()
+                .all()
+            )
+            ticket_matched = [row[0] for row in ticket_matched]
+            base_query = base_query.filter(SentEmail.req_id.in_(ticket_matched))
 
         # 状态/优先级过滤：口径与前端展示保持一致（无 ext 记录按默认状态归口）
         if status or priority:

@@ -24,6 +24,8 @@ router = APIRouter(prefix="/requirements", tags=["需求管理"])
 @router.get("")
 def list_requirements(
     keyword: Optional[str] = Query(None, description="关键字搜索"),
+    req_id: Optional[str] = Query(None, description="需求文号模糊匹配"),
+    dev_ticket_no: Optional[str] = Query(None, description="开发单号模糊匹配"),
     status: Optional[str] = Query(None, description="个人跟踪状态"),
     priority: Optional[str] = Query(None, description="优先级"),
     system_name: Optional[str] = Query(None, description="系统名称"),
@@ -36,6 +38,8 @@ def list_requirements(
     data = requirement_service.list_with_filters(
         db=db,
         keyword=keyword,
+        req_id=req_id,
+        dev_ticket_no=dev_ticket_no,
         status=status,
         priority=priority,
         system_name=system_name,

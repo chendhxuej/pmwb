@@ -51,6 +51,26 @@
             >
               <template #prefix><el-icon><Search /></el-icon></template>
             </EnlargeInput>
+            <EnlargeInput
+              v-model="reqIdFilter"
+              placeholder="需求文号（模糊）"
+              style="width: 180px"
+              clearable
+              @keyup.enter="handleReqSearch"
+              @clear="handleReqSearch"
+            >
+              <template #prefix><el-icon><Document /></el-icon></template>
+            </EnlargeInput>
+            <EnlargeInput
+              v-model="devTicketNoFilter"
+              placeholder="开发单号（模糊）"
+              style="width: 180px"
+              clearable
+              @keyup.enter="handleReqSearch"
+              @clear="handleReqSearch"
+            >
+              <template #prefix><el-icon><Tickets /></el-icon></template>
+            </EnlargeInput>
             <el-select v-model="reqStatus" placeholder="跟踪状态" clearable class="w-s" @change="handleReqSearch">
               <el-option label="建议中" value="proposed" />
               <el-option label="已采纳" value="accepted" />
@@ -1248,6 +1268,8 @@ import {
 /* ─────────────── 需求标签 ─────────────── */
 const activeTab = ref('requirement')
 const reqKeyword = ref('')
+const reqIdFilter = ref('')
+const devTicketNoFilter = ref('')
 const reqStatus = ref('')
 const reqPriority = ref('')
 const reqLoading = ref(false)
@@ -1263,6 +1285,8 @@ async function loadRequirements() {
     const [listRes, statsRes] = await Promise.all([
       getRequirements({
         keyword: reqKeyword.value || undefined,
+        req_id: reqIdFilter.value || undefined,
+        dev_ticket_no: devTicketNoFilter.value || undefined,
         status: reqStatus.value || undefined,
         priority: reqPriority.value || undefined,
         page: reqPage.value,

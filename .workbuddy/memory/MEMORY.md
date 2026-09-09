@@ -40,6 +40,11 @@
 - 抽屉草稿 useDrawerDraft.js localStorage；业务领域下拉走缓存 loadBusinessDomains + refreshBusinessDomains 广播。
 - 邮件模板变量状态字段须转译（3210 仅接收字符串，状态 value 禁直透，前端调侧用 label 映射转中文）。
 - API Key 加密与 SECRET_KEY 漂移坑（2026-08-30 根治）：密钥 XOR+Base64 存库，派生自 settings.SECRET_KEY；OS 环境变量 SECRET_KEY 会覆盖 .env → 全 provider 401。已加 decrypt_secret 回退自愈（.env/pmwb-default-secret）。
+- 需求与交付模块开发单号去重（2026-09-08）：`dev_ticket_no` 统一从 `SentEmail` 回填（`_eval_to_dict`、`pending_by_sa`），评估记录自身禁止写入（`update_evaluation` 的 allowed set 移除该字段，`create_evaluation` 不再设置）。前端评估弹层移除该输入框。**⚠️ 后续事故（2026-09-09 修复 d53c887）**：`pending_by_sa` 当时只加了 `dev_ticket_map.get(...)` 引用、漏了构造 map → NameError 致 /reminders/pending 500。防复发：跨函数调整回填口径时必须全文件 grep 变量确认"定义+引用"成对落地；评估记录的 dev_ticket_no 列在查询中也一律不再 SELECT。
+- 需求与交付模块 AI 故事生成超时（2026-09-08）：`US_STORY_LLM_MAX_TOKENS=16384`、`US_STORY_LLM_TIMEOUT=300`；`storygen_llm.generate_via_unified()` 显式传参；前端 timeout 300s。
+- 需求与交付模块接口规范管理（2026-09-08）：新增 `PmwbReqInterfaceDoc` 模型 + 路由 + 前端卡片，上传时自动归档到 `01-业务知识/{group}/{name}/05-交付物/interface_docs/`。注意：详情页初始化时需调 `loadInterfaceDocs`，否则系统下拉显示"无数据"。
+- 需求与交付模块操作手册自动归档（2026-09-08）：`upload_manual()` 末尾调 `archive_req_manual()`，归档到 `01-业务知识/{group}/{name}/05-交付物/attachments/`。
+- 需求与交付模块 _eval_to_dict 缺少 db 参数（2026-09-08）：`get_evaluations` 时会触发 NameError，修复为加 `db: Session` 参数。
 
 ## 邮件统一治理与 HTML 渲染铁律（核心）
 - 所有发信收口 dispatch_email（SCENES 12 场景）；预览 POST /api/v1/mail-dispatch/preview，发送 POST /api/v1/mail-dispatch/send。
