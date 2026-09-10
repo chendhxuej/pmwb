@@ -1,59 +1,7 @@
 <template>
-  <!-- 领域详情主体（可复用）：左侧主笔记结构 + 全景指标，右侧 产品圣经/关联对象/时间线/自动区 四 tab。
+  <!-- 领域详情主体（可复用）：单列布局，右侧 产品圣经/关联对象/时间线/自动区 四 tab。
        由「领域详情」独立子页与知识中心首页驾驶舱共用，code 变化时自动重载。 -->
   <div class="detail-body" v-loading="loading">
-    <!-- 左侧：主笔记结构 + 全景指标 -->
-    <div class="detail-left">
-      <!-- 主笔记结构卡片 -->
-      <div class="dcard">
-        <div class="dcard-head">
-          <span>主笔记结构（§3.8 三类模板）</span>
-          <span v-if="bibleTitle" class="dcard-sub">{{ bibleTitle }}</span>
-        </div>
-        <div class="bible-list">
-          <div
-            v-for="sec in bibleSections"
-            :key="sec.key"
-            class="bible-item"
-            :class="{ 'bible-item--active': activeSection === sec.key }"
-            @click="scrollToSection(sec.key)"
-            title="点击查看对应章节"
-          >
-            <span class="bible-badge" :class="'kind-' + sec.kind">{{ sec.kind_label }}</span>
-            <span class="bible-title">{{ sec.title }}</span>
-          </div>
-          <el-empty v-if="!bibleSections.length && !bibleLoading" description="暂无主笔记内容" :image-size="60" />
-        </div>
-      </div>
-
-      <!-- 全景指标卡片 -->
-      <div class="dcard">
-        <div class="dcard-head"><span>📊 全景指标</span></div>
-        <div class="mini-list">
-          <div class="mini-item">
-            <span>知识条目</span>
-            <b>{{ stats.knowledge_count || 0 }}</b>
-          </div>
-          <div class="mini-item">
-            <span>关联需求</span>
-            <b>{{ stats.requirement_count || 0 }}</b>
-          </div>
-          <div class="mini-item">
-            <span>关联工单</span>
-            <b>{{ stats.issue_count || 0 }}</b>
-          </div>
-          <div class="mini-item">
-            <span>时间线事件</span>
-            <b>{{ stats.timeline_count || 0 }}</b>
-          </div>
-        </div>
-        <div class="health-note" v-if="!detail.has_main_note">
-          ⚠️ 该领域尚无主笔记，点击「同步主笔记」一键创建。
-        </div>
-      </div>
-    </div>
-
-    <!-- 右侧：tab 切换 + 内容 -->
     <div class="detail-right">
       <div class="dtabs" id="dTabs">
         <div class="dtab" :class="{ on: activeTab === 'bible' }" @click="activeTab = 'bible'">产品圣经</div>
@@ -62,41 +10,27 @@
         <div class="dtab" :class="{ on: activeTab === 'auto' }" @click="activeTab = 'auto'">自动区状态</div>
       </div>
       <div class="dbody">
-        <!-- 产品圣经 tab -->
+        <!-- 产品圣经 tab：直接全文渲染主笔记内容 -->
         <div v-if="activeTab === 'bible'" class="tab-content bible-content">
-          <div v-if="bibleSections.length" class="bible-full">
-            <div
-              v-for="sec in bibleSections"
-              :key="sec.key"
-              :id="`section-${sec.key}`"
-              class="bible-section"
-              :class="{ 'bible-section--active': activeSection === sec.key }"
-            >
-              <div class="section-header">
-                <h2 class="section-title">{{ sec.title }}</h2>
-                <span class="section-badge" :class="'kind-' + sec.kind">{{ sec.kind_label }}</span>
-                <div class="section-actions" v-if="isEditing">
-                  <el-button size="small" @click="startEditSection(sec.key)">编辑</el-button>
-                  <el-button size="small" type="success" @click="saveSection(sec.key)" :loading="savingSection === sec.key">保存</el-button>
-                </div>
+          <template v-if="isEditing">
+            <div class="bible-edit">
+              <div class="edit-tip">编辑主笔记全文（Markdown 源码），下方为实时预览</div>
+              <textarea v-model="editingContent" class="bible-textarea" spellcheck="false"></textarea>
+              <div class="edit-preview">
+                <div class="preview-label">实时预览</div>
+                <div class="preview-content bible-md" v-html="renderMarkdown(editingContent)"></div>
               </div>
-              <!-- 编辑模式：textarea -->
-              <div v-if="isEditing && editingSection === sec.key" class="section-edit">
-                <textarea
-                  v-model="editingContent"
-                  class="section-textarea"
-                  spellcheck="false"
-                ></textarea>
-                <div class="edit-preview">
-                  <div class="preview-label">预览</div>
-                  <div class="preview-content" v-html="renderMarkdown(editingContent)"></div>
-                </div>
+              <div class="edit-actions">
+                <el-button @click="cancelEdit">取消</el-button>
+                <el-button type="success" :loading="saving" @click="saveAllChanges">保存全部</el-button>
               </div>
-              <!-- 只读模式：渲染 markdown -->
-              <div v-else class="section-content" v-html="renderMarkdown(sec.markdown)"></div>
             </div>
-          </div>
-          <el-empty v-else :description="bibleLoading ? '加载中...' : '暂无主笔记内容'" />
+          </template>
+          <template v-else>
+            <div v-if="bibleLoading" class="bible-loading">主笔记加载中...</div>
+            <div v-else-if="bibleContent" class="bible-full-content bible-md" v-html="renderMarkdown(bibleContent)"></div>
+            <el-empty v-else description="该领域暂无主笔记内容，点击顶部「同步主笔记」一键创建" />
+          </template>
         </div>
 
         <!-- 关联对象 tab -->
@@ -172,44 +106,18 @@ const props = defineProps({
 
 const loading = ref(false)
 const detail = ref({})
-const bibleSections = ref([])
-const bibleContent = ref('') // 存储原始完整内容，用于重建
-const bibleTitle = ref('')
+const bibleContent = ref('') // 存储原始完整内容
 const bibleLoading = ref(false)
 const relations = ref([])
-const timelineEvents = ref([])
 const relFilter = ref('all')
 const activeTab = ref('bible')
-const activeSection = ref('1')
 
 // 编辑模式状态
 const isEditing = ref(false)
-const editingSection = ref(null)
-const savingSection = ref(null)
 const saving = ref(false)
 const editingContent = ref('')
-const originalSections = ref([]) // 备份，用于取消时恢复
 const mainNoteItemId = ref(null) // item_id from backend
 const syncing = ref(false)
-
-const GROUP_META = {
-  '商客业务': { color: '#2f6fed', bg: 'rgba(47,111,237,.10)' },
-  '系统平台': { color: '#06b6d4', bg: 'rgba(6,182,212,.10)' },
-  '公共能力': { color: '#10b981', bg: 'rgba(16,185,129,.10)' },
-  '通用': { color: '#8b5cf6', bg: 'rgba(139,92,246,.10)' },
-}
-
-const groupStyle = (g) => {
-  const m = GROUP_META[g] || GROUP_META.通用
-  return { color: m.color, background: m.bg }
-}
-
-const stats = computed(() => ({
-  knowledge_count: detail.value.knowledge_count || 0,
-  requirement_count: detail.value.requirement_count || 0,
-  issue_count: detail.value.issue_count || 0,
-  timeline_count: timelineEvents.value.length,
-}))
 
 const filteredRelations = computed(() => {
   if (relFilter.value === 'all') return relations.value
@@ -222,20 +130,11 @@ function renderMarkdown(md) {
   return marked.parse(md)
 }
 
-function scrollToSection(key) {
-  activeSection.value = key
-  const el = document.getElementById(`section-${key}`)
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-}
-
 async function loadDetail() {
   loading.value = true
   try {
     const res = await basicDataApi.getDomainRelated(props.code)
     detail.value = res || {}
-    // 合并 stats
     relations.value = [
       ...(res.requirements || []).map(r => ({ ...r, status: 'requirement' })),
       ...(res.issues || []).map(r => ({ ...r, status: 'operation' })),
@@ -253,13 +152,10 @@ async function loadBible() {
   bibleLoading.value = true
   try {
     const res = await productBibleApi.getMainNote(props.code)
-    bibleSections.value = res?.sections || []
-    bibleContent.value = res?.content || '' // 保存原始完整内容
-    bibleTitle.value = res?.title || ''
+    bibleContent.value = res?.content || ''
     mainNoteItemId.value = res?.item_id || null
-    activeSection.value = bibleSections.value.length ? bibleSections.value[0].key : '1'
   } catch {
-    bibleSections.value = []
+    bibleContent.value = ''
   } finally {
     bibleLoading.value = false
   }
@@ -268,51 +164,14 @@ async function loadBible() {
 // 编辑模式管理
 function startEdit() {
   isEditing.value = true
-  // 备份当前内容，用于取消恢复
-  originalSections.value = JSON.parse(JSON.stringify(bibleSections.value))
-  ElMessage.info('已进入编辑模式，点击各章节的「编辑」按钮开始修改')
+  editingContent.value = bibleContent.value
+  ElMessage.info('已进入编辑模式')
 }
 
 function cancelEdit() {
   isEditing.value = false
-  editingSection.value = null
-  // 恢复原始内容
-  bibleSections.value = JSON.parse(JSON.stringify(originalSections.value))
-  ElMessage.info('已取消编辑，内容已恢复')
-}
-
-function startEditSection(key) {
-  editingSection.value = key
-  // 找到对应 section 的原始 markdown 作为初始内容
-  const sec = bibleSections.value.find(s => s.key === key)
-  editingContent.value = sec?.markdown || ''
-}
-
-async function saveSection(key) {
-  if (!mainNoteItemId.value) {
-    ElMessage.error('主笔记 ID 未找到，无法保存')
-    return
-  }
-  savingSection.value = key
-  try {
-    // 更新 sections 数组中的 markdown
-    const sec = bibleSections.value.find(s => s.key === key)
-    if (sec) {
-      sec.markdown = editingContent.value
-    }
-    // 重建完整 content（保持原有 section 顺序）
-    const fullContent = buildFullContent(bibleSections.value)
-    // 调用 API 保存
-    await knowledgeApi.updateItemContent(mainNoteItemId.value, fullContent)
-    ElMessage.success(`章节 ${key} 已保存`)
-    editingSection.value = null
-    // 刷新 sections（重新读取，确保与 Obsidian 一致）
-    await loadBible()
-  } catch (e) {
-    ElMessage.error(e?.message || '保存失败')
-  } finally {
-    savingSection.value = null
-  }
+  editingContent.value = ''
+  ElMessage.info('已取消编辑')
 }
 
 async function saveAllChanges() {
@@ -322,33 +181,15 @@ async function saveAllChanges() {
   }
   saving.value = true
   try {
-    // 重建完整 content
-    const fullContent = buildFullContent(bibleSections.value)
-    await knowledgeApi.updateItemContent(mainNoteItemId.value, fullContent)
+    await knowledgeApi.updateItemContent(mainNoteItemId.value, editingContent.value)
     ElMessage.success('所有更改已保存')
     isEditing.value = false
-    editingSection.value = null
     await loadBible()
   } catch (e) {
     ElMessage.error(e?.message || '保存失败')
   } finally {
     saving.value = false
   }
-}
-
-// 根据 sections 重建完整 markdown 内容
-function buildFullContent(sections) {
-  // 使用保存的原始 content 作为基底，逐段替换
-  let result = bibleContent.value
-  if (!result) return ''
-  for (const sec of sections) {
-    const escapedKey = sec.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    // 匹配 ## key. 标题 ... 直到下一个 ## 或文件末尾
-    const regex = new RegExp(`(##\\s+${escapedKey}\\s*[^\n]*\n)(.*?)(?=\n##\\s|$)`, 's')
-    const replacement = `$1${sec.markdown}\n`
-    result = result.replace(regex, replacement)
-  }
-  return result
 }
 
 async function syncMainNote() {
@@ -390,9 +231,8 @@ function viewItem(item) {
 watch(() => props.code, async (nc, oc) => {
   if (!nc || nc === oc) return
   isEditing.value = false
-  editingSection.value = null
+  editingContent.value = ''
   activeTab.value = 'bible'
-  activeSection.value = '1'
   await loadDetail()
   await loadBible()
 }, { immediate: true })
@@ -418,87 +258,11 @@ export default { name: 'DomainDetailPanel' }
 <style scoped>
 .detail-body {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 1fr;
   gap: 16px;
   align-items: start;
 }
-.detail-left, .detail-right { display: flex; flex-direction: column; gap: 14px; }
-
-.dcard {
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 12px;
-  padding: 14px 16px;
-}
-.dcard-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: #1f2d3d;
-  margin-bottom: 12px;
-}
-.dcard-sub {
-  font-size: 12px;
-  color: #909399;
-  font-weight: 400;
-}
-.bible-list { display: flex; flex-direction: column; gap: 8px; }
-.bible-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  padding: 7px 10px;
-  background: #f5f7fa;
-  border-radius: 8px;
-}
-.bible-badge {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 6px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.bible-badge.kind-baseline { background: #ecf5ff; color: #409eff; }
-.bible-badge.kind-auto { background: #f0f9eb; color: #67c23a; }
-.bible-badge.kind-system { background: #f4f4f5; color: #909399; }
-.bible-title {
-  color: #1f2d3d;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.bible-item {
-  cursor: pointer;
-  transition: background 0.2s, border-left 0.2s;
-}
-.bible-item:hover {
-  background: #e8f0fe;
-}
-.bible-item--active {
-  background: #d4e4ff;
-  border-left: 3px solid #2f6fed;
-  padding-left: 7px;
-}
-.mini-list { display: flex; flex-direction: column; gap: 8px; }
-.mini-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  color: #1f2d3d;
-}
-.mini-item b { font-family: 'JetBrains Mono', monospace; color: #1f2d3d; }
-.health-note {
-  margin-top: 10px;
-  padding: 8px 10px;
-  background: #fdf2e8;
-  border-radius: 8px;
-  font-size: 12px;
-  color: #f0a64a;
-}
+.detail-right { display: flex; flex-direction: column; gap: 14px; }
 
 /* 右侧 tab */
 .dtabs {
@@ -580,113 +344,162 @@ export default { name: 'DomainDetailPanel' }
   line-height: 1.6;
 }
 
-/* markdown body */
-.markdown-body {
-  font-size: 13px;
-  line-height: 1.7;
-  color: #1f2d3d;
+/* ===== 产品圣经：全文展示卡片 ===== */
+.bible-loading {
+  text-align: center;
+  padding: 40px;
+  color: #909399;
+  font-size: 14px;
 }
-.markdown-body h1, .markdown-body h2, .markdown-body h3 {
-  margin: 16px 0 8px;
-  color: #1f2d3d;
-}
-.markdown-body p { margin: 8px 0; }
-.markdown-body ul { padding-left: 20px; }
-
-/* 分段渲染样式 */
-.bible-content { padding-right: 8px; }
-.bible-full { display: flex; flex-direction: column; gap: 16px; }
-.bible-section {
+.bible-full-content {
+  padding: 24px 28px;
   background: #fff;
   border: 1px solid #e4e7ed;
-  border-radius: 8px;
-  padding: 16px;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(31, 45, 61, 0.04);
 }
-.bible-section--active {
-  border-color: #2f6fed;
-  box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.1);
+
+/* ===== Markdown 正文排版强化（v-html 内容须用 :deep 命中） ===== */
+.bible-md {
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: #1f2d3d;
+  word-break: break-word;
 }
-.section-title {
-  margin: 0 0 12px 0;
-  font-size: 16px;
+.bible-md :deep(h1) {
+  font-size: 21px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 4px 0 18px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e8eefb;
+  letter-spacing: 0.5px;
+}
+.bible-md :deep(h2) {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1e3a8a;
+  margin: 26px 0 12px;
+  padding: 6px 12px;
+  background: linear-gradient(90deg, #eff5ff 0%, #ffffff 85%);
+  border-left: 4px solid #2f6fed;
+  border-radius: 0 6px 6px 0;
+}
+.bible-md :deep(h2:first-child) { margin-top: 4px; }
+.bible-md :deep(h3) {
+  font-size: 14.5px;
   font-weight: 600;
   color: #1f2d3d;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e4e7ed;
+  margin: 18px 0 8px;
+  padding-left: 10px;
+  border-left: 3px solid #93c5fd;
 }
-.section-content {
-  font-size: 13px;
-  line-height: 1.7;
+.bible-md :deep(h4) {
+  font-size: 13.5px;
+  font-weight: 600;
   color: #374151;
+  margin: 14px 0 6px;
 }
-.section-content table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 8px 0;
+.bible-md :deep(p) { margin: 8px 0; }
+.bible-md :deep(strong) { color: #0f172a; font-weight: 600; }
+.bible-md :deep(a) { color: #2f6fed; text-decoration: none; }
+.bible-md :deep(a:hover) { text-decoration: underline; }
+.bible-md :deep(ul), .bible-md :deep(ol) { padding-left: 22px; margin: 8px 0; }
+.bible-md :deep(li) { margin: 4px 0; }
+.bible-md :deep(li)::marker { color: #2f6fed; }
+.bible-md :deep(blockquote) {
+  margin: 10px 0;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 0 6px 6px 0;
+  color: #475569;
 }
-.section-content th, .section-content td {
-  border: 1px solid #e4e7ed;
-  padding: 6px 10px;
-  text-align: left;
+.bible-md :deep(blockquote p) { margin: 4px 0; }
+.bible-md :deep(code) {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 12px;
+  background: #f1f5f9;
+  color: #b91c1c;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.bible-md :deep(pre) {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.bible-md :deep(pre code) {
+  background: transparent;
+  color: inherit;
+  padding: 0;
   font-size: 12px;
 }
-.section-content th {
-  background: #f5f7fa;
-  font-weight: 600;
+.bible-md :deep(hr) {
+  border: none;
+  border-top: 1px dashed #e4e7ed;
+  margin: 18px 0;
 }
-.section-content ul { padding-left: 18px; }
-.section-content li { margin: 4px 0; }
+.bible-md :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 12.5px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.bible-md :deep(th) {
+  background: #eef4ff;
+  color: #1e3a8a;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid #dbe6f8;
+}
+.bible-md :deep(td) {
+  padding: 7px 12px;
+  border: 1px solid #e8eef5;
+  color: #374151;
+}
+.bible-md :deep(tr:nth-child(even) td) { background: #fafcff; }
 
-/* 编辑模式样式 */
-.section-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e4e7ed;
-}
-.section-badge {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 6px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.section-badge.kind-baseline { background: #ecf5ff; color: #409eff; }
-.section-badge.kind-auto { background: #f0f9eb; color: #67c23a; }
-.section-badge.kind-system { background: #f4f4f5; color: #909399; }
-.section-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 6px;
-}
-.section-edit {
+/* ===== 编辑模式 ===== */
+.bible-edit {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.section-textarea {
-  width: 100%;
-  min-height: 120px;
-  padding: 10px 12px;
-  border: 1px solid #d9d9d9;
+.edit-tip {
+  font-size: 12px;
+  color: #64748b;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
   border-radius: 6px;
+  padding: 6px 10px;
+}
+.bible-textarea {
+  width: 100%;
+  min-height: 260px;
+  padding: 12px 14px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
   font-size: 13px;
   font-family: 'JetBrains Mono', 'Consolas', monospace;
   line-height: 1.6;
   resize: vertical;
   transition: border-color 0.2s;
 }
-.section-textarea:focus {
+.bible-textarea:focus {
   outline: none;
   border-color: #2f6fed;
   box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.1);
 }
 .edit-preview {
   border: 1px solid #e4e7ed;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
 }
 .preview-label {
@@ -698,29 +511,16 @@ export default { name: 'DomainDetailPanel' }
   border-bottom: 1px solid #e4e7ed;
 }
 .preview-content {
-  padding: 12px;
+  padding: 14px 16px;
   font-size: 13px;
   line-height: 1.7;
-  max-height: 300px;
+  max-height: 360px;
   overflow-y: auto;
   background: #fff;
 }
-.preview-content table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 8px 0;
-}
-.preview-content th, .preview-content td {
-  border: 1px solid #e4e7ed;
-  padding: 6px 10px;
-  font-size: 12px;
-}
-.preview-content th {
-  background: #f5f7fa;
-  font-weight: 600;
-}
-
-@media (max-width: 1200px) {
-  .detail-body { grid-template-columns: 1fr; }
+.edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 </style>
