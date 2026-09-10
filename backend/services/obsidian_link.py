@@ -801,7 +801,8 @@ def sediment_requirement_rules(db, req_id: str) -> Dict:
 
     content = read_markdown(sub_note["obsidian_path"]) or ""
     new_content = append_or_replace_section(content, f"场景规则 · {req_id}", block)
-    write_markdown(sub_note["obsidian_path"], new_content)
+    # 用户主动触发的沉淀操作，绕过5分钟写保护窗口（避免"点击成功但文件未更新"）
+    write_markdown(sub_note["obsidian_path"], new_content, protect_if_modified=False)
 
     # 记录需求 → 场景规则子笔记 的关联（canonical）
     try:
@@ -880,7 +881,8 @@ def sediment_operation_rules(db, issue_id: int) -> Dict:
 
     content = read_markdown(sub_note["obsidian_path"]) or ""
     new_content = append_or_replace_section(content, f"场景规则 · {issue.issue_no}", block)
-    write_markdown(sub_note["obsidian_path"], new_content)
+    # 用户主动触发的沉淀操作，绕过5分钟写保护窗口（避免"点击成功但文件未更新"）
+    write_markdown(sub_note["obsidian_path"], new_content, protect_if_modified=False)
 
     # 记录工单 → 场景规则子笔记 的关联（canonical）
     try:
