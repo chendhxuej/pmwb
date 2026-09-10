@@ -24,6 +24,7 @@ SOURCE_LABELS = {
     "dev_deliverable": "开发交付物",
     "keywork_deliverable": "重点工作交付物",
     "req_manual": "需求操作手册",
+    "interface_doc": "接口规范文档",
     "manual_upload": "手工上传",
 }
 
@@ -165,12 +166,31 @@ def get_category_tree(db: Session) -> list[dict]:
     cats = db.query(PmwbMaterialCategory).order_by(
         PmwbMaterialCategory.sort_order, PmwbMaterialCategory.id
     ).all()
-    counts = dict(
+
+    # 查出每个分类的直接材料数
+    raw_counts = dict(
         db.query(PmwbMaterial.category_id, func.count())
         .filter(PmwbMaterial.category_id.isnot(None))
         .group_by(PmwbMaterial.category_id)
         .all()
     )
+
+    # 构建 parent → children 映射
+    children_map: dict[int, list[int]] = {}
+    for c in cats:
+        parent_id = c.parent_id or 0
+        children_map.setdefault(parent_id, []).append(c.id)
+
+    # 自底向上递归累加子孙分类的材料数
+    memo: dict[int, int] = {}
+    def count_with_descendants(cat_id: int) -> int:
+        if cat_id in memo:
+            return memo[cat_id]
+        direct = raw_counts.get(cat_id, 0)
+        sum_children = sum(count_with_descendants(ch) for ch in children_map.get(cat_id, []))
+        memo[cat_id] = direct + sum_children
+        return memo[cat_id]
+
     out = []
     for c in cats:
         out.append(
@@ -182,17 +202,10 @@ def get_category_tree(db: Session) -> list[dict]:
                 "sort_order": c.sort_order,
                 "enabled": c.enabled,
                 "created_at": c.created_at,
-                "children_count": 0,
-                "material_count": counts.get(c.id, 0),
+                "children_count": len(children_map.get(c.id, [])),
+                "material_count": count_with_descendants(c.id),
             }
         )
-    # 计算 children_count
-    by_parent: dict[int, int] = {}
-    for c in cats:
-        if c.parent_id:
-            by_parent[c.parent_id] = by_parent.get(c.parent_id, 0) + 1
-    for item in out:
-        item["children_count"] = by_parent.get(item["id"], 0)
     return out
 
 

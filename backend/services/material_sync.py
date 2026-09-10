@@ -26,6 +26,7 @@ from db.models import (
     PmwbKeyWorkDeliverable,
     PmwbMaterial,
     PmwbOperationIssue,
+    PmwbReqInterfaceDoc,
     PmwbReqManual,
     PmwbRequirementExt,
     PmwbResearchIssue,
@@ -40,6 +41,7 @@ SOURCE_LABELS = {
     "dev_deliverable": "开发交付物",
     "keywork_deliverable": "重点工作交付物",
     "req_manual": "需求操作手册",
+    "interface_doc": "接口规范文档",
     "manual_upload": "手工上传",
 }
 
@@ -369,6 +371,38 @@ def _sync_req_manual(db: Session) -> dict:
     return stat
 
 
+
+
+def _sync_interface_doc(db: Session) -> dict:
+    """接口规范文档：PmwbReqInterfaceDoc，归档路径为 obsidian_path（vault 相对路径）。"""
+    stat = {"scanned": 0, "added": 0, "updated": 0, "skipped": 0, "warn": []}
+    for d in db.query(PmwbReqInterfaceDoc).all():
+        stat["scanned"] += 1
+        # 优先用归档后的 obsidian_path，回退到 local_path
+        pointer = _to_pointer(d.obsidian_path or d.local_path, prefer_root="vault")
+        if not pointer:
+            stat["warn"].append(f"接口规范#{d.id} 路径无法解析")
+            continue
+        root, rel = pointer
+        full = fs.abs_path(root, rel)
+        if not os.path.isfile(full):
+            stat["warn"].append(f"接口规范#{d.id} 文件缺失：{rel}")
+            continue
+        r = _upsert(
+            db,
+            source_type="interface_doc",
+            source_id=str(d.id),
+            source_no=d.req_id or "",
+            source_title=d.system_name or d.req_id or "",
+            storage_root=root,
+            rel_path=rel,
+            file_name=d.file_name or os.path.basename(rel),
+            file_size=os.path.getsize(full),
+            uploaded_by=d.uploaded_by,
+        )
+        stat[r] += 1
+    return stat
+
 _SCANNERS = [
     ("operation_issue", _sync_operation),
     ("research_issue", _sync_research),
@@ -376,6 +410,7 @@ _SCANNERS = [
     ("dev_deliverable", _sync_dev_deliverable),
     ("keywork_deliverable", _sync_keywork_deliverable),
     ("req_manual", _sync_req_manual),
+    ("interface_doc", _sync_interface_doc),
 ]
 
 

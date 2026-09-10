@@ -64,6 +64,14 @@
             <el-option v-for="e in extOptions" :key="e" :label="extLabel(e)" :value="e" />
           </el-select>
           <el-button @click="handleSearch"><el-icon><Refresh /></el-icon> 刷新</el-button>
+          <el-button-group size="small">
+            <el-button :type="viewMode === 'grid' ? 'primary' : ''" @click="viewMode = 'grid'">
+              <el-icon><Grid /></el-icon> 卡片
+            </el-button>
+            <el-button :type="viewMode === 'list' ? 'primary' : ''" @click="viewMode = 'list'">
+              <el-icon><List /></el-icon> 列表
+            </el-button>
+          </el-button-group>
         </div>
 
         <!-- 批量操作条：选中任意卡片后出现 -->
@@ -81,7 +89,7 @@
           <el-button size="small" link @click="selectedIds = []">取消选择</el-button>
         </div>
 
-        <div v-loading="loading" class="material-grid">
+        <div v-if="viewMode === 'grid'" v-loading="loading" class="material-grid">
           <el-empty v-if="!loading && items.length === 0" description="暂无材料，点「汇聚同步」或「批量上传」" />
           <el-card v-for="m in items" :key="m.id" class="material-card" shadow="hover"
                    :class="{ 'is-selected': selectedIds.includes(m.id) }">
@@ -119,6 +127,63 @@
               </el-button>
             </div>
           </el-card>
+        </div>
+        <div v-else v-loading="loading" class="material-list-wrapper">
+          <el-empty v-if="!loading && items.length === 0" description="暂无材料，点「汇聚同步」或「批量上传」" />
+          <table v-else class="material-list">
+            <thead>
+              <tr>
+                <th style="width:40px"><el-checkbox :model-value="allCurrentSelected" @change="toggleSelectAll" /></th>
+                <th>文件名</th>
+                <th>来源</th>
+                <th>大小</th>
+                <th>分类</th>
+                <th>来源标题</th>
+                <th>来源单号</th>
+                <th>备注</th>
+                <th>上传时间</th>
+                <th style="width:130px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in items" :key="m.id"
+                  :class="{ 'list-row-selected': selectedIds.includes(m.id) }"
+                  @click="toggleSelect(m.id, !selectedIds.includes(m.id))">
+                <td @click.stop>
+                  <el-checkbox :model-value="selectedIds.includes(m.id)"
+                    @change="(v) => toggleSelect(m.id, v)" />
+                </td>
+                <td>
+                  <div class="list-file">
+                    <el-icon :style="{ color: extColor(m.file_ext), fontSize: '16px' }">
+                      <component :is="extIcon(m.file_ext)" />
+                    </el-icon>
+                    <span class="list-filename" :title="m.file_name">{{ m.file_name }}</span>
+                  </div>
+                </td>
+                <td><el-tag size="small" effect="plain">{{ m.source_label }}</el-tag></td>
+                <td class="text-muted">{{ m.file_size_human || '—' }}</td>
+                <td v-if="m.category_name" class="text-primary">{{ m.category_name }}</td>
+                <td v-else class="text-muted">—</td>
+                <td :title="m.source_title" class="text-truncate">{{ m.source_title || '—' }}</td>
+                <td :title="m.source_no" class="text-truncate">{{ m.source_no || '—' }}</td>
+                <td :title="m.note" class="text-truncate">{{ m.note || '—' }}</td>
+                <td class="text-muted text-small">{{ formatTime(m.created_at) }}</td>
+                <td @click.stop>
+                  <div class="list-actions">
+                    <el-button v-if="m.can_preview" link type="primary" size="small"
+                      @click="openPreview(m)"><el-icon><View /></el-icon>预览</el-button>
+                    <el-button link type="primary" size="small"
+                      @click="doDownload(m)"><el-icon><Download /></el-icon>下载</el-button>
+                    <el-button link size="small"
+                      @click="openReassign(m)"><el-icon><FolderOpened /></el-icon>分类</el-button>
+                    <el-button link type="danger" size="small"
+                      @click="handleDelete(m)"><el-icon><Delete /></el-icon></el-button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         <el-pagination
@@ -227,6 +292,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Grid, List } from '@element-plus/icons-vue'
 import {
   getMaterials, syncMaterials, previewMaterial, reassignMaterialCategory, deleteMaterial,
   checkUploadConflict, batchUploadMaterials, batchReassignCategory, batchDeleteMaterials,
@@ -262,6 +328,7 @@ const uploading = ref(false)
 const uploadForm = reactive({ category_id: null, note: '' })
 
 const selectedIds = ref([]) // 卡片多选
+const viewMode = ref('grid') // 展示模式：grid 卡片 / list 列表
 const BATCH_CHUNK = 5 // 每批 5 个文件串行上传，规避 request 全局 120s 超时
 
 const categoryManageVisible = ref(false)
@@ -538,13 +605,20 @@ async function submitUpload() {
 
 function onCategorySaved() { loadCategories() }
 
+function formatTime(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) +
+    ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
 onMounted(() => { loadMaterials(); loadCategories() })
 </script>
 
 <style scoped>
 .material-layout { display: flex; gap: 16px; align-items: flex-start; }
 .material-aside {
-  width: 220px; flex: 0 0 220px;
+  width: 260px; flex: 0 0 260px;
   background: var(--el-fill-color-blank, #fff);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px; padding: 12px;
@@ -552,8 +626,14 @@ onMounted(() => { loadMaterials(); loadCategories() })
 }
 .aside-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 8px; }
 .material-tree { --el-tree-node-hover-bg-color: var(--el-fill-color-light); }
-.tree-node { display: flex; justify-content: space-between; width: 100%; align-items: center; }
-.tree-count { color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px; }
+.tree-node { display: flex; justify-content: space-between; width: 100%; align-items: center; padding: 2px 0; }
+.tree-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--el-fill-color); color: var(--el-text-color-secondary);
+  font-size: 11px; margin-left: 8px; transition: all 0.2s;
+}
+.tree-count:not(.is-empty) { background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-weight: 600; }
 .material-main { flex: 1; min-width: 0; }
 .table-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .material-grid {
@@ -591,4 +671,24 @@ onMounted(() => { loadMaterials(); loadCategories() })
 .material-card.is-selected { border-color: var(--el-color-primary); box-shadow: 0 0 0 1px var(--el-color-primary-light-5); }
 .mc-check { position: absolute; top: 6px; right: 6px; z-index: 1; height: 16px; }
 .upload-tip { margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); }
+
+/* 列表模式 */
+.material-list-wrapper { min-height: 200px; }
+.material-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.material-list th {
+  background: var(--el-fill-color); color: var(--el-text-color-secondary);
+  font-weight: 500; text-align: left; padding: 8px 10px;
+  border-bottom: 2px solid var(--el-border-color-lighter); white-space: nowrap;
+  position: sticky; top: 0; z-index: 1;
+}
+.material-list td { padding: 8px 10px; border-bottom: 1px solid var(--el-border-color-lighter); vertical-align: middle; }
+.material-list tbody tr:hover { background: var(--el-fill-color-light); }
+.material-list tbody tr.list-row-selected { background: var(--el-color-primary-light-9); }
+.list-file { display: flex; align-items: center; gap: 8px; }
+.list-filename { font-weight: 500; color: var(--el-text-color-primary); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.list-actions { display: flex; gap: 2px; flex-wrap: nowrap; }
+.text-muted { color: var(--el-text-color-secondary); }
+.text-primary { color: var(--el-color-primary); }
+.text-truncate { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.text-small { font-size: 11px; }
 </style>
