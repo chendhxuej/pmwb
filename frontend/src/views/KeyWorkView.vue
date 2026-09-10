@@ -90,6 +90,9 @@
         <el-table-column prop="created_at" label="创建时间" width="130">
           <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '—' }}</template>
         </el-table-column>
+        <el-table-column prop="updated_at" label="更新时间" width="130">
+          <template #default="{ row }">{{ row.updated_at ? String(row.updated_at).slice(0, 10) : '—' }}</template>
+        </el-table-column>
         <el-table-column prop="planned_finish_date" label="计划完成" width="130" />
         <el-table-column label="进度" width="160">
           <template #default="{ row }">
