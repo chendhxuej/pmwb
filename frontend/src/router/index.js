@@ -215,7 +215,7 @@ const routes = [
             path: 'knowledge',
             name: 'KcKnowledge',
             component: () => import('@/views/KnowledgeView.vue'),
-            meta: { title: '知识库', icon: 'Collection' },
+            meta: { title: '知识库', icon: 'Collection', hidden: true },
           },
           {
             path: 'product-bible',
@@ -227,7 +227,7 @@ const routes = [
             path: 'domain',
             name: 'KcDomain',
             component: () => import('@/views/DomainKnowledgeView.vue'),
-            meta: { title: '按领域浏览', icon: 'Grid' },
+            meta: { title: '按领域浏览', icon: 'Grid', hidden: true },
           },
           {
             path: 'sql-scripts',
