@@ -647,22 +647,11 @@ def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
                         deliv_lines.append(f"- [{r.req_id}] {file_name}（{note}）")
     deliv_body = "\n".join(deliv_lines) if deliv_lines else "_暂无交付物_"
 
-    # 场景规则：用户故事 rules 非空（不依赖需求状态）
-    rules_lines = []
-    for r in reqs:
-        stories = (
-            db.query(PmwbUserStory).filter(PmwbUserStory.req_id == r.req_id).all()
-        )
-        for st in stories:
-            if st.rules:
-                try:
-                    arr = json.loads(st.rules)
-                except Exception:
-                    arr = []
-                if isinstance(arr, list):
-                    for rule in arr:
-                        rules_lines.append(f"- [{r.req_id}] {rule}")
-    rules_body = "\n".join(rules_lines) if rules_lines else "_暂无场景规则_"
+    # 场景规则：统一走规则沉淀服务（自动识别 + 智能归类 + 幂等指纹）。
+    # 与知识中心「规则沉淀」功能共用同一真相源，避免两条写入路径互相覆盖。
+    from services.rule_sedimentation import render_scenario_rules_block
+
+    rules_body = render_scenario_rules_block(db, domain_code)
 
     # 时间线：该 domain 全部关联事件，按 event_date 倒序
     tl = business_timeline(db, domain_code)
@@ -1404,30 +1393,31 @@ def _check_structure_integrity(db: Session, domain_code: str) -> bool:
     if not content:
         return False
 
-    # 松绑检查：只要求§7存在且非空
-    # §7是核心机制，承载自动关联功能；其他章节由用户自定义
-    has_section_7 = False
-    section_7_content = ""
-    for i, line in enumerate(content.splitlines()):
-        if re.match(r"^##?\s*7\s*\.?\s*关联过程性内容索引", line, re.IGNORECASE):
-            has_section_7 = True
-            # 收集该章节内容（直到下一个二级标题）
-            section_lines = []
-            for j in range(i + 1, len(content.splitlines())):
-                next_line = content.splitlines()[j]
-                if re.match(r"^#{1,2}\s", next_line):
-                    break
-                section_lines.append(next_line)
-            section_7_content = "\n".join(section_lines).strip()
-            break
+    lines = content.splitlines()
 
-    # §7存在且非空（有内容或有关联标记）即算结构完整
-    if has_section_7 and section_7_content:
-        return True
+    # 松绑检查 ①：只要求「关联索引」章节存在且非空
+    # 标题编号允许缺省（历史笔记有写成「##  关联过程性内容索引」无编号的情况），
+    # 也兼容 platform/capability 模板的「关联内容索引」。
+    idx_pat = re.compile(r"^(#{1,3})\s*(?:\d+(?:\.\d+)*\s*[.、]?\s*)?关联(?:过程性)?内容索引")
+    for i, line in enumerate(lines):
+        m = idx_pat.match(line.strip())
+        if not m:
+            continue
+        level = len(m.group(1))
+        section_lines = []
+        for j in range(i + 1, len(lines)):
+            nxt = lines[j]
+            hm = re.match(r"^(#{1,6})\s+", nxt.strip())
+            if hm and len(hm.group(1)) <= level:
+                break
+            section_lines.append(nxt)
+        if "\n".join(section_lines).strip():
+            return True
 
-    # 兜底：如果§7不存在，检查是否有任何标准章节（1-9）
-    standard_sections = [h for h in content.splitlines() if re.match(r"^##\s*\d+\.\s", h)]
-    return len(standard_sections) >= 5
+    # 松绑检查 ②：自定义格式笔记（如用 `# 1. 业务概述` 一级标题）没有标准编号章节时，
+    # 只要有 5 个以上标题即视为内容完整，避免把排版不同的正常笔记误判为「结构不全」。
+    headings = [l for l in lines if re.match(r"^#{1,3}\s+\S", l.strip())]
+    return len(headings) >= 5
 
 
 def _scannable_leaf_domains(db: Session) -> List[PmwbBusinessDomain]:

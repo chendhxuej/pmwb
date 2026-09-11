@@ -314,6 +314,41 @@ def sediment_operation_rules_endpoint(issue_id: int, db: Session = Depends(get_d
     return success(data=sediment_operation_rules(db, issue_id))
 
 
+@router.get("/rules/candidates")
+def rule_candidates_endpoint(
+    domain_code: Optional[str] = Query(None, description="按业务领域过滤"),
+    db: Session = Depends(get_db),
+):
+    """扫描自动识别的规则候选：按领域归类 + 场景分类 + 标注是否已沉淀。"""
+    from services.rule_sedimentation import scan_rule_candidates
+
+    return success(data=scan_rule_candidates(db, domain_code=domain_code))
+
+
+@router.post("/rules/sediment")
+def sediment_rules_endpoint(payload: Dict[str, Any], db: Session = Depends(get_db)):
+    """把自动识别的规则智能归类并沉淀到对应主笔记的「场景规则（自动区）」。
+
+    payload: {domain_codes: [str]} 或 {}（沉淀全部存在候选规则的领域）
+    """
+    from services.rule_sedimentation import sediment_rules
+
+    codes = payload.get("domain_codes") or []
+    result = sediment_rules(db, codes or None)
+    written = sum(1 for r in result["results"] if r.get("action") == "written")
+    failed = [r for r in result["results"] if not r.get("success")]
+    total_rules = sum(r.get("rules", 0) for r in result["results"] if r.get("success"))
+    if failed:
+        return success(
+            data=result,
+            message=f"沉淀完成：写入 {written} 个领域，{len(failed)} 个领域需先建主笔记",
+        )
+    return success(
+        data=result,
+        message=f"沉淀完成：写入 {written} 个领域，共 {total_rules} 条规则",
+    )
+
+
 @router.get("/scan-damage")
 def scan_damaged_notes_endpoint(db: Session = Depends(get_db)):
     """扫描受损主笔记，返回详细报告。"""

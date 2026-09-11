@@ -136,4 +136,26 @@ export const knowledgeApi = {
   sedimentOperationRules(issueId) {
     return request.post(`/knowledge/sediment/operation/${issueId}/rules`)
   },
+
+  // ---- 规则沉淀（自动识别 → 智能归类 → 沉淀到主笔记「场景规则（自动区）」）----
+  // 扫描自动识别到的规则：按领域归类 + 场景分类 + 是否已沉淀
+  getRuleCandidates(domainCode) {
+    return request.get('/knowledge/rules/candidates', {
+      params: domainCode ? { domain_code: domainCode } : {},
+    })
+  },
+
+  // 批量沉淀规则到对应主笔记（domainCodes 为空则沉淀全部领域）
+  sedimentRules(domainCodes = []) {
+    return request.post('/knowledge/rules/sediment', { domain_codes: domainCodes })
+  },
+
+  // ---- 主笔记受损扫描与修复 ----
+  scanDamage() {
+    return request.get('/knowledge/scan-damage')
+  },
+
+  repairSections(domainCodes = []) {
+    return request.post('/knowledge/repair-sections', { domain_codes: domainCodes })
+  },
 }
