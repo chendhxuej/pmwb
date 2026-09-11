@@ -134,6 +134,17 @@ SCENE_META: dict[str, dict[str, str]] = {
         "brand_color": "#165dff",
         "intro": "请按以下要求反馈本周工作进展。",
     },
+    # 一线调研（2026-09-10 注册）：原为未注册场景，走通用兜底导致无品牌色、email_type 为空
+    "research_urge": {
+        "title": "调研工单催办",
+        "brand_color": "#f53f3f",
+        "intro": "以下调研工单需要尽快推进，详情如下：",
+    },
+    "research_sync": {
+        "title": "调研工单进展同步",
+        "brand_color": "#165dff",
+        "intro": "以下调研工单最新进展同步如下，请知悉。",
+    },
 }
 
 _TICKET_FIELDS = [
@@ -144,6 +155,19 @@ _TICKET_FIELDS = [
     _f("resolveDate", "计划完成日期", type="date"),
     _f("status", "当前状态"),
     _f("description", "问题描述", type="textarea", in_body=True),
+]
+
+# 一线调研工单字段（对应前端 ResearchIssueView 的 mailDialogVariables）
+_RESEARCH_FIELDS = [
+    _f("no", "工单编号"),
+    _f("title", "标题"),
+    _f("city", "地市"),
+    _f("subType", "子类"),
+    _f("nature", "问题性质"),
+    _f("vendorHandler", "厂家责任人"),
+    _f("resolveDate", "计划完成日期", type="date"),
+    _f("status", "当前状态"),
+    _f("description", "情况说明", type="textarea", in_body=True),
 ]
 
 SCENE_FIELDS: dict[str, list[MailField]] = {
@@ -200,6 +224,9 @@ SCENE_FIELDS: dict[str, list[MailField]] = {
         _f("week", "周次"),
         _f("body", "反馈要求", type="textarea", in_body=True),
     ],
+    # 变量名与前端 ResearchIssueView.buildResearchSuperviseBody 传入的 variables 严格对齐
+    "research_urge": list(_RESEARCH_FIELDS),
+    "research_sync": list(_RESEARCH_FIELDS),
 }
 
 

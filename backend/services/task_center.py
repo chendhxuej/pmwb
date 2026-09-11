@@ -249,7 +249,8 @@ class TaskCenterService:
                 priority=r.impact_level,
                 due_date=due,
                 created_at=r.created_at.date() if r.created_at else None,
-                source_url=f"/operation/research?issueId={r.id}",
+                # 一线调研已升级为一级模块（/research）；旧路径 /operation/research 由前端 redirect 兼容
+                source_url=f"/research?issueId={r.id}",
                 detail={
                     "工单编号": r.issue_no,
                     "子类": SUB_TYPE_LABEL.get(r.sub_type, r.sub_type or "—"),

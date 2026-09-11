@@ -13,6 +13,7 @@ from db.models import (
     PmwbMeetingAttendee,
     PmwbOperationIssue,
     PmwbRequirementExt,
+    PmwbResearchIssue,
     PmwbTodo,
 )
 
@@ -41,6 +42,44 @@ class OperationIssueFactory:
             impact_level=impact_level,
             status=status,
             handler=handler,
+            **kwargs,
+        )
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return obj
+
+
+class ResearchIssueFactory:
+    """一线调研工单工厂（2026-09-10 新增，补齐该模块零测试覆盖）。"""
+
+    _counter = 0
+
+    @staticmethod
+    def create(
+        db: Session,
+        issue_no: str = None,
+        title: str = "测试调研工单",
+        sub_type: str = "leader_research",
+        status: str = "pending",
+        city: str = "nanjing",
+        issue_nature: str = "optimization",
+        vendor_handlers: str = "测试厂家",
+        business_admin: str = "测试管理员",
+        **kwargs,
+    ):
+        ResearchIssueFactory._counter += 1
+        if issue_no is None:
+            issue_no = f"RES-TEST-{uuid.uuid4().hex[:8].upper()}"
+        obj = PmwbResearchIssue(
+            issue_no=issue_no,
+            title=title,
+            sub_type=sub_type,
+            status=status,
+            city=city,
+            issue_nature=issue_nature,
+            vendor_handlers=vendor_handlers,
+            business_admin=business_admin,
             **kwargs,
         )
         db.add(obj)

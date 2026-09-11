@@ -137,6 +137,19 @@ SCENES: dict[str, MailScene] = {
         renderer=True, default_subject="周反馈请求：{title}",
         fallback_template="## 周反馈请求\n\n请按邮件正文要求反馈本周工作进展。",
     ),
+    # 一线调研（2026-09-10 补齐注册）：此前前端传 research_urge/research_sync 但 SCENES 未登记，
+    # get_scene() 走 MailScene(key) 通用兜底 → 无品牌色带、email_type 为空、邮件中心归类不准。
+    # 3210 侧尚无对应模板，故保持 raw=True（Markdown 正文由 PMWB 装配器渲染），不臆造 template_key。
+    "research_urge": MailScene(
+        "research_urge", email_type="research_urge", source="pmwb_research",
+        renderer=True, default_subject="催办：{title}",
+        fallback_template="## 调研工单催办\n\n请查看系统一线调研模块，尽快处理并反馈进展。",
+    ),
+    "research_sync": MailScene(
+        "research_sync", email_type="research_sync", source="pmwb_research",
+        renderer=True, default_subject="同步：{title}",
+        fallback_template="## 调研工单进展同步\n\n请查看系统一线调研模块了解最新进展。",
+    ),
 }
 
 

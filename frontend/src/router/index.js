@@ -68,11 +68,12 @@ const routes = [
             component: () => import('@/views/WorkOrderView.vue'),
             meta: { title: '热点投诉', category: 'complaint' },
           },
+          // ── 一线调研已升级为一级模块，此处仅保留旧深链重定向 ──
           {
             path: 'research',
             name: 'WOResearch',
-            component: () => import('@/views/ResearchIssueView.vue'),
-            meta: { title: '一线调研', category: 'research' },
+            redirect: '/research',
+            meta: { title: '一线调研', category: 'research', hidden: true },
           },
           {
             path: 'monitor',
@@ -81,6 +82,15 @@ const routes = [
             meta: { title: '生产监控', icon: 'Monitor', badge: '建设中' },
           },
         ],
+      },
+      // ── 一线调研：原「运营监控」子模块，2026-09-10 升级为独立一级模块 ──
+      // 数据层（pmwb_research_issue）与接口层（/api/v1/research）本就独立，
+      // 本次仅调整导航层级；旧路径 /operation/research 由上方 redirect 兼容。
+      {
+        path: 'research',
+        name: 'Research',
+        component: () => import('@/views/ResearchIssueView.vue'),
+        meta: { title: '一线调研', icon: 'Search' },
       },
       {
         path: 'meeting',

@@ -487,7 +487,8 @@ const loadResearchStats = async () => {
   }
 }
 
-const goResearch = () => router.push('/operation/research')
+// 一线调研已升级为独立一级模块（/research），此处快捷入口保持不变
+const goResearch = () => router.push('/research')
 
 const loadStats = async () => {
   try {

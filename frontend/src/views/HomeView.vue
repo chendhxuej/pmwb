@@ -282,10 +282,10 @@
       <!-- ══ 模块概览：按菜单顺序（人员中台 / 知识中心 / 邮件中心）══ -->
       <div class="section-title" style="grid-column:1/-1">
         <span class="st-main">模块概览</span>
-        <span class="st-sub">人员中台 / 知识中心 / 邮件中心</span>
+        <span class="st-sub">人员中台 / 知识中心 / 邮件中心 / 一线调研</span>
       </div>
 
-      <BentoCard title="人员中台" :span="4">
+      <BentoCard title="人员中台" :span="3">
         <div class="mod-grid">
           <div class="mod-stat">
             <span class="mod-num">{{ personnel.staff }}</span>
@@ -305,13 +305,30 @@
         </div>
       </BentoCard>
 
-      <BentoCard title="邮件中心" :span="4">
+      <BentoCard title="邮件中心" :span="3">
         <div class="mod-grid">
           <div class="mod-stat">
             <span class="mod-num">{{ emails.week }}</span>
             <span class="mod-key">本周发送</span>
           </div>
           <div class="mod-sub">今日 {{ emails.today }} · 成功率 {{ emails.sr }}%</div>
+        </div>
+      </BentoCard>
+
+      <!-- 一线调研：2026-09-10 由运营监控子模块升级为独立一级模块 -->
+      <BentoCard title="一线调研" :span="3">
+        <template #action>
+          <a class="card-action" @click="goTo('/research')">一线调研 →</a>
+        </template>
+        <div class="mod-grid">
+          <div class="mod-stat">
+            <span class="mod-num">{{ researchStats.total }}</span>
+            <span class="mod-key">调研工单</span>
+          </div>
+          <div class="mod-sub">
+            待处理 {{ researchStats.pending }} · 超期
+            <span :class="{ 'rs-overdue': researchStats.overdue > 0 }">{{ researchStats.overdue }}</span>
+          </div>
         </div>
       </BentoCard>
 
@@ -324,6 +341,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BentoCard from '@/components/Common/BentoCard.vue'
 import { dashboardApi } from '@/api/dashboard'
+import { researchApi } from '@/api/research'
 
 const router = useRouter()
 
@@ -688,6 +706,7 @@ async function loadData() {
 
 onMounted(() => {
   loadData()
+  loadResearchStats()
   _timer = setTimeout(_tick, 600)
 })
 
@@ -1035,6 +1054,7 @@ onUnmounted(() => {
   .mod-num { font-size: 30px; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; }
   .mod-key { font-size: 12.5px; color: var(--text-muted); }
   .mod-sub { font-size: 12.5px; color: var(--text-secondary); }
+  .rs-overdue { color: var(--danger); font-weight: 600; }
 
   /* ── 任务中心 / 运营工单 共用空态 ── */
   .tc-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
