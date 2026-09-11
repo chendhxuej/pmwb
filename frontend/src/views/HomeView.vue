@@ -693,6 +693,9 @@ function mergeDashboard(res) {
   }
 }
 
+/* 一线调研统计：模板「一线调研」卡片引用；接口不可用时保持 0 值渲染，不白屏 */
+const researchStats = reactive({ total: 0, pending: 0, overdue: 0 })
+
 async function loadData() {
   try {
     const res = await dashboardApi.getDashboard()
@@ -701,6 +704,20 @@ async function loadData() {
   } catch (err) {
     // 接口异常或为空：保持 demo 数据渲染，不白屏
     console.warn('[HomeView] 看板接口不可用，已回退至本地 demo 数据', err)
+  }
+}
+
+async function loadResearchStats() {
+  try {
+    const res = await researchApi.getStats()
+    if (res) {
+      researchStats.total = res.total ?? 0
+      researchStats.pending = res.pending ?? 0
+      researchStats.overdue = res.overdue ?? 0
+    }
+  } catch (err) {
+    // 接口不可用：保持 0 值渲染，绝不因单点接口故障白屏
+    console.warn('[HomeView] 一线调研统计接口不可用，保持 0 值', err)
   }
 }
 
