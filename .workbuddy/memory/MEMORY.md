@@ -69,6 +69,10 @@
 - 知识中心 E2E 模板 frontend/tests/e2e/knowledge-center.e2e.cjs（puppeteer-core + 系统 Chrome）。
 - **前端编译冒烟不能用默认 `vite build`**：清空 `dist/assets`（>50 文件）会被 safe-delete 钩子拦截报 "Build failed"，且失败时产物可能是旧目录残留。改用临时 outDir（如 `npx vite build --outDir <系统temp路径> --emptyOutDir`），再 grep 产物关键字符串确认新代码已编译进去（函数名压缩后会重命名，属正常）。
 - 人员中台测试防御：fake_master.py 替换 master_service_client._request，离线零污染。
+- **`vite build` 通过 ≠ 页面能渲染（2026-09-11 白屏事故）**：Vue SFC 模板里的**未声明变量不会编译失败**，只在运行时崩并卸载整个组件树 → 白屏。故前端改动**必须做真实 DOM 断言**，不能只跑 build。
+  - 现成工具：`frontend/tests/e2e/route-smoke.e2e.cjs`（puppeteer-core + 系统 Chrome，遍历 17 个一级路由，断言 `#app` 渲染非空 + 无 Vue「未定义引用/未处理渲染错误」）。运行：`cd frontend && node tests/e2e/route-smoke.e2e.cjs`。
+  - **新增/改动前端页面后必跑此脚本**，尤其在模板里新增变量或组件时。
+- **白屏排查三步**（`agent-browser`）：① `eval "document.getElementById('app').innerHTML?.length"` → `-1`=无挂载点 / `0`=渲染空 / `>0`=正常；② `console --clear` → `reload` → `console` 拿 `[Vue warn] ... not defined` 组件级上下文（**比 `errors` 命令可靠，errors 的消息常被吞成空**）；③ 对比一个已知正常路由（如 `/knowledge-center/hub`）快速区分全局问题 vs 单页问题。
 
 ## 模块纪要
 - AI总结/WorkReport：routers/work_report.py，归档 Obsidian 15-工作总结/{类型}/{日期}.md。
