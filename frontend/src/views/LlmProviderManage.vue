@@ -128,7 +128,7 @@ const testResults = reactive({})
 
 const emptyForm = () => ({
   name: '', provider_type: 'hunyuan', base_url: '', model: '',
-  api_key: '', temperature: 0.3, max_tokens: 4096, timeout: 120,
+  api_key: '', temperature: 0.3, max_tokens: 16384, timeout: 900,
   priority: 0, is_enabled: true, is_default: false,
 })
 const form = reactive(emptyForm())
@@ -172,8 +172,8 @@ function openEdit(row) {
     model: row.model,
     api_key: '***', // 脱敏占位，保存时表示不修改
     temperature: row.temperature ?? 0.3,
-    max_tokens: row.max_tokens ?? 4096,
-    timeout: row.timeout ?? 120,
+    max_tokens: row.max_tokens ?? 16384,
+    timeout: row.timeout ?? 900,
     priority: row.priority ?? 0,
     is_enabled: row.is_enabled,
     is_default: row.is_default,

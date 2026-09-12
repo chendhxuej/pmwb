@@ -3,8 +3,10 @@ import { ElMessage } from 'element-plus'
 
 const request = axios.create({
   baseURL: '/api/v1',
-  // 全局默认 120s：大模型（AI 生成/问查比算/AI总结）等请求较慢，避免被 30s 过早截断
-  timeout: 120000,
+  // 全局默认 900s（15分钟）：大模型（AI 生成/问查比算/AI总结/用户故事）单次调用实测可达
+  // 200~300s（8 章长文 + reasoning），且后端多模型串行兜底会成倍叠加。
+  // 历史上 120s 曾导致「前端先断、后端白跑」，故彻底放开，不再做短超时管控。
+  timeout: 900000,
 })
 
 request.interceptors.request.use(
@@ -50,6 +52,10 @@ request.interceptors.response.use(
       } else {
         msg = `请求失败（HTTP ${res.status}）`
       }
+    } else if (error.code === 'ECONNABORTED' || /timeout of .* exceeded/i.test(error.message || '')) {
+      // 大模型类请求（AI总结/用户故事/问查比算）耗时长，前端超时 ≠ 后端失败：
+      // 后端线程仍在跑，跑完照样落库，提示用户刷新列表即可，避免误判为「生成失败」
+      msg = '请求超时（后端仍在处理中，请稍后刷新列表查看结果）'
     } else if (error.message) {
       msg = error.message
     }

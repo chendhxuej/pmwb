@@ -55,13 +55,17 @@ def _md_table(headers: List[str], rows: List[Tuple[str, ...]]) -> str:
     return "\n".join(lines)
 
 
-def generate_report_markdown(db, system_prompt: str, user_message: str, max_tokens: int = 16384, timeout: int = 180):
+def generate_report_markdown(db, system_prompt: str, user_message: str, max_tokens: int = 16384, timeout: int = 900):
     """调用 LLM 生成报告正文，返回 (markdown, used_llm, provider_name, notice)。
 
     底层走多模型注册表（services.llm_provider），按优先级 fallback；
     全部不可用时返回 ("", False, None, notice)，由上层降级到规则模板。
     默认 max_tokens=16384，确保 8 章节完整输出不被截断。
-    timeout=180 秒，为报告生成预留充足时间。
+
+    timeout=900 秒：Kimi k2.6（Coding Plan，temperature=1 且带 reasoning）输出 8 章长文
+    实测 180~230s，且 pick_provider 会串行尝试所有已启用模型，耗时成倍叠加。
+    此值须 >= 前端 axios 超时（api/request.js 与 api/workReport.js 均为 900000ms），
+    否则会出现「前端先断、后端白跑、结果仍落库」的错配。与 .env US_STORY_LLM_TIMEOUT 对齐。
     """
     try:
         res = call_best_available(db, system_prompt, user_message, max_tokens=max_tokens, timeout=timeout)

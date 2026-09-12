@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -231,11 +232,19 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     ds = params.get("date_start")
     de = params.get("date_end")
     start, end = _date_range(report_type, ds, de)
+    # 阶段耗时埋点：此前「生成慢」无法定位到底是数据采集还是 LLM 调用，只能靠猜
+    _t0 = time.time()
     data = ReportDataCollector(db).collect(start, end)
     data["report_type"] = report_type
     system = build_system_prompt(report_type)
     user = build_user_message(data, report_type)
+    _t_collect = time.time() - _t0
+    logger.info("[报告生成] %s 数据采集+提示词装配 %.1fs，user_message %d 字符",
+                report_type, _t_collect, len(user))
     md, used_llm, provider_name, notice = generate_report_markdown(db, system, user)
+    _t_llm = time.time() - _t0 - _t_collect
+    logger.info("[报告生成] %s LLM 调用 %.1fs，used_llm=%s，provider=%s，notice=%s",
+                report_type, _t_llm, used_llm, provider_name, (notice or "")[:200])
     if not md:
         md = render_rule_template(data, report_type)
     else:
