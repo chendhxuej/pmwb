@@ -438,7 +438,11 @@ watch(
       cc.value = [...(props.defaultCc || [])]
       subject.value = props.defaultSubject || ''
       body.value = props.defaultBody || ''
-      fieldVals.value = { ...(props.fieldValues || {}) }
+      // 结构化字段初值：优先 fieldValues，回退 variables。
+      // 历史坑：各业务页（运营工单/需求/一线调研）只传 :variables，而这里只读 fieldValues，
+      // 导致 supervise_*/research_* 这类「有后端字段 schema」的场景字段表单与预览全空
+      // （工单编号/处理人/计划完成时间一律空），表现为「没取到对应工单信息」。
+      fieldVals.value = { ...(props.fieldValues || props.variables || {}) }
       extraMsg.value = ''
       // 重置模板编辑状态，防止残留弹窗被异常打开
       showEditTemplateDialog.value = false
@@ -451,6 +455,24 @@ watch(
       refreshPreview(true)
     }
   },
+)
+
+// 父组件异步补齐 variables（如打开后再拉详情）时回填空字段，不覆盖用户已编辑的值
+watch(
+  () => props.variables,
+  (v) => {
+    if (!props.modelValue || !v) return
+    const merged = { ...fieldVals.value }
+    let changed = false
+    for (const [k, val] of Object.entries(v || {})) {
+      if (val !== undefined && val !== null && val !== '' && !merged[k]) {
+        merged[k] = val
+        changed = true
+      }
+    }
+    if (changed) fieldVals.value = merged
+  },
+  { deep: true },
 )
 
 // 全量联动：字段 / 正文 / 主题 / 收件人 / 抄送 / 留言 任一变化都刷新预览

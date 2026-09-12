@@ -15,11 +15,39 @@ from services.dev_ticket import dev_ticket_service
 from services.meeting import meeting_service
 from services.operation import operation_issue_service as operation_service
 
-from . import supervise as supervise_service
+# 注意：本文件就叫 routers/supervise.py，早期写成 `from . import supervise as supervise_service`
+# 会导入到自己（routers.supervise），导致 build_ticket_fields 等函数不存在 → /supervise/* 全 500。
+# 服务实现在 services/supervise.py，必须从 services 包导入。
+from services import supervise as supervise_service
 
 logger = logging.getLogger("pmwb.routers.supervise")
 
 router = APIRouter(prefix="/supervise", tags=["邮件督办"])
+
+
+def _date_str(v) -> str:
+    """日期/时间 → 'YYYY-MM-DD' 字符串（空值返回空串）。
+
+    运营工单 go_live_date 是 Date、resolve_date 是 DateTime，统一截前 10 位，
+    避免邮件里出现 '2026-09-17 00:00:00' 这类脏值。
+    """
+    return str(v)[:10] if v else ""
+
+
+def _pick(obj, *keys):
+    """兼容 ORM 对象与 dict 的取值：按顺序返回第一个非空值。
+
+    历史坑：此处曾直写 `row.plan_end`，而 PmwbDevTicket 根本没有该列
+    （计划完成时间是 planned_finish_date），dict 型需求更会 KeyError → 督办 500。
+    """
+    for k in keys:
+        if isinstance(obj, dict):
+            val = obj.get(k)
+        else:
+            val = getattr(obj, k, None)
+        if val:
+            return val
+    return None
 
 
 class SuperviseTicketRequest(BaseModel):
@@ -72,7 +100,9 @@ def _build_ticket_info(ticket_type: str, ticket_id: int | str, db: Session) -> d
             "issue_type": row.issue_type,
             "category": row.category,
             "handler": row.handler,
-            "due": str(row.resolve_date) if row.resolve_date else "",
+            # 计划完成时间 = go_live_date（工单详情「计划完成时间」列）；
+            # 旧版取 resolve_date（解决时间），未闭环工单恒空 → 邮件该项空白
+            "due": _date_str(_pick(row, "go_live_date", "resolve_date")),
             "status": row.status,
             "situation_desc": row.situation_desc or "",
             "source": "运营问题/工单",
@@ -87,13 +117,15 @@ def _build_ticket_info(ticket_type: str, ticket_id: int | str, db: Session) -> d
             return None
         return {
             "issue_no": str(row.id),
-            "title": row.title,
+            "title": _pick(row, "title"),
             "issue_type": "开发工单",
-            "category": row.category or "",
-            "handler": row.owner or row.assignee or "",
-            "due": str(row.plan_end) if row.plan_end else "",
-            "status": row.status,
-            "description": row.description or "",
+            "category": _pick(row, "category") or "",
+            # PmwbDevTicket 无 owner/assignee 列，责任人是 developer/created_by
+            "handler": _pick(row, "developer", "created_by", "owner", "assignee") or "",
+            # 开发工单计划完成时间 = planned_finish_date，回退实际上线日期 go_live_date
+            "due": _date_str(_pick(row, "planned_finish_date", "go_live_date")),
+            "status": _pick(row, "status"),
+            "description": _pick(row, "description") or "",
             "source": "开发工单",
         }
 
@@ -102,15 +134,22 @@ def _build_ticket_info(ticket_type: str, ticket_id: int | str, db: Session) -> d
         row = requirement_service.get(db, ticket_id)
         if not row:
             return None
+        # 注意：requirement_service.get 返回的是 dict，属性访问会 AttributeError → 500，
+        # 一律用 _pick 取值；version_required_date/delivered_date 等扩展字段嵌套在 ext 子字典
+        ext = row.get("ext") if isinstance(row, dict) else None
+        due_src = (
+            _pick(row, "version_required_date", "delivered_date", "plan_end", "expected_month")
+            or _pick(ext, "version_required_date", "delivered_date")
+        )
         return {
-            "issue_no": row.req_no or str(row.id),
-            "title": row.title or row.req_name or "",
+            "issue_no": _pick(row, "req_no", "req_id") or str(_pick(row, "id") or ticket_id),
+            "title": _pick(row, "title", "req_name") or "",
             "issue_type": "需求",
-            "category": row.category or "",
-            "handler": row.owner or row.sa or "",
-            "due": str(row.plan_end) if row.plan_end else str(row.expected_month) if row.expected_month else "",
-            "status": row.status,
-            "description": row.req_desc or row.description or "",
+            "category": _pick(row, "system_name", "category") or "",
+            "handler": _pick(row, "sa_name", "owner", "sa") or "",
+            "due": _date_str(due_src),
+            "status": _pick(row, "status") or _pick(ext, "status") or "",
+            "description": _pick(row, "description", "req_desc", "background") or "",
             "source": "需求管理",
         }
 

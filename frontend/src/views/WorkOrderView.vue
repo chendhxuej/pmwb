@@ -729,9 +729,7 @@ const onImportFile = async (e) => {
   if (!file) return
   importing.value = true
   try {
-    const fd = new FormData()
-    fd.append('file', file)
-    const res = await operationApi.importAnalysis(fd)
+    const res = await operationApi.importAnalysis(file)
     const um = res.unmatched_handlers?.length
       ? `（${res.unmatched_handlers.length} 个责任人未匹配人员中台：${res.unmatched_handlers.join('、')}）`
       : ''
@@ -1195,6 +1193,16 @@ const mailDialogScene = ref('supervise_urge')
 const mailDialogVariables = ref({})
 const _superviseIssue = ref(null)
 
+/**
+ * 工单「计划完成时间」取值：优先 go_live_date（工单详情「计划完成时间」列），
+ * 回退开发工单 planned_finish_date，再回退 resolve_date（解决时间）。
+ * 历史坑：邮件里曾直取 resolve_date（解决时间），未闭环工单恒空 → 预览该项一片空白。
+ */
+const planFinishDate = (row) => {
+  const v = row?.go_live_date || row?.planned_finish_date || row?.resolve_date || ''
+  return v ? String(v).slice(0, 10) : ''
+}
+
 function buildSuperviseBody(row, scene = 'urge') {
   const typeLabel = issueTypeLabel(row.category, row.issue_type)
   return [
@@ -1206,7 +1214,7 @@ function buildSuperviseBody(row, scene = 'urge') {
     `| 标题 | ${row.title || ''} |`,
     `| 类型 | ${typeLabel || ''} |`,
     `| 处理人 | ${row.handler || ''} |`,
-    `| 计划完成日期 | ${row.resolve_date || ''} |`,
+    `| 计划完成日期 | ${planFinishDate(row)} |`,
     `| 当前状态 | ${statusBadgeOptions[row.status]?.label || row.status || ''} |`,
     '',
     '### 问题描述',
@@ -1231,7 +1239,7 @@ const openSupervise = (row, scene = 'urge') => {
     title: row.title || '',
     category: issueTypeLabel(row.category, row.issue_type) || '',
     handler: row.handler || '',
-    resolveDate: row.resolve_date || '',
+    resolveDate: planFinishDate(row),
     status: statusBadgeOptions[row.status]?.label || row.status || '',
     description: row.situation_desc || row.description || '（无）',
   }

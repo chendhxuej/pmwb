@@ -1014,6 +1014,12 @@ const mailDialogScene = ref('research_urge')
 const mailDialogVariables = ref({})
 const _researchIssue = ref(null)
 
+/** 调研工单「计划完成日期」：go_live_date（计划完成时间）→ 回退解决时间，统一 YYYY-MM-DD */
+const planFinishDate = (row) => {
+  const v = row?.go_live_date || row?.resolve_date || ''
+  return v ? String(v).slice(0, 10) : ''
+}
+
 const buildResearchSuperviseBody = (row, scene = 'urge') => {
   const natureLabel = row.issue_nature ? (NATURE_LABELS[row.issue_nature] || row.issue_nature) : ''
   const cityLabel = row.city ? (CITY_LABELS[row.city] || row.city) : ''
@@ -1028,7 +1034,7 @@ const buildResearchSuperviseBody = (row, scene = 'urge') => {
     `| 子类 | ${SUB_TYPE_LABELS[row.sub_type] || row.sub_type || ''} |`,
     `| 问题性质 | ${natureLabel || ''} |`,
     `| 厂家责任人 | ${row.vendor_handlers || ''} |`,
-    `| 计划完成日期 | ${row.go_live_date || ''} |`,
+    `| 计划完成日期 | ${planFinishDate(row)} |`,
     `| 当前状态 | ${statusBadgeOptions[row.status]?.label || row.status || ''} |`,
     '',
     '### 情况说明',
@@ -1054,7 +1060,7 @@ const openSupervise = (row, scene = 'urge') => {
     subType: SUB_TYPE_LABELS[row.sub_type] || row.sub_type || '',
     nature: NATURE_LABELS[row.issue_nature] || row.issue_nature || '',
     vendorHandler: row.vendor_handlers || '',
-    resolveDate: row.go_live_date || '',
+    resolveDate: planFinishDate(row),
     status: statusBadgeOptions[row.status]?.label || row.status || '',
     description: row.situation_desc || '（无）',
   }

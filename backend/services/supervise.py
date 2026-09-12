@@ -129,7 +129,16 @@ def build_ticket_fields(ticket: dict[str, Any]) -> dict[str, Any]:
         "title": ticket.get("title") or "",
         "category": ticket.get("category") or ticket.get("issue_type") or "",
         "handler": ticket.get("handler") or ticket.get("owner") or "",
-        "resolveDate": ticket.get("due") or ticket.get("plan_end") or "",
+        # 计划完成日期：优先上游装配好的 due，其次各类工单的计划/上线日期列名
+        # （运营工单 go_live_date、开发工单 planned_finish_date、需求 version_required_date）
+        "resolveDate": (
+            ticket.get("due")
+            or ticket.get("plan_end")
+            or ticket.get("go_live_date")
+            or ticket.get("planned_finish_date")
+            or ticket.get("version_required_date")
+            or ""
+        ),
         "status": ticket.get("status") or "",
         "description": (
             ticket.get("situation_desc")

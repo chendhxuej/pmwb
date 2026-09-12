@@ -1336,6 +1336,13 @@ const mailDialogScene = ref('supervise_urge')
 // T-E：supervise_urge/sync 模板变量（复用工单 7 变量：no/title/category/handler/resolveDate/status/description）
 const mailDialogVariables = ref({})
 
+/** 需求侧「计划完成日期」：版本要求上线时间 → 回退实际交付日期，统一 YYYY-MM-DD */
+const planFinishDate = (row) => {
+  const v = row?.ext?.version_required_date || row?.version_required_date
+    || row?.ext?.delivered_date || row?.delivered_date || ''
+  return v ? String(v).slice(0, 10) : ''
+}
+
 function buildReqSuperviseBody(row, scene = 'urge') {
   return [
     scene === 'urge' ? '## 需求催办通知' : '## 需求进展同步',
@@ -1348,7 +1355,7 @@ function buildReqSuperviseBody(row, scene = 'urge') {
     `| 负责人 | ${row.owner || ''} |`,
     `| 优先级 | ${row.ext?.priority || 'P2'} |`,
     `| 当前状态 | ${statusLabel(row.ext?.status || row.status) || (row.ext?.status || row.status || '')} |`,
-    `| 期望上线月份 | ${row.ext?.version_required_date || ''} |`,
+    `| 期望上线月份 | ${planFinishDate(row)} |`,
     '',
     '### 需求描述',
     row.description || row.background || '（无）',
@@ -1371,7 +1378,7 @@ function openSupervise(row, scene = 'urge') {
     title: row.req_name || row.title || '',
     category: row.system_name || '需求',
     handler: row.owner || row.sa_name || '',
-    resolveDate: row.ext?.version_required_date || row.ext?.delivered_date || '',
+    resolveDate: planFinishDate(row),
     status: statusLabel(row.ext?.status || row.status) || (row.ext?.status || row.status || ''),
     description: row.description || row.background || '（无）',
   }
