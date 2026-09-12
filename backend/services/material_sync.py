@@ -25,6 +25,7 @@ from db.models import (
     PmwbKeyWork,
     PmwbKeyWorkDeliverable,
     PmwbMaterial,
+    PmwbMaterialCategory,
     PmwbOperationIssue,
     PmwbReqInterfaceDoc,
     PmwbReqManual,
@@ -44,6 +45,41 @@ SOURCE_LABELS = {
     "interface_doc": "接口规范文档",
     "manual_upload": "手工上传",
 }
+
+# 自动归档来源 -> 默认分类 (code, name)。
+# 语义明确的来源自动归类，免人工再分；人工改过的分类（非 NULL）不覆盖。
+SOURCE_CATEGORY = {
+    "req_manual": ("cz", "操作手册"),
+    "interface_doc": ("jkgf", "接口规范"),
+}
+
+# 需求交付物 JSON 里「操作手册-{系统}」是历史兼容条目（已取消写入），
+# 手册的唯一真相源是 PmwbReqManual，命中即跳过，避免同一文件登记两份。
+_MANUAL_COMPAT_NOTE_PREFIX = "操作手册-"
+
+
+def _resolve_category_id(db: Session, code: str, name: str) -> Optional[int]:
+    """按 code → name 找到自动归类目标；都没有则新建该分类（一级）。"""
+    cat = (
+        db.query(PmwbMaterialCategory)
+        .filter(PmwbMaterialCategory.code == code)
+        .first()
+    )
+    if cat:
+        return cat.id
+    cat = (
+        db.query(PmwbMaterialCategory)
+        .filter(PmwbMaterialCategory.name == name)
+        .first()
+    )
+    if cat:
+        return cat.id
+    cat = PmwbMaterialCategory(
+        code=code, name=name, parent_id=None, sort_order=100, enabled=True
+    )
+    db.add(cat)
+    db.flush()
+    return cat.id
 
 
 def _to_pointer(raw: Optional[str], prefer_root: str = "vault") -> Optional[tuple[str, str]]:
@@ -95,7 +131,12 @@ def _upsert(
     )
     if existing:
         changed = False
-        # 只刷新事实字段，不动 category_id / note / tags（用户可能手工改过）
+        # 只刷新事实字段，不动已设的 category_id / note / tags（用户可能手工改过）
+        if existing.category_id is None:
+            hint = SOURCE_CATEGORY.get(source_type)
+            if hint:
+                existing.category_id = _resolve_category_id(db, *hint)
+                changed = True
         if file_size is not None and existing.file_size != file_size:
             existing.file_size = file_size
             changed = True
@@ -107,12 +148,14 @@ def _upsert(
             changed = True
         return "updated" if changed else "skipped"
 
+    hint = SOURCE_CATEGORY.get(source_type)
     ext = fs.file_ext(file_name)
     obj = PmwbMaterial(
         source_type=source_type,
         source_id=str(source_id),
         source_no=source_no or "",
         source_title=source_title or "",
+        category_id=_resolve_category_id(db, *hint) if hint else None,
         file_name=file_name,
         stored_name=os.path.basename(rel_path),
         storage_root=storage_root,
@@ -252,6 +295,12 @@ def _sync_requirement(db: Session) -> dict:
         title = (email.req_name if email else "") or ""
         for item in _parse_json_list(ext.deliverables):
             if not isinstance(item, dict):
+                continue
+            # 历史兼容条目「操作手册-{系统}」：手册已由 req_manual 来源登记，此处跳过
+            if str(item.get("note") or "").startswith(_MANUAL_COMPAT_NOTE_PREFIX):
+                stat["warn"].append(
+                    f"需求 {ext.req_id} 跳过操作手册兼容条目（已由「需求操作手册」登记）：{item.get('file_name')}"
+                )
                 continue
             stat["scanned"] += 1
             raw = item.get("obsidian_path") or item.get("local_path")
@@ -414,10 +463,43 @@ _SCANNERS = [
 ]
 
 
+def purge_manual_duplicates(db: Session) -> int:
+    """清理历史脏数据：同一文件既登记成「需求交付物」又登记成「需求操作手册」时，删掉交付物那条。
+
+    只删索引指针，不碰物理文件；幂等，可重复执行。
+    """
+    manual_paths = db.query(PmwbMaterial.rel_path).filter(
+        PmwbMaterial.source_type == "req_manual"
+    )
+    dup_ids = [
+        r[0]
+        for r in db.query(PmwbMaterial.id)
+        .filter(
+            PmwbMaterial.source_type == "requirement",
+            PmwbMaterial.rel_path.in_(manual_paths),
+        )
+        .all()
+    ]
+    if not dup_ids:
+        return 0
+    db.query(PmwbMaterial).filter(PmwbMaterial.id.in_(dup_ids)).delete(
+        synchronize_session=False
+    )
+    db.commit()
+    return len(dup_ids)
+
+
 def sync_all(db: Session) -> dict:
     """全量扫描汇聚。单来源异常不阻断整体。"""
     sources: list[dict] = []
     total_added = 0
+
+    # 先清一遍历史重复（手册被同时登记成交付物），再扫描，保证结果稳定
+    try:
+        purged = purge_manual_duplicates(db)
+    except Exception:  # noqa: BLE001 清理失败不阻断汇聚
+        db.rollback()
+        purged = 0
 
     for source_type, fn in _SCANNERS:
         try:
@@ -449,6 +531,7 @@ def sync_all(db: Session) -> dict:
 
     return {
         "added": total_added,
+        "purged_duplicates": purged,
         "sources": sources,
         "total": db.query(PmwbMaterial).count(),
     }

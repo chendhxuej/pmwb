@@ -155,4 +155,5 @@ class MaterialBatchDeleteOut(BaseModel):
 class MaterialSyncResponse(BaseModel):
     added: int
     total: int
+    purged_duplicates: int = 0
     sources: List[dict]

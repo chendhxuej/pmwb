@@ -32,6 +32,7 @@ from db.models import (
     PmwbKnowledgeLink,
     PmwbMeeting,
     PmwbOperationIssue,
+    PmwbReqManual,
     PmwbRequirementExt,
     PmwbUserStory,
 )
@@ -645,6 +646,20 @@ def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
                         )
                     else:
                         deliv_lines.append(f"- [{r.req_id}] {file_name}（{note}）")
+            # 操作手册：唯一真相源为 PmwbReqManual（按系统），已归档的渲染成 Obsidian 内链
+            for m in (
+                db.query(PmwbReqManual)
+                .filter(PmwbReqManual.req_id == r.req_id)
+                .all()
+            ):
+                note = f"操作手册-{m.system_name}" if m.system_name else "操作手册"
+                if m.obsidian_path:
+                    link_text = os.path.basename(m.obsidian_path)
+                    deliv_lines.append(
+                        f"- [[{m.obsidian_path}|{link_text}]]（{note}） · [{r.req_id}]"
+                    )
+                else:
+                    deliv_lines.append(f"- [{r.req_id}] {m.file_name}（{note}）")
     deliv_body = "\n".join(deliv_lines) if deliv_lines else "_暂无交付物_"
 
     # 场景规则：统一走规则沉淀服务（自动识别 + 智能归类 + 幂等指纹）。

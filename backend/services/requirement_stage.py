@@ -519,18 +519,10 @@ def upload_manual(
     db.commit()
     db.refresh(m)
 
-    # 兼容登记 deliverables（归档到业务知识入口复用）；替换时移除旧条目
-    try:
-        from services.obsidian_link import add_requirement_deliverable, get_requirement_deliverables, remove_requirement_deliverable
-
-        items = get_requirement_deliverables(db, req_id)
-        tag = f"操作手册-{system_name}"
-        for i in range(len(items) - 1, -1, -1):
-            if items[i].get("note") == tag:
-                remove_requirement_deliverable(db, req_id, i)
-        add_requirement_deliverable(db, req_id, filename, rel_local, note=tag)
-    except Exception:  # noqa: BLE001 交付物登记失败不影响手册主流程
-        pass
+    # 注：手册只登记在 PmwbReqManual 一处（单一真相源）。
+    # 历史版本会再往 ext.deliverables 写一条「操作手册-{系统}」兼容条目，
+    # 导致业务资料库出现「需求交付物」+「需求操作手册」两条重复记录（老大 2026-09-11 反馈），
+    # 已取消该兼容登记；存量脏数据由 scripts/cleanup_manual_duplicates.py 清理。
 
     # 自动归档到业务知识库
     try:
@@ -572,7 +564,7 @@ def delete_manual(db: Session, req_id: str, manual_id: int) -> bool:
             os.remove(fp)
         except OSError:
             pass
-    # 同步移除 deliverables 兼容条目
+    # 同步移除 deliverables 里可能残留的「操作手册-{系统}」历史兼容条目
     try:
         from services.obsidian_link import get_requirement_deliverables, remove_requirement_deliverable
 
