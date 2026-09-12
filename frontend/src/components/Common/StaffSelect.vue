@@ -27,6 +27,7 @@
     width="760px"
     :close-on-click-modal="false"
     append-to-body
+    destroy-on-close
   >
     <div class="staff-picker">
       <!-- 搜索 + 筛选 -->
@@ -82,17 +83,18 @@
         </el-button>
       </div>
 
-      <!-- 人员列表 -->
+      <!-- 人员列表（全量渲染 + v-show 显隐：筛选仅切 display，不重建 vnode / 不整表 diff；轻量勾选标记替代 93 个 el-checkbox 重组件） -->
       <div class="staff-picker-groups">
         <div
-          v-for="group in filteredGroups"
+          v-for="group in normalizedGroups"
+          v-show="groupVisible(group)"
           :key="group.org_id"
           class="staff-picker-group"
         >
           <div class="staff-picker-group-title">
             <el-icon><OfficeBuilding /></el-icon>
             <span>{{ group.org_name }}</span>
-            <span class="staff-picker-group-count">{{ group.options.length }}人</span>
+            <span class="staff-picker-group-count">{{ groupVisibleCount(group) }}人</span>
             <el-button
               v-if="multiple"
               link
@@ -107,25 +109,20 @@
           <div class="staff-picker-group-body">
             <div
               v-for="opt in group.options"
+              v-show="optionVisible(opt, group)"
               :key="`${group.org_id}-${opt.value}`"
               class="staff-picker-option"
               :class="{ active: isSelected(opt.value) }"
               @click="toggleOption(opt)"
             >
-              <el-checkbox
-                v-if="multiple"
-                :model-value="isSelected(opt.value)"
-                @click.stop
-                @change="() => toggleOption(opt)"
-              />
+              <span v-if="multiple" class="staff-picker-check" aria-hidden="true"></span>
               <span class="staff-picker-name">{{ opt.label }}</span>
               <span v-if="opt.role_hint" class="staff-picker-role">{{ opt.role_hint }}</span>
               <span v-if="opt.email && valueKey === 'email'" class="staff-picker-email">{{ opt.email }}</span>
             </div>
-            <el-empty v-if="!group.options.length" description="无匹配成员" :image-size="60" />
           </div>
         </div>
-        <el-empty v-if="!filteredGroups.length" description="没有匹配的团队或人员" :image-size="80" />
+        <el-empty v-if="noVisibleGroups" description="没有匹配的团队或人员" :image-size="80" />
       </div>
 
       <!-- 自定义添加 -->
@@ -318,63 +315,72 @@ const allRoles = computed(() => {
   return roleOptions.value.map((r) => r.name).sort()
 })
 
-// --- 组合过滤 ---
+// --- 组合过滤（改为 v-show 显隐：筛选仅切换 display，不重建 vnode / 不整表 diff）---
 const q = computed(() => dialogQuery.value.trim().toLowerCase())
 
-const filteredGroups = computed(() => {
-  const kws = q.value.split(/\s+/).filter(Boolean)
-  const useOrg = !!filterOrg.value
-  const useRole = !!filterRole.value
+function optionVisible(opt, group) {
+  const kw = q.value
+  if (kw) {
+    const kws = kw.split(/\s+/).filter(Boolean)
+    const match = kws.every(
+      (k) =>
+        (opt.label || '').toLowerCase().includes(k) ||
+        (opt.email || '').toLowerCase().includes(k) ||
+        (opt.org_name || '').toLowerCase().includes(k),
+    )
+    if (!match) return false
+  }
+  if (filterOrg.value && group.org_name !== filterOrg.value) return false
+  if (filterRole.value && (opt.role_hint || '') !== filterRole.value) return false
+  return true
+}
 
-  return normalizedGroups.value
-    .map((g) => {
-      const opts = g.options.filter((o) => {
-        // 文本搜索
-        if (kws.length) {
-          const match = kws.every(
-            (kw) =>
-              (o.label || '').toLowerCase().includes(kw) ||
-              (o.email || '').toLowerCase().includes(kw) ||
-              (o.org_name || '').toLowerCase().includes(kw),
-          )
-          if (!match) return false
-        }
-        // 组织筛选
-        if (useOrg && g.org_name !== filterOrg.value) return false
-        // 身份筛选
-        if (useRole && (o.role_hint || '') !== filterRole.value) return false
-        return true
-      })
-      return opts.length ? { ...g, options: opts } : null
-    })
-    .filter(Boolean)
-})
+function groupVisible(group) {
+  return group.options.some((o) => optionVisible(o, group))
+}
 
-// --- 全选 / 取消全选 ---
+function groupVisibleCount(group) {
+  let n = 0
+  for (const o of group.options) if (optionVisible(o, group)) n += 1
+  return n
+}
+
+const noVisibleGroups = computed(() =>
+  !(normalizedGroups.value || []).some((g) => groupVisible(g)),
+)
+
+// --- 全选 / 取消全选（基于当前可见成员，语义与原 filteredGroups 子集一致）---
+function _visibleOpts(group) {
+  return group.options.filter((o) => optionVisible(o, group))
+}
+
 function isGroupAllSelected(group) {
-  return group.options.length > 0 && group.options.every((o) => isSelected(o.value))
+  const vis = _visibleOpts(group)
+  return vis.length > 0 && vis.every((o) => isSelected(o.value))
 }
 
 function isGroupAnySelected(group) {
-  return group.options.some((o) => isSelected(o.value))
+  return _visibleOpts(group).some((o) => isSelected(o.value))
 }
 
 function isGroupNoneSelected(group) {
-  return !group.options.some((o) => isSelected(o.value))
+  return !_visibleOpts(group).some((o) => isSelected(o.value))
 }
 
 function toggleGroup(group) {
   if (!props.multiple) return
+  const vis = _visibleOpts(group)
+  if (!vis.length) return
   if (isGroupAllSelected(group)) {
-    // 取消全选本组
-    const removeSet = new Set(group.options.map((o) => o.value))
+    // 取消全选本组（仅当前可见成员）
+    const removeSet = new Set(vis.map((o) => o.value))
     const vals = selectedValues.value.filter((v) => !removeSet.has(v))
     emit('update:modelValue', vals)
     emit('change', vals)
   } else {
-    // 全选本组
+    // 全选本组（仅当前可见成员）
     const existing = new Set(selectedValues.value)
-    group.options.forEach((o) => existing.add(o.value))
+    vis.forEach((o) => existing.add(o.value))
     const vals = [...existing]
     emit('update:modelValue', vals)
     emit('change', vals)
@@ -618,8 +624,35 @@ function goManage() {
 .staff-picker-option.active {
   background: #eaf1ff;
 }
-.staff-picker-option .el-checkbox {
-  margin-right: 0;
+.staff-picker-check {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #dcdfe6;
+  border-radius: 2px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  position: relative;
+  background: #fff;
+  transition: background 0.15s, border-color 0.15s;
+}
+.staff-picker-option:hover .staff-picker-check {
+  border-color: #409eff;
+}
+.staff-picker-option.active .staff-picker-check {
+  background: #409eff;
+  border-color: #409eff;
+}
+.staff-picker-option.active .staff-picker-check::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 3px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  box-sizing: border-box;
 }
 .staff-picker-name {
   flex: 1;

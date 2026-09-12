@@ -10,7 +10,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: '127.0.0.1',
+    host: true, // 双栈监听(同时接受 IPv4 127.0.0.1 与 IPv6 ::1)，根治 localhost→::1 的 IPv6 解析超时卡顿（2026-09-12 验证）
     port: 5173,
     // 禁止浏览器缓存 dev 资源，避免重启/修复后前端仍显示旧 JS（老大反复遇到的「改了不生效」根因）
     headers: {
