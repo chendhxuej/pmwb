@@ -150,6 +150,11 @@ export const knowledgeApi = {
     return request.post('/knowledge/rules/sediment', { domain_codes: domainCodes })
   },
 
+  // 迁移历史规则（有内容但缺 fingerprint 标记的规则）到标准格式
+  migrateHistoricalRules(domainCodes = []) {
+    return request.post('/knowledge/rules/migrate-historical', { domain_codes: domainCodes })
+  },
+
   // ---- 主笔记受损扫描与修复 ----
   scanDamage() {
     return request.get('/knowledge/scan-damage')

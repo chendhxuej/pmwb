@@ -408,6 +408,17 @@ def scan_rule_candidates(db, domain_code: Optional[str] = None) -> dict:
             })
         total_rules += len(rules)
         total_pending += pending_n
+        # 扫描主笔记中缺少指纹的历史规则（旧格式）
+        hist_count = 0
+        if item and item.obsidian_path:
+            note_content = read_markdown(item.obsidian_path) or ""
+            # 找自动区内容扫描历史规则
+            auto_begin = note_content.find("<!-- PMWB:AUTO:BEGIN key=scenario_rules -->")
+            auto_end = note_content.find("<!-- PMWB:AUTO:END key=scenario_rules -->")
+            if auto_begin >= 0 and auto_end > auto_begin:
+                auto_content = note_content[auto_begin:auto_end + len("<!-- PMWB:AUTO:END key=scenario_rules -->")]
+                hist = scan_historical_rules(auto_content)
+                hist_count = len(hist)
         domains_out.append({
             "domain_code": code,
             "domain_name": domain.domain_name if domain else code,
@@ -415,6 +426,7 @@ def scan_rule_candidates(db, domain_code: Optional[str] = None) -> dict:
             "has_main_note": bool(item and item.obsidian_path),
             "total": len(rules),
             "pending": pending_n,
+            "historical_count": hist_count,
             "categories": [
                 {"name": k, "count": v}
                 for k, v in sorted(cat_counter.items(), key=lambda kv: (-kv[1], kv[0]))

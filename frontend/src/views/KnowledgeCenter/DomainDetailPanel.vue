@@ -109,15 +109,22 @@
               <div class="rs"><b>{{ ruleDomain?.total || 0 }}</b><span>已识别规则</span></div>
               <div class="rs warn"><b>{{ ruleDomain?.pending || 0 }}</b><span>待沉淀</span></div>
               <div class="rs ok"><b>{{ (ruleDomain?.total || 0) - (ruleDomain?.pending || 0) }}</b><span>已沉淀</span></div>
+              <div v-if="ruleDomain?.historical_count" class="rs hist"><b>{{ ruleDomain.historical_count }}</b><span>历史规则</span></div>
             </div>
-            <el-button type="primary" :loading="sedimenting" @click="sedimentDomainRules">
-              <el-icon><MagicStick /></el-icon>
-              <span>沉淀到「场景规则（自动区）」</span>
-            </el-button>
+            <div class="rule-actions">
+              <el-button v-if="ruleDomain?.historical_count" type="warning" :loading="migrating" @click="migrateHistoricalRules">
+                <el-icon><Refresh /></el-icon>
+                <span>迁移历史规则（{{ ruleDomain.historical_count }} 条）</span>
+              </el-button>
+              <el-button type="primary" :loading="sedimenting" @click="sedimentDomainRules">
+                <el-icon><MagicStick /></el-icon>
+                <span>沉淀到「场景规则（自动区）」</span>
+              </el-button>
+            </div>
           </div>
           <div class="rule-tip">
             系统自动识别需求用户故事中的业务规则，按关键词智能归类（资费/开通/工单/权限/数据/接口/变更/风控），
-            再幂等写入本主笔记的「场景规则（自动区）」章节。
+            再幂等写入本主笔记的「场景规则（自动区）」章节。历史规则指旧格式（无指纹标记）的规则，可通过「迁移」按钮升级到标准格式。
           </div>
 
           <template v-if="ruleGrouped.length">
@@ -209,7 +216,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { MagicStick } from '@element-plus/icons-vue'
+import { MagicStick, Refresh } from '@element-plus/icons-vue'
 import { basicDataApi } from '@/api/basicData'
 import { knowledgeApi } from '@/api/knowledge'
 import { productBibleApi } from '@/api/productBible'
@@ -241,6 +248,7 @@ const syncing = ref(false)
 // 规则沉淀
 const ruleDomain = ref(null)
 const sedimenting = ref(false)
+const migrating = ref(false)
 
 const filteredRelations = computed(() => {
   if (relFilter.value === 'all') return relations.value
@@ -347,6 +355,24 @@ async function sedimentDomainRules() {
     ElMessage.error(e?.message || '沉淀失败')
   } finally {
     sedimenting.value = false
+  }
+}
+
+async function migrateHistoricalRules() {
+  migrating.value = true
+  try {
+    const res = await knowledgeApi.migrateHistoricalRules([props.code])
+    const r = (res?.results || [])[0]
+    if (!r || !r.success) {
+      ElMessage.warning(r?.error || '迁移失败')
+      return
+    }
+    ElMessage.success(`已迁移 ${r.migrated || 0} 条历史规则`)
+    await Promise.all([loadRules(), loadBible()])
+  } catch (e) {
+    ElMessage.error(e?.message || '迁移失败')
+  } finally {
+    migrating.value = false
   }
 }
 
@@ -600,6 +626,7 @@ export default { name: 'DomainDetailPanel' }
 .rs span { font-size: 11px; color: #909399; }
 .rs.warn b { color: #f0a64a; }
 .rs.ok b { color: #10b981; }
+.rs.hist b { color: #7c3aed; }
 .rule-tip {
   font-size: 11.5px;
   color: #909399;

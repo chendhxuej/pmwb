@@ -66,7 +66,7 @@
     </div>
 
     <!-- 主体：左主区（领域全景）+ 右信息栏（动态 / 待补 / 规则沉淀） -->
-    <div class="hub-main">
+    <div class="hub-main" :class="{ 'detail-open': selectedDomain }">
       <!-- ========== 左：主区 ========== -->
       <div class="hub-col hub-col-main">
         <!-- KPI 条 -->
@@ -772,6 +772,9 @@ bus.on(EVT_DOMAINS_CHANGED, () => {
   align-items: start;
   transition: grid-template-columns .2s;
 }
+.hub-main.detail-open {
+  grid-template-columns: minmax(0, 1fr);
+}
 .hub-col {
   display: flex;
   flex-direction: column;
@@ -794,6 +797,9 @@ bus.on(EVT_DOMAINS_CHANGED, () => {
 }
 @media (min-width: 1400px) {
   /* 大屏保持双栏，右侧动态隐藏 */
+  .hub-main.detail-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* KPI 条 */

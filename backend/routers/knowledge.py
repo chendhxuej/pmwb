@@ -349,6 +349,23 @@ def sediment_rules_endpoint(payload: Dict[str, Any], db: Session = Depends(get_d
     )
 
 
+@router.post("/rules/migrate-historical")
+def migrate_historical_rules_endpoint(
+    payload: Dict[str, Any] = {},
+    db: Session = Depends(get_db),
+):
+    """迁移历史规则（有内容但缺 fingerprint 标记的规则）到标准格式。
+
+    payload: {domain_codes: [str]} 或 {}（迁移所有领域）
+    返回 {total_migrated, results: [{domain_code, domain_name, migrated, status}]}
+    """
+    from services.rule_sedimentation import migrate_historical_rules
+
+    codes = payload.get("domain_codes") or []
+    result = migrate_historical_rules(db, codes or None)
+    return success(data=result)
+
+
 @router.get("/scan-damage")
 def scan_damaged_notes_endpoint(db: Session = Depends(get_db)):
     """扫描受损主笔记，返回详细报告。"""
