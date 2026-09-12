@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import PmwbOperationIssue
+from db.models import PmwbOperationAnalysis, PmwbOperationIssue
 from schemas.operation import OperationIssueStats, IssueStatsItem
 from services.base import BaseService
 
@@ -14,6 +14,13 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
 
     def __init__(self):
         super().__init__(PmwbOperationIssue)
+
+    def delete(self, db: Session, id: int) -> bool:
+        """删除工单：先清理关联的分析明细，避免外键约束（1451）报错。"""
+        if not self.get(db, id):
+            return False
+        db.query(PmwbOperationAnalysis).filter(PmwbOperationAnalysis.issue_id == id).delete(synchronize_session=False)
+        return super().delete(db, id)
 
     def list_with_filters(
         self,

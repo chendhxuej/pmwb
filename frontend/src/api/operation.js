@@ -38,7 +38,7 @@ export const operationApi = {
     })
   },
 
-  // 导入主动运营分析工单
+  // 导入主动运营分析工单（file 传原生 File 对象，内部自动包 FormData）
   importAnalysis(file) {
     const form = new FormData()
     form.append('file', file)
