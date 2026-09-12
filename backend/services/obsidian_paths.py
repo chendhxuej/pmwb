@@ -124,6 +124,39 @@ def main_note_rel_path(name: str, group: str) -> str:
     return f"{BUSINESS_KNOWLEDGE_DIR}/{group}/{name}/{main_note_filename(name)}"
 
 
+def _auto_block_key(no: str, title: str, zone: str) -> str | None:
+    """根据章节标题/编号推断 PMWB 自动区 key，未识别返回 None。"""
+    if zone not in ("auto", "system"):
+        return None
+    title_l = title.lower()
+    if "产商品变更" in title or "功能迭代轨迹" in title:
+        return "product"
+    if "流程变更" in title or "流程优化记录" in title or "使用与调用轨迹" in title:
+        return "process"
+    if "场景规则" in title or "关键规则" in title:
+        return "scenario_rules"
+    if "变更轨迹" in title or "问题台账" in title:
+        return "change_log"
+    if "交付物" in title:
+        return "deliverables"
+    if "时间线" in title or "演进" in title:
+        return "timeline"
+    # 兜底：按编号映射
+    if no.startswith("2.3"):
+        return "product"
+    if no.startswith("3.2"):
+        return "process"
+    if no in ("4", "4.2"):
+        return "scenario_rules"
+    if no == "5":
+        return "change_log"
+    if no == "6":
+        return "deliverables"
+    if no == "9":
+        return "timeline"
+    return None
+
+
 def _render_sections(sections) -> str:
     lines = []
     for no, title, zone in sections:
@@ -138,6 +171,12 @@ def _render_sections(sections) -> str:
             lines.append("> 自动区：由业务事件自动回流（详见知识中心自动沉淀方案），人工请勿直接编辑。")
         else:
             lines.append("> 系统维护区，由 vault_sync 自动生成。")
+        # 自动区/系统维护区插入 PMWB:AUTO 标记块，保证 sync_main_note_from_links 可定位回填
+        key = _auto_block_key(no, title, zone)
+        if key:
+            lines.append(f"<!-- PMWB:AUTO:BEGIN key={key} -->")
+            lines.append("_暂无数据_")
+            lines.append(f"<!-- PMWB:AUTO:END key={key} -->")
         lines.append("")
     return "\n".join(lines)
 

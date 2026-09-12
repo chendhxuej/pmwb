@@ -196,6 +196,28 @@ def sedimented_fingerprints(content: str) -> Set[str]:
     return {f"story-{m.group(1)}-{m.group(2)}" for m in _FP_PATTERN.finditer(content)}
 
 
+# 历史规则（无 fingerprint 但包含需求编号）正则
+_HIST_RULE_PAT = re.compile(
+    r"^[-*]\s*(.+?)\s*（敏捷需求[^\)]+\）\s*$",
+    re.MULTILINE,
+)
+
+
+def scan_historical_rules(content: str) -> List[dict]:
+    """扫描主笔记自动区内缺少指纹的历史规则。
+
+    返回 [{text, req_id}] 列表。text 为规则正文，req_id 为括号中的需求编号。
+    """
+    if not content:
+        return []
+    out: List[dict] = []
+    for m in _HIST_RULE_PAT.finditer(content):
+        text = m.group(1).strip()
+        req_raw = m.group(0)[len(m.group(1))+1:].strip()  # "（敏捷需求...）"
+        out.append({"text": text, "req_id": req_raw})
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 渲染：场景规则（自动区）正文
 # ---------------------------------------------------------------------------
@@ -406,3 +428,141 @@ def scan_rule_candidates(db, domain_code: Optional[str] = None) -> dict:
         "domain_count": len(domains_out),
         "domains": sorted(domains_out, key=lambda d: (-d["pending"], d["domain_name"])),
     }
+
+
+def migrate_historical_rules(db, domain_code: Optional[str] = None) -> dict:
+    """扫描并迁移历史规则（有内容但缺 fingerprint 标记）。
+
+    返回 {migrated_count, results: [{domain_code, domain_name, migrated, status}]}
+    """
+    buckets = collect_rules(db, domain_code=domain_code)
+    all_codes = set(buckets.keys())
+
+    # 额外扫描主笔记中可能存在的历史规则（不在 DB 规则源中）
+    from db.models import PmwbKnowledgeItem
+    for item in (
+        db.query(PmwbKnowledgeItem)
+        .filter(PmwbKnowledgeItem.note_type == "main")
+        .filter(PmwbKnowledgeItem.domain_code.isnot(None))
+        .all()
+    ):
+        all_codes.add(item.domain_code)
+
+    results: List[dict] = []
+    migrated_count = 0
+    for code in sorted(all_codes):
+        item = (
+            db.query(PmwbKnowledgeItem)
+            .filter(PmwbKnowledgeItem.domain_code == code)
+            .filter(PmwbKnowledgeItem.note_type == "main")
+            .first()
+        )
+        if not item or not item.obsidian_path:
+            continue
+        content = read_markdown(item.obsidian_path) or ""
+        auto_begin = f"<!-- PMWB:AUTO:BEGIN key=scenario_rules -->"
+        auto_end = f"<!-- PMWB:AUTO:END key=scenario_rules -->"
+        if auto_begin not in content or auto_end not in content:
+            continue
+        auto_start = content.find(auto_begin)
+        auto_end_pos = content.find(auto_end) + len(auto_end)
+        auto_content = content[auto_start:auto_end_pos]
+
+        hist = scan_historical_rules(auto_content)
+        if not hist:
+            continue
+
+        # 构建迁移后的规则内容（合并 DB 规则 + 历史规则，加指纹）
+        db_rules = collect_rules(db, domain_code=code).get(code, [])
+        existing_fps = sedimented_fingerprints(auto_content)
+
+        # 去重：按 req_id + text 匹配
+        db_by_req_text: Dict[str, dict] = {}
+        for r in db_rules:
+            key = f"{r['req_id']}|{r['text']}"
+            db_by_req_text[key] = r
+
+        new_hist_rules = []
+        for h in hist:
+            key = f"{h['req_id']}|{h['text']}"
+            if key in db_by_req_text:
+                continue  # DB 已有，跳过
+            # 找 story_id（按 req_id 匹配）
+            matching = [r for r in db_rules if r.get('req_id') == h['req_id']]
+            if matching:
+                story_id = matching[0]['story_id']
+                idx = len([f for f in existing_fps if f.startswith(f"story-{story_id}-")])
+            else:
+                story_id = 0
+                idx = 0
+            new_hist_rules.append({
+                "text": h["text"],
+                "category": classify_rule(h["text"]),
+                "req_id": h["req_id"],
+                "fingerprint": f"story-{story_id}-{idx}",
+            })
+            existing_fps.add(f"story-{story_id}-{idx}")
+
+        if not new_hist_rules:
+            continue
+
+        # 重新渲染场景规则块
+        all_merged = db_rules + new_hist_rules
+        # 按 req_id + text 去重（保持 DB 规则优先）
+        seen: Set[str] = set()
+        unique_rules: List[dict] = []
+        for r in all_merged:
+            k = f"{r['req_id']}|{r['text']}"
+            if k in seen:
+                continue
+            seen.add(k)
+            unique_rules.append(r)
+
+        body = render_scenario_rules_block_rebuilt(unique_rules)
+        new_content = _upsert_auto_block(content, RULE_BLOCK_KEY, body)
+
+        if new_content == content:
+            results.append({
+                "domain_code": code,
+                "domain_name": item.domain_name if hasattr(item, 'domain_name') else code,
+                "migrated": 0,
+                "status": "unchanged",
+            })
+            continue
+
+        write_markdown(item.obsidian_path, new_content, protect_if_modified=False)
+        migrated_count += len(new_hist_rules)
+        results.append({
+            "domain_code": code,
+            "domain_name": item.domain_name if hasattr(item, 'domain_name') else code,
+            "migrated": len(new_hist_rules),
+            "status": "written",
+        })
+
+    return {
+        "total_migrated": migrated_count,
+        "results": results,
+    }
+
+
+def render_scenario_rules_block_rebuilt(rules: List[dict]) -> str:
+    """用预收集的规则列表渲染场景规则正文（供迁移使用）。"""
+    if not rules:
+        return "_暂无场景规则_"
+    by_cat: Dict[str, List[dict]] = {}
+    for r in rules:
+        by_cat.setdefault(r["category"], []).append(r)
+    lines = [
+        "> 本区由系统自动维护 · 规则沉淀：共 **{0}** 条，来源为需求用户故事的业务规则，按场景类别智能归类。人工请勿直接编辑。".format(len(rules)),
+        "",
+    ]
+    ordered = sorted(by_cat.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    for cat, items in ordered:
+        lines.append(f"**{cat}规则（{len(items)}）**")
+        lines.append("")
+        for it in items:
+            src = f"（{it['req_id']}）" if it.get("req_id") else ""
+            fp = it.get("fingerprint", "")
+            lines.append(f"- {it['text']} `{src}` <!-- rule:{fp} -->")
+        lines.append("")
+    return "\n".join(lines).rstrip()

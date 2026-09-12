@@ -192,8 +192,8 @@
         </div>
       </div>
 
-      <!-- ========== 右：信息栏 ========== -->
-      <aside class="hub-col hub-col-side">
+      <!-- ========== 右：信息栏（领域详情展开时隐藏，详情全屏展示）========== -->
+      <aside class="hub-col hub-col-side" :class="{ hidden: selectedDomain }">
         <!-- 规则沉淀 -->
         <div class="action-card">
           <div class="action-head">
@@ -770,6 +770,7 @@ bus.on(EVT_DOMAINS_CHANGED, () => {
   grid-template-columns: minmax(0, 1fr) 336px;
   gap: 14px;
   align-items: start;
+  transition: grid-template-columns .2s;
 }
 .hub-col {
   display: flex;
@@ -780,6 +781,19 @@ bus.on(EVT_DOMAINS_CHANGED, () => {
 .hub-col-side {
   position: sticky;
   top: 8px;
+  transition: opacity .18s, transform .18s, max-height .22s;
+  overflow: hidden;
+  max-height: 2000px;
+}
+.hub-col-side.hidden {
+  opacity: 0;
+  max-height: 0;
+  pointer-events: none;
+  margin: 0;
+  border: none;
+}
+@media (min-width: 1400px) {
+  /* 大屏保持双栏，右侧动态隐藏 */
 }
 
 /* KPI 条 */
@@ -1123,6 +1137,9 @@ bus.on(EVT_DOMAINS_CHANGED, () => {
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0,0,0,.04);
   scroll-margin-top: 12px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .embed-head {
   display: flex;

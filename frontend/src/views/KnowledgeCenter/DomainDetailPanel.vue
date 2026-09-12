@@ -229,7 +229,7 @@ const sections = ref([])
 const relations = ref([])
 const relFilter = ref('all')
 const activeTab = ref('bible')
-const appendixOpen = ref([]) // 默认全部折叠：自动区降为附录
+const appendixOpen = ref(['auto']) // 默认展开自动区，规则/关联索引/时间线等沉淀内容一目了然
 
 // 编辑模式状态
 const isEditing = ref(false)
@@ -457,8 +457,10 @@ export default { name: 'DomainDetailPanel' }
   grid-template-columns: 1fr;
   gap: 16px;
   align-items: start;
+  min-width: 0;
+  max-width: 100%;
 }
-.detail-right { display: flex; flex-direction: column; gap: 14px; }
+.detail-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
 
 /* 右侧 tab */
 .dtabs {
@@ -811,11 +813,14 @@ export default { name: 'DomainDetailPanel' }
 }
 .bible-md :deep(table) {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   margin: 12px 0;
   font-size: 12.5px;
   border-radius: 8px;
   overflow: hidden;
+  table-layout: fixed;
+  word-break: break-word;
 }
 .bible-md :deep(th) {
   background: #eef4ff;
@@ -824,11 +829,15 @@ export default { name: 'DomainDetailPanel' }
   text-align: left;
   padding: 8px 12px;
   border: 1px solid #dbe6f8;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .bible-md :deep(td) {
   padding: 7px 12px;
   border: 1px solid #e8eef5;
   color: #374151;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .bible-md :deep(tr:nth-child(even) td) { background: #fafcff; }
 

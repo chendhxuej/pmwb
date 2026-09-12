@@ -339,16 +339,61 @@ def _auto_block(key: str, body: str = "") -> str:
 
 
 def _replace_auto_block(content: str, key: str, body: str) -> str:
-    """替换主笔记中指定 key 的自动区内容（保留标记，不匹配则原样返回）。
+    """替换主笔记中指定 key 的自动区内容（保留标记，不匹配则在对应章节回退插入）。
 
     仅改写 BEGIN/END 标记之间的文本，人工区（标记之外）永不被动。幂等：
     重复调用结果一致，不会产生重复标记。
+
+    历史/骨架生成笔记若缺少 PMWB:AUTO 标记，则按 key 定位对应章节并插入标记块，
+    避免「点了同步但规则没写进主笔记」的问题。
     """
     begin = f"<!-- PMWB:AUTO:BEGIN key={key} -->"
     end = f"<!-- PMWB:AUTO:END key={key} -->"
     pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
-    replacement = f"{begin}\n{body.rstrip(chr(10))}\n{end}"
-    return pattern.sub(replacement, content, count=1)
+    if pattern.search(content):
+        replacement = f"{begin}\n{body.rstrip(chr(10))}\n{end}"
+        return pattern.sub(replacement, content, count=1)
+
+    # Fallback：无标记时按 key 找到对应章节，在章节末尾插入标记块
+    return _insert_auto_block_in_section(content, key, body)
+
+
+# key -> 匹配章节标题的正则（按关键词优先匹配，兼容 business/platform/capability 三套模板）
+_AUTO_BLOCK_SECTION_PATTERNS = {
+    "product": r"(2\.3|产商品变更|功能迭代轨迹)",
+    "process": r"(3\.2|流程变更|流程优化记录|使用与调用轨迹)",
+    "scenario_rules": r"(4(?:\.2)?|场景规则|关键规则与权限|关键规则)",
+    "change_log": r"(5|优化与变更轨迹|平台变更与问题台账|使用与调用轨迹)",
+    "deliverables": r"(6|关联交付物)",
+    "timeline": r"(9|业务全过程时间线|平台演进时间线|能力演进时间线|演进)",
+}
+
+
+def _insert_auto_block_in_section(content: str, key: str, body: str) -> str:
+    """在 key 对应章节的末尾插入 PMWB:AUTO 标记块（用于无标记的旧笔记回退）。"""
+    section_pat = _AUTO_BLOCK_SECTION_PATTERNS.get(key)
+    if not section_pat:
+        return content
+
+    lines = content.split("\n")
+    for i, line in enumerate(lines):
+        m = re.match(r"^(#{1,6})\s+(.*)$", line.strip())
+        if not m:
+            continue
+        level = len(m.group(1))
+        heading_text = m.group(2).strip()
+        if not re.search(section_pat, heading_text):
+            continue
+        # 找到该章节结束位置（下一个同级或更高级标题）
+        j = i + 1
+        while j < len(lines):
+            nm = re.match(r"^(#{1,6})\s+", lines[j].strip())
+            if nm and len(nm.group(1)) <= level:
+                break
+            j += 1
+        block = f"<!-- PMWB:AUTO:BEGIN key={key} -->\n{body.rstrip(chr(10))}\n<!-- PMWB:AUTO:END key={key} -->\n"
+        return "\n".join(lines[:j] + [block] + lines[j:])
+    return content
 
 
 def build_main_note_markdown(
