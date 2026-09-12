@@ -83,46 +83,44 @@
         </el-button>
       </div>
 
-      <!-- 人员列表（全量渲染 + v-show 显隐：筛选仅切 display，不重建 vnode / 不整表 diff；轻量勾选标记替代 93 个 el-checkbox 重组件） -->
+      <!-- 人员列表（单 computed visibleGroups 一次遍历产出，模板零函数调用；轻量勾选标记替代 93 个 el-checkbox 重组件） -->
       <div class="staff-picker-groups">
         <div
-          v-for="group in normalizedGroups"
-          v-show="groupVisible(group)"
-          :key="group.org_id"
+          v-for="vg in visibleGroups"
+          :key="vg.group.org_id"
           class="staff-picker-group"
         >
           <div class="staff-picker-group-title">
             <el-icon><OfficeBuilding /></el-icon>
-            <span>{{ group.org_name }}</span>
-            <span class="staff-picker-group-count">{{ groupVisibleCount(group) }}人</span>
+            <span>{{ vg.group.org_name }}</span>
+            <span class="staff-picker-group-count">{{ vg.options.length }}人</span>
             <el-button
               v-if="multiple"
               link
               type="primary"
               size="small"
               class="staff-picker-group-select-all"
-              @click="toggleGroup(group)"
+              @click="toggleGroup(vg)"
             >
-              {{ isGroupAllSelected(group) ? '取消全选' : '全选' }}
+              {{ vg.allSelected ? '取消全选' : '全选' }}
             </el-button>
           </div>
           <div class="staff-picker-group-body">
             <div
-              v-for="opt in group.options"
-              v-show="optionVisible(opt, group)"
-              :key="`${group.org_id}-${opt.value}`"
+              v-for="item in vg.options"
+              :key="item.opt.value"
               class="staff-picker-option"
-              :class="{ active: isSelected(opt.value) }"
-              @click="toggleOption(opt)"
+              :class="{ active: item.selected }"
+              @click="toggleOption(item.opt)"
             >
               <span v-if="multiple" class="staff-picker-check" aria-hidden="true"></span>
-              <span class="staff-picker-name">{{ opt.label }}</span>
-              <span v-if="opt.role_hint" class="staff-picker-role">{{ opt.role_hint }}</span>
-              <span v-if="opt.email && valueKey === 'email'" class="staff-picker-email">{{ opt.email }}</span>
+              <span class="staff-picker-name">{{ item.opt.label }}</span>
+              <span v-if="item.opt.role_hint" class="staff-picker-role">{{ item.opt.role_hint }}</span>
+              <span v-if="item.opt.email && valueKey === 'email'" class="staff-picker-email">{{ item.opt.email }}</span>
             </div>
           </div>
         </div>
-        <el-empty v-if="noVisibleGroups" description="没有匹配的团队或人员" :image-size="80" />
+        <el-empty v-if="visibleGroups.length === 0" description="没有匹配的团队或人员" :image-size="80" />
       </div>
 
       <!-- 自定义添加 -->
@@ -155,7 +153,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { CircleClose, OfficeBuilding, Search, Setting } from '@element-plus/icons-vue'
 import { loadStaffOptions, subscribeStaffOptions, basicDataApi } from '@/api/basicData.js'
 import { useStaffAdmin } from '@/composables/useStaffAdmin.js'
@@ -184,7 +182,8 @@ defineOptions({ inheritAttrs: false })
 const emit = defineEmits(['update:modelValue', 'change'])
 
 const { openStaffAdmin } = useStaffAdmin()
-const groups = ref([])
+// shallowRef：93 人嵌套对象不递归 proxy 化，去掉深层响应式初始化/访问开销（数据只读）
+const groups = shallowRef([])
 const orgOptions = ref([])
 const roleOptions = ref([])
 const pickerOptionsPromise = ref(null)
@@ -315,63 +314,51 @@ const allRoles = computed(() => {
   return roleOptions.value.map((r) => r.name).sort()
 })
 
-// --- 组合过滤（改为 v-show 显隐：筛选仅切换 display，不重建 vnode / 不整表 diff）---
+// --- 组合过滤：单 computed 一次遍历产出 visibleGroups，模板零函数调用（消除每次重渲 370+ 次逐人计算）---
 const q = computed(() => dialogQuery.value.trim().toLowerCase())
 
-function optionVisible(opt, group) {
+const visibleGroups = computed(() => {
   const kw = q.value
-  if (kw) {
-    const kws = kw.split(/\s+/).filter(Boolean)
-    const match = kws.every(
-      (k) =>
-        (opt.label || '').toLowerCase().includes(k) ||
-        (opt.email || '').toLowerCase().includes(k) ||
-        (opt.org_name || '').toLowerCase().includes(k),
-    )
-    if (!match) return false
+  const kws = kw ? kw.split(/\s+/).filter(Boolean) : []
+  const useOrg = filterOrg.value
+  const useRole = filterRole.value
+  const sel = new Set(selectedValues.value) // O(1) 命中，替代 isSelected 的 includes(O(n))
+
+  const result = []
+  for (const g of normalizedGroups.value) {
+    const items = []
+    let allSelected = true
+    let hasAny = false
+    for (const o of g.options) {
+      if (kws.length) {
+        const match = kws.every(
+          (k) =>
+            (o.label || '').toLowerCase().includes(k) ||
+            (o.email || '').toLowerCase().includes(k) ||
+            (o.org_name || '').toLowerCase().includes(k),
+        )
+        if (!match) continue
+      }
+      if (useOrg && g.org_name !== useOrg) continue
+      if (useRole && (o.role_hint || '') !== useRole) continue
+      const selected = sel.has(o.value)
+      if (!selected) allSelected = false
+      items.push({ opt: o, selected })
+      hasAny = true
+    }
+    if (hasAny) {
+      result.push({ group: g, options: items, allSelected })
+    }
   }
-  if (filterOrg.value && group.org_name !== filterOrg.value) return false
-  if (filterRole.value && (opt.role_hint || '') !== filterRole.value) return false
-  return true
-}
+  return result
+})
 
-function groupVisible(group) {
-  return group.options.some((o) => optionVisible(o, group))
-}
-
-function groupVisibleCount(group) {
-  let n = 0
-  for (const o of group.options) if (optionVisible(o, group)) n += 1
-  return n
-}
-
-const noVisibleGroups = computed(() =>
-  !(normalizedGroups.value || []).some((g) => groupVisible(g)),
-)
-
-// --- 全选 / 取消全选（基于当前可见成员，语义与原 filteredGroups 子集一致）---
-function _visibleOpts(group) {
-  return group.options.filter((o) => optionVisible(o, group))
-}
-
-function isGroupAllSelected(group) {
-  const vis = _visibleOpts(group)
-  return vis.length > 0 && vis.every((o) => isSelected(o.value))
-}
-
-function isGroupAnySelected(group) {
-  return _visibleOpts(group).some((o) => isSelected(o.value))
-}
-
-function isGroupNoneSelected(group) {
-  return !_visibleOpts(group).some((o) => isSelected(o.value))
-}
-
-function toggleGroup(group) {
+// --- 全选 / 取消全选（接收 visibleGroups 项 vg，复用其 options/allSelected，零额外遍历）---
+function toggleGroup(vg) {
   if (!props.multiple) return
-  const vis = _visibleOpts(group)
+  const vis = vg.options.map((i) => i.opt)
   if (!vis.length) return
-  if (isGroupAllSelected(group)) {
+  if (vg.allSelected) {
     // 取消全选本组（仅当前可见成员）
     const removeSet = new Set(vis.map((o) => o.value))
     const vals = selectedValues.value.filter((v) => !removeSet.has(v))
@@ -388,10 +375,6 @@ function toggleGroup(group) {
 }
 
 // --- 单选 / 多选 ---
-function isSelected(value) {
-  return selectedValues.value.includes(value)
-}
-
 function toggleOption(opt) {
   if (!props.multiple) {
     emit('update:modelValue', opt.value)
