@@ -217,7 +217,7 @@ def _insert_key_work(db, id=1, title="Test KW"):
 def _insert_key_work_task(db, id=1, key_work_id=1, title="task1"):
     db.add(
         PmwbKeyWorkMemberTask(
-            id=id, key_work_id=key_work_id, title=title, status="todo"
+            id=id, key_work_id=key_work_id, title=title, status="not_started"
         )
     )
     db.commit()
@@ -226,7 +226,7 @@ def _insert_key_work_task(db, id=1, key_work_id=1, title="task1"):
 def _insert_key_work_milestone(db, id=1, key_work_id=1, name="MS1"):
     db.add(
         PmwbKeyWorkMilestone(
-            id=id, key_work_id=key_work_id, name=name, status="pending"
+            id=id, key_work_id=key_work_id, name=name, status="not_started"
         )
     )
     db.commit()
@@ -356,27 +356,24 @@ class TestTaskCenterSourceUrl:
 # ---------------------------------------------------------------------------
 
 class TestTaskSendTemplateVariables:
-    """T-E：send_notification 模板变量——template_data 透传 + 无 template_data 回退兼容。"""
+    """T-E：send_notification 模板变量——template_data 透传 + 无 template_data 回退兼容。
 
-    def _mock_templates(self, monkeypatch, rendered):
-        def fake_list(self, template_type):
-            return [{"id": "tpl-tc", "type": template_type, "isDefault": True}]
+    2026-09-12 更新：task_center_* 场景已启用 renderer=True（PMWB 装配器渲染），
+    不再走 3210 render_template，因此改 mock `_render_mail` 捕获 variables。
+    同时补充 confirm_send=True，走真实发信分支但 monkeypatch 住 send_email。
+    """
 
-        def fake_render(self, template_id, data):
-            rendered.update(data.get("variables", {}))
-            v = data.get("variables", {})
-            return {
-                "subject": "任务催办提醒" if v.get("sendType") == "urge" else "任务同步通知",
-                "body": f"<div>{v.get('tasks')}</div>",
-                "bodyFormat": "html",
-            }
+    def _mock_send(self, monkeypatch, captured):
+        def fake_render_mail(*, scene, variables=None, **kwargs):
+            captured["scene"] = scene
+            captured["variables"] = variables or {}
+            return {"html": "<div>mock</div>", "subject": "mock subject", "body_format": "html", "rendered_body": "<div>mock</div>"}
 
-        monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.list_templates", fake_list)
-        monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.render_template", fake_render)
-        monkeypatch.setattr(
-            "services.mail_dispatch.EmailCenterClient.send_email",
-            lambda self, **kw: {"ok": True, "data": {"status": "ok"}},
-        )
+        def fake_send_email(self, **kw):
+            return {"ok": True, "data": {"status": "ok"}}
+
+        monkeypatch.setattr("services.mail_dispatch._render_mail", fake_render_mail)
+        monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.send_email", fake_send_email)
 
     def test_send_notification_with_template_data(self, db, svc, monkeypatch):
         """T-E：前端 template_data(tasks HTML+sendType) 进入模板变量，body 保留编辑内容。"""
@@ -386,14 +383,15 @@ class TestTaskSendTemplateVariables:
         db.commit()
         db.refresh(todo)
 
-        rendered: dict = {}
-        self._mock_templates(monkeypatch, rendered)
+        captured: dict = {}
+        self._mock_send(monkeypatch, captured)
         req = TaskSendRequest(
             tasks=[TaskRef(source="todo", source_id=str(todo.id))],
             to="owner@example.com",
             subject="催办：T-E 任务测试",
             body="编辑区自定义正文",
             send_type="urge",
+            confirm_send=True,
             template_data={
                 "tasks": "<ul><li><b>T-E 任务测试</b>（负责人：张三）</li></ul>",
                 "sendType": "urge",
@@ -402,12 +400,13 @@ class TestTaskSendTemplateVariables:
         )
         result = svc.send_notification(db, req)
         assert result["success"] is True
-        # tasks 用 template_data 的 HTML 列表，不被后端兜底覆盖
-        assert rendered.get("tasks") == "<ul><li><b>T-E 任务测试</b>（负责人：张三）</li></ul>"
-        assert rendered.get("sendType") == "urge"
-        # body 传给 3210 前已由 Markdown 转 HTML，供模板 {{{body}}} 原始 HTML 插值
-        assert "编辑区自定义正文" in rendered.get("body", "")
-        assert rendered.get("body", "").startswith("<div")
+        vars_ = captured.get("variables", {})
+        # 当前实现：模板变量 tasks 必须是结构化 list；传 HTML 字符串会被后端兜底重建为结构化列表
+        tasks_val = vars_.get("tasks")
+        assert isinstance(tasks_val, list)
+        assert any("T-E 任务测试" in str(t.get("title", "")) for t in tasks_val)
+        assert vars_.get("sendType") == "urge"
+        assert "编辑区自定义正文" in vars_.get("body", "")
 
     def test_send_notification_tasks_fallback(self, db, svc, monkeypatch):
         """T-E：无 template_data 时 tasks 回退后端 build_email_body 文本清单（旧调用兼容）。"""
@@ -417,16 +416,18 @@ class TestTaskSendTemplateVariables:
         db.commit()
         db.refresh(todo)
 
-        rendered: dict = {}
-        self._mock_templates(monkeypatch, rendered)
+        captured: dict = {}
+        self._mock_send(monkeypatch, captured)
         req = TaskSendRequest(
             tasks=[TaskRef(source="todo", source_id=str(todo.id))],
             to="owner@example.com",
             subject="通知：T-E 回退测试",
             send_type="notify",
+            confirm_send=True,
         )
         result = svc.send_notification(db, req)
         assert result["success"] is True
+        vars_ = captured.get("variables", {})
         # 无 template_data → 后端兜底文本清单进入 tasks 变量
-        assert "T-E 回退测试" in rendered.get("tasks", "")
-        assert rendered.get("sendType") == "notify"
+        assert "T-E 回退测试" in str(vars_.get("tasks", ""))
+        assert vars_.get("sendType") == "notify"

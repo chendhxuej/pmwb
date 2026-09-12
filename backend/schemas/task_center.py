@@ -94,6 +94,7 @@ class TaskSendRequest(BaseModel):
     send_type: str = Field("urge", description="notify=通知 / urge=催办")
     operator: Optional[str] = Field(None, description="操作人")
     dry_run: bool = Field(False, description="仅预览正文，不发送不落库")
+    confirm_send: bool = Field(False, description="显式确认真发；task-center 发送端点需前端带 true 才走真实发信")
     template_data: Optional[Dict[str, Any]] = Field(None, description="模板变量（task_center_notify/urge 模板：tasks/sendType/body）")
 
 

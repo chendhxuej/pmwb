@@ -558,6 +558,7 @@ async function mailDialogSendFn(payload) {
       body: payload.body,
       send_type: ctx.send_type,
       operator: 'pmwb',
+      confirm_send: true,
       // T-E：scene 模式下把模板变量透传后端（tasks HTML 列表），保证发送与预览同模板渲染
       template_data: payload.variables || null,
     })
@@ -672,7 +673,7 @@ async function openTaskEmail(rows, sendType) {
       sendType === 'urge' ? 'urge' : 'notify',
       '',
     )
-    mailDialogBody.value = (res && res.data && res.data.body_md) || ''
+    mailDialogBody.value = (res && res.body_md) || ''
   } catch (e) {
     // 拉取失败兜底为空（MailComposeDialog 内已有"按字段重置"按钮可重新生成）
     mailDialogBody.value = ''
