@@ -13,7 +13,6 @@ import { createPinia } from 'pinia'
 import VChart from 'vue-echarts'
 import EnlargeInput from './components/Common/EnlargeInput.vue'
 import { countup } from './composables/countup.js'
-import './styles/main.css'
 import './styles/design.css'
 
 // Element Plus week picker 依赖 dayjs isoWeek 插件

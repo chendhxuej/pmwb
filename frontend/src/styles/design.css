@@ -413,6 +413,18 @@ body {
   display: block;
 }
 
+/* ── DANGER ACTION DOWNGRADE ──
+   表格/列表每行的「删除」等危险操作链接按钮默认降为中性灰，
+   悬浮或聚焦时才显示红色，避免满屏红色造成视觉噪音。 */
+.el-button.is-link.el-button--danger {
+  color: var(--text-secondary) !important;
+  transition: color var(--transition-fast);
+}
+.el-button.is-link.el-button--danger:hover,
+.el-button.is-link.el-button--danger:focus-visible {
+  color: var(--danger) !important;
+}
+
 /* ── TABLE wrapper ── */
 .pm-table-wrap {
   background: var(--surface);
@@ -453,6 +465,51 @@ body {
 .text-muted { color: var(--text-muted) }
 .text-secondary { color: var(--text-secondary) }
 .font-mono { font-family: var(--font-mono) }
+
+/* ── 退役 main.css 后保留的全局重置（保证布局不崩） ── */
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+/* ── 页面级通用工具类（原 main.css 迁移） ── */
+.page-container {
+  padding: 20px;
+}
+
+.page-header {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.search-form {
+  background: var(--surface);
+  padding: 20px;
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+}
+
+.table-card {
+  background: var(--surface);
+  padding: 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
 
 /* ── 宽度工具类（用于筛选栏 el-select / EnlargeInput 等控件限宽） ── */
 .w-xs { width: 100px; flex-shrink: 0 }

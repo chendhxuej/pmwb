@@ -1,20 +1,24 @@
 <template>
   <div class="stats-overview">
-    <el-row :gutter="16">
-      <el-col :span="6" v-for="card in cards" :key="card.key">
-        <div class="stat-card" @mouseenter="card.hover = true" @mouseleave="card.hover = false"
-             :class="{ 'stat-card--hover': card.hover }">
-          <div class="stat-value">{{ card.value }}</div>
-          <div class="stat-label">{{ card.label }}</div>
-          <div class="stat-trend" v-if="card.trend != null">
-            <span :class="card.trend >= 0 ? 'trend-up' : 'trend-down'">
-              {{ card.trend >= 0 ? '↑' : '↓' }} {{ Math.abs(card.trend) }}%
-            </span>
-            <span class="trend-period">较昨日</span>
-          </div>
+    <div class="stat-grid">
+      <div
+        v-for="card in cards"
+        :key="card.key"
+        class="stat-card"
+        :class="{ 'stat-card--hover': card.hover }"
+        @mouseenter="card.hover = true"
+        @mouseleave="card.hover = false"
+      >
+        <div class="stat-value">{{ card.value }}</div>
+        <div class="stat-label">{{ card.label }}</div>
+        <div class="stat-trend" v-if="card.trend != null">
+          <span :class="card.trend >= 0 ? 'trend-up' : 'trend-down'">
+            {{ card.trend >= 0 ? '↑' : '↓' }} {{ Math.abs(card.trend) }}%
+          </span>
+          <span class="trend-period">较昨日</span>
         </div>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -61,6 +65,11 @@ onMounted(fetchStats)
 <style scoped>
 .stats-overview {
   margin-bottom: 16px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
 }
 .stat-card {
   background: var(--el-bg-color, #fff);

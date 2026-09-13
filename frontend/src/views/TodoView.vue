@@ -52,6 +52,7 @@
         </el-select>
       </div>
       <div class="search-bar-actions">
+        <el-checkbox v-model="showStatusColumn" label="显示状态列" size="default" />
         <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
         <el-button :icon="RefreshLeft" @click="handleReset">重置</el-button>
         <el-button type="primary" plain :icon="Plus" @click="handleAdd">新增待办</el-button>
@@ -104,7 +105,7 @@
             <span :class="['priority-chip', 'pri-' + (row.priority || 'P3')]">{{ row.priority || 'P3' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="140">
+        <el-table-column v-if="showStatusColumn" prop="status" label="状态" width="140">
           <template #default="{ row }">
             <el-popover
               placement="bottom"
@@ -438,6 +439,7 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
 const tableData = ref([])
+const showStatusColumn = ref(false)
 
 const pagination = reactive({
   page: 1,

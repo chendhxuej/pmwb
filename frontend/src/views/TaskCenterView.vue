@@ -25,17 +25,6 @@
         <div class="stat-value">{{ stats.due_soon }}</div>
         <div class="stat-label">3天内临期</div>
       </el-card>
-      <el-card
-        v-for="src in sourceList"
-        :key="src.key"
-        shadow="hover"
-        class="stat-card stat-mini"
-        :class="{ 'stat-active': activeTab === src.key }"
-        @click="activeTab = src.key"
-      >
-        <div class="stat-value">{{ stats.by_source?.[src.key] ?? 0 }}</div>
-        <div class="stat-label">{{ src.label }}</div>
-      </el-card>
     </div>
 
     <el-tabs v-model="activeTab" class="task-tabs">

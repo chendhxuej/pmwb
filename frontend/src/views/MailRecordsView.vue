@@ -1,16 +1,15 @@
 <template>
   <div class="mail-records">
-    <div class="page-header">
-      <div class="page-title">邮件记录</div>
-      <div class="page-actions">
+    <PageHeader title="邮件记录">
+      <template #actions>
         <el-select v-model="limit" size="default" style="width: 120px" @change="loadData">
           <el-option label="最近 50 条" :value="50" />
           <el-option label="最近 100 条" :value="100" />
           <el-option label="最近 200 条" :value="200" />
         </el-select>
         <el-button type="primary" :loading="loading" @click="loadData">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <el-table v-loading="loading" :data="tableData" border stripe style="width: 100%">
       <el-table-column prop="created_at" label="发送时间" width="180" sortable />
@@ -98,16 +97,6 @@ onMounted(() => {
 <style scoped>
 .mail-records {
   padding: 20px;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.page-title {
-  font-size: 20px;
-  font-weight: 600;
 }
 .detail-body {
   margin-top: 16px;

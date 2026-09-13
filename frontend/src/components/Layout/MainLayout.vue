@@ -17,7 +17,7 @@
               :title="collapsed ? item.title : ''"
             >
               <span class="nav-bar" v-show="isParentActive(item)" />
-              <el-icon class="nav-icon" :style="{ color: item.color }">
+              <el-icon class="nav-icon">
                 <component :is="item.icon" />
               </el-icon>
               <span class="nav-text">{{ item.title }}</span>
@@ -55,7 +55,7 @@
             :title="collapsed ? item.title : ''"
           >
             <span class="nav-bar" v-show="isActive(item.path)" />
-            <el-icon class="nav-icon" :style="{ color: item.color }">
+            <el-icon class="nav-icon">
               <component :is="item.icon" />
             </el-icon>
             <span class="nav-text">{{ item.title }}</span>
@@ -101,23 +101,16 @@ const router = useRouter()
 const appStore = useAppStore()
 const { collapsed, toggleCollapsed } = appStore
 
-// 彩色图标调色板（按菜单顺序循环分配，保证视觉一致性）
-const iconPalette = [
-  '#2f6fed', '#10b981', '#f59e0b', '#ef4444',
-  '#8b5cf6', '#06b6d4', '#ec4899', '#64748b',
-]
-
+// 侧边栏图标统一中性灰，仅在选中/悬停时点亮为强调蓝（单一蓝系纪律）
 const menuItems = computed(() => {
   const top = route.matched[0]?.children || []
   return top
     .filter((child) => !child.meta?.hidden)
-    .map((child, idx) => {
-      const color = iconPalette[idx % iconPalette.length]
+    .map((child) => {
       const base = {
         path: '/' + child.path,
         title: child.meta?.title || child.name,
         icon: child.meta?.icon,
-        color,
         badge: child.meta?.badge,
       }
       if (child.children && child.children.length) {
@@ -284,6 +277,12 @@ function go(path) {
 .nav-icon {
   font-size: 18px;
   flex-shrink: 0;
+  color: #64748b;
+  transition: color 0.15s ease;
+}
+.nav-parent:hover .nav-icon,
+.nav-parent.active .nav-icon {
+  color: #2f6fed;
 }
 .nav-text {
   flex: 1;

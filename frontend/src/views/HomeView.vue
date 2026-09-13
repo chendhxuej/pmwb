@@ -21,7 +21,7 @@
               <span class="g-stat-key">{{ s.key }}</span>
             </div>
           </div>
-          <div class="cmd-bar">
+          <div class="cmd-bar" @click="cmdOpen = true">
             <div class="cmd-bar-kbd"><span class="kbd">⌘</span><span class="kbd">K</span></div>
             <div class="cmd-bar-text">{{ cmdText }}</div><span class="cmd-cursor"></span>
           </div>
@@ -238,7 +238,7 @@
                   <tr v-for="(r, i) in recentReqs" :key="i">
                     <td class="req-name" :title="r.name">{{ r.name }}</td>
                     <td class="req-owner">{{ r.owner }}</td>
-                    <td><span class="status-tag" :class="r.statusClass">{{ r.status }}</span></td>
+                    <td><StatusBadge :label="r.status" :type="rqStatusTone(r.status)" size="small" /></td>
                     <td class="req-date">{{ r.date }}</td>
                   </tr>
                 </tbody>
@@ -333,6 +333,7 @@
       </BentoCard>
 
     </div>
+    <CommandPalette v-model="cmdOpen" />
   </div>
 </template>
 
@@ -340,10 +341,21 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BentoCard from '@/components/Common/BentoCard.vue'
+import CommandPalette from '@/components/Common/CommandPalette.vue'
+import StatusBadge from '@/components/Common/StatusBadge.vue'
 import { dashboardApi } from '@/api/dashboard'
 import { researchApi } from '@/api/research'
 
 const router = useRouter()
+
+/* ───────────────── 全局命令面板（⌘K / Ctrl+K）──────────────── */
+const cmdOpen = ref(false)
+function onCmdKey(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    cmdOpen.value = true
+  }
+}
 
 /* ───────────────── 图表坐标常量 ───────────────── */
 const plotLeft = 40
@@ -375,6 +387,12 @@ function rqStatusClass(name) {
   if (name === '已上线') return 'st-live'
   if (name === '评审中') return 'st-review'
   return 'st-backlog'
+}
+function rqStatusTone(name) {
+  if (name === '开发中') return 'warning'
+  if (name === '已上线') return 'success'
+  if (name === '评审中') return 'primary'
+  return 'info'
 }
 
 const greeting = reactive({
@@ -725,10 +743,12 @@ onMounted(() => {
   loadData()
   loadResearchStats()
   _timer = setTimeout(_tick, 600)
+  window.addEventListener('keydown', onCmdKey)
 })
 
 onUnmounted(() => {
   if (_timer) clearTimeout(_timer)
+  window.removeEventListener('keydown', onCmdKey)
 })
 </script>
 
@@ -789,15 +809,15 @@ onUnmounted(() => {
   margin-top: 6px;
 }
 .g-eff { text-align: right; flex-shrink: 0; }
-.g-eff-key { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+.g-eff-key { font-size: 12px; color: #cbd5e1; margin-bottom: 4px; }
 .g-eff-val {
   font-size: 38px;
   font-weight: 800;
   font-family: var(--font-mono);
-  color: #4ade80;
+  color: #6ee7b7;
   letter-spacing: -1px;
 }
-.g-eff-unit { font-size: 16px; color: #64748b; }
+.g-eff-unit { font-size: 16px; color: #cbd5e1; }
 .g-stats { display: flex; gap: 24px; flex-wrap: wrap; }
 .g-stat { display: flex; flex-direction: column; }
 .g-stat-val { font-size: 24px; font-weight: 700; font-family: var(--font-mono); line-height: 1.2; }
@@ -828,7 +848,7 @@ onUnmounted(() => {
   padding: 2px 7px;
   border-radius: 5px;
 }
-.cmd-bar-text { flex: 1; font-size: 13px; color: #64748b; min-width: 0; white-space: nowrap; overflow: hidden; }
+.cmd-bar-text { flex: 1; font-size: 13px; color: #94a3b8; min-width: 0; white-space: nowrap; overflow: hidden; }
 .cmd-cursor {
   display: inline-block;
   width: 2px;
@@ -898,10 +918,10 @@ onUnmounted(() => {
 .act-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 .act-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .act-btn.primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px -4px rgba(47, 111, 237, .35); }
-.act-btn.success { background: var(--success); color: #fff; }
-.act-btn.success:hover { background: #0c885c; transform: translateY(-1px); }
-.act-btn.warn { background: var(--warning); color: #fff; }
-.act-btn.warn:hover { background: #c37a16; transform: translateY(-1px); }
+.act-btn.success { background: var(--accent); color: #fff; border-color: var(--accent); }
+.act-btn.success:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px -4px rgba(47, 111, 237, .35); }
+.act-btn.warn { background: var(--accent); color: #fff; border-color: var(--accent); }
+.act-btn.warn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px -4px rgba(47, 111, 237, .35); }
 .act-btn.ghost { background: transparent; color: var(--text-secondary); border-color: var(--border); }
 .act-btn.ghost:hover { background: var(--bg-app); color: var(--text-primary); border-color: var(--text-muted); }
 
@@ -1027,11 +1047,6 @@ onUnmounted(() => {
 .req-table tr:last-child td { border-bottom: none; }
 .req-name { font-weight: 500; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .req-owner { color: var(--text-secondary); font-size: 12.5px; }
-.status-tag { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 5px; display: inline-block; white-space: nowrap; }
-.st-review { background: var(--accent-soft); color: var(--accent); }
-.st-dev { background: var(--warning-soft); color: var(--warning); }
-.st-backlog { background: var(--border-subtle); color: var(--text-muted); }
-.st-live { background: var(--success-soft); color: var(--success); }
 .req-date { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
   /* ── 需求概览整合卡（趋势图 + 最近需求 同卡）── */

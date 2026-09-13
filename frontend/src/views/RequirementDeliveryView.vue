@@ -1,17 +1,15 @@
 <template>
   <div class="page-container">
-    <!-- 页头 -->
-    <div class="page-header">
-      <div>
-        <div class="page-title">需求与交付</div>
-        <div class="page-sub">需求采集 → 团队评估 → 用户故事 → 分析说明书 → 启动开发 → 生产部署，全流程闭环</div>
-      </div>
-      <div class="page-actions">
+    <PageHeader
+      title="需求与交付"
+      subtitle="需求采集 → 团队评估 → 用户故事 → 分析说明书 → 启动开发 → 生产部署，全流程闭环"
+    >
+      <template #actions>
         <el-button type="primary" @click="openActiveOptDialog()">
           <el-icon><Plus /></el-icon> 新增主动优化
         </el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- 主标签：需求 / 开发工单 -->
     <el-tabs v-model="activeTab" class="pm-tabs">
@@ -2548,7 +2546,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page-sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 4px }
 .pm-tabs { margin-top: 4px }
 .stat-cards { display: flex; gap: 12px; padding: 16px 20px 0; flex-wrap: wrap }
 .stat-card { background: var(--bg-card, var(--el-bg-color)); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 18px; min-width: 110px; flex: 1; display: flex; flex-direction: column; gap: 6px; transition: box-shadow .2s }
