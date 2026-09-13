@@ -17,13 +17,15 @@
       </el-aside>
 
       <el-container class="wr-main">
-        <div class="page-header">
-          <div class="page-title">AI总结</div>
-          <div class="page-actions">
+        <PageHeader
+          title="AI总结"
+          subtitle="周报 / 月报 / 专题总结自动化归档"
+        >
+          <template #actions>
             <el-button type="primary" :icon="EditPen" @click="openGenerate">生成报告</el-button>
             <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-          </div>
-        </div>
+          </template>
+        </PageHeader>
 
         <el-table :data="filteredList" v-loading="loading" border stripe style="width: 100%">
           <el-table-column prop="id" label="ID" width="70" />
@@ -161,6 +163,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { EditPen, Edit, Check, Message, Delete, Stamp, FolderChecked, CopyDocument, Refresh, Loading } from '@element-plus/icons-vue'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 import { formatDateTime } from '@/utils/format'
 import {
   listWorkReports, getWorkReport, generateWorkReport,

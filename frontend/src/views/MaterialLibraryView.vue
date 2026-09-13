@@ -1,19 +1,18 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <div>
-        <div class="page-title">业务资料库</div>
-        <div class="page-sub">汇总展示各业务模块材料，支持在线预览、下载与模糊检索；手工上传材料统一归档</div>
-      </div>
-      <div class="page-actions">
+    <PageHeader
+      title="业务资料库"
+      subtitle="汇总展示各业务模块材料，支持在线预览、下载与模糊检索；手工上传材料统一归档"
+    >
+      <template #actions>
         <el-button @click="handleSync">
           <el-icon><Refresh /></el-icon> 汇聚同步
         </el-button>
         <el-button type="primary" @click="openUpload">
           <el-icon><Upload /></el-icon> 批量上传
         </el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div class="material-layout">
       <!-- 左侧：分类树 -->
@@ -299,6 +298,7 @@ import {
   getCategories, inlineMaterialUrl, downloadMaterialUrl,
 } from '@/api/material.js'
 import MaterialCategoryManage from '@/views/MaterialCategoryManage.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 const keyword = ref('')
 const sourceType = ref('')

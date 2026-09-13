@@ -1,6 +1,6 @@
 <template>
   <div class="todo-view">
-    <h2 class="page-title">待办中心</h2>
+    <PageHeader title="待办中心" />
 
     <!-- 统计磁贴：仿运营 cat-tile 风格，7 项差异化配色 -->
     <div class="stats-grid">
@@ -430,6 +430,7 @@ import {
 import DataTable from '@/components/Common/DataTable.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import EnlargeInput from '@/components/Common/EnlargeInput.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 import { todoApi } from '@/api/todo'
 import { operationApi } from '@/api/operation'
 import { meetingApi } from '@/api/meeting'
@@ -934,13 +935,6 @@ onMounted(async () => {
 <style scoped>
 .todo-view {
   padding: 20px;
-}
-
-.page-title {
-  margin: 0 0 18px;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
 }
 
 /* ───── 统计磁贴（仿运营 cat-tile：图标 chip + 大数字 + 副文字） ───── */

@@ -1,11 +1,13 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <div class="page-title">需求管理</div>
-      <div class="page-actions">
+    <PageHeader
+      title="需求管理"
+      subtitle="个人需求台账全生命周期跟踪"
+    >
+      <template #actions>
         <el-button type="primary" @click="fetchData">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div class="stats-row">
       <el-card v-for="item in statsItems" :key="item.label" shadow="hover" class="stat-card">
@@ -361,6 +363,7 @@ import StaffSelect from '@/components/Common/StaffSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 import { knowledgeApi } from '@/api/knowledge.js'
 import {
   getRequirements, getRequirement, updateRequirement,

@@ -1,12 +1,14 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <div class="page-title">开发工单</div>
-      <div class="page-actions">
+    <PageHeader
+      title="开发工单"
+      subtitle="极客业务工单全生命周期管理"
+    >
+      <template #actions>
         <el-button type="primary" @click="handleCreate">新建工单</el-button>
         <el-button @click="fetchData">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div class="stats-row">
       <el-card v-for="item in statsItems" :key="item.label" shadow="hover" class="stat-card">
@@ -176,6 +178,7 @@ import SearchForm from '@/components/Common/SearchForm.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 import {
   getDevTickets,
   getDevTicket,

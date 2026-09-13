@@ -1,12 +1,10 @@
 <template>
   <div class="meeting-view">
-    <!-- 顶部标题栏 -->
-    <div class="page-head">
-      <div>
-        <h2 class="page-title">会议日程</h2>
-        <div class="page-crumb">工作台 / 会议日程</div>
-      </div>
-      <div class="page-actions">
+    <PageHeader
+      title="会议日程"
+      subtitle="会议信息聚合与行动项联动"
+    >
+      <template #actions>
         <el-input
           v-model="keyword"
           placeholder="搜索会议 / 参会人"
@@ -18,8 +16,8 @@
           </template>
         </el-input>
         <el-button type="primary" @click="handleAdd">＋ 新增会议</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- 本周概览 KPI 卡片 -->
     <div class="bento-grid kpi-strip">
@@ -714,6 +712,7 @@ import StaffSelect from '@/components/Common/StaffSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 const router = useRouter()
 const route = useRoute()

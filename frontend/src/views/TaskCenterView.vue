@@ -1,15 +1,17 @@
 <template>
   <div class="task-center">
-    <div class="page-header">
-      <div class="page-title">任务中心</div>
-      <div class="page-actions">
+    <PageHeader
+      title="任务中心"
+      subtitle="需求催办 / 邮件中心 / 运营监控 —— 三端任务聚合"
+    >
+      <template #actions>
         <el-button type="primary" @click="openNewTodo">
           <el-icon><Plus /></el-icon>
           <span>新建待办</span>
         </el-button>
         <el-button type="primary" :loading="loading" @click="refreshAll">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- 统计卡 -->
     <div class="stats-row">
@@ -320,6 +322,7 @@ import { todoApi } from '@/api/todo'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 const router = useRouter()
 
@@ -809,16 +812,6 @@ onMounted(() => {
 <style scoped>
 .task-center {
   padding: 20px;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.page-title {
-  font-size: 20px;
-  font-weight: 600;
 }
 .stats-row {
   display: flex;

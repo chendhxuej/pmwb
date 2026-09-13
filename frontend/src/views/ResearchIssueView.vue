@@ -1,12 +1,13 @@
 <template>
   <div class="research-issue-view">
-    <div class="page-head">
-      <h2 class="page-title">一线调研</h2>
-      <el-tag type="primary" effect="dark" size="large" round>调研工单</el-tag>
-      <el-button type="primary" @click="openEntry" style="margin-left:auto">
-        <el-icon><Plus /></el-icon><span>录入工单</span>
-      </el-button>
-    </div>
+    <PageHeader title="一线调研" subtitle="一线调研工单全流程管理">
+      <template #actions>
+        <el-tag type="primary" effect="dark" size="small" round>调研工单</el-tag>
+        <el-button type="primary" @click="openEntry">
+          <el-icon><Plus /></el-icon><span>录入工单</span>
+        </el-button>
+      </template>
+    </PageHeader>
 
     <!-- 统计卡片 -->
     <el-row :gutter="12" class="stats-row">
@@ -557,6 +558,7 @@ import { formatDateTime } from '@/utils/format'
 import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 // ---- 常量定义 ----
 const CITY_OPTIONS = [

@@ -1,18 +1,16 @@
 <template>
   <div class="page-container ai-qa">
-    <!-- 页头 -->
-    <div class="page-header">
-      <div>
-        <div class="page-title">AI 问答</div>
-        <div class="page-sub">基于项目数据库（需求 / 工单 / 会议 / 运营 / 知识库）与 Obsidian 笔记，智能查询你的工作信息</div>
-      </div>
-      <div class="page-actions">
+    <PageHeader
+      title="AI 问答"
+      subtitle="基于项目数据库（需求 / 工单 / 会议 / 运营 / 知识库）与 Obsidian 笔记，智能查询你的工作信息"
+    >
+      <template #actions>
         <span class="status-chip" :class="statusClass">
           <span class="dot" />
           {{ statusText }}
         </span>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- 对话区 -->
     <div class="chat-wrap">
@@ -104,6 +102,7 @@
 import { ref, reactive, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Promotion, Loading, Link, ArrowDown, User, Cpu, ChatDotRound, Search } from '@element-plus/icons-vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 import { aiQaAsk, aiQaStatus } from '@/api/ai_qa.js'
 
 const messages = ref([])

@@ -1,18 +1,18 @@
 <template>
   <div class="work-order-view">
-    <div class="page-head">
-      <h2 class="page-title">{{ title }}</h2>
-      <el-tag :type="categoryColor" effect="dark" size="large" round>{{ title }}</el-tag>
-      <template v-if="category === 'prod'">
-        <el-button @click="downloadTemplate">
-          <el-icon><Download /></el-icon><span>下载模版</span>
-        </el-button>
-        <el-button type="primary" plain :loading="importing" @click="triggerImport">
-          <el-icon><UploadFilled /></el-icon><span>导入工单</span>
-        </el-button>
-        <input ref="importInput" type="file" accept=".xlsx" style="display:none" @change="onImportFile" />
-      </template>
-      <el-button type="primary" @click="openEntry" style="margin-left:auto">
+    <PageHeader :title="title" subtitle="生产工单 / 开发工单双态管理">
+      <template #actions>
+        <el-tag :type="categoryColor" effect="dark" size="small" round>{{ title }}</el-tag>
+        <template v-if="category === 'prod'">
+          <el-button @click="downloadTemplate">
+            <el-icon><Download /></el-icon><span>下载模版</span>
+          </el-button>
+          <el-button type="primary" plain :loading="importing" @click="triggerImport">
+            <el-icon><UploadFilled /></el-icon><span>导入工单</span>
+          </el-button>
+          <input ref="importInput" type="file" accept=".xlsx" style="display:none" @change="onImportFile" />
+        </template>
+        <el-button type="primary" @click="openEntry">
         <el-icon><Plus /></el-icon><span>录入工单</span>
       </el-button>
     </div>
@@ -561,6 +561,7 @@ import { formatDateTime } from '@/utils/format'
 import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 const route = useRoute()
 const category = computed(() => route.meta.category || 'prod')

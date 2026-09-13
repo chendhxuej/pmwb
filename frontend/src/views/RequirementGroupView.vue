@@ -1,12 +1,14 @@
 <template>
   <div class="group-req">
-    <div class="page-header">
-      <div class="page-title">集团需求</div>
-      <div class="page-actions">
+    <PageHeader
+      title="集团需求"
+      subtitle="个人优先级标记为「集团需求」的需求台账"
+    >
+      <template #actions>
         <el-button :loading="loading" @click="loadData">刷新</el-button>
         <el-button type="success" :loading="exporting" @click="handleExport">导出 xlsx</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div class="table-hint">
       集团需求（个人优先级标记为「集团需求」）。点击「导出 xlsx」可导出当前全部集团需求台账。
@@ -52,6 +54,7 @@ import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
 import { getRequirements } from '@/api/requirement.js'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 const loading = ref(false)
 const exporting = ref(false)

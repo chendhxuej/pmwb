@@ -1,12 +1,14 @@
 <template>
   <div class="llm-manage-page">
-    <div class="page-header">
-      <div class="page-title">大模型管理</div>
-      <div class="page-actions">
+    <PageHeader
+      title="大模型管理"
+      subtitle="多模型提供方配置与自动 fallback"
+    >
+      <template #actions>
         <el-button type="primary" :icon="Plus" @click="openCreate">新增模型</el-button>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <el-alert type="info" :closable="false" show-icon class="hint">
       <template #title>多模型管理</template>
@@ -112,6 +114,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 import {
   listLlmProviders, getLlmProviderPresets, createLlmProvider,
   updateLlmProvider, deleteLlmProvider, setDefaultLlmProvider, testLlmProvider,

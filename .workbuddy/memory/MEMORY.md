@@ -53,3 +53,18 @@
 - 用户故事落库=delete+insert 全量覆盖；get_status 是真实连通探测（60s TTL）。
 - 知识标准化（产品圣经）MAIN_NOTE_SECTIONS 14 章节；Obsidian 入口 `openObsidianNote(relPath)`，vault「知识图谱」。
 - 大模型管理 pmwb_llm_provider 多模型注册表；call_best_available 全不可用落规则模板。
+
+## 8. 前端 UI 设计系统约定（2026-09-13 确立，commit de0c793）
+- **设计令牌单一源**：`frontend/src/styles/design.css` 提供 CSS 变量（`--accent #2f6fed` 单蓝系、`--success #0f9d6b`、`--warning #d98a1f`、`--danger #d9544d`、`--text-secondary #64748b`、`--shadow-elevated`、`--radius-lg/md/sm` 等）。**禁止**在组件 scoped 样式里硬编码十六进制色值或重复定义同名变量。
+- **统一页头**：用 `<PageHeader title="…" subtitle="…" ><template #actions>…</template></PageHeader>`（`@/components/Common/PageHeader.vue`），替换各页面的 `.page-header/.page-title/.page-sub/.page-actions` 手写模板。已迁移：RequirementDeliveryView / MailCenterLayout / MailRecordsView。其他页面后续替换。
+- **状态标签统一**：`<StatusBadge :label="…" :type="…" size="small" />`（`@/components/Common/StatusBadge.vue` + `constants/statusConfig.js` 的 `SEMANTIC_TONES` + `MODULE_STATUS`）。新增状态色须先在 statusConfig.js 注册，**禁止**组件内裸用 `<el-tag type="success/warning/danger">`。
+- **全局命令面板**：`<CommandPalette v-model="open" />`（`@/components/Common/CommandPalette.vue`）监听 ⌘K/Ctrl+K，自动从 router 聚合路由跳转。HomeView 已接入。
+- **危险操作降级**：表格行内 `el-button--danger` 链接默认中性灰、悬停才显红（design.css 全局规则）；非表格区域不受影响。
+- **验证工具**：`frontend/tests/e2e/ui_shots.cjs`（10 页面首屏截图 + 写 `_log.txt` 含 len/scrollH/errs；errs=none + len>0 即通过）+ `frontend/tests/e2e/verify_cmd.cjs`（命令面板开/搜/ESC）。
+- **截图多模态读图被沙箱过滤**：验证只信 `_log.txt` 的 len/errs 文本，禁"能渲染"冒充。
+
+## 9. 本地 git 操作沙箱绕坑（2026-09-13）
+- WorkBuddy Bash 工具的 `shell-runtime-bash-env.sh` 第 3 行 `dirname` 缺失 → `cd` 失败（"cd: null directory"）；coreutils（head/tail/grep/ls）也缺。**shim 内禁止 cd/head/tail/grep**。
+- git 绕过法：绝对路径 `C:/Program Files/Git/cmd/git.exe -C "D:/项目/个人工作台系统" <cmd> > <log> 2>&1`，回 `echo "E=$?"`，再 Read 日志文件。
+- 提交必须走 `~/.workbuddy/bin/git-safe-commit.sh -m "…" [--push] [--all | -- <files>]`（脚本内置 detached HEAD 重锚 + 仓库外备份 + commit-gate 烟雾测试）。绝对路径 `bash.exe` 调用：`C:/Users/chend/.workbuddy/binaries/PortableGit/versions/1.2.0/bin/bash.exe "C:/Users/chend/.workbuddy/bin/git-safe-commit.sh" …`。
+- **push 成功判定**：本机看 push 输出 `<old>..<new> <branch> -> <branch>` 即真成功。`git status` 的 "ahead N commits" 若矛盾，以 `git fetch origin <branch>` 的 `X..Y branch -> origin/branch` 为准——**沙箱会吞 `refs/remotes/origin/<branch>` 本地写入**，故 `rev-parse origin/<branch>` 与 `git status` 不可信，必须用 ls-remote 或 fetch 输出判远端真实状态。

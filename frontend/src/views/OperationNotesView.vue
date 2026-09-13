@@ -1,9 +1,9 @@
 <template>
   <div class="notes-view">
-    <div class="page-head">
-      <h2 class="page-title">知识沉淀</h2>
-      <span class="hint">浏览运营关联的知识笔记，可直接编辑写回 Obsidian，并关联到工单实现 DB+笔记联动管理</span>
-    </div>
+    <PageHeader
+      title="知识沉淀"
+      subtitle="浏览运营关联的知识笔记，可直接编辑写回 Obsidian，并关联到工单实现 DB+笔记联动管理"
+    />
 
     <el-row :gutter="16" class="notes-body">
       <!-- 左：笔记列表 -->
@@ -108,6 +108,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownRender from '@/components/Common/MarkdownRender.vue'
 import { obsidianApi } from '@/api/obsidian'
 import { operationApi } from '@/api/operation'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 const notes = ref([])
 const noteSearch = ref('')

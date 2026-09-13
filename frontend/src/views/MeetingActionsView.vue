@@ -1,14 +1,13 @@
 <template>
   <div class="meeting-actions-view">
-    <div class="page-head">
-      <div>
-        <h2 class="page-title">会议行动项</h2>
-        <div class="page-crumb">工作台 / 会议日程 / 行动项</div>
-      </div>
-      <div class="page-actions">
+    <PageHeader
+      title="会议行动项"
+      subtitle="会议产出的待办追踪与闭环"
+    >
+      <template #actions>
         <el-button @click="handleRefresh" :icon="Refresh" :loading="loading">刷新</el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <el-card shadow="never" class="search-card">
       <el-form :model="queryForm" inline>
@@ -160,6 +159,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import { meetingApi } from '@/api/meeting'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 const router = useRouter()
 
