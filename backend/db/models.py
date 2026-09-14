@@ -705,7 +705,7 @@ class PmwbMeetingAction(Base):
     meeting_id = Column(Integer, ForeignKey("pmwb_meeting.id"), nullable=False, comment="关联会议ID")
     content = Column(Text, nullable=False, comment="行动项内容")
     title = Column(String(256), comment="行动项标题（独立标题；为空时前端回退显示 content）")
-    owner = Column(String(64), comment="负责人")
+    owner = Column(String(512), comment="负责人(多选,逗号分隔)")
     due_date = Column(Date, comment="截止日期")
     status = Column(String(32), default="pending", comment="状态")
     category = Column(
@@ -1248,7 +1248,7 @@ class PmwbKeyWorkMemberTask(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
     title = Column(String(500), nullable=False, comment="待办标题")
-    assignee = Column(String(64), comment="负责人(成员姓名)")
+    assignee = Column(String(512), comment="负责人(成员姓名,多选,逗号分隔)")
     due_date = Column(Date, comment="截止日期")
     status = Column(
         Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_task_status"),

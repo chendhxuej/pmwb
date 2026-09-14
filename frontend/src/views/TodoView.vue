@@ -394,7 +394,7 @@
               >
                 <div class="action-item-head">
                   <StatusBadge module="meeting_action" :value="act.status" />
-                  <span class="action-owner">负责人：{{ act.owner || '—' }}</span>
+                  <span class="action-owner">负责人：{{ (act.owner || '').replace(/,/g, '、') || '—' }}</span>
                   <span class="action-due" v-if="act.due_date">截止 {{ fmtDate(act.due_date) }}</span>
                 </div>
                 <div class="action-content">{{ act.title || act.content || '—' }}</div>

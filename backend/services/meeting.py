@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,9 +20,15 @@ from utils.email import EmailCenterClient
 from utils.markdown_mail import markdown_to_email_html
 from utils.master_service import MasterServiceClient
 from utils.validators import validate_email_strict
+from utils.owners import join_owners, owners_display as _owners_display, split_owners  # noqa: F401
 from services.mail_dispatch import dispatch_email
 
 logger = logging.getLogger(__name__)
+
+
+def owners_display(raw) -> str:
+    """多负责人展示文本（顿号连接；空值回退 '—'，用于邮件 / 纪要正文）。"""
+    return _owners_display(raw) or "—"
 
 
 class MeetingService(BaseService[PmwbMeeting]):
@@ -166,8 +173,8 @@ class MeetingService(BaseService[PmwbMeeting]):
     def sync_action_todo(self, db: Session, meeting_id: int, action_id: int, *, dispatch: bool = True) -> dict:
         """会议行动项归属分流（统一邮件治理层）：
 
-        - owner == 本人(SELF_NAME) → 建个人待办（PmwbTodo）并回填 related_todo_id；
-        - owner 为团队成员 → 不进个人待办，作为「团队任务」保留在行动项，发送 HTML 派发邮件给负责人；
+        - owner 含本人(SELF_NAME) → 建个人待办（PmwbTodo）并回填 related_todo_id；
+        - owner 为团队成员（可多选，逗号分隔）→ 不进个人待办，作为「团队任务」保留在行动项，向全部负责人发送 HTML 派发邮件；
         - owner 为空 → 拒绝，需先指定负责人。
         返回 {todo_id, created, personal, dispatched, owner, message}。
         """
@@ -181,7 +188,7 @@ class MeetingService(BaseService[PmwbMeeting]):
         )
         if not action:
             raise NotFoundException(f"会议行动项不存在：action_id={action_id}")
-        if not (action.owner or "").strip():
+        if not split_owners(action.owner):
             raise ValidationException("请先指定行动项负责人，再创建/派发任务")
 
         # 已是本人的个人待办则直接返回
@@ -190,8 +197,9 @@ class MeetingService(BaseService[PmwbMeeting]):
             if todo:
                 return {"todo_id": todo.id, "created": False, "personal": True, "dispatched": False, "todo": todo}
 
-        owner = (action.owner or "").strip()
-        if owner == settings.SELF_NAME:
+        owners = split_owners(action.owner)
+        # 多负责人时只要本人是承接人之一，即建个人待办；其余负责人另行派发
+        if settings.SELF_NAME in owners:
             due = action.due_date
             todo = todo_service.create(
                 db,
@@ -199,7 +207,7 @@ class MeetingService(BaseService[PmwbMeeting]):
                     "title": (action.content or "(会议待办)")[:255],
                     "content": (
                         f"来源会议：{meeting.title}（{meeting.meeting_id}）\n"
-                        f"负责人：{action.owner or '—'}\n"
+                        f"负责人：{owners_display(action.owner)}\n"
                         f"分类：{action.category or 'meeting'}\n"
                         f"模板：{action.template or '—'}"
                     ),
@@ -216,12 +224,12 @@ class MeetingService(BaseService[PmwbMeeting]):
             db.commit()
             return {"todo_id": todo.id, "created": True, "personal": True, "dispatched": False, "todo": todo}
 
-        # 团队成员 → 团队任务：不建个人待办，发送派发邮件
+        # 团队成员 → 团队任务：不建个人待办，向全部负责人发送派发邮件
         dispatched = False
         note = ""
         if dispatch:
             md = self._build_dispatch_mail(action, meeting)
-            emails, _ = self._resolve_recipients([owner])
+            emails, _ = self._resolve_recipients(owners)
             if emails:
                 res = dispatch_email(
                     db=db,
@@ -243,13 +251,13 @@ class MeetingService(BaseService[PmwbMeeting]):
                 dispatched = res["success"]
                 note = res["message"]
             else:
-                note = f"负责人 {owner} 未在人员中台解析到邮箱，未发送派发邮件"
+                note = f"负责人 {owners_display(action.owner)} 未在人员中台解析到邮箱，未发送派发邮件"
         return {
             "todo_id": None,
             "created": False,
             "personal": False,
             "dispatched": dispatched,
-            "owner": owner,
+            "owner": join_owners(owners),
             "message": note or "已记录为团队任务（不进入你的个人待办）",
         }
 
@@ -259,7 +267,7 @@ class MeetingService(BaseService[PmwbMeeting]):
             f"### 任务派发通知\n\n"
             f"**{action.content or '(未填写内容)'}**\n\n"
             f"- **所属会议**：{meeting.title}\n"
-            f"- **负责人**：{action.owner or '—'}\n"
+            f"- **负责人**：{owners_display(action.owner)}\n"
             f"- **截止日期**：{due}\n"
             f"- **分类**：{action.category or 'meeting'}\n\n"
             f"请按上述要求在期限内推进，并在 PMWB「会议行动项跟踪台」及时更新状态。"
@@ -346,7 +354,7 @@ class MeetingService(BaseService[PmwbMeeting]):
                 .all()
             )
             action_html = "".join(
-                f"<li><strong>{a.owner or '—'}</strong>：{a.content or ''}"
+                f"<li><strong>{owners_display(a.owner)}</strong>：{a.content or ''}"
                 f"（截止 {a.due_date or '待定'}）</li>"
                 for a in actions
             )
@@ -500,7 +508,8 @@ class MeetingService(BaseService[PmwbMeeting]):
         if "content" in obj_in and obj_in["content"] is not None:
             action.content = obj_in["content"]
         if "owner" in obj_in:
-            action.owner = obj_in["owner"]
+            # 多负责人统一规范化为逗号分隔字符串（兼容前端传数组 / 逗号串）
+            action.owner = join_owners(obj_in["owner"])
         if "due_date" in obj_in:
             due_date = obj_in["due_date"]
             if due_date is None or due_date == "":
@@ -560,7 +569,9 @@ class MeetingService(BaseService[PmwbMeeting]):
             raise NotFoundException(f"会议行动项不存在：meeting_id={meeting_id}, action_id={action_id}")
 
         meeting = self.get(db, meeting_id)
-        target_recipients = recipients if recipients is not None else [action.owner] if action.owner else []
+        target_recipients = (
+            recipients if recipients is not None else split_owners(action.owner)
+        )
 
         return supervise_service.supervise_action(
             scene=scene,

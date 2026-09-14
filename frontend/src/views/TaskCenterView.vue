@@ -154,7 +154,9 @@
             {{ row.detail?.['问题类型'] || '—' }}
           </template>
         </el-table-column>
-        <el-table-column prop="owner" label="负责人" width="110" show-overflow-tooltip />
+        <el-table-column label="负责人" width="130" show-overflow-tooltip>
+          <template #default="{ row }">{{ (row.owner || '').replace(/,/g, '、') || '—' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="95">
           <template #default="{ row }">
             <StatusBadge module="task_center" :value="row.status" />

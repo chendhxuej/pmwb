@@ -435,7 +435,7 @@
             <div class="act-grid">
               <div>
                 <label class="ag-label">负责人</label>
-                <StaffSelect v-model="act.owner" placeholder="负责人" />
+                <StaffSelect v-model="act.owner" multiple placeholder="可多选负责人" />
               </div>
               <div>
                 <label class="ag-label">截止日期</label>
@@ -463,7 +463,7 @@
               <el-tag v-else type="info" size="small">未建待办</el-tag>
               <div class="act-ops">
                 <el-button size="small" @click="syncTodo(act)" :loading="act._syncing">
-                  {{ (act.owner || '') === SELF_NAME ? '创建个人待办' : '派发任务' }}
+                  {{ ownerList(act.owner).includes(SELF_NAME) ? '创建个人待办' : '派发任务' }}
                 </el-button>
                 <el-button
                   v-if="act.related_todo_id"
@@ -713,6 +713,7 @@ import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
+import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -1119,7 +1120,7 @@ const addAction = () => {
   if (!detailMeeting.value.actions) detailMeeting.value.actions = []
   detailMeeting.value.actions.push({
     content: '',
-    owner: '',
+    owner: [],
     due_date: null,
     status: 'pending',
     category: 'meeting',
@@ -1134,7 +1135,7 @@ const syncTodo = async (act) => {
     ElMessage.warning('请先「保存纪要」再创建/派发任务')
     return
   }
-  if (!act.owner || !act.owner.trim()) {
+  if (!ownerList(act.owner).length) {
     ElMessage.warning('请先指定行动项负责人')
     return
   }
@@ -1247,7 +1248,7 @@ const saveMinutes = async () => {
     actions: (m.actions || []).map((a) => ({
       id: a.id,
       content: a.content,
-      owner: a.owner || null,
+      owner: ownerText(a.owner) || null,
       due_date: a.due_date || null,
       status: a.status || 'pending',
       category: a.category || null,
@@ -1358,7 +1359,7 @@ const buildMinutesBody = (m) => {
         .map((a) => {
           const box = a.status === 'done' ? 'x' : ' '
           const due = a.due_date ? `（截止 ${a.due_date}）` : ''
-          return `- [${box}] **${a.owner || '待定'}**：${a.content || '—'}${due}`
+          return `- [${box}] **${ownerLabel(a.owner) || '待定'}**：${a.content || '—'}${due}`
         })
         .join('\n')
     : '（无）'
@@ -1407,7 +1408,7 @@ const applyTemplate = () => {
     const actionHtml = (m.actions || []).length
       ? '<ul>' + (m.actions || []).map((a) => {
           const due = a.due_date ? `（截止 ${a.due_date}）` : ''
-          return `<li><strong>${a.owner || '待定'}</strong>：${a.content || '—'}${due}</li>`
+          return `<li><strong>${ownerLabel(a.owner) || '待定'}</strong>：${a.content || '—'}${due}</li>`
         }).join('') + '</ul>'
       : ''
     mailVariables.value = {

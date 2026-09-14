@@ -34,6 +34,7 @@ from db.models import (
     PmwbKeyWorkWeeklyPlan,
 )
 from services.keywork import derive_iso_week, keywork_service
+from utils.owners import join_owners
 
 # ---------------------------------------------------------------------------
 # 枚举取值（与 schemas/keywork.py 保持一致）
@@ -256,7 +257,7 @@ _COL_WIDTHS = {
     "月度计划": [14, 16, 18, 24, 40, 14, 18, 12],
     "周计划": [14, 16, 18, 24, 40, 14, 18, 12],
     "进展日志": [14, 22, 14, 50],
-    "成员待办": [14, 30, 14, 22, 12, 30],
+    "成员待办": [14, 30, 24, 22, 12, 30],
 }
 
 
@@ -376,7 +377,7 @@ def _build_data_sheet(wb: Workbook, name: str) -> None:
         "月度计划": [["KW001", "2026-08", "2026-08-31", "月度任务示例", "任务描述", "张三", "2026-10-30", "not_started"]],
         "周计划": [["KW001", "", "2026-08-19", "周任务示例", "任务描述", "张三", "2026-08-23", "not_started"]],
         "进展日志": [["KW001", "2026-08-19", "张三", "进展内容示例"]],
-        "成员待办": [["KW001", "待办示例", "张三", "2026-08-23", "not_started", ""]],
+        "成员待办": [["KW001", "待办示例", "张三,李四", "2026-08-23", "not_started", ""]],
     }
     if name in examples:
         for ri, row in enumerate(examples[name], start=2):
@@ -686,6 +687,9 @@ def import_key_works_from_bytes(db, raw: bytes) -> Dict[str, Any]:
                     if sheet == "周计划" and not child.get("week"):
                         # 周次留空时按创建日期自动推算（与界面口径一致）
                         child["week"] = derive_iso_week(child.get("task_date"))
+                    if sheet == "成员待办" and child.get("assignee"):
+                        # 多负责人统一规范化为逗号分隔（兼容模板里填顿号/分号的情况）
+                        child["assignee"] = join_owners(child["assignee"])
                     db.add(model(**child))
             created.append(kw.id)
         db.commit()

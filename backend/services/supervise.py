@@ -153,7 +153,7 @@ def build_action_fields(action: dict[str, Any], scene: str) -> dict[str, Any]:
     """会议行动项 → 邮件字段（对齐 action_supervise schema）。"""
     return {
         "content": action.get("content") or action.get("title") or "",
-        "owner": action.get("owner") or "",
+        "owner": (action.get("owner") or "").replace(",", "、"),
         "dueDate": action.get("due_date") or action.get("due") or "",
         "status": action.get("status") or "",
         "sceneLabel": "催办" if scene == "urge" else "同步",

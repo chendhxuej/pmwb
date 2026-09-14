@@ -310,7 +310,7 @@
               <template #default="{ row }">
                 <div v-if="(weeklyTaskMap[row.id] || []).length" class="link-task-box">
                   <div v-for="t in weeklyTaskMap[row.id]" :key="t.id" class="link-task-line">
-                    <span class="link-task-who">{{ t.assignee || '未指派' }}</span>
+                    <span class="link-task-who">{{ ownerLabel(t.assignee) || '未指派' }}</span>
                     <span class="pm-tag" :class="(TASK_STATUS_MAP[t.status] || {}).tag">
                       {{ (TASK_STATUS_MAP[t.status] || { label: t.status }).label }}
                     </span>
@@ -372,7 +372,19 @@
           </div>
           <el-table :data="detail?.member_tasks || []" border stripe size="small">
             <el-table-column prop="title" label="任务" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="assignee" label="负责人" width="100" />
+            <el-table-column label="负责人" width="150">
+              <template #default="{ row }">
+                <template v-if="ownerList(row.assignee).length">
+                  <el-tag
+                    v-for="n in ownerList(row.assignee)"
+                    :key="n"
+                    size="small"
+                    class="owner-tag"
+                  >{{ n }}</el-tag>
+                </template>
+                <span v-else class="text-muted">未指派</span>
+              </template>
+            </el-table-column>
             <el-table-column label="关联" min-width="140" show-overflow-tooltip>
               <template #default="{ row }">
                 <span :class="{ 'text-muted': !taskLinkLabel(row) }">{{ taskLinkLabel(row) || '不关联' }}</span>
@@ -542,7 +554,9 @@
                     <el-collapse-item title="D. 成员待办（进展 + 新增）" name="memberTask">
                       <el-table v-if="g.task_items.length" :data="g.task_items" border stripe size="small" class="feedback-task-table">
                         <el-table-column prop="label" label="任务" min-width="140" show-overflow-tooltip />
-                        <el-table-column prop="assignee" label="负责人" width="90" />
+                        <el-table-column label="负责人" width="110">
+                          <template #default="{ row }">{{ ownerLabel(row.assignee) || '未指派' }}</template>
+                        </el-table-column>
                         <el-table-column label="状态" width="130">
                           <template #default="{ row }">
                             <el-select :model-value="taskNote(g, row).status || row.status" size="small" style="width: 110px" @change="(v) => setTaskStatus(g, row, v)">
@@ -562,14 +576,14 @@
                         <div class="feedback-section-subtitle">新增成员任务</div>
                         <div class="feedback-new-task-form">
                           <el-input v-model="newTaskForm.title" size="small" placeholder="任务标题" style="flex: 1" />
-                          <StaffSelect v-model="newTaskForm.assignee" style="width: 120px" />
+                          <StaffSelect v-model="newTaskForm.assignee" multiple style="width: 180px" placeholder="可多选负责人" />
                           <el-date-picker v-model="newTaskForm.due_date" type="date" value-format="YYYY-MM-DD" placeholder="截止日" size="small" style="width: 130px" />
                           <el-button size="small" @click="addNewTask(g)"><el-icon><Plus /></el-icon>添加</el-button>
                         </div>
                         <div v-if="g._form.new_tasks.length" class="feedback-new-task-list">
                           <div v-for="(t, idx) in g._form.new_tasks" :key="idx" class="feedback-new-task-row">
                             <span>{{ t.title }}</span>
-                            <span class="text-muted">{{ t.assignee || '未指派' }} {{ t.due_date ? '· ' + t.due_date : '' }}</span>
+                            <span class="text-muted">{{ ownerLabel(t.assignee) || '未指派' }} {{ t.due_date ? '· ' + t.due_date : '' }}</span>
                             <el-button link type="danger" size="small" @click="removeNewTask(g, idx)">删除</el-button>
                           </div>
                         </div>
@@ -789,7 +803,9 @@
     <el-dialog v-model="taskVisible" :title="taskEditingId ? '编辑成员待办' : '新增成员待办'" width="520px">
       <el-form :model="taskForm" label-width="80px">
         <el-form-item label="任务" required><el-input v-model="taskForm.title" /></el-form-item>
-        <el-form-item label="负责人"><StaffSelect v-model="taskForm.assignee" /></el-form-item>
+        <el-form-item label="负责人">
+          <StaffSelect v-model="taskForm.assignee" multiple placeholder="可多选，逗号存储" />
+        </el-form-item>
         <el-form-item label="截止"><el-date-picker v-model="taskForm.due_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="状态">
           <el-select v-model="taskForm.status" style="width:100%">
@@ -842,6 +858,7 @@ import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
+import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
 import {
   CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP, PLAN_STATUS_MAP,
 } from '@/api/keywork.js'
@@ -909,7 +926,7 @@ const progressForm = ref({ record_date: '', content: '' })
 
 const taskVisible = ref(false)
 const taskEditingId = ref(null)
-const taskForm = ref({ title: '', assignee: '', due_date: '', status: 'not_started', link_type: 'none', link_id: null })
+const taskForm = ref({ title: '', assignee: [], due_date: '', status: 'not_started', link_type: 'none', link_id: null })
 
 // 待办关联对象候选：按关联类型从当前工单子表取
 const taskLinkOptions = computed(() => {
@@ -1054,7 +1071,7 @@ function buildFeedbackMailBody(g) {
     if (g.task_items.length) {
       for (const t of g.task_items) {
         const note = taskNote(g, t)
-        const assignee = t.assignee || '未指派'
+        const assignee = ownerLabel(t.assignee) || '未指派'
         const statusLabel = note.status ? (TASK_STATUS_MAP[note.status]?.label || note.status) : (t.status ? (TASK_STATUS_MAP[t.status]?.label || t.status) : '—')
         const noteText = note.note || t.note || ''
         lines.push(`- **${t.label || t.title || '（未命名）'}** — ${assignee} | ${statusLabel} | ${noteText || '（无进展说明）'}`)
@@ -1064,7 +1081,7 @@ function buildFeedbackMailBody(g) {
       lines.push('')
       lines.push('#### 新增成员任务')
       for (const t of g._form.new_tasks) {
-        lines.push(`- ${t.title} — ${t.assignee || '未指派'} ${t.due_date ? '· ' + t.due_date : ''}`)
+        lines.push(`- ${t.title} — ${ownerLabel(t.assignee) || '未指派'} ${t.due_date ? '· ' + t.due_date : ''}`)
       }
     }
   } else {
@@ -1113,7 +1130,7 @@ const lastWeekFeedback = ref(null)
 const isMonthEnd = ref(false)
 const currentMonth = ref('')
 const feedbackDeliverables = ref([])
-const newTaskForm = ref({ title: '', assignee: '', due_date: '', note: '' })
+const newTaskForm = ref({ title: '', assignee: [], due_date: '', note: '' })
 
 /** 当前 ISO 周次 YYYY-Www（周一为一周起点） */
 function currentIsoWeek() {
@@ -1247,14 +1264,14 @@ function addNewTask(g) {
   }
   g._form.new_tasks.push({
     title: t.title.trim(),
-    assignee: t.assignee || '',
+    assignee: ownerText(t.assignee),
     due_date: t.due_date || null,
     note: t.note || '',
     status: 'not_started',
     link_type: 'none',
     link_id: null,
   })
-  newTaskForm.value = { title: '', assignee: '', due_date: '', note: '' }
+  newTaskForm.value = { title: '', assignee: [], due_date: '', note: '' }
 }
 
 function removeNewTask(g, idx) {
@@ -1694,7 +1711,7 @@ function openTaskDialog(row) {
     taskEditingId.value = row.id
     taskForm.value = {
       title: row.title || '',
-      assignee: row.assignee || '',
+      assignee: ownerList(row.assignee),
       due_date: row.due_date || '',
       status: row.status || 'not_started',
       link_type: row.link_type || 'none',
@@ -1702,14 +1719,14 @@ function openTaskDialog(row) {
     }
   } else {
     taskEditingId.value = null
-    taskForm.value = { title: '', assignee: '', due_date: '', status: 'not_started', link_type: 'none', link_id: null }
+    taskForm.value = { title: '', assignee: [], due_date: '', status: 'not_started', link_type: 'none', link_id: null }
   }
   taskVisible.value = true
 }
 
 async function submitTask() {
   if (!taskForm.value.title) { ElMessage.warning('请填写任务'); return }
-  const payload = { ...taskForm.value }
+  const payload = { ...taskForm.value, assignee: ownerText(taskForm.value.assignee) }
   // 选择「不关联」时清掉残留的关联对象，避免脏数据
   if (payload.link_type === 'none') payload.link_id = null
   if (taskEditingId.value) {
@@ -1904,4 +1921,6 @@ onMounted(async () => {
 .link-task-box { display: flex; flex-direction: column; gap: 4px; }
 .link-task-line { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .link-task-who { color: var(--text-primary); }
+/* 多负责人标签（成员待办列表） */
+.owner-tag { margin: 0 4px 2px 0; }
 </style>

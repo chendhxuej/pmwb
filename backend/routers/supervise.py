@@ -212,7 +212,7 @@ def supervise_action(req: SuperviseActionRequest, db: Session = Depends(get_db))
     action_data = {
         "id": str(action.id),
         "content": action.content or "",
-        "owner": action.owner or "",
+        "owner": (action.owner or "").replace(",", "、"),
         "due_date": str(action.due_date) if action.due_date else "",
         "status": action.status if hasattr(action, "status") else "",
         "meeting_title": meeting_title,

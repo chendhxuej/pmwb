@@ -50,6 +50,7 @@ from services.keywork import derive_iso_week, keywork_service
 from services.keywork_excel import build_template_bytes, import_key_works_from_bytes
 from services.mail_dispatch import dispatch_email
 from utils.master_service import MasterServiceClient
+from utils.owners import join_owners
 
 router = APIRouter(prefix="/key-works", tags=["重点工作"])
 
@@ -316,7 +317,10 @@ def add_member_task(kw_id: int, payload: KeyWorkMemberTaskCreate, db: Session = 
     """追加一条成员待办。"""
     if not keywork_service.get(db, kw_id):
         raise NotFoundException(f"重点工作不存在：id={kw_id}")
-    row = PmwbKeyWorkMemberTask(key_work_id=kw_id, **payload.model_dump())
+    data = payload.model_dump()
+    # 多负责人规范化：统一落库为逗号分隔（兼容前端传数组 / 顿号 / 分号）
+    data["assignee"] = join_owners(data.get("assignee"))
+    row = PmwbKeyWorkMemberTask(key_work_id=kw_id, **data)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -333,6 +337,8 @@ def update_member_task(kw_id: int, tid: int, payload: KeyWorkMemberTaskUpdate, d
     if not row:
         raise NotFoundException("成员待办不存在")
     for k, v in payload.model_dump(exclude_unset=True).items():
+        if k == "assignee":
+            v = join_owners(v)
         setattr(row, k, v)
     db.commit()
     db.refresh(row)

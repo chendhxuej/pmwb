@@ -39,6 +39,7 @@ from schemas.task_center import (
 from services.mail_dispatch import _render_mail, dispatch_email
 from utils.dateflags import flag_due_date
 from utils.email import EmailCenterClient
+from utils.owners import owner_set
 from utils.master_service import master_service_client
 from utils.validators import split_and_validate_emails
 
@@ -604,9 +605,10 @@ class TaskCenterService:
                 if (t.detail or {}).get("问题类型") == issue_type
             ]
         if owners:
-            owner_set = {str(o).strip() for o in owners if str(o).strip()}
-            if owner_set:
-                items = [t for t in items if (t.owner or "").strip() in owner_set]
+            wanted = {str(o).strip() for o in owners if str(o).strip()}
+            if wanted:
+                # 多负责人：一条任务挂多人时，按人筛选应对每个人都命中
+                items = [t for t in items if owner_set(t.owner) & wanted]
         if only_overdue:
             items = [t for t in items if t.is_overdue]
         if keyword:
@@ -769,7 +771,7 @@ class TaskCenterService:
                     "source_label": item.source_label,
                     "source": item.source,
                     "source_id": item.source_id,
-                    "owner": item.owner or "未分配",
+                    "owner": (item.owner or "未分配").replace(",", "、"),
                     "due_date": item.due_date.isoformat() if item.due_date else "",
                     "status_label": item.status_label,
                     "priority": item.priority or "",

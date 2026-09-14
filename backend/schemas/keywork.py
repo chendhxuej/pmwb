@@ -278,7 +278,7 @@ class KeyWorkProgressOut(KeyWorkProgressBase):
 
 class KeyWorkMemberTaskBase(BaseModel):
     title: str = Field(..., max_length=500, description="待办标题")
-    assignee: Optional[str] = Field(None, max_length=64, description="负责人(成员姓名)")
+    assignee: Optional[str] = Field(None, max_length=512, description="负责人(成员姓名,可多选,逗号分隔)")
     due_date: Optional[date] = Field(None, description="截止日期")
     status: MemberTaskStatus = Field(MemberTaskStatus.not_started, description="状态")
     link_type: MemberTaskLink = Field(MemberTaskLink.none, description="关联对象类型")
@@ -309,7 +309,7 @@ class KeyWorkMemberTaskUpdate(BaseModel):
     """成员待办部分更新（所有字段可选）。"""
 
     title: Optional[str] = Field(None, max_length=500, description="待办标题")
-    assignee: Optional[str] = Field(None, max_length=64, description="负责人(成员姓名)")
+    assignee: Optional[str] = Field(None, max_length=512, description="负责人(成员姓名,可多选,逗号分隔)")
     due_date: Optional[date] = Field(None, description="截止日期")
     status: Optional[MemberTaskStatus] = None
     link_type: Optional[MemberTaskLink] = None

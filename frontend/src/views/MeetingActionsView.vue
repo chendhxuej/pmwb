@@ -51,7 +51,14 @@
         <el-table-column label="行动项" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">{{ row.title || row.content }}</template>
         </el-table-column>
-        <el-table-column prop="owner" label="负责人" width="120" />
+        <el-table-column label="负责人" width="150">
+          <template #default="{ row }">
+            <template v-if="ownerList(row.owner).length">
+              <el-tag v-for="n in ownerList(row.owner)" :key="n" size="small" class="owner-tag">{{ n }}</el-tag>
+            </template>
+            <span v-else class="text-muted">未分配</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="130">
           <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '-' }}</template>
         </el-table-column>
@@ -121,7 +128,7 @@
           />
         </el-form-item>
         <el-form-item label="负责人">
-          <el-input v-model="editForm.owner" placeholder="负责人姓名" />
+          <StaffSelect v-model="editForm.owner" multiple placeholder="可多选负责人" />
         </el-form-item>
         <el-form-item label="截止日期">
           <el-date-picker
@@ -160,6 +167,8 @@ import { meetingApi } from '@/api/meeting'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
+import StaffSelect from '@/components/Common/StaffSelect.vue'
+import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
 
 const router = useRouter()
 
@@ -284,13 +293,14 @@ const mailDialogBody = ref('')
 const mailDialogVariables = ref({})
 
 function buildSuperviseBody(row, scene) {
+  const owners = ownerLabel(row.owner) || '相关同事'
   const lines = [
-    `${row.owner || '相关同事'}：`,
+    `${owners}：`,
     ``,
     `以下会议行动项需要${scene === 'urge' ? '尽快推进' : '同步知悉'}，详情如下：`,
     ``,
     `- 行动项内容：${row.content || ''}`,
-    `- 负责人：${row.owner || '未分配'}`,
+    `- 负责人：${ownerLabel(row.owner) || '未分配'}`,
     `- 截止日期：${row.due_date || '未设置'}`,
     `- 当前状态：${statusLabel(row.status) || row.status || '待处理'}`,
     ``,
@@ -303,11 +313,11 @@ function buildSuperviseBody(row, scene) {
 
 function handleSupervise(row, scene = 'urge') {
   mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
-  mailDialogTo.value = row.owner ? [row.owner] : []
+  mailDialogTo.value = ownerList(row.owner)
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.content || `会议行动项 #${row.id}`)
   // T-D：模板变量——sceneLabel 区分催办/同步主题词，由模板渲染正文
   mailDialogVariables.value = {
-    owner: row.owner || '',
+    owner: ownerLabel(row.owner),
     content: row.content || '',
     dueDate: row.due_date || '',
     status: statusLabel(row.status) || row.status || '',
@@ -329,7 +339,7 @@ const editForm = reactive({
   meeting_id: null,
   id: null,
   content: '',
-  owner: '',
+  owner: [],
   due_date: '',
   status: '',
 })
@@ -342,7 +352,7 @@ function handleEdit(row) {
   editForm.meeting_id = row.meeting_id
   editForm.id = row.id
   editForm.content = row.content || ''
-  editForm.owner = row.owner || ''
+  editForm.owner = ownerList(row.owner)
   editForm.due_date = row.due_date || ''
   editForm.status = row.status || 'pending'
   editVisible.value = true
@@ -360,7 +370,7 @@ async function confirmEdit() {
   try {
     await meetingApi.updateAction(editForm.meeting_id, editForm.id, {
       content: editForm.content,
-      owner: editForm.owner || undefined,
+      owner: ownerText(editForm.owner) || undefined,
       due_date: editForm.due_date || undefined,
       status: editForm.status,
     })

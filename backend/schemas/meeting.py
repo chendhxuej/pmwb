@@ -52,7 +52,7 @@ class MeetingActionBase(BaseModel):
     id: Optional[int] = Field(None, description="行动项ID（更新时携带，新建留空）")
     content: str = Field(..., description="行动项内容")
     title: Optional[str] = Field(None, max_length=256, description="行动项标题（独立标题）")
-    owner: Optional[str] = Field(None, max_length=64, description="负责人")
+    owner: Optional[str] = Field(None, max_length=512, description="负责人(可多选,逗号分隔)")
     due_date: Optional[str] = Field(None, description="截止日期")
     status: MeetingActionStatus = Field(MeetingActionStatus.pending, description="状态")
     category: Optional[str] = Field(None, description="待办分类（对应 pmwb_todo.category）")
@@ -222,7 +222,7 @@ class MeetingActionUpdate(BaseModel):
 
     content: Optional[str] = Field(None, description="行动项内容")
     title: Optional[str] = Field(None, max_length=256, description="行动项标题")
-    owner: Optional[str] = Field(None, max_length=64, description="负责人")
+    owner: Optional[str] = Field(None, max_length=512, description="负责人(可多选,逗号分隔)")
     due_date: Optional[str] = Field(None, description="截止日期")
     status: Optional[MeetingActionStatus] = Field(None, description="状态")
     category: Optional[str] = Field(None, description="待办分类")

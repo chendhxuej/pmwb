@@ -273,7 +273,7 @@ def _build_meeting_markdown(meeting) -> str:
         for i, a in enumerate(actions, 1):
             due = fdate(a.due_date) if a.due_date else "—"
             rows.append(
-                f"| {i} | {a.content or '—'} | {a.owner or '待定'} | {due} | {a.category or '—'} | {a.status or 'pending'} | {a.template or '—'} |"
+                f"| {i} | {a.content or '—'} | {(a.owner or '待定').replace(',', '、')} | {due} | {a.category or '—'} | {a.status or 'pending'} | {a.template or '—'} |"
             )
         action_block = "\n".join(rows)
     else:
