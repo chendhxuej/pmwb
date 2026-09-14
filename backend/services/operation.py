@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import PmwbOperationAnalysis, PmwbOperationIssue
+from db.models import PmwbOperationAnalysis, PmwbOperationIssue, PmwbKnowledgeLink
 from schemas.operation import OperationIssueStats, IssueStatsItem
 from services.base import BaseService
 
@@ -15,12 +15,69 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
     def __init__(self):
         super().__init__(PmwbOperationIssue)
 
-    def delete(self, db: Session, id: int) -> bool:
-        """删除工单：先清理关联的分析明细，避免外键约束（1451）报错。"""
-        if not self.get(db, id):
-            return False
-        db.query(PmwbOperationAnalysis).filter(PmwbOperationAnalysis.issue_id == id).delete(synchronize_session=False)
-        return super().delete(db, id)
+    def delete(self, db: Session, id: int) -> dict:
+        """删除工单：级联清理关联数据，避免外键约束（1451）报错与孤儿数据。
+
+        级联范围：
+        - 分析明细（PmwbOperationAnalysis，1:1，按 issue_id）
+        - 主动运营分析主工单（category=prod）下的遗留任务工单（不限类别，按 related_req_id==issue_no）
+        - 知识关联（pmwb_knowledge_link，source_type=operation）
+        返回删除明细，便于前端提示。
+        """
+        obj = self.get(db, id)
+        if not obj:
+            return {"deleted": False, "reason": "not_found"}
+
+        # 主动运营分析主工单：级联删除其遗留任务工单（不限类别，按 related_req_id 关联）
+        legacy_tasks_deleted = 0
+        if obj.category == "prod":
+            legacy_tasks_deleted = (
+                db.query(PmwbOperationIssue)
+                .filter(PmwbOperationIssue.related_req_id == obj.issue_no)
+                .delete(synchronize_session=False)
+            )
+
+        # 分析明细（1:1，先删明细再删主工单，规避外键约束）
+        analysis_deleted = (
+            db.query(PmwbOperationAnalysis)
+            .filter(PmwbOperationAnalysis.issue_id == id)
+            .delete(synchronize_session=False)
+        )
+
+        # 知识关联
+        links_deleted = (
+            db.query(PmwbKnowledgeLink)
+            .filter(
+                PmwbKnowledgeLink.source_type == "operation",
+                PmwbKnowledgeLink.source_id == str(id),
+            )
+            .delete(synchronize_session=False)
+        )
+
+        super().delete(db, id)
+        return {
+            "deleted": True,
+            "category": obj.category,
+            "issue_no": obj.issue_no,
+            "analysis_deleted": analysis_deleted or 0,
+            "legacy_tasks_deleted": legacy_tasks_deleted or 0,
+            "links_deleted": links_deleted or 0,
+        }
+
+    def batch_delete(self, db: Session, ids: List[int]) -> dict:
+        """批量删除工单，逐个走 delete 级联逻辑。"""
+        deleted_count = 0
+        legacy_tasks_deleted = 0
+        for i in ids or []:
+            r = self.delete(db, i)
+            if r.get("deleted"):
+                deleted_count += 1
+                legacy_tasks_deleted += r.get("legacy_tasks_deleted", 0)
+        return {
+            "deleted_count": deleted_count,
+            "legacy_tasks_deleted": legacy_tasks_deleted,
+            "requested": len(ids or []),
+        }
 
     def list_with_filters(
         self,

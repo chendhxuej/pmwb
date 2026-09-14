@@ -149,3 +149,35 @@ class OperationIssueStats(BaseModel):
     closed_loop_rate: float = 0  # 闭环率(%) = (已解决+已关闭)/总数
     by_type: List[IssueStatsItem]
     by_category: List[IssueStatsItem] = []
+
+
+class LegacyTaskPreview(BaseModel):
+    """解析预览中的遗留任务候选（不落库）。"""
+    idx: int
+    handler_raw: str = ""
+    handlers: List[str] = []
+    content: str = ""
+    due_date: Optional[str] = None
+    suggest_category: str = "task"
+    suggest_issue_type: str = "temp_task"
+
+
+class AnalysisParseResult(BaseModel):
+    """主动运营分析工单解析预览结果。"""
+    analysis_fields: dict = {}
+    legacy_tasks: List[LegacyTaskPreview] = []
+    warnings: List[str] = []
+
+
+class LegacyTaskConfirm(BaseModel):
+    """确认导入时的遗留任务项（前端预览后回传）。"""
+    content: str = ""
+    handlers: List[str] = []
+    category: str = "task"
+    issue_type: str = "temp_task"
+    due_date: Optional[str] = None
+
+
+class AnalysisImportConfirm(BaseModel):
+    """确认导入负载。"""
+    legacy_tasks: List[LegacyTaskConfirm] = []

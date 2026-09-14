@@ -4,9 +4,11 @@ import os
 import re
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from typing import List
 
 from core.response import success
 from db.base import get_db
@@ -18,6 +20,7 @@ from services.operation_analysis import (
     build_analysis_template_bytes,
     get_analysis_detail,
     import_analysis_workbook,
+    parse_analysis_workbook,
 )
 
 # 运营工单附件统一存放目录（backend/uploads/operation/{issue_id}/）
@@ -106,9 +109,22 @@ def update_issue(issue_id: int, obj_in: OperationIssueUpdate, db: Session = Depe
 
 @router.delete("/issues/{issue_id}")
 def delete_issue(issue_id: int, db: Session = Depends(get_db)):
-    """删除问题。"""
-    ok = operation_issue_service.delete(db, issue_id)
-    return success(data=ok)
+    """删除问题（级联删除分析明细、遗留任务、知识关联）。"""
+    data = operation_issue_service.delete(db, issue_id)
+    if not data.get("deleted"):
+        raise HTTPException(status_code=404, detail="工单不存在")
+    return success(data=data, message="删除成功")
+
+
+class BatchDeleteBody(BaseModel):
+    ids: List[int]
+
+
+@router.post("/issues/batch-delete")
+def batch_delete_issues(body: BatchDeleteBody, db: Session = Depends(get_db)):
+    """批量删除工单（逐个走级联删除逻辑）。"""
+    data = operation_issue_service.batch_delete(db, body.ids)
+    return success(data=data, message=f"已删除 {data['deleted_count']} 条工单")
 
 
 @router.post("/issues/{issue_id}/sediment")
@@ -225,17 +241,49 @@ def download_analysis_template():
     )
 
 
-@router.post("/analysis/import")
-def import_analysis(
+@router.post("/analysis/parse")
+def parse_analysis(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
 ):
-    """导入主动运营分析工单：解析 Excel → 建分析工单+明细 → 遗留任务自动建人员代办任务工单。"""
+    """解析主动运营分析工单 Excel（不落库）：返回分析字段 + 遗留任务候选（含建议分类）+ 告警。"""
     content = file.file.read()
     if not content:
         raise HTTPException(status_code=400, detail="文件为空")
     try:
-        result = import_analysis_workbook(db, content)
+        result = parse_analysis_workbook(content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"解析失败：{e}")
+    return success(data=result, message="解析完成")
+
+
+@router.post("/analysis/import")
+def import_analysis(
+    file: UploadFile = File(...),
+    legacy_tasks: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """导入主动运营分析工单（确认流程）：解析 Excel → 建分析工单+明细 → 按确认的分类建遗留任务工单。
+
+    legacy_tasks 为 JSON 字符串（前端预览后回传的遗留任务列表，每项含 content/handlers/category/issue_type/due_date）；
+    为空则按默认（task/temp_task）解析，兼容旧一键导入兜底。
+    """
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="文件为空")
+    overrides = None
+    if legacy_tasks:
+        try:
+            overrides = json.loads(legacy_tasks)
+        except Exception:
+            raise HTTPException(status_code=400, detail="legacy_tasks 不是合法 JSON")
+    try:
+        result = import_analysis_workbook(
+            db, content,
+            legacy_tasks=overrides,
+            source_filename=file.filename,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:  # noqa: BLE001

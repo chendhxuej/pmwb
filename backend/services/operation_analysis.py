@@ -1,16 +1,21 @@
 """主动运营分析工单服务。
 
 职责：
-1. 生成优化后的分析工单 Excel 模板（双 sheet：填写区 + 填写说明）。
-2. 解析导入的 Excel，创建分析工单（PmwbOperationIssue, category=prod）+ 分析明细
-   （PmwbOperationAnalysis），并把「遗留任务」逐行自动建为「人员代办任务工单」
-   （PmwbOperationIssue, category=task），责任人经人员中台解析，未匹配返回告警清单。
+1. 生成优化后的分析工单 Excel 模板（填写区 + 填写说明 + 遗留任务表）。
+2. 解析导入的 Excel（两步式）：
+   - parse_analysis_workbook：仅解析、不落库，返回分析字段 + 遗留任务候选（含建议分类）+ 告警清单。
+   - import_analysis_workbook：按确认结果落库，创建分析工单（category=prod）+ 分析明细
+     + 遗留任务工单（category 由调用方指定，复用录入工单的工单类别）。
+3. 详情查询 get_analysis_detail：返回主工单 + 分析明细 + 关联遗留任务（不限类别）。
+
+容错原则：导入成功率优先，解析阶段 best-effort，任何数据质量问题降级为 warnings，绝不抛 500。
 """
 from __future__ import annotations
 
 import io
-from datetime import datetime, date
-from typing import Dict, List, Optional
+import re
+from datetime import datetime, date, timedelta
+from typing import Dict, List, Optional, Tuple
 
 import openpyxl
 from sqlalchemy.orm import Session
@@ -40,28 +45,75 @@ TEMPLATE_FIELDS: List[tuple] = [
     ("go_live_date", "计划完成时间(yyyy-mm-dd)"),
 ]
 
-LEGACY_HEADER = ["责任人", "任务内容", "计划完成时间", "优先级"]
+# 遗留任务表头（4 列：责任人 | 任务内容 | 任务分类 | 计划完成时间）
+LEGACY_HEADER = ["责任人", "任务内容", "任务分类", "计划完成时间"]
 VALID_PRIORITIES = ("P0", "P1", "P2", "P3")
+
+# 工单大类与默认子类（与录入工单 CATEGORIES / IssueType 对齐）
+VALID_CATEGORIES = {"bug", "data", "prod", "task", "complaint"}
+CATEGORY_DEFAULT_TYPE = {
+    "bug": "bug",
+    "data": "data_abnormal",
+    "prod": "topic_analysis",
+    "task": "temp_task",
+    "complaint": "spot_event",
+}
 
 _LABEL_TO_KEY = {label: key for key, label in TEMPLATE_FIELDS}
 
 
+_gen_counter = 0
+
+
 def _gen_no(prefix: str) -> str:
-    return f"{prefix}-{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}"
+    global _gen_counter
+    _gen_counter += 1
+    return f"{prefix}-{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}{_gen_counter:02d}"
 
 
 def _parse_date(v) -> Optional[date]:
+    """容错日期解析：支持 datetime/date/Excel 序列号/多种字符串格式。失败返回 None（不抛错）。"""
     if v is None or v == "":
         return None
-    if isinstance(v, (datetime, date)):
-        return v.date() if isinstance(v, datetime) else v
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if isinstance(v, (int, float)):
+        try:
+            return (datetime(1899, 12, 30) + timedelta(days=float(v))).date()
+        except Exception:
+            return None
     s = str(v).strip()
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y年%m月%d日"):
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y年%m月%d日", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
         try:
             return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
     return None
+
+
+def _split_handlers(s: str) -> List[str]:
+    """多责任人拆分：按 顿号/逗号/斜杠/分号/空格。"""
+    if not s:
+        return []
+    parts = re.split(r"[、,，/;；\s]+", str(s).strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _suggest_category(content: str) -> Tuple[str, str]:
+    """按任务内容关键词 best-effort 建议分类；未命中默认 task/temp_task。"""
+    c = content or ""
+    cl = c.lower()
+    if any(k in c for k in ("投诉", "不满", "抱怨", "申诉", "舆情")):
+        return "complaint", "spot_event"
+    if any(k in c for k in ("数据异常", "数据不准", "数据缺失", "统计错", "口径", "数据问题")):
+        return "data", "data_abnormal"
+    if any(k in c for k in ("缺陷", "报错", "故障", "错误", "闪退", "崩溃")):
+        return "bug", "bug"
+    if any(k in cl for k in ("专题", "分析", "监控", "优化", "模型", "补盲", "梳理")):
+        return "prod", "topic_analysis"
+    return "task", "temp_task"
 
 
 def build_analysis_template_bytes() -> bytes:
@@ -72,7 +124,7 @@ def build_analysis_template_bytes() -> bytes:
 
     ws["A1"] = "主动运营分析工单填写模板"
     ws["A1"].font = openpyxl.styles.Font(bold=True, size=14)
-    ws["A2"] = "填写说明见「填写说明」sheet；遗留任务填写在下方表格中，每行一条。"
+    ws["A2"] = "填写说明见「填写说明」sheet；遗留任务填写在下方表格中，每行一条，可指定任务分类。"
     ws["A2"].font = openpyxl.styles.Font(italic=True, color="888888")
 
     start = 4
@@ -81,25 +133,23 @@ def build_analysis_template_bytes() -> bytes:
         ws.cell(row=r, column=1, value=label).font = openpyxl.styles.Font(bold=True)
         ws.cell(row=r, column=2, value="")
 
-    # 遗留任务表：在字段区下方另起一段
+    # 遗留任务表：4 列（责任人 | 任务内容 | 任务分类 | 计划完成时间）
     legacy_header_row = start + len(TEMPLATE_FIELDS) + 2
-    ws.cell(row=legacy_header_row, column=1, value="遗留任务（未闭环任务登记，上传后自动建人员代办任务工单）").font = openpyxl.styles.Font(bold=True, size=12)
+    ws.cell(row=legacy_header_row, column=1, value="遗留任务（未闭环任务登记，上传后按所选分类自动建任务工单）").font = openpyxl.styles.Font(bold=True, size=12)
     hr = legacy_header_row + 1
     for c, h in enumerate(LEGACY_HEADER, start=1):
         ws.cell(row=hr, column=c, value=h).font = openpyxl.styles.Font(bold=True)
-    # 预置 6 个空数据行
     for k in range(1, 7):
         rr = hr + k
         ws.cell(row=rr, column=1, value="")
         ws.cell(row=rr, column=2, value="")
-        ws.cell(row=rr, column=3, value="")
-        ws.cell(row=rr, column=4, value="P2")
+        ws.cell(row=rr, column=3, value="临时交办任务")
+        ws.cell(row=rr, column=4, value="")
 
-    # 列宽
     ws.column_dimensions["A"].width = 26
     ws.column_dimensions["B"].width = 60
     ws.column_dimensions["C"].width = 18
-    ws.column_dimensions["D"].width = 10
+    ws.column_dimensions["D"].width = 18
 
     # 填写说明 sheet
     ws2 = wb.create_sheet("填写说明")
@@ -107,22 +157,23 @@ def build_analysis_template_bytes() -> bytes:
         "一、使用说明",
         "1. 在「分析工单」sheet 中按行填写分析内容，标 * 为重点字段。",
         "2. 课题名称为必填；其余分析字段尽量填全，便于沉淀与复盘。",
-        "3. 「遗留任务」表格每行登记一条本周未闭环任务，上传后系统自动建为人员代办任务工单。",
+        "3. 「遗留任务」表格每行登记一条本周未闭环任务；上传后在预览中可逐条选择工单类别，确认后自动建对应任务工单。",
+        "4. 任务分类列可选：BUG管理 / 数据异常管理 / 主动运营分析 / 临时交办任务 / 热点投诉。",
         "",
         "二、字段字典",
         "运营团队 / 运营人员：本次课题的分析团队与负责人（分析工单的处理人取运营人员）。",
         "关联业务领域编码：可选，对应业务领域 domain_code。",
-        "计划完成时间：yyyy-mm-dd 格式。",
-        "优先级（遗留任务）：P0/P1/P2/P3，缺省 P2。",
+        "计划完成时间：yyyy-mm-dd 格式；识别不准可留空，后续在工单详情手工修正。",
+        "任务分类：遗留任务归属的工单大类，决定自动创建的工单类别。",
         "",
         "三、自动同步说明",
-        "上传模板后，系统会：① 创建一条「主动运营分析」工单（含分析明细）；",
-        "② 把「遗留任务」每行生成一条「人员代办任务工单」，责任人为填写的姓名；",
+        "上传模板后：① 创建一条「主动运营分析」工单（含分析明细）；",
+        "② 预览中确认每条遗留任务的工单类别，确认后逐条生成对应工单，责任人为填写的姓名；",
         "③ 责任人姓名若在人员中台匹配不到，工单仍会创建但会返回未匹配清单，需人工认领。",
     ]
     for i, line in enumerate(notes, start=1):
         ws2.cell(row=i, column=1, value=line)
-    ws2.column_dimensions["A"].width = 90
+    ws2.column_dimensions["A"].width = 100
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -130,64 +181,176 @@ def build_analysis_template_bytes() -> bytes:
 
 
 def _parse_analysis_fields(ws) -> Dict[str, str]:
-    """按列A标签解析字段区。"""
+    """按列A标签解析字段区，兼容「标签=值」与「小节标题+下方内容」两种布局。"""
     data: Dict[str, str] = {}
-    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=2, values_only=True):
-        cells = list(row) + [None, None]
-        a, b = cells[0], cells[1]
-        if a is None:
+    for r in range(1, ws.max_row + 1):
+        a = ws.cell(row=r, column=1).value
+        if not a:
             continue
         a = str(a).strip()
         if a in _LABEL_TO_KEY:
+            b = ws.cell(row=r, column=2).value
             val = b if b is not None else ""
+            if val == "":
+                # 小节标题式：内容在下一行的 A 或 B 列
+                nxt_b = ws.cell(row=r + 1, column=2).value
+                nxt_a = ws.cell(row=r + 1, column=1).value
+                if nxt_b not in (None, ""):
+                    val = str(nxt_b).strip()
+                elif nxt_a not in (None, ""):
+                    val = str(nxt_a).strip()
             data[_LABEL_TO_KEY[a]] = str(val).strip() if val != "" else ""
+    # 标题兜底：若未识别到「课题名称」，尝试取首行 B 列（附件示例标题常落在 A1 说明旁）
+    if not data.get("topic_name"):
+        b1 = ws.cell(row=1, column=2).value
+        if b1 and "：" not in str(b1) and str(b1).strip():
+            data["topic_name"] = str(b1).strip()
     return data
 
 
-def _parse_legacy_tasks(ws) -> List[Dict]:
-    """定位「责任人」表头行，向下读取遗留任务数据。"""
-    tasks: List[Dict] = []
-    header_row = None
+def _locate_legacy_header(ws) -> Optional[Tuple[int, Dict[str, Optional[int]]]]:
+    """定位「责任人」表头单元格（兼容其在任意列），并映射同行的 任务内容/计划完成时间/任务分类 列位置。
+
+    兼容三种布局：
+      - 生成模板：责任人(A) | 任务内容(B) | 任务分类(C) | 计划完成时间(D)
+      - 旧模板：  责任人(A) | 任务内容(B) | 计划完成时间(C) | 优先级(D)
+      - 附件示例：... 责任人(C) | 任务内容(D) | 计划完成时间(E) （表头行内偏移）
+    """
+    hr = hc = None
     for r in range(1, ws.max_row + 1):
-        a = ws.cell(row=r, column=1).value
-        if a and str(a).strip() == "责任人":
-            header_row = r
+        for c in range(1, min(ws.max_column, 8) + 1):
+            v = ws.cell(row=r, column=c).value
+            if v and str(v).strip() == "责任人":
+                hr, hc = r, c
+                break
+        if hr is not None:
             break
-    if not header_row:
-        return tasks
+    if hr is None:
+        return None
+    # 映射同行表头标签
+    labels: Dict[str, int] = {}
+    for c in range(hc, min(hc + 5, ws.max_column + 1)):
+        v = ws.cell(row=hr, column=c).value
+        if v:
+            labels[str(v).strip()] = c
+    handler = labels.get("责任人")
+    content = labels.get("任务内容")
+    due = labels.get("计划完成时间")
+    category = labels.get("任务分类")
+    if content is None:
+        content = hc + 1
+    if due is None:
+        # 无「任务分类」列时，计划完成时间在 责任人后第 2 列；有「任务分类」时在 责任人后第 3 列
+        due = (category + 1) if category else (hc + 2)
+    cols = {
+        "handler": handler,
+        "content": content,
+        "due": due,
+        "category": category,
+    }
+    if cols["handler"] is None or cols["content"] is None:
+        return None
+    return hr, cols
+
+
+def _parse_legacy_tasks(ws) -> Tuple[List[Dict], List[str]]:
+    """解析遗留任务区，返回 (任务列表, 告警)。不落库、不抛错。"""
+    located = _locate_legacy_header(ws)
+    if not located:
+        return [], []
+    header_row, cols = located
+    warnings: List[str] = []
+    tasks: List[Dict] = []
     for r in range(header_row + 1, ws.max_row + 1):
-        handler = ws.cell(row=r, column=1).value
-        content = ws.cell(row=r, column=2).value
-        if (not handler) and (not content):
+        handler = ws.cell(row=r, column=cols["handler"]).value
+        content = ws.cell(row=r, column=cols["content"]).value
+        h = str(handler).strip() if handler else ""
+        c = str(content).strip() if content else ""
+        if not h and not c:
             continue
-        due = ws.cell(row=r, column=3).value
-        priority = ws.cell(row=r, column=4).value
+        due_raw = ws.cell(row=r, column=cols["due"]).value if cols["due"] else None
+        due = _parse_date(due_raw)
+        if due_raw is not None and due is None:
+            warnings.append(f"第{r}行计划完成时间无法识别（{due_raw}），已置空，可手工修正")
+        cat_cell = ws.cell(row=r, column=cols["category"]).value if cols["category"] else None
+        cat_cell = str(cat_cell).strip() if cat_cell else ""
+        suggest_cat, suggest_type = _suggest_category(c)
+        effective_cat = cat_cell if cat_cell in VALID_CATEGORIES else suggest_cat
         tasks.append(
             {
-                "handler": str(handler).strip() if handler else "",
-                "content": str(content).strip() if content else "",
-                "due_date": _parse_date(due),
-                "priority": str(priority).strip() if priority else "P2",
+                "handler_raw": h,
+                "handlers": _split_handlers(h),
+                "content": c,
+                "due_date": due.isoformat() if due else None,
+                "category_cell": cat_cell,
+                "suggest_category": effective_cat,
+                "suggest_issue_type": CATEGORY_DEFAULT_TYPE.get(effective_cat, "temp_task"),
             }
         )
-    return tasks
+    return tasks, warnings
 
 
-def import_analysis_workbook(db: Session, file_bytes: bytes) -> Dict:
-    """解析 Excel，落库分析工单 + 明细 + 遗留任务工单。整体在一个事务内。"""
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-    # 取第一个 sheet 作为分析工单填写区
+def parse_analysis_workbook(file_bytes: bytes) -> Dict:
+    """解析 Excel 为预览数据，不落库。返回 analysis_fields / legacy_tasks / warnings。"""
+    warnings: List[str] = []
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as e:
+        raise ValueError(f"无法读取 Excel 文件（可能不是 xlsx 或损坏）：{e}")
     ws = wb.worksheets[0]
     fields = _parse_analysis_fields(ws)
-    legacy = _parse_legacy_tasks(ws)
-
+    legacy, legacy_warnings = _parse_legacy_tasks(ws)
+    warnings.extend(legacy_warnings)
     if not fields.get("topic_name"):
-        raise ValueError("模板缺少「课题名称」，无法创建分析工单")
+        warnings.append("未识别到「课题名称」，将使用兜底标题，可手工修正")
+    preview = []
+    for i, t in enumerate(legacy):
+        preview.append(
+            {
+                "idx": i,
+                "handler_raw": t["handler_raw"],
+                "handlers": t["handlers"],
+                "content": t["content"],
+                "due_date": t["due_date"],
+                "suggest_category": t["suggest_category"],
+                "suggest_issue_type": t["suggest_issue_type"],
+            }
+        )
+    return {
+        "analysis_fields": fields,
+        "legacy_tasks": preview,
+        "warnings": warnings,
+    }
 
+
+def import_analysis_workbook(
+    db: Session,
+    file_bytes: bytes,
+    legacy_tasks: Optional[List[Dict]] = None,
+    source_filename: Optional[str] = None,
+) -> Dict:
+    """解析 Excel 并落库。
+
+    legacy_tasks 为确认后的遗留任务列表（每项含 content/handlers/category/issue_type/due_date）；
+    为空则按默认（task/temp_task）解析，兼容旧一键导入兜底。
+    source_filename 为原上传文件名，非空时自动保存为工单附件。
+    """
+    import json as _json
+    import os as _os
+
+    warnings: List[str] = []
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as e:
+        raise ValueError(f"无法读取 Excel 文件（可能不是 xlsx 或损坏）：{e}")
+    ws = wb.worksheets[0]
+    fields = _parse_analysis_fields(ws)
+
+    topic = fields.get("topic_name") or "未命名分析工单（导入）"
     issue_no = _gen_no("ANA")
     issue = PmwbOperationIssue(
         issue_no=issue_no,
-        title=fields.get("topic_name", ""),
+        title=topic,
         category="prod",
         issue_type="topic_analysis",
         status="pending",
@@ -197,7 +360,7 @@ def import_analysis_workbook(db: Session, file_bytes: bytes) -> Dict:
         go_live_date=_parse_date(fields.get("go_live_date")),
     )
     db.add(issue)
-    db.flush()  # 拿到 issue.id 用于外键
+    db.flush()
 
     detail = PmwbOperationAnalysis(
         issue_id=issue.id,
@@ -219,28 +382,82 @@ def import_analysis_workbook(db: Session, file_bytes: bytes) -> Dict:
         result_monitor_blind=fields.get("result_monitor_blind") or None,
     )
     db.add(detail)
+    db.flush()
+
+    # 自动保存源文件为工单附件（若传入了文件名）
+    saved_attachment = None
+    if source_filename and file_bytes:
+        try:
+            from routers.operation import UPLOAD_ROOT, _issue_folder
+            folder = _issue_folder(issue.id)
+            safe_name = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", source_filename)
+            fp = _os.path.join(folder, safe_name)
+            with open(fp, "wb") as f:
+                f.write(file_bytes)
+            from routers.operation import _parse_attachments, _human_size
+            atts = _parse_attachments(issue)
+            atts.append({
+                "name": safe_name,
+                "bytes": len(file_bytes),
+                "size": _human_size(len(file_bytes)),
+            })
+            issue.attachments = _json.dumps(atts, ensure_ascii=False)
+            saved_attachment = safe_name
+        except Exception as e:  # noqa: BLE001
+            warnings.append(f"自动保存附件失败（非阻塞）：{e}")
+
+    if legacy_tasks:
+        raw_list = legacy_tasks
+        source = "analysis_legacy_confirm"
+    else:
+        raw, lw = _parse_legacy_tasks(ws)
+        warnings.extend(lw)
+        raw_list = []
+        for t in raw:
+            raw_list.append(
+                {
+                    "content": t["content"],
+                    "handlers": t["handlers"],
+                    "category": "task",
+                    "issue_type": "temp_task",
+                    "due_date": t["due_date"],
+                }
+            )
 
     unmatched: List[str] = []
     created_tasks = 0
-    for t in legacy:
-        if not t["content"]:
+    for item in raw_list:
+        content = (item.get("content") or "").strip()
+        handlers = item.get("handlers") or []
+        if not content and not handlers:
             continue
-        handler = t["handler"]
-        if handler:
-            sid = resolve_staff_id(handler)
+        category = item.get("category") or "task"
+        if category not in VALID_CATEGORIES:
+            category = "task"
+        issue_type = item.get("issue_type") or CATEGORY_DEFAULT_TYPE.get(category, "temp_task")
+        resolved = []
+        for h in handlers:
+            sid = resolve_staff_id(h)
             if sid is None:
-                unmatched.append(handler)
-        priority = t["priority"] if t["priority"] in VALID_PRIORITIES else "P2"
+                unmatched.append(h)
+            resolved.append(h)
+        handler_str = ",".join(resolved)
+        due = None
+        dd = item.get("due_date")
+        if dd:
+            due = _parse_date(dd)
+            if due is None:
+                warnings.append(f"任务「{content}」计划完成时间无法识别（{dd}），已置空")
         task = PmwbOperationIssue(
             issue_no=_gen_no("TASK"),
-            title=t["content"],
-            category="task",
-            issue_type="temp_task",
+            title=content or f"[待补]{(handler_str or '未命名')}",
+            category=category,
+            issue_type=issue_type,
             status="pending",
-            source="analysis_legacy",
-            handler=handler or "",
-            impact_level=priority,
-            go_live_date=t["due_date"],
+            source=source if legacy_tasks else "analysis_legacy",
+            handler=handler_str,
+            impact_level="P2",
+            go_live_date=due,
             related_req_id=issue_no,
         )
         db.add(task)
@@ -251,14 +468,16 @@ def import_analysis_workbook(db: Session, file_bytes: bytes) -> Dict:
     return {
         "issue_no": issue_no,
         "analysis_id": detail.id,
-        "topic_name": fields.get("topic_name"),
+        "topic_name": topic,
         "legacy_task_count": created_tasks,
         "unmatched_handlers": unmatched,
+        "warnings": warnings,
+        "saved_attachment": saved_attachment,
     }
 
 
 def get_analysis_detail(db: Session, issue_id: int) -> Dict:
-    """取分析工单明细 + 关联遗留任务工单，供前端详情展示。"""
+    """取分析工单明细 + 关联遗留任务工单（不限类别），供前端详情展示。"""
     issue = operation_issue_service.get(db, issue_id)
     if not issue:
         return {"issue": None, "analysis": None, "legacy_tasks": []}
@@ -269,10 +488,7 @@ def get_analysis_detail(db: Session, issue_id: int) -> Dict:
     )
     legacy_tasks = (
         db.query(PmwbOperationIssue)
-        .filter(
-            PmwbOperationIssue.related_req_id == issue.issue_no,
-            PmwbOperationIssue.category == "task",
-        )
+        .filter(PmwbOperationIssue.related_req_id == issue.issue_no)
         .order_by(PmwbOperationIssue.id)
         .all()
     )

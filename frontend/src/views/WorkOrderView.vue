@@ -13,9 +13,10 @@
           <input ref="importInput" type="file" accept=".xlsx" style="display:none" @change="onImportFile" />
         </template>
         <el-button type="primary" @click="openEntry">
-        <el-icon><Plus /></el-icon><span>录入工单</span>
-      </el-button>
-    </div>
+          <el-icon><Plus /></el-icon><span>录入工单</span>
+        </el-button>
+      </template>
+    </PageHeader>
 
     <!-- 统计卡片 -->
     <el-row :gutter="12" class="stats-row">
@@ -78,6 +79,7 @@
       />
       <el-button size="small" @click="handleSearch">查询</el-button>
       <el-button size="small" @click="loadStats">刷新统计</el-button>
+      <el-button size="small" type="danger" plain :disabled="!selectedRows.length || deleting" @click="handleBatchDelete">批量删除 ({{ selectedRows.length }})</el-button>
     </div>
 
     <!-- 工单列表 -->
@@ -87,7 +89,9 @@
       stripe
       border
       class="wo-table"
+      @selection-change="onSelectionChange"
     >
+      <el-table-column type="selection" width="46" />
       <el-table-column prop="issue_no" label="工单编号" width="160" />
       <el-table-column prop="title" label="标题" min-width="380" show-overflow-tooltip>
         <template #default="{ row }">
@@ -96,7 +100,7 @@
       </el-table-column>
       <el-table-column label="子类" width="110">
         <template #default="{ row }">
-          <el-tag :type="issueTypeTag(row.category, row.issue_type)" size="small">
+          <el-tag :type="issueTypeTag(row.issue_type)" size="small">
             {{ issueTypeLabel(row.category, row.issue_type) }}
           </el-tag>
         </template>
@@ -156,6 +160,7 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
+            <el-button link type="danger" :loading="deleting" @click.stop="handleDelete(row)">删除</el-button>
           </div>
         </template>
       </el-table-column>
@@ -264,7 +269,7 @@
 
         <!-- 遗留任务（人员代办任务工单） -->
         <div class="dt-sec" v-if="category === 'prod' && legacyTasks.length">
-          <div class="dt-sec-title">遗留任务（人员代办任务工单）</div>
+          <div class="dt-sec-title">遗留任务（人员代办任务工单）<span class="dt-sec-hint">· 类别/状态可就地修改</span></div>
           <el-table :data="legacyTasks" size="small" border>
             <el-table-column prop="issue_no" label="工单号" width="180" />
             <el-table-column label="责任人" width="160">
@@ -275,10 +280,23 @@
                 <span v-else>待认领</span>
               </template>
             </el-table-column>
-            <el-table-column prop="title" label="任务内容" min-width="240" show-overflow-tooltip />
+            <el-table-column prop="title" label="任务内容" min-width="200" show-overflow-tooltip />
+            <el-table-column label="工单类别" width="150">
+              <template #default="{ row }">
+                <el-select v-model="row.category" size="small" @change="(v) => onLegacyCatChange(row, v)">
+                  <el-option v-for="c in WORK_ORDER_CATEGORIES" :key="c.key" :label="c.label" :value="c.key" />
+                </el-select>
+              </template>
+            </el-table-column>
             <el-table-column label="优先级" width="90"><template #default="{ row }">{{ row.impact_level || 'P2' }}</template></el-table-column>
             <el-table-column label="计划完成" width="130"><template #default="{ row }">{{ row.go_live_date ? String(row.go_live_date).slice(0, 10) : '-' }}</template></el-table-column>
-            <el-table-column label="状态" width="100"><template #default="{ row }"><StatusBadge module="operation" :value="row.status" :sensitive="row.is_overdue" /></template></el-table-column>
+            <el-table-column label="状态" width="150">
+              <template #default="{ row }">
+                <el-select v-model="row.status" size="small" @change="(v) => onLegacyStatusChange(row, v)">
+                  <el-option v-for="s in STATUS_OPTIONS" :key="s.key" :label="s.label" :value="s.key" />
+                </el-select>
+              </template>
+            </el-table-column>
           </el-table>
         </div>
 
@@ -352,6 +370,7 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
+          <el-button type="danger" plain :loading="deleting" @click="handleDelete(detailRow)">删除工单</el-button>
         </div>
       </template>
     </el-drawer>
@@ -541,13 +560,19 @@
         <el-button type="primary" :disabled="!klpSelection.length" @click="confirmKnowledgePick">确定</el-button>
       </template>
     </el-dialog>
+    <AnalysisImportPreview
+      v-model="previewVisible"
+      :preview="importPreviewData"
+      @confirm="onPreviewConfirm"
+      @cancel="onPreviewCancel"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Promotion, RefreshRight, Connection, Document, ArrowDown, Download, UploadFilled } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
@@ -562,28 +587,16 @@ import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import PageHeader from '@/components/Common/PageHeader.vue'
+import AnalysisImportPreview from '@/components/Operation/AnalysisImportPreview.vue'
+import { WORK_ORDER_CATEGORIES, TYPE_BY_CAT, issueTypeLabel } from '@/constants/operation.js'
 
 const route = useRoute()
 const category = computed(() => route.meta.category || 'prod')
 const title = computed(() => route.meta.title || '工单管理')
 
-const CATEGORIES = [
-  { key: 'bug', label: 'BUG 管理', color: 'danger' },
-  { key: 'data', label: '数据异常管理', color: 'warning' },
-  { key: 'prod', label: '主动运营分析', color: 'primary' },
-  { key: 'task', label: '临时交办任务', color: 'success' },
-  { key: 'complaint', label: '热点投诉', color: 'danger' },
-]
+const CATEGORIES = WORK_ORDER_CATEGORIES
 const categoryMeta = Object.fromEntries(CATEGORIES.map((c) => [c.key, c]))
 const categoryColor = computed(() => categoryMeta[category.value]?.color || 'info')
-
-const TYPE_BY_CAT = {
-  bug: [{ value: 'bug', label: '系统缺陷' }, { value: 'other', label: '其他' }],
-  data: [{ value: 'data_abnormal', label: '数据异常' }, { value: 'other', label: '其他' }],
-  prod: [{ value: 'topic_analysis', label: '专题分析' }, { value: 'spot_event', label: '投点事件' }, { value: 'other', label: '其他' }],
-  task: [{ value: 'temp_task', label: '临时任务' }, { value: 'other', label: '其他' }],
-  complaint: [{ value: 'spot_event', label: '投点事件' }, { value: 'other', label: '其他' }],
-}
 const PRIORITY_OPTIONS = [
   { value: 'P0', label: '严重' },
   { value: 'P1', label: '高' },
@@ -611,8 +624,7 @@ const statusBadgeOptions = {
   suspended: { label: '已挂起', type: 'info' },
 }
 
-const issueTypeLabel = (cat, type) => (TYPE_BY_CAT[cat] || []).find((o) => o.value === type)?.label || type
-const issueTypeTag = (cat, type) => {
+const issueTypeTag = (type) => {
   if (type === 'bug') return 'danger'
   if (type === 'data_abnormal') return 'warning'
   if (type === 'topic_analysis') return 'primary'
@@ -684,6 +696,62 @@ const loadStats = async () => {
 
 const handleSearch = () => { pagination.page = 1; loadData() }
 
+// ---- 删除 / 批量删除工单 ----
+const deleting = ref(false)
+const selectedRows = ref([])
+const onSelectionChange = (rows) => { selectedRows.value = rows }
+
+const handleDelete = async (row) => {
+  if (!row || !row.id) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除工单「${row.issue_no || row.id}」${row.title ? '（' + row.title + '）' : ''}？此操作不可恢复，将同时删除其分析明细与关联遗留任务。`,
+      '删除工单',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch (e) {
+    return // 用户取消
+  }
+  deleting.value = true
+  try {
+    const res = await operationApi.deleteIssue(row.id)
+    const extra = res.legacy_tasks_deleted ? `（含遗留任务 ${res.legacy_tasks_deleted} 条）` : ''
+    ElMessage.success('已删除' + extra)
+    detailVisible.value = false
+    loadData(); loadStats(); loadAllCounts()
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    deleting.value = false
+  }
+}
+
+const handleBatchDelete = async () => {
+  if (!selectedRows.value.length) return
+  const ids = selectedRows.value.map((r) => r.id)
+  try {
+    await ElMessageBox.confirm(
+      `确认批量删除选中的 ${ids.length} 条工单？此操作不可恢复，主动运营分析主工单将同时删除其关联遗留任务。`,
+      '批量删除工单',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch (e) {
+    return
+  }
+  deleting.value = true
+  try {
+    const res = await operationApi.batchDeleteIssues(ids)
+    const extra = res.legacy_tasks_deleted ? `（含遗留任务 ${res.legacy_tasks_deleted} 条）` : ''
+    ElMessage.success(`已删除 ${res.deleted_count} 条工单${extra}`)
+    selectedRows.value = []
+    loadData(); loadStats(); loadAllCounts()
+  } catch (e) {
+    ElMessage.error('批量删除失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    deleting.value = false
+  }
+}
+
 watch(activeTab, () => { pagination.page = 1; statusFilter.value = 'all'; loadData(); loadStats() })
 
 // ---- 详情抽屉 ----
@@ -706,6 +774,9 @@ const analysisDetail = ref(null)
 const legacyTasks = ref([])
 const importInput = ref(null)
 const importing = ref(false)
+const previewVisible = ref(false)
+const pendingImportFile = ref(null)
+const importPreviewData = ref(null)
 
 const downloadTemplate = async () => {
   try {
@@ -730,7 +801,22 @@ const onImportFile = async (e) => {
   if (!file) return
   importing.value = true
   try {
-    const res = await operationApi.importAnalysis(file)
+    const preview = await operationApi.parseAnalysis(file)
+    pendingImportFile.value = file
+    importPreviewData.value = preview
+    previewVisible.value = true
+    e.target.value = ''
+  } catch (err) {
+    ElMessage.error('解析失败：' + (err?.response?.data?.message || err.message || '未知错误'))
+    importing.value = false
+    e.target.value = ''
+  }
+}
+
+const onPreviewConfirm = async (legacyTasks) => {
+  try {
+    importing.value = true
+    const res = await operationApi.importAnalysisConfirm(pendingImportFile.value, legacyTasks)
     const um = res.unmatched_handlers?.length
       ? `（${res.unmatched_handlers.length} 个责任人未匹配人员中台：${res.unmatched_handlers.join('、')}）`
       : ''
@@ -741,8 +827,17 @@ const onImportFile = async (e) => {
     ElMessage.error('导入失败：' + (err?.response?.data?.message || err.message || '未知错误'))
   } finally {
     importing.value = false
-    e.target.value = ''
+    previewVisible.value = false
+    pendingImportFile.value = null
+    importPreviewData.value = null
   }
+}
+
+const onPreviewCancel = () => {
+  previewVisible.value = false
+  pendingImportFile.value = null
+  importPreviewData.value = null
+  importing.value = false
 }
 
 const ROOT_CAUSE_LABELS = {
@@ -798,6 +893,42 @@ const refreshDetail = async () => {
     const res = await operationApi.getIssue(detailRow.value.id)
     detailRow.value = res
   } catch (e) { /* 保留旧值 */ }
+}
+
+const refreshLegacyTasks = async () => {
+  if (!detailRow.value?.id || category.value !== 'prod') return
+  try {
+    const ad = await operationApi.getAnalysisDetail(detailRow.value.id)
+    legacyTasks.value = ad.legacy_tasks || []
+  } catch (e) {
+    legacyTasks.value = []
+  }
+}
+
+// 就地修改遗留任务类别（连带修正 issue_type）
+const onLegacyCatChange = async (row, newCat) => {
+  const opts = TYPE_BY_CAT[newCat] || []
+  row.issue_type = opts.length ? opts[0].value : 'other'
+  try {
+    await operationApi.updateIssue(row.id, { category: newCat, issue_type: row.issue_type })
+    ElMessage.success('类别已更新')
+    await refreshLegacyTasks()
+  } catch (e) {
+    ElMessage.error('更新失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+    await refreshLegacyTasks()
+  }
+}
+
+// 就地修改遗留任务状态
+const onLegacyStatusChange = async (row, newStatus) => {
+  try {
+    await operationApi.updateIssue(row.id, { status: newStatus })
+    ElMessage.success('状态已更新')
+    await refreshLegacyTasks()
+  } catch (e) {
+    ElMessage.error('更新失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+    await refreshLegacyTasks()
+  }
 }
 
 const changeStatusFromDetail = async () => {

@@ -68,3 +68,9 @@
 - git 绕过法：绝对路径 `C:/Program Files/Git/cmd/git.exe -C "D:/项目/个人工作台系统" <cmd> > <log> 2>&1`，回 `echo "E=$?"`，再 Read 日志文件。
 - 提交必须走 `~/.workbuddy/bin/git-safe-commit.sh -m "…" [--push] [--all | -- <files>]`（脚本内置 detached HEAD 重锚 + 仓库外备份 + commit-gate 烟雾测试）。绝对路径 `bash.exe` 调用：`C:/Users/chend/.workbuddy/binaries/PortableGit/versions/1.2.0/bin/bash.exe "C:/Users/chend/.workbuddy/bin/git-safe-commit.sh" …`。
 - **push 成功判定**：本机看 push 输出 `<old>..<new> <branch> -> <branch>` 即真成功。`git status` 的 "ahead N commits" 若矛盾，以 `git fetch origin <branch>` 的 `X..Y branch -> origin/branch` 为准——**沙箱会吞 `refs/remotes/origin/<branch>` 本地写入**，故 `rev-parse origin/<branch>` 与 `git status` 不可信，必须用 ls-remote 或 fetch 输出判远端真实状态。
+
+## 10. 运营监控工单删除契约（2026-09-14）
+- **背景**：此前工单管理页(WorkOrderView)、运营监控总览页(OperationView) 列表/详情抽屉均无删除入口，用户以为有却删不了。已补齐单条删除 + 多选批量删除（ElMessageBox 二次确认）。
+- **后端入口**：`DELETE /api/v1/operation/issues/{id}`（404/不存在返回 `deleted=False` 不抛异常）；`POST /api/v1/operation/issues/batch-delete`（`{ids:[int]}`）。
+- **级联清理（防孤儿数据，兼治"重复导入遗留任务残留"痛点）**：删 `category=prod` 主工单时同步删 `PmwbOperationAnalysis`(issue_id 外键)、`PmwbOperationIssue`(category=task, related_req_id=主单 issue_no)、`PmwbKnowledgeLink`(source_type=operation, source_id=str(id))。service 层 `operation.py` 的 `delete()`/`batch_delete()` 已实现；router 在 `routers/operation.py`。
+- **铁律**：改 operation 删除逻辑必须保留上述级联；前端提示文案含"将同时删除其分析明细与关联遗留任务"。

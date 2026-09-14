@@ -124,8 +124,9 @@
             size="small"
             style="width: 260px"
           />
+          <el-button size="small" type="danger" plain :disabled="!selectedRows.length || deleting" @click="handleBatchDelete">批量删除 ({{ selectedRows.length }})</el-button>
         </div>
-        <el-table :data="pagedList" v-loading="loading" class="ops-table" @row-click="onRowClick">
+        <el-table :data="pagedList" v-loading="loading" class="ops-table" @row-click="onRowClick" @selection-change="onSelectionChange">
           <el-table-column prop="issue_no" label="工单号" width="160" />
           <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip>
             <template #default="{ row }">
@@ -160,6 +161,7 @@
           <el-table-column label="计划完成" width="130">
             <template #default="{ row }">{{ row.go_live_date ? String(row.go_live_date).slice(0, 10) : '-' }}</template>
           </el-table-column>
+          <el-table-column type="selection" width="46" />
           <el-table-column label="操作" width="210" fixed="right">
             <template #default="{ row }">
               <div class="row-actions">
@@ -182,6 +184,7 @@
                   </template>
                 </el-dropdown>
                 <el-button link type="warning" @click.stop="openEmailFromRow(row)">督办</el-button>
+                <el-button link type="danger" :loading="deleting" @click.stop="handleDelete(row)">删除</el-button>
               </div>
             </template>
           </el-table-column>
@@ -347,7 +350,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Document, Warning, DataLine, Cpu, List, ChatDotRound, ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
@@ -357,6 +360,7 @@ import { operationApi } from '@/api/operation'
 import { researchApi } from '@/api/research'
 import { obsidianApi } from '@/api/obsidian'
 import { formatDate } from '@/utils/format'
+import { TYPE_BY_CAT, issueTypeLabel } from '@/constants/operation.js'
 
 const router = useRouter()
 
@@ -367,14 +371,6 @@ const CATEGORIES = [
   { key: 'task', label: '临时交办任务', icon: List, bg: '#f3e8ff', fg: '#7c3aed' },
   { key: 'complaint', label: '热点投诉', icon: ChatDotRound, bg: '#ecfdf3', fg: '#0f9d6b' },
 ]
-
-const TYPE_BY_CAT = {
-  bug: [{ value: 'bug', label: '系统缺陷' }, { value: 'other', label: '其他' }],
-  data: [{ value: 'data_abnormal', label: '数据异常' }, { value: 'other', label: '其他' }],
-  prod: [{ value: 'topic_analysis', label: '专题分析' }, { value: 'spot_event', label: '投点事件' }, { value: 'other', label: '其他' }],
-  task: [{ value: 'temp_task', label: '临时任务' }, { value: 'other', label: '其他' }],
-  complaint: [{ value: 'spot_event', label: '投点事件' }, { value: 'other', label: '其他' }],
-}
 
 const PRIORITY_OPTIONS = [
   { value: 'P0', label: '严重' },
@@ -418,11 +414,6 @@ const keyword = ref('')
 const selectedCategory = ref('all')
 const page = ref(1)
 const pageSize = 20
-
-const issueTypeLabel = (category, type) => {
-  const opt = (TYPE_BY_CAT[category] || []).find((o) => o.value === type)
-  return opt ? opt.label : type
-}
 
 const catStats = computed(() => {
   const map = {}
@@ -549,6 +540,63 @@ const changeStatus = async (row, status) => {
 }
 
 const onRowClick = (row) => openDetail(row)
+
+// ---- 删除 / 批量删除工单 ----
+const deleting = ref(false)
+const selectedRows = ref([])
+const onSelectionChange = (rows) => { selectedRows.value = rows }
+
+const handleDelete = async (row) => {
+  if (!row || !row.id) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除工单「${row.issue_no || row.id}」${row.title ? '（' + row.title + '）' : ''}？此操作不可恢复，将同时删除其分析明细与关联遗留任务。`,
+      '删除工单',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch (e) {
+    return
+  }
+  deleting.value = true
+  try {
+    const res = await operationApi.deleteIssue(row.id)
+    const extra = res.legacy_tasks_deleted ? `（含遗留任务 ${res.legacy_tasks_deleted} 条）` : ''
+    ElMessage.success('已删除' + extra)
+    loadStats()
+    loadIssues()
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    deleting.value = false
+  }
+}
+
+const handleBatchDelete = async () => {
+  if (!selectedRows.value.length) return
+  const ids = selectedRows.value.map((r) => r.id)
+  try {
+    await ElMessageBox.confirm(
+      `确认批量删除选中的 ${ids.length} 条工单？此操作不可恢复，主动运营分析主工单将同时删除其关联遗留任务。`,
+      '批量删除工单',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch (e) {
+    return
+  }
+  deleting.value = true
+  try {
+    const res = await operationApi.batchDeleteIssues(ids)
+    const extra = res.legacy_tasks_deleted ? `（含遗留任务 ${res.legacy_tasks_deleted} 条）` : ''
+    ElMessage.success(`已删除 ${res.deleted_count} 条工单${extra}`)
+    selectedRows.value = []
+    loadStats()
+    loadIssues()
+  } catch (e) {
+    ElMessage.error('批量删除失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    deleting.value = false
+  }
+}
 
 const openDetail = (row) => {
   router.push({ path: routeCategoryPath(row.category), query: { issue: row.id } })
