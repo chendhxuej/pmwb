@@ -303,11 +303,22 @@
             <el-button size="small" type="primary" @click="openWeeklyDialog()"><el-icon><Plus /></el-icon> 新增周计划</el-button>
           </div>
           <el-table :data="detail?.weekly_plans || []" border stripe size="small">
-            <el-table-column prop="week" label="周次" width="110" />
             <el-table-column prop="task_date" label="创建日期" width="110" />
             <el-table-column prop="title" label="任务标题" min-width="140" show-overflow-tooltip />
             <el-table-column prop="content" label="任务描述" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="assignee" label="责任人" width="100" />
+            <el-table-column label="关联待办（成员）" min-width="150">
+              <template #default="{ row }">
+                <div v-if="(weeklyTaskMap[row.id] || []).length" class="link-task-box">
+                  <div v-for="t in weeklyTaskMap[row.id]" :key="t.id" class="link-task-line">
+                    <span class="link-task-who">{{ t.assignee || '未指派' }}</span>
+                    <span class="pm-tag" :class="(TASK_STATUS_MAP[t.status] || {}).tag">
+                      {{ (TASK_STATUS_MAP[t.status] || { label: t.status }).label }}
+                    </span>
+                  </div>
+                </div>
+                <span v-else class="text-muted">—</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="due_date" label="计划完成" width="110" />
             <el-table-column label="状态" width="120">
               <template #default="{ row }">
@@ -362,6 +373,11 @@
           <el-table :data="detail?.member_tasks || []" border stripe size="small">
             <el-table-column prop="title" label="任务" min-width="180" show-overflow-tooltip />
             <el-table-column prop="assignee" label="负责人" width="100" />
+            <el-table-column label="关联" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span :class="{ 'text-muted': !taskLinkLabel(row) }">{{ taskLinkLabel(row) || '不关联' }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="due_date" label="截止" width="120" />
             <el-table-column label="状态" width="140">
               <template #default="{ row }">
@@ -371,8 +387,9 @@
                 </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="80" fixed="right">
+            <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
+                <el-button link type="primary" @click="openTaskDialog(row)">编辑</el-button>
                 <el-button link type="danger" @click="removeTask(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -740,11 +757,9 @@
     <!-- 周计划对话框 -->
     <el-dialog v-model="weeklyVisible" :title="weeklyEditingId ? '编辑周计划' : '新增周计划'" width="560px">
       <el-form :model="weeklyForm" label-width="100px">
-        <el-form-item label="周次" required><el-input v-model="weeklyForm.week" placeholder="如 2026-W32" /></el-form-item>
         <el-form-item label="创建日期"><el-date-picker v-model="weeklyForm.task_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="任务标题"><el-input v-model="weeklyForm.title" /></el-form-item>
         <el-form-item label="任务描述"><el-input v-model="weeklyForm.content" type="textarea" :rows="3" /></el-form-item>
-        <el-form-item label="责任人"><StaffSelect v-model="weeklyForm.assignee" /></el-form-item>
         <el-form-item label="计划完成"><el-date-picker v-model="weeklyForm.due_date" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="状态">
           <el-select v-model="weeklyForm.status" style="width:100%">
@@ -771,7 +786,7 @@
     </el-dialog>
 
     <!-- 成员待办对话框 -->
-    <el-dialog v-model="taskVisible" title="成员待办" width="520px">
+    <el-dialog v-model="taskVisible" :title="taskEditingId ? '编辑成员待办' : '新增成员待办'" width="520px">
       <el-form :model="taskForm" label-width="80px">
         <el-form-item label="任务" required><el-input v-model="taskForm.title" /></el-form-item>
         <el-form-item label="负责人"><StaffSelect v-model="taskForm.assignee" /></el-form-item>
@@ -782,7 +797,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="关联">
-          <el-select v-model="taskForm.link_type" style="width:100%">
+          <el-select v-model="taskForm.link_type" style="width:100%" @change="taskForm.link_id = null">
             <el-option label="不关联" value="none" />
             <el-option label="关联里程碑" value="milestone" />
             <el-option label="关联月计划" value="monthly_plan" />
@@ -885,12 +900,15 @@ const monthlyForm = ref({ month: '', task_date: '', title: '', content: '', assi
 
 const weeklyVisible = ref(false)
 const weeklyEditingId = ref(null)
-const weeklyForm = ref({ week: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'not_started' })
+// 周计划只记「本周要达成的任务目标」：不再录入周次（后端按创建日期自动推算）、
+// 也不再有责任人（责任人下沉到成员待办，由待办关联周计划体现）
+const weeklyForm = ref({ task_date: '', title: '', content: '', due_date: '', status: 'not_started' })
 
 const progressVisible = ref(false)
 const progressForm = ref({ record_date: '', content: '' })
 
 const taskVisible = ref(false)
+const taskEditingId = ref(null)
 const taskForm = ref({ title: '', assignee: '', due_date: '', status: 'not_started', link_type: 'none', link_id: null })
 
 // 待办关联对象候选：按关联类型从当前工单子表取
@@ -906,11 +924,42 @@ const taskLinkOptions = computed(() => {
   }
   if (t === 'weekly_plan') {
     return (d.weekly_plans || []).map((p) => ({
-      id: p.id, label: `${p.week} ${p.title || (p.content || '').slice(0, 20) || ''}`.trim(),
+      id: p.id, label: p.title || (p.content || '').slice(0, 20) || `周计划#${p.id}`,
     }))
   }
   return []
 })
+
+// 周计划 → 关联成员待办（责任人下沉到成员待办，双向可见）
+const weeklyTaskMap = computed(() => {
+  const map = {}
+  for (const t of detail.value?.member_tasks || []) {
+    if (t.link_type === 'weekly_plan' && t.link_id) {
+      if (!map[t.link_id]) map[t.link_id] = []
+      map[t.link_id].push(t)
+    }
+  }
+  return map
+})
+
+/** 成员待办关联对象的展示文案 */
+function taskLinkLabel(row) {
+  const d = detail.value
+  if (!d || !row?.link_id || !row.link_type || row.link_type === 'none') return ''
+  if (row.link_type === 'milestone') {
+    const m = (d.milestones || []).find((x) => x.id === row.link_id)
+    return `里程碑：${(m && m.name) || '#' + row.link_id}`
+  }
+  if (row.link_type === 'monthly_plan') {
+    const p = (d.monthly_plans || []).find((x) => x.id === row.link_id)
+    return `月计划：${p ? p.title || p.month || '#' + p.id : '#' + row.link_id}`
+  }
+  if (row.link_type === 'weekly_plan') {
+    const p = (d.weekly_plans || []).find((x) => x.id === row.link_id)
+    return `周计划：${p ? p.title || (p.content || '').slice(0, 20) || '#' + p.id : '#' + row.link_id}`
+  }
+  return ''
+}
 
 // ---------- 周反馈（在途工单增量更新） ----------
 const feedbackWeek = ref(currentIsoWeek())
@@ -1576,23 +1625,20 @@ function openWeeklyDialog(row) {
   if (row) {
     weeklyEditingId.value = row.id
     weeklyForm.value = {
-      week: row.week || '',
       task_date: row.task_date || '',
       title: row.title || '',
       content: row.content || '',
-      assignee: row.assignee || '',
       due_date: row.due_date || '',
       status: row.status || 'not_started',
     }
   } else {
     weeklyEditingId.value = null
-    weeklyForm.value = { week: '', task_date: '', title: '', content: '', assignee: '', due_date: '', status: 'not_started' }
+    weeklyForm.value = { task_date: '', title: '', content: '', due_date: '', status: 'not_started' }
   }
   weeklyVisible.value = true
 }
 
 async function submitWeekly() {
-  if (!weeklyForm.value.week) { ElMessage.warning('请填写周次'); return }
   const payload = { ...weeklyForm.value }
   if (weeklyEditingId.value) {
     const updated = await kwApi.updateWeeklyPlan(currentId.value, weeklyEditingId.value, payload)
@@ -1643,17 +1689,39 @@ async function removeProgress(row) {
 }
 
 // ---------- 成员待办 ----------
-function openTaskDialog() {
-  taskForm.value = { title: '', assignee: '', due_date: '', status: 'not_started', link_type: 'none', link_id: null }
+function openTaskDialog(row) {
+  if (row) {
+    taskEditingId.value = row.id
+    taskForm.value = {
+      title: row.title || '',
+      assignee: row.assignee || '',
+      due_date: row.due_date || '',
+      status: row.status || 'not_started',
+      link_type: row.link_type || 'none',
+      link_id: row.link_id || null,
+    }
+  } else {
+    taskEditingId.value = null
+    taskForm.value = { title: '', assignee: '', due_date: '', status: 'not_started', link_type: 'none', link_id: null }
+  }
   taskVisible.value = true
 }
 
 async function submitTask() {
   if (!taskForm.value.title) { ElMessage.warning('请填写任务'); return }
-  const row = await kwApi.addMemberTask(currentId.value, taskForm.value)
-  ElMessage.success('已添加')
+  const payload = { ...taskForm.value }
+  // 选择「不关联」时清掉残留的关联对象，避免脏数据
+  if (payload.link_type === 'none') payload.link_id = null
+  if (taskEditingId.value) {
+    const updated = await kwApi.updateMemberTask(currentId.value, taskEditingId.value, payload)
+    ElMessage.success('已更新')
+    patchReplace('member_tasks', updated)
+  } else {
+    const row = await kwApi.addMemberTask(currentId.value, payload)
+    ElMessage.success('已添加')
+    patchAppend('member_tasks', row)
+  }
   taskVisible.value = false
-  patchAppend('member_tasks', row)
   await refreshDetail({ silent: true })
 }
 
@@ -1832,4 +1900,8 @@ onMounted(async () => {
 .feedback-deliverable-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .feedback-deliverable-row { display: flex; align-items: center; gap: 8px; font-size: 13px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; }
 .feedback-deliverable-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 周计划 ← 关联成员待办（责任人下沉展示） */
+.link-task-box { display: flex; flex-direction: column; gap: 4px; }
+.link-task-line { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.link-task-who { color: var(--text-primary); }
 </style>

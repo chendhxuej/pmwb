@@ -187,7 +187,9 @@ class KeyWorkMonthlyPlanOut(KeyWorkMonthlyPlanBase):
 
 
 class KeyWorkWeeklyPlanBase(BaseModel):
-    week: str = Field(..., max_length=10, description="周次 YYYY-Www")
+    # 周次不再由界面录入：留空时后端按「创建日期」（缺省当天）自动推算 ISO 周次。
+    # 保留该字段是为了周报「本周/下周计划」等按周聚合的能力不丢失。
+    week: Optional[str] = Field(None, max_length=10, description="周次 YYYY-Www（留空自动推算）")
     task_date: Optional[date] = Field(None, description="创建日期")
     title: Optional[str] = Field(None, max_length=500, description="任务标题")
     content: Optional[str] = Field(None, description="任务描述")

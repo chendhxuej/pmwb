@@ -24,6 +24,7 @@ from db.models import (
     PmwbKeyWorkMonthlyPlan,
     PmwbKeyWorkProgress,
     PmwbKeyWorkWeeklyPlan,
+    now_cn,
 )
 from schemas.keywork import (
     KeyWorkCreate,
@@ -45,7 +46,7 @@ from schemas.keywork import (
     KeyWorkWeeklyPlanUpdate,
 )
 from services import keywork_deliverable as deliverable_svc
-from services.keywork import keywork_service
+from services.keywork import derive_iso_week, keywork_service
 from services.keywork_excel import build_template_bytes, import_key_works_from_bytes
 from services.mail_dispatch import dispatch_email
 from utils.master_service import MasterServiceClient
@@ -485,7 +486,10 @@ def add_weekly_plan(kw_id: int, payload: KeyWorkWeeklyPlanCreate, db: Session = 
     """追加一条周计划；若状态为已完成则同步到工作进展。"""
     if not keywork_service.get(db, kw_id):
         raise NotFoundException(f"重点工作不存在：id={kw_id}")
-    row = PmwbKeyWorkWeeklyPlan(key_work_id=kw_id, **payload.model_dump())
+    data = payload.model_dump()
+    # 周次由系统维护：未传（或传空）时按创建日期自动推算
+    data["week"] = data.get("week") or derive_iso_week(data.get("task_date"))
+    row = PmwbKeyWorkWeeklyPlan(key_work_id=kw_id, **data)
     db.add(row)
     db.flush()
     if row.status == "completed":
@@ -505,8 +509,12 @@ def update_weekly_plan(kw_id: int, pid: int, payload: KeyWorkWeeklyPlanUpdate, d
     if not row:
         raise NotFoundException("周计划不存在")
     was_done = row.status == "completed"
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    for k, v in changes.items():
         setattr(row, k, v)
+    # 周次由系统维护：创建日期变更或周次为空时按创建日期重算
+    if "task_date" in changes or not row.week:
+        row.week = derive_iso_week(row.task_date)
     if not was_done and row.status == "completed":
         _sync_plan_to_progress(db, kw_id, "weekly", row)
     db.commit()

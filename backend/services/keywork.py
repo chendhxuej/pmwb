@@ -24,6 +24,7 @@ from db.models import (
     PmwbKeyWorkProgress,
     PmwbKeyWorkWeeklyFeedback,
     PmwbKeyWorkWeeklyPlan,
+    now_cn,
 )
 from services.base import BaseService
 
@@ -36,6 +37,19 @@ _CHILDREN = {
     "progresses": PmwbKeyWorkProgress,
     "member_tasks": PmwbKeyWorkMemberTask,
 }
+
+
+def derive_iso_week(d: Optional[date] = None) -> str:
+    """按日期推算 ISO 周次 YYYY-Www。
+
+    周计划只记「本周要达成的任务目标」，界面不再让用户手填周次；
+    入库/导入时统一由此函数按创建日期（缺省当天）补全，
+    保留周报「本周/下周计划」等按周聚合能力。
+    """
+    if not d:
+        d = now_cn().date()
+    iso = d.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
 
 
 class KeyWorkService(BaseService[PmwbKeyWork]):

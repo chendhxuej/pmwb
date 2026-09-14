@@ -1190,7 +1190,7 @@ class PmwbKeyWorkWeeklyPlan(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     key_work_id = Column(Integer, ForeignKey("pmwb_key_work.id"), nullable=False, comment="关联重点工作ID")
-    week = Column(String(10), nullable=False, comment="周次 YYYY-Www")
+    week = Column(String(10), comment="周次 YYYY-Www（界面不再录入，由系统按创建日期自动推算）")
     task_date = Column(Date, comment="创建日期")
     title = Column(String(500), comment="任务标题")
     content = Column(Text, comment="任务描述")

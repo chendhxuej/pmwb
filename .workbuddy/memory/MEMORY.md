@@ -1,7 +1,7 @@
 # PMWB 项目长期记忆（压缩版）
 
 ## 0. 最高优先级铁律
-- **邮件发送安全铁律**：AI 自测一律 dry_run（不带 confirm_send），绝不向陈大海以外真发；真发仅限老大页面显式点击。详见下方「邮件渲染铁律」段。
+- **邮件发送安全铁律**：AI 自测一律 dry_run（不带 confirm_send），绝不向陈大海以外真发；真发仅限老大页面显式点击。详见「邮件渲染铁律」段。
 - **git 安全提交铁律**：禁用 `git checkout -b/branch/worktree`（沙箱孤儿分支怪象会清空 .git/refs 致本地 main 丢失）；一律走 `scripts/git-safe-commit.sh`。origin 真实状态用 `git ls-remote origin refs/heads/main` 判定，勿用 `git rev-parse origin/main`。
 
 ## 1. 项目状态与拓扑
@@ -9,19 +9,12 @@
 - 后端解释器：`backend/venv/Scripts/python.exe`（managed python 无项目依赖，勿用）。
 - 启动/看门狗：`C:\pmwb-scripts\pmwb-keeper.py` 每 15s 查 3306/8000/5173/3210/8001，~5-10s 自动拉起。重启后端=taskkill 8000 PID。坑：kill 后 LISTENING 残留致误判；改代码不生效先查旧 NSSM 服务。
 
-## 2. 老大机器环境（卡顿排查铁律，2026-09-12 修正）
-- 物理内存 16GB，常驻全家桶（WorkBuddy×8~2.9GB、Kimi 桌面端~600MB、微信~300MB、Chrome/Edge、PMWB 全家桶）。**内存是卡顿放大器，非根因。**
-- **选人弹窗卡顿根因复盘（关键！）**：最初误判"内存换页"；老大重启电脑后仍卡→该结论被证伪。实测定位两层叠加：
-  1. **localhost IPv6 解析错配**：vite 仅监听 `127.0.0.1:5173`（IPv4），而 `localhost` 解析含 `::1`（IPv6），浏览器优先走 ::1 → 每请求先 IPv6 超时 ~2s 再回退 IPv4（实测 `[::1]:5173` 2.05s，`127.0.0.1:5173` 7ms）。
-  2. **公司安全软件驱动层劫持**：机器常驻深信服 aTrust 零信任 + DLP（`SangforPWEx.exe`/`SangforUDProtectEx.exe`/`SangforPromoteService.exe` + `DlpAppData64.exe`/`TQDefender.exe`），hosts 被 aTrust 注入；其通过 WFP/LSP 驱动层劫持浏览器 localhost 流量（无头 curl 快、真实浏览器慢、无痕/重启均无效、重启自启）。系统代理 `ProxyEnable=0`，**排除系统代理劫持**。
-- **排查优先序**：① 浏览器用 `http://127.0.0.1:5173` 替代 `localhost` 对照（定 IPv6 错配）；② 查 aTrust 客户端把 localhost/127.0.0.1 加信任白名单或临时退出验证（定驱动劫持）；③ 机器层取证（内存/提交量）；④ 代码层最后查。
-- **网络层优化已落地（非主因，2026-09-12 验证）**：双栈监听根治 IPv6 错配——① `frontend/vite.config.js` 改 `server.host: true`；② **关键坑：`pmwb-keeper.py` 的 `ensure_frontend()` 硬编码 `--host 127.0.0.1` 覆盖 vite.config.js**（CLI>配置），同步改 `--host ::` 并重启 keeper。实测选人弹窗 API 请求由递增劣化(130→1388ms)降为平稳(77→332ms)。**但老大真实 Chrome 仍卡（5s 冻结）→ 证伪"IPv6=根因"，IPv6 仅放大器。** 现状：临时 vite 双栈 + keeper(PID 5396)兜底保活。
-- **根因转向组件方案（2026-09-12 老大指正）**："全站唯独 StaffSelect 的组织/身份筛选卡"具组件特定性 → 根因在组件交互/数据方案，非系统环境。方案缺陷：① 筛选器(filterOrg/filterRole)强联动 `filteredGroups`（客户端全量过滤 93 人×16 组 → 重渲含 el-checkbox 的人员列表）；② dialog 无 `destroy-on-close`，mounted 即加载全量、`append-to-body` 常驻重组件；③ `filteredGroups` 每次返回全新 `{...g}` 对象破坏 Vue 复用（patch 退化为 remount el-checkbox）；④ 下拉"打开"瞬间同步渲染几十个 el-option popper（弹层渲染跳，搜索框无此跳）。对照：全站其他 el-select 是孤立表单字段，改值不触发重组件列表重渲 → 故唯独它卡。
-- **取证工具**：PowerShell stdout 被环境吞，改用 bash + managed python（ctypes `GlobalMemoryStatusEx` / `typeperf`，typeperf 输出 GBK）。
-- StaffSelect 组件本身无内存泄漏/定时器风暴（dev 模式组织/身份筛选 ~100-200ms 固定开销）；但**方案层"筛选器↔大列表强联动+常驻不销毁+每次重建 vnode"**是真实浏览器卡顿的结构性来源。诊断脚本留存 `frontend/tests/e2e/diag_*.cjs` 与 `verify_ipv6_lag.cjs`。
-- **组件层修复（两层，2026-09-12）**：
-  - **第一层（commit 00262a7，改善有限）**：三改——① 移除 93 个 `el-checkbox` 重组件，改 CSS 轻量 `<span class="staff-picker-check">`；② 筛选由 `filteredGroups` 重建整表改为全量渲染 + `v-show` 显隐；③ dialog 加 `destroy-on-close`。老大实测"有所改善但不明显" → 说明 el-checkbox/v-show 不是主因。
-  - **第二层（commit 6485b47，真正治本）**：真正的卡顿源是**模板里 `optionVisible/groupVisible/groupVisibleCount/isSelected` 四个函数逐帧逐人调用**——每次重渲（哪怕 hover/选中态变化）都跑 ~370+ 次函数调用（每次 optionVisible 还做 `kw.split` 字符串操作），93 人列表始终全量挂载 → 主线程被占满 → 点开下拉时 Popper 初始化被饿死 = 卡几秒。**E 定案实验（127.0.0.1 仍卡）已排除网络层，钉死根因在组件渲染本身。** 修复：① 合并为**单个 `visibleGroups` computed**（每次交互只遍历 93 人一次，模板零函数调用）；② `selectedValues` 内用 `Set` 做 O(1) 命中；③ `groups` 改 `shallowRef` 去深层 proxy。外观/交互/多选/全选/搜索全部保留。验证 `frontend/tests/e2e/verify_staff_fix2.cjs` 全过（el-checkbox=0、93 轻量勾选框、默认全量 93、搜索筛选生效、多选/全选/确认正确、无 console error）。**元结论：IPv6/驱动劫持仅放大器；组件层"模板逐人函数调用"才是真根因，C+B 治本。**
+## 2. StaffSelect 选人弹窗卡顿根因（2026-09-12 定案，勿重走弯路）
+- 曾误判"内存换页"（重启后仍卡，证伪）与"IPv6/驱动劫持"（仅放大器，非根因）。
+- **真根因**：模板里 `optionVisible/groupVisible/groupVisibleCount/isSelected` 逐帧逐人调用函数 → 每次重渲跑 ~370+ 次调用（含 `kw.split`）→ 主线程占满 → 点开下拉时 Popper 初始化被饿死 = 卡几秒。
+- **治本（commit 6485b47）**：① 合并为单个 `visibleGroups` computed（模板零函数调用，每次交互只遍历一次）；② `selectedValues` 用 `Set` 做 O(1) 命中；③ `groups` 改 `shallowRef` 去深层 proxy。验证 `frontend/tests/e2e/verify_staff_fix2.cjs` 全过。
+- 排查优先序：① 浏览器用 `127.0.0.1:5173` 对照（vite 需双栈 `server.host:true`；**keeper `ensure_frontend()` 硬编码 `--host 127.0.0.1` 会覆盖 vite.config.js**）；② 查 aTrust/DLP 驱动劫持；③ 机器层内存取证；④ 组件层最后查。
+- 取证工具：PowerShell stdout 被环境吞，改用 bash + managed python（ctypes `GlobalMemoryStatusEx`）。
 
 ## 3. 关键技术约定
 - API：`request.js` baseURL='/api/v1'，拦截器 `code===0` 返回 `data.data`；`success()` 用 `message=`（非 `msg=`）。
@@ -54,23 +47,29 @@
 - 知识标准化（产品圣经）MAIN_NOTE_SECTIONS 14 章节；Obsidian 入口 `openObsidianNote(relPath)`，vault「知识图谱」。
 - 大模型管理 pmwb_llm_provider 多模型注册表；call_best_available 全不可用落规则模板。
 
-## 8. 前端 UI 设计系统约定（2026-09-13 确立，commit de0c793）
-- **设计令牌单一源**：`frontend/src/styles/design.css` 提供 CSS 变量（`--accent #2f6fed` 单蓝系、`--success #0f9d6b`、`--warning #d98a1f`、`--danger #d9544d`、`--text-secondary #64748b`、`--shadow-elevated`、`--radius-lg/md/sm` 等）。**禁止**在组件 scoped 样式里硬编码十六进制色值或重复定义同名变量。
-- **统一页头**：用 `<PageHeader title="…" subtitle="…" ><template #actions>…</template></PageHeader>`（`@/components/Common/PageHeader.vue`），替换各页面的 `.page-header/.page-title/.page-sub/.page-actions` 手写模板。已迁移：RequirementDeliveryView / MailCenterLayout / MailRecordsView。其他页面后续替换。
-- **状态标签统一**：`<StatusBadge :label="…" :type="…" size="small" />`（`@/components/Common/StatusBadge.vue` + `constants/statusConfig.js` 的 `SEMANTIC_TONES` + `MODULE_STATUS`）。新增状态色须先在 statusConfig.js 注册，**禁止**组件内裸用 `<el-tag type="success/warning/danger">`。
-- **全局命令面板**：`<CommandPalette v-model="open" />`（`@/components/Common/CommandPalette.vue`）监听 ⌘K/Ctrl+K，自动从 router 聚合路由跳转。HomeView 已接入。
-- **危险操作降级**：表格行内 `el-button--danger` 链接默认中性灰、悬停才显红（design.css 全局规则）；非表格区域不受影响。
-- **验证工具**：`frontend/tests/e2e/ui_shots.cjs`（10 页面首屏截图 + 写 `_log.txt` 含 len/scrollH/errs；errs=none + len>0 即通过）+ `frontend/tests/e2e/verify_cmd.cjs`（命令面板开/搜/ESC）。
-- **截图多模态读图被沙箱过滤**：验证只信 `_log.txt` 的 len/errs 文本，禁"能渲染"冒充。
+## 8. 前端 UI 设计系统约定（2026-09-13，commit de0c793）
+- **设计令牌单一源**：`frontend/src/styles/design.css` CSS 变量（`--accent #2f6fed`、`--success #0f9d6b`、`--warning #d98a1f`、`--danger #d9544d`、`--text-secondary #64748b`、`--shadow-elevated`、`--radius-lg/md/sm`）。**禁止**组件内硬编码十六进制色值或重定义同名变量。
+- **统一页头**：`<PageHeader title subtitle><template #actions>`（`@/components/Common/PageHeader.vue`）。已迁移：RequirementDeliveryView / MailCenterLayout / MailRecordsView。
+- **状态标签**：`<StatusBadge :label :type size>`（`@/components/Common/StatusBadge.vue` + `constants/statusConfig.js`）。新增状态色须先注册，**禁止**裸用 `<el-tag type="success/warning/danger">`。
+- **全局命令面板**：`<CommandPalette v-model="open" />`（监听 Ctrl+K，从 router 聚合路由）。HomeView 已接入。
+- **危险操作降级**：表格行内 `el-button--danger` 链接默认中性灰、悬停显红（design.css 全局规则）。
+- **验证工具**：`frontend/tests/e2e/ui_shots.cjs`（10 页首屏截图 + `_log.txt` 含 len/scrollH/errs）+ `verify_cmd.cjs`。**截图读图被沙箱过滤**，只信 `_log.txt` 文本。
 
 ## 9. 本地 git 操作沙箱绕坑（2026-09-13）
-- WorkBuddy Bash 工具的 `shell-runtime-bash-env.sh` 第 3 行 `dirname` 缺失 → `cd` 失败（"cd: null directory"）；coreutils（head/tail/grep/ls）也缺。**shim 内禁止 cd/head/tail/grep**。
-- git 绕过法：绝对路径 `C:/Program Files/Git/cmd/git.exe -C "D:/项目/个人工作台系统" <cmd> > <log> 2>&1`，回 `echo "E=$?"`，再 Read 日志文件。
-- 提交必须走 `~/.workbuddy/bin/git-safe-commit.sh -m "…" [--push] [--all | -- <files>]`（脚本内置 detached HEAD 重锚 + 仓库外备份 + commit-gate 烟雾测试）。绝对路径 `bash.exe` 调用：`C:/Users/chend/.workbuddy/binaries/PortableGit/versions/1.2.0/bin/bash.exe "C:/Users/chend/.workbuddy/bin/git-safe-commit.sh" …`。
-- **push 成功判定**：本机看 push 输出 `<old>..<new> <branch> -> <branch>` 即真成功。`git status` 的 "ahead N commits" 若矛盾，以 `git fetch origin <branch>` 的 `X..Y branch -> origin/branch` 为准——**沙箱会吞 `refs/remotes/origin/<branch>` 本地写入**，故 `rev-parse origin/<branch>` 与 `git status` 不可信，必须用 ls-remote 或 fetch 输出判远端真实状态。
+- WorkBuddy Bash 的 `shell-runtime-bash-env.sh` 第 3 行 `dirname` 缺失 → `cd` 失败；coreutils（head/tail/grep/ls）也缺。**shim 内禁止 cd/head/tail/grep**。
+- git 绕过法：绝对路径 `C:/Program Files/Git/cmd/git.exe -C "D:/项目/个人工作台系统" <cmd> > <log> 2>&1`，回 `echo "E=$?"`，再 Read 日志。
+- 提交必须走 `~/.workbuddy/bin/git-safe-commit.sh -m "…" [--push] [--all | -- <files>]`（内置 detached HEAD 重锚 + 仓库外备份 + commit-gate 烟雾测试）。调用：`C:/Users/chend/.workbuddy/binaries/PortableGit/versions/1.2.0/bin/bash.exe "C:/Users/chend/.workbuddy/bin/git-safe-commit.sh" …`。
+- **push 成功判定**：本机看 `<old>..<new> <branch> -> <branch>` 即真成功。**沙箱会吞 `refs/remotes/origin/<branch>` 本地写入**，故 `rev-parse origin/<branch>` 与 `git status` 不可信，必须用 ls-remote 或 fetch 输出判远端真实状态。
 
 ## 10. 运营监控工单删除契约（2026-09-14）
-- **背景**：此前工单管理页(WorkOrderView)、运营监控总览页(OperationView) 列表/详情抽屉均无删除入口，用户以为有却删不了。已补齐单条删除 + 多选批量删除（ElMessageBox 二次确认）。
-- **后端入口**：`DELETE /api/v1/operation/issues/{id}`（404/不存在返回 `deleted=False` 不抛异常）；`POST /api/v1/operation/issues/batch-delete`（`{ids:[int]}`）。
-- **级联清理（防孤儿数据，兼治"重复导入遗留任务残留"痛点）**：删 `category=prod` 主工单时同步删 `PmwbOperationAnalysis`(issue_id 外键)、`PmwbOperationIssue`(category=task, related_req_id=主单 issue_no)、`PmwbKnowledgeLink`(source_type=operation, source_id=str(id))。service 层 `operation.py` 的 `delete()`/`batch_delete()` 已实现；router 在 `routers/operation.py`。
+- **后端入口**：`DELETE /api/v1/operation/issues/{id}`（不存在返回 `deleted=False` 不抛异常）；`POST /api/v1/operation/issues/batch-delete`（`{ids:[int]}`）。
+- **级联清理（防孤儿数据）**：删 `category=prod` 主工单时同步删 `PmwbOperationAnalysis`(issue_id 外键)、`PmwbOperationIssue`(category=task, related_req_id=主单 issue_no)、`PmwbKnowledgeLink`(source_type=operation, source_id=str(id))。service 层 `operation.py` 的 `delete()`/`batch_delete()`；router 在 `routers/operation.py`。
 - **铁律**：改 operation 删除逻辑必须保留上述级联；前端提示文案含"将同时删除其分析明细与关联遗留任务"。
+
+## 11. 重点工作周计划字段契约（2026-09-14）
+- **语义**：周计划 = 周任务目标（这周要达成什么）；成员待办 = 什么人做什么事。责任人**不挂在周计划上**（界面已删「周次」「责任人」），由成员待办 `link_type=weekly_plan` + `link_id` 关联体现；成员待办**可不关联**。
+- **周次自动推算**：`services/keywork.py: derive_iso_week(d=None)` 是**唯一实现**（router 建/改周计划、Excel 导入都调它）。`pmwb_key_work_weekly_plan.week` 已改为可空（迁移 `20260914000001`）。**严禁恢复让用户手填周次**。
+- **周报依赖链**：`services/report_collector.py` 的「本周/下周计划」按 `p.week == 'YYYY-Www'` 精确匹配 → 周次必须继续自动写入，不能留 NULL。
+- **联动实现**：前端 `weeklyTaskMap`（周计划 id → 关联待办列表，展示负责人+状态）双向可见；成员待办列表新增「关联」列与「编辑」入口（后端 PUT 早已存在）。
+- **alembic 双 head 坑**：`20260908105939_add_pmwb_req_interface_doc_table.py` 是坏壳文件（`revision='%(rev)s'`、`down_revision=None`，模板变量未渲染），正常链尾是 `a7c3e91d4b28`；新迁移一律挂后者之后。
+- **沙箱编辑会静默回滚（血泪教训）**：Edit 回执成功 ≠ 落盘。改完**必须立即 grep 复核关键串**（本次因 `_derive_iso_week` 未替换落盘导致接口 500 NameError）。

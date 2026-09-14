@@ -33,7 +33,7 @@ from db.models import (
     PmwbKeyWorkProgress,
     PmwbKeyWorkWeeklyPlan,
 )
-from services.keywork import keywork_service
+from services.keywork import derive_iso_week, keywork_service
 
 # ---------------------------------------------------------------------------
 # 枚举取值（与 schemas/keywork.py 保持一致）
@@ -200,7 +200,7 @@ SHEETS: Dict[str, List[Dict[str, Any]]] = {
     ],
     "周计划": [
         {"h": "工作标识*", "k": "work_key", "req": True},
-        {"h": "周次*(YYYY-Www)", "k": "week", "req": True},
+        {"h": "周次(留空自动推算)", "k": "week"},
         {"h": "创建日期(YYYY-MM-DD)", "k": "task_date", "date": True},
         {"h": "任务标题", "k": "title"},
         {"h": "任务描述", "k": "content"},
@@ -299,7 +299,7 @@ def _build_instruction_sheet(wb: Workbook) -> None:
         ("目标指标", "逐条填写量化目标（指标名称/目标值/当前值/单位）。"),
         ("里程碑", "里程碑名称* 必填；状态从下拉选择（未开始/进行中/已完成/已延期）。"),
         ("团队成员", "成员姓名* 必填；可填角色与分工说明。"),
-        ("月度计划 / 周计划", "月份填 YYYY-MM（如 2026-08），周次填 YYYY-Www（如 2026-W32）；创建日期、计划完成日期填 YYYY-MM-DD 或 YYYYMMDD；任务标题/任务描述/责任人均可填；状态从下拉选择（not_started/in_progress/completed/cancelled/delayed）"),
+        ("月度计划 / 周计划", "月份填 YYYY-MM（如 2026-08）；周计划的周次可留空，系统会按创建日期自动推算；创建日期、计划完成日期填 YYYY-MM-DD 或 YYYYMMDD；任务标题/任务描述/责任人均可填；状态从下拉选择（not_started/in_progress/completed/cancelled/delayed）"),
         ("进展日志", "记录工作进展，进展日期填 YYYY-MM-DD 或 YYYYMMDD，汇报人填姓名。"),
         ("成员待办", "待办标题* 必填；负责人填成员姓名；状态从下拉选择。"),
         ("四、日期格式", ""),
@@ -374,7 +374,7 @@ def _build_data_sheet(wb: Workbook, name: str) -> None:
         "里程碑": [["KW001", 1, "里程碑示例", "2026-10-30", "in_progress", ""]],
         "团队成员": [["KW001", "张三", "SA", "总负责人"]],
         "月度计划": [["KW001", "2026-08", "2026-08-31", "月度任务示例", "任务描述", "张三", "2026-10-30", "not_started"]],
-        "周计划": [["KW001", "2026-W32", "2026-08-19", "周任务示例", "任务描述", "张三", "2026-08-23", "not_started"]],
+        "周计划": [["KW001", "", "2026-08-19", "周任务示例", "任务描述", "张三", "2026-08-23", "not_started"]],
         "进展日志": [["KW001", "2026-08-19", "张三", "进展内容示例"]],
         "成员待办": [["KW001", "待办示例", "张三", "2026-08-23", "not_started", ""]],
     }
@@ -683,6 +683,9 @@ def import_key_works_from_bytes(db, raw: bytes) -> Dict[str, Any]:
                         elif f in ("status",):
                             val = val or DEFAULTS.get(_enum_for_status(sheet), "pending")
                         child[f] = val
+                    if sheet == "周计划" and not child.get("week"):
+                        # 周次留空时按创建日期自动推算（与界面口径一致）
+                        child["week"] = derive_iso_week(child.get("task_date"))
                     db.add(model(**child))
             created.append(kw.id)
         db.commit()
