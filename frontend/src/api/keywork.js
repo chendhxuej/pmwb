@@ -4,7 +4,7 @@ import request from './request.js'
 export const CATEGORY_MAP = {
   hq_pilot: { label: '总部试点', tag: 'blue' },
   annual_task: { label: '年度任务', tag: 'green' },
-  special_topic: { label: '专题工作', tag: 'amber' },
+  special_topic: { label: '每人一件事（专题工作）', tag: 'amber' },
 }
 
 // 状态映射

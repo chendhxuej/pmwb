@@ -27,7 +27,7 @@ SYSTEM_PROMPT_COMMON = """你是一名资深产品经理（政企/商客方向�
 - meeting_action（会议行动项）：total/done/completion_rate 完成率；unfinished 为未闭环行动项列表（含 title/owner/due_date/status），供下期计划逐条列出具体对象。
 - todo（个人待办）：total/done/completion_rate/overdue 超期数/by_category/by_priority；overdue_items 为超期待办列表（含 title/due_date/category/priority），供下期计划逐条列出具体对象。
 - knowledge（知识中心）：total 本期维护条目数/by_category。
-- key_work（重点工作）：total 总项数；by_category 分类分布（总部试点/年度任务/专题工作，已转中文）；by_status 状态分布（已转中文）；by_priority 优先级分布（已转中文）；**active 为本期有实质活动（主表更新／关联对象更新／本周有计划或进展）的重点推进事项，必须据此逐条详写分析**，每个对象含 this_week_plan（本周计划 total/done/items，items 含 title/content/assignee/status/due_date）、next_week_plan（下周计划 total/items）、this_week_progress（本期进展日志列表，含 record_date/content/reporter）；**tracking 为本期无实质活动但仍在途的事项（如长期未更新的认证类任务），只需在 2.1 末尾用一行简述「另有 X 项在途事项本期无更新，持续跟踪」并可列标题与负责人，禁止逐条展开**；completed_in_range 为本期完成事项列表；overdue 为逾期风险列表（计划完成日已过且未完结，含 title/owner/计划完成日/状态）。
+- key_work（重点工作）：total 总项数；by_category 分类分布（总部试点/年度任务/每人一件事（专题工作），已转中文）；by_status 状态分布（已转中文）；by_priority 优先级分布（已转中文）；**active 为本期有实质活动（主表更新／关联对象更新／本周有计划或进展）的重点推进事项，必须据此逐条详写分析**，每个对象含 this_week_plan（本周计划 total/done/items，items 含 title/content/assignee/status/due_date）、next_week_plan（下周计划 total/items）、this_week_progress（本期进展日志列表，含 record_date/content/reporter）；**tracking 为本期无实质活动但仍在途的事项（如长期未更新的认证类任务），只需在 2.1 末尾用一行简述「另有 X 项在途事项本期无更新，持续跟踪」并可列标题与负责人，禁止逐条展开**；completed_in_range 为本期完成事项列表；overdue 为逾期风险列表（计划完成日已过且未完结，含 title/owner/计划完成日/状态）。
 - active_optimization（主动优化建议）：items 为优化建议明细（title/status/admin_name/req_id/current_situation/suggestion）；buckets 为 added（本期新增）/adopted（已采纳）/rejected（不采纳）/pending（待评估）；stats 为 total/adopted/rejected/pending。
 
 # 中文转译铁律

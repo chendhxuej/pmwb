@@ -101,7 +101,7 @@ MEETING_ACTION_STATUS: Dict[str, str] = {
 KW_CATEGORY: Dict[str, str] = {
     "hq_pilot": "总部试点",
     "annual_task": "年度任务",
-    "special_topic": "专题工作",
+    "special_topic": "每人一件事（专题工作）",
 }
 
 KW_STATUS: Dict[str, str] = {

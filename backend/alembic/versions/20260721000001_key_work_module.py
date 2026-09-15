@@ -1,6 +1,6 @@
 """重点工作模块：pmwb_key_work 主表 + 8 个子表。
 
-三类（总部试点/年度任务/专题工作）共用一张主表，由 category 区分。
+三类（总部试点/年度任务/每人一件事（专题工作））共用一张主表，由 category 区分。
 """
 from alembic import op
 import sqlalchemy as sa
@@ -22,7 +22,7 @@ def upgrade() -> None:
             sa.Enum("hq_pilot", "annual_task", "special_topic", name="kw_category"),
             nullable=False,
             server_default="annual_task",
-            comment="分类：总部试点/年度任务/专题工作",
+            comment="分类：总部试点/年度任务/每人一件事（专题工作）",
         ),
         sa.Column("title", sa.String(500), nullable=False, comment="工作标题"),
         sa.Column("background", sa.Text(), nullable=True, comment="工作背景"),

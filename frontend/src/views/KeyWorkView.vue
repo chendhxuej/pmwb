@@ -4,7 +4,7 @@
     <div class="page-header">
       <div>
         <div class="page-title">重点工作</div>
-        <div class="page-sub">总部试点 · 年度任务 · 专题工作 — 全周期闭环管理</div>
+        <div class="page-sub">总部试点 · 年度任务 · 每人一件事 — 全周期闭环管理</div>
       </div>
       <div class="page-actions">
         <el-button type="primary" @click="openCreate">
@@ -39,7 +39,7 @@
         <el-tab-pane label="全部" name="all" />
         <el-tab-pane label="总部试点" name="hq_pilot" />
         <el-tab-pane label="年度任务" name="annual_task" />
-        <el-tab-pane label="专题工作" name="special_topic" />
+        <el-tab-pane label="每人一件事" name="special_topic" />
       </el-tabs>
       <div class="table-toolbar">
         <el-input
@@ -689,7 +689,7 @@
           <el-input v-model="basicForm.content" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="工作价值">
-          <el-input v-model="basicForm.work_value" type="textarea" :rows="3" placeholder="专题工作做完后的收获、收益或价值" />
+          <el-input v-model="basicForm.work_value" type="textarea" :rows="3" placeholder="每人一件事做完后的收获、收益或价值" />
         </el-form-item>
         <el-form-item label="验收标准">
           <el-input v-model="acceptText" type="textarea" :rows="3" placeholder="每行一条验收标准" />
@@ -1099,7 +1099,7 @@ function buildFeedbackMailBody(g) {
   lines.push('')
 
   // 整体进度
-  lines.push(`**专题工作整体进度：${g._form.progress || 0}%**`)
+  lines.push(`**每人一件事整体进度：${g._form.progress || 0}%**`)
   lines.push('')
 
   // 底部提示

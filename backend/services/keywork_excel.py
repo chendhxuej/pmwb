@@ -49,7 +49,7 @@ ENUM_OPTIONS: Dict[str, List[str]] = {
 }
 
 ENUM_LABELS: Dict[str, Dict[str, str]] = {
-    "category": {"hq_pilot": "总部试点", "annual_task": "年度任务", "special_topic": "专题工作"},
+    "category": {"hq_pilot": "总部试点", "annual_task": "年度任务", "special_topic": "每人一件事（专题工作）"},
     "priority": {"P0": "P0(最高)", "P1": "P1", "P2": "P2", "P3": "P3(最低)"},
     "status": {
         "planning": "规划中", "in_progress": "进行中", "completed": "已完成",
@@ -86,6 +86,8 @@ DEFAULTS = {
 ENUM_ALIASES: Dict[str, Dict[str, str]] = {
     "category": {
         "专题": "special_topic", "专题工作": "special_topic", "专题任务": "special_topic",
+        "每人一件事": "special_topic", "每人一件事（专题工作）": "special_topic",
+        "每人一件事(专题工作)": "special_topic",
         "试点": "hq_pilot", "总部试点": "hq_pilot",
         "年度": "annual_task", "年度任务": "annual_task", "年任务": "annual_task",
     },

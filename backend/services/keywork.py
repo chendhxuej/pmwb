@@ -1,6 +1,6 @@
 """重点工作 KeyWork Service：主表 CRUD + 子表全量替换 + 看板统计。
 
-三类（总部试点/年度任务/专题工作）共用一张主表，由 category 字段区分。
+三类（总部试点/年度任务/每人一件事（专题工作））共用一张主表，由 category 字段区分。
 """
 from __future__ import annotations
 

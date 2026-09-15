@@ -965,10 +965,10 @@ class SaInfo(Base):
 
 
 # ===========================================================================
-# 重点工作模块（KeyWork）：总部试点 / 年度任务 / 专题工作 三类合一
+# 重点工作模块（KeyWork）：总部试点 / 年度任务 / 每人一件事（专题工作） 三类合一
 # ===========================================================================
 class PmwbKeyWork(Base):
-    """重点工作主表（三类共用：总部试点/年度任务/专题工作，由 category 区分）。"""
+    """重点工作主表（三类共用：总部试点/年度任务/每人一件事（专题工作），由 category 区分）。"""
 
     __tablename__ = "pmwb_key_work"
 
@@ -978,7 +978,7 @@ class PmwbKeyWork(Base):
         Enum("hq_pilot", "annual_task", "special_topic", name="kw_category"),
         nullable=False,
         default="annual_task",
-        comment="分类：总部试点/年度任务/专题工作",
+        comment="分类：总部试点/年度任务/每人一件事（专题工作）",
     )
     domain_code = Column(String(64), comment="关联业务领域编码")
     title = Column(String(500), nullable=False, comment="工作标题")
