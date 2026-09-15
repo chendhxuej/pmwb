@@ -2,7 +2,7 @@
   <div class="home-view">
     <div class="bento-grid">
 
-      <!-- ══ ROW 1: 问候区 + 实时动态 ══ -->
+      <!-- ══ L1 问候层（高度压缩：内容两端对齐，与右侧动态卡高度对齐）══ -->
       <BentoCard class="greeting-tile" :span="8" flat :body-padding="'0'">
         <div class="greeting-inner">
           <div class="g-top">
@@ -11,34 +11,39 @@
               <div class="g-sub">{{ greeting.sub }}</div>
             </div>
             <div class="g-eff">
-              <div class="g-eff-key">运营闭环率</div>
+              <div class="g-eff-key">运营闭环率（含调研）</div>
               <div class="g-eff-val">{{ greeting.efficiency }}<span class="g-eff-unit">%</span></div>
             </div>
           </div>
-          <div class="g-stats">
-            <div class="g-stat" v-for="(s, i) in greeting.stats" :key="i">
-              <span class="g-stat-val" :class="s.cls">{{ s.value }}</span>
-              <span class="g-stat-key">{{ s.key }}</span>
+          <div class="g-bottom">
+            <div class="g-stats">
+              <div class="g-stat" v-for="(s, i) in greeting.stats" :key="i">
+                <span class="g-stat-val" :class="s.cls">{{ s.value }}</span>
+                <span class="g-stat-key">{{ s.key }}</span>
+              </div>
             </div>
-          </div>
-          <div class="cmd-bar" @click="cmdOpen = true">
-            <div class="cmd-bar-kbd"><span class="kbd">⌘</span><span class="kbd">K</span></div>
-            <div class="cmd-bar-text">{{ cmdText }}</div><span class="cmd-cursor"></span>
+            <div class="g-cmd" @click="cmdOpen = true">
+              <span class="kbd">Ctrl</span><span class="kbd">K</span>&nbsp;{{ cmdText }}<span class="cmd-cursor"></span>
+            </div>
           </div>
         </div>
       </BentoCard>
 
-      <BentoCard title="实时动态" :span="4">
+      <BentoCard title="实时动态 · 多源" :span="4" :body-padding="'12px 22px 14px'">
+        <template #action><a class="card-action" @click="goTo('/task-center')">更多 →</a></template>
         <ul class="ls-list">
           <li class="ls-item" v-for="(item, i) in liveStatus" :key="i">
-            <span class="ls-dot" :class="item.color"></span>
-            <span class="ls-text">{{ item.text }}</span>
-            <span class="ls-time">{{ item.time }}</span>
+            <span class="pm-dot" :class="item.color" style="margin-top:4px"></span>
+            <div class="ls-body">
+              <div class="ls-text"><span class="ls-src" :class="srcClass(item.source)">{{ item.source }}</span>{{ item.text }}</div>
+              <div class="ls-foot"><span class="ls-time">{{ item.time }}</span></div>
+            </div>
           </li>
+          <li v-if="!liveStatus.length" class="tc-empty">暂无动态</li>
         </ul>
       </BentoCard>
 
-      <!-- ══ ROW 2: KPI 指标条 ══ -->
+      <!-- ══ L2 指标层（KPI 全真实值）══ -->
       <BentoCard
         v-for="(k, i) in kpis"
         :key="'kpi' + i"
@@ -48,143 +53,199 @@
       >
         <div class="kpi-num" :class="k.color">{{ k.num }}</div>
         <div class="kpi-label">{{ k.label }}</div>
-        <div class="kpi-delta" :class="k.deltaType">{{ k.delta }}</div>
+        <div class="kpi-trend" :class="k.deltaType">{{ k.delta }}</div>
       </BentoCard>
 
-      <!-- 快捷操作 -->
-      <div class="action-row" style="grid-column:1/-1">
-        <button class="act-btn primary" @click="goTo('/requirement-delivery')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增需求·工单
-        </button>
-        <button class="act-btn success" @click="goTo('/meeting')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增会议
-        </button>
-        <button class="act-btn warn" @click="goTo('/operation')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新增运营问题
-        </button>
-        <button class="act-btn ghost" @click="goTo('/knowledge')">知识库 →</button>
+      <!-- ══ L3 模块概览（紧贴指标行 · 6 卡补满两行）══ -->
+      <div class="row-label" style="grid-column:1/-1">
+        <span class="rl-t">模块概览</span>
+        <span class="rl-s">13 个一级模块全部覆盖 · AI 中心与业务资料库为本轮新增</span>
+        <span class="rl-line"></span>
       </div>
 
-      <!-- ══ 核心工作区：按菜单顺序突出（任务中心 → 需求工单 → 运营工单 → 会议日程）══ -->
-      <div class="section-title" style="grid-column:1/-1">
-        <span class="st-main">核心工作区</span>
-        <span class="st-sub">重点关注 · 任务中心 / 需求工单 / 运营工单 / 会议日程</span>
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'">
+        <div class="mod-grid">
+          <div class="mod-stat"><span class="mod-num">{{ personnel.staff }}</span><span class="mod-key">在职人员 · 人员中台</span></div>
+          <div class="mod-sub"><b>{{ personnel.org }}</b> 个组织 · 订单中心 / 电子协议 / CRM / BOSS 等条线全覆盖</div>
+        </div>
+      </BentoCard>
+
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'">
+        <div class="mod-grid">
+          <div class="mod-stat"><span class="mod-num">{{ knowledge.total }}</span><span class="mod-key">知识条目 · 知识中心</span></div>
+          <div class="mod-sub"><b>{{ knowledge.domainCount }}</b> 个业务领域 · 本周沉淀 <b>{{ knowledge.thisWeek }}</b> 条 · 需求/运营自动归档汇入</div>
+        </div>
+      </BentoCard>
+
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'">
+        <div class="mod-grid">
+          <div class="mod-stat"><span class="mod-num">{{ emails.sr }}<span class="mod-unit">%</span></span><span class="mod-key">邮件中心</span></div>
+          <div class="mod-sub">本周发送 <b>{{ emails.week }}</b> · 今日 {{ emails.today }} · 12 类场景模板</div>
+        </div>
+      </BentoCard>
+
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-clickable" @click.native="goTo('/ai-center')">
+        <div class="mod-grid">
+          <div class="mod-stat"><span class="mod-num">{{ aiCenter.total }}</span><span class="mod-key">AI 总结 · AI 中心<span class="new-badge">NEW</span></span></div>
+          <div class="mod-sub">本周新增 <b>{{ aiCenter.thisWeek }}</b> 篇 · 可用模型 <b>{{ aiCenter.modelCount }}</b> 个 · 自动归档 Obsidian</div>
+        </div>
+      </BentoCard>
+
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-clickable" @click.native="goTo('/material-library')">
+        <div class="mod-grid">
+          <div class="mod-stat"><span class="mod-num">{{ materials.total }}</span><span class="mod-key">资料总数 · 业务资料库<span class="new-badge">NEW</span></span></div>
+          <div class="mod-sub"><b>{{ materials.categoryCount }}</b> 个分类 · 本周新增 <b>{{ materials.thisWeek }}</b> 份 · 接口规范/操作手册自动归档</div>
+        </div>
+      </BentoCard>
+
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'">
+        <div class="mod-grid">
+          <div class="mod-stat"><span class="mod-num">{{ researchStats.total }}</span><span class="mod-key">调研工单 · 一线调研</span></div>
+          <div class="mod-sub">待处理 <b>{{ researchStats.pending }}</b> · 超期 <span class="hot">{{ researchStats.overdue }}</span> · 已并入任务中心来源分布</div>
+        </div>
+      </BentoCard>
+
+      <!-- 快捷操作（紧凑行）-->
+      <div class="action-row" style="grid-column:1/-1">
+        <button class="pm-btn primary" @click="goTo('/requirement-delivery')">＋ 新增需求·工单</button>
+        <button class="pm-btn primary" @click="goTo('/meeting')">＋ 新增会议</button>
+        <button class="pm-btn primary" @click="goTo('/operation')">＋ 新增运营问题</button>
+        <button class="pm-btn" @click="goTo('/ai-center/qa')">✦ AI 问答</button>
+        <button class="pm-btn" @click="goTo('/knowledge-center')">知识中心 →</button>
+      </div>
+
+      <!-- ══ L4 核心工作区 ══ -->
+      <div class="row-label" style="grid-column:1/-1">
+        <span class="rl-t">核心工作区</span>
+        <span class="rl-s">任务中心 / 需求工单 / 运营工单 / 会议日程</span>
+        <span class="rl-line"></span>
       </div>
 
       <!-- 任务中心 -->
-      <BentoCard class="card-highlight" :span="6" :body-padding="'14px 20px 14px'">
-        <template #head>
-          <span class="card-label">任务中心</span>
-        </template>
-        <template #action><a class="card-action" @click="goTo('/task-center')">更多</a></template>
-        <div class="op-wrap">
-          <div class="op-stats">
-            <div class="op-stat"><b>{{ taskCenter.total }}</b><span>共待办</span></div>
-            <div class="op-stat"><b>{{ taskCenter.processing }}</b><span>进行中</span></div>
-            <div class="op-stat"><b>{{ taskCenter.pending }}</b><span>待处理</span></div>
-            <div class="op-stat" :class="{ danger: taskCenter.overdue > 0 }"><b>{{ taskCenter.overdue }}</b><span>超期</span></div>
-          </div>
-          <div class="op-dist">
-            <div class="op-dist-h">来源分布</div>
-            <div class="op-bar" v-for="(s, i) in taskCenter.by_source" :key="i">
-              <span class="op-bar-label">{{ s.name }}</span>
-              <span class="op-bar-track"><i class="op-bar-fill" :style="{ width: pct(s.value, taskCenter.total) + '%' }"></i></span>
-              <span class="op-bar-val">{{ s.value }}</span>
-            </div>
-            <div v-if="!taskCenter.by_source.length" class="tc-empty">暂无来源分布</div>
+      <BentoCard :span="6" :body-padding="'14px 20px 16px'">
+        <template #head><span class="card-label">任务中心</span></template>
+        <template #action><a class="card-action" @click="goTo('/task-center')">全部任务 →</a></template>
+        <div class="stat4">
+          <div class="stat"><b>{{ taskCenter.total }}</b><span>共待办</span></div>
+          <div class="stat"><b>{{ taskCenter.processing }}</b><span>进行中</span></div>
+          <div class="stat"><b>{{ taskCenter.pending }}</b><span>待处理</span></div>
+          <div class="stat"><b :class="{ danger: taskCenter.overdue > 0 }">{{ taskCenter.overdue }}</b><span>超期</span></div>
+        </div>
+        <div class="dist-h">来源分布</div>
+        <div class="bar" v-for="(s, i) in taskCenter.by_source" :key="i">
+          <span class="bar-k">{{ s.name }}</span>
+          <span class="bar-track"><i class="bar-fill" :style="{ width: pct(s.value, taskCenter.total) + '%' }"></i></span>
+          <span class="bar-v">{{ s.value }}</span>
+        </div>
+        <div v-if="!taskCenter.by_source.length" class="tc-empty">暂无来源分布</div>
+        <div class="detail-box" v-if="overdueTop3.length">
+          <div class="detail-h">超期 TOP 3 <span class="cnt">共 {{ taskCenter.overdue }} 条</span></div>
+          <div class="d-item" v-for="(o, i) in overdueTop3" :key="'od' + i">
+            <span class="d-pri" :class="priClass(o.priority)">{{ o.priority }}</span>
+            <span class="d-t" :title="o.title">{{ o.title }}</span>
+            <span class="d-date">{{ o.date }}</span>
           </div>
         </div>
       </BentoCard>
 
       <!-- 需求工单 -->
-      <BentoCard class="card-highlight" :span="6" :body-padding="'14px 20px 14px'">
-        <template #head>
-          <span class="card-label">需求工单</span>
-        </template>
+      <BentoCard :span="6" :body-padding="'14px 20px 16px'">
+        <template #head><span class="card-label">需求工单</span></template>
         <template #action><a class="card-action" @click="goTo('/requirement-delivery')">需求与交付 →</a></template>
-        <div class="rq-wrap">
-          <div class="rq-stats">
-            <div class="rq-stat"><b>{{ reqs.total }}</b><span>需求总数</span></div>
-            <div class="rq-stat"><b>{{ reqs.thisWeek }}</b><span>本周新增</span></div>
-            <div class="rq-stat"><b>{{ reqs.inReview }}</b><span>跟踪中</span></div>
-            <div class="rq-stat" :class="{ danger: reqs.overdueDev > 0 }"><b>{{ reqs.overdueDev }}</b><span>超期开发</span></div>
-          </div>
-          <div class="rq-dist">
-            <div class="rq-dist-h">状态分布</div>
-            <div class="rq-bar" v-for="(s, i) in reqStatusDist" :key="i">
-              <span class="rq-bar-label">{{ s.name }}</span>
-              <span class="rq-bar-track"><i class="rq-bar-fill" :class="rqStatusClass(s.name)" :style="{ width: pct(s.value, reqs.total) + '%' }"></i></span>
-              <span class="rq-bar-val">{{ s.value }}</span>
-            </div>
-            <div v-if="!reqStatusDist.length" class="tc-empty">暂无需求状态分布</div>
-          </div>
-          <div class="rq-opt">
-            <div class="rq-dist-h">主动优化</div>
-            <div class="rq-opt-row">
-              <div class="rq-opt-stat"><b>{{ activeOpts.total }}</b><span>总数</span></div>
-              <div class="rq-opt-stat"><b>{{ activeOpts.pending }}</b><span>待评估</span></div>
-              <div class="rq-opt-stat"><b>{{ activeOpts.adopted }}</b><span>已采纳</span></div>
-              <div class="rq-opt-stat"><b>{{ activeOpts.rejected }}</b><span>不采纳</span></div>
-            </div>
+        <div class="stat4">
+          <div class="stat"><b>{{ reqs.total }}</b><span>需求总数</span></div>
+          <div class="stat"><b>{{ reqs.thisWeek }}</b><span>本周新增</span></div>
+          <div class="stat"><b>{{ reqs.inReview }}</b><span>跟踪中</span></div>
+          <div class="stat"><b :class="{ danger: reqs.overdueDev > 0 }">{{ reqs.overdueDev }}</b><span>超期开发</span></div>
+        </div>
+        <div class="dist-h">状态分布</div>
+        <div class="bar" v-for="(s, i) in reqStatusDist" :key="'rq' + i">
+          <span class="bar-k">{{ s.name }}</span>
+          <span class="bar-track"><i class="bar-fill" :class="rqStatusClass(s.name)" :style="{ width: pct(s.value, reqs.total) + '%' }"></i></span>
+          <span class="bar-v">{{ s.value }}</span>
+        </div>
+        <div v-if="!reqStatusDist.length" class="tc-empty">暂无需求状态分布</div>
+        <div class="detail-box">
+          <div class="detail-h ok">主动优化</div>
+          <div class="stat4" style="margin-bottom:0">
+            <div class="stat"><b>{{ activeOpts.total }}</b><span>总数</span></div>
+            <div class="stat"><b>{{ activeOpts.pending }}</b><span>待评估</span></div>
+            <div class="stat"><b class="ok">{{ activeOpts.adopted }}</b><span>已采纳</span></div>
+            <div class="stat"><b>{{ activeOpts.rejected }}</b><span>不采纳</span></div>
           </div>
         </div>
       </BentoCard>
 
       <!-- 运营工单 -->
-      <BentoCard class="card-highlight" :span="6" :body-padding="'14px 20px 14px'">
+      <BentoCard :span="6" :body-padding="'14px 20px 16px'">
         <template #head>
-          <span class="card-label">运营工单</span>
+          <span class="head-extra">
+            <span class="card-label">运营工单</span>
+            <span class="caliber" v-if="issues.researchTotal">含一线调研 {{ issues.total - issues.researchTotal }} + {{ issues.researchTotal }}</span>
+          </span>
         </template>
         <template #action><a class="card-action" @click="goTo('/operation')">运营监控 →</a></template>
-        <div class="op-wrap">
-          <div class="op-stats">
-            <div class="op-stat"><b>{{ issues.total }}</b><span>问题总数</span></div>
-            <div class="op-stat"><b>{{ issues.processing }}</b><span>处理中</span></div>
-            <div class="op-stat"><b>{{ issues.resolved }}</b><span>已解决</span></div>
-            <div class="op-stat" :class="{ danger: issues.overdue > 0 }"><b>{{ issues.overdue }}</b><span>超期</span></div>
-          </div>
-          <div class="op-dist">
-            <div class="op-dist-h">类型分布</div>
-            <div class="op-bar" v-for="(s, i) in issueTypeDist" :key="i">
-              <span class="op-bar-label">{{ s.name }}</span>
-              <span class="op-bar-track"><i class="op-bar-fill" :style="{ width: pct(s.value, issues.total) + '%' }"></i></span>
-              <span class="op-bar-val">{{ s.value }}</span>
-            </div>
-            <div v-if="!issueTypeDist.length" class="tc-empty">暂无类型分布</div>
-          </div>
+        <div class="stat4">
+          <div class="stat"><b>{{ issues.total }}</b><span>问题总数</span></div>
+          <div class="stat"><b>{{ issues.processing }}</b><span>处理中</span></div>
+          <div class="stat"><b class="ok">{{ issues.resolved }}</b><span>已解决</span></div>
+          <div class="stat"><b :class="{ danger: issues.overdue > 0 }">{{ issues.overdue }}</b><span>超期</span></div>
         </div>
+        <div class="dist-h">类型分布</div>
+        <div class="bar" v-for="(s, i) in issueTypeDist" :key="'it' + i">
+          <span class="bar-k">{{ s.name }}</span>
+          <span class="bar-track"><i class="bar-fill" :style="{ width: pct(s.value, issues.total) + '%' }"></i></span>
+          <span class="bar-v">{{ s.value }}</span>
+        </div>
+        <div v-if="!issueTypeDist.length" class="tc-empty">暂无类型分布</div>
       </BentoCard>
 
       <!-- 会议日程 -->
-      <BentoCard class="card-highlight" :span="6" :body-padding="'14px 20px 14px'">
+      <BentoCard :span="6" :body-padding="'14px 20px 16px'">
         <template #head>
-          <span class="card-label">会议日程</span>
+          <span class="head-extra">
+            <span class="card-label">会议日程</span>
+            <span class="caliber">今日 {{ meetingStats.today }} 场</span>
+          </span>
         </template>
-        <template #action><a class="card-action" @click="goTo('/meeting')">日历</a></template>
-        <div class="mt-wrap">
-          <div class="mt-stats">
-            <div class="mt-stat"><b>{{ meetingStats.totalThisWeek }}</b><span>本周会议</span></div>
-            <div class="mt-stat"><b>{{ meetingStats.today }}</b><span>今日</span></div>
-            <div class="mt-stat"><b>{{ meetingStats.upcoming }}</b><span>即将召开</span></div>
-            <div class="mt-stat" :class="{ danger: meetingStats.pendingMinutes > 0 }"><b>{{ meetingStats.pendingMinutes }}</b><span>待写纪要</span></div>
-          </div>
-          <ul class="mt-list">
-            <li class="mt-item" v-for="(s, i) in schedule" :key="i">
-              <span class="mt-time">{{ s.time }}</span>
-              <div class="mt-info">
-                <div class="mt-title">{{ s.title }}</div>
-                <div class="mt-loc">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                  {{ s.loc }}
-                </div>
-              </div>
-            </li>
-            <li v-if="!schedule.length" class="mt-empty">今日暂无会议安排</li>
-          </ul>
+        <template #action><a class="card-action" @click="goTo('/meeting')">日历 →</a></template>
+        <div class="stat4" style="margin-bottom:10px">
+          <div class="stat"><b>{{ meetingStats.totalThisWeek }}</b><span>本周会议</span></div>
+          <div class="stat"><b>{{ meetingStats.today }}</b><span>今日</span></div>
+          <div class="stat"><b>{{ meetingStats.upcoming }}</b><span>即将召开</span></div>
+          <div class="stat"><b :class="{ danger: meetingStats.pendingMinutes > 0 }">{{ meetingStats.pendingMinutes }}</b><span>待写纪要</span></div>
         </div>
+        <template v-if="schedule.length">
+          <div class="mt-item" v-for="(s, i) in schedule" :key="'sch' + i">
+            <span class="mt-time">{{ s.time }}</span>
+            <div class="mt-info">
+              <div class="mt-title">{{ s.title }}</div>
+              <div class="mt-loc">{{ s.loc }}</div>
+            </div>
+          </div>
+        </template>
+        <div class="mt-item" v-else-if="upcomingMeeting">
+          <span class="mt-time">{{ upcomingMeeting.date }}</span>
+          <div class="mt-info">
+            <div class="mt-title">{{ upcomingMeeting.title }}</div>
+            <div class="mt-loc">即将召开</div>
+          </div>
+        </div>
+        <div class="mt-item" v-else>
+          <div class="mt-info"><div class="mt-title tc-empty">今日暂无会议安排</div></div>
+        </div>
+        <template v-if="pendingMinutes.length">
+          <div class="mt-sep">待写纪要（{{ meetingStats.pendingMinutes }}）</div>
+          <div class="mt-item" v-for="(m, i) in pendingMinutes" :key="'pm' + i">
+            <span class="mt-time">{{ m.date }}</span>
+            <div class="mt-info"><div class="mt-title">{{ m.title }}</div></div>
+            <span class="pm-tag amber" style="cursor:pointer" @click="goTo('/meeting')">去补录</span>
+          </div>
+        </template>
       </BentoCard>
 
-      <!-- ══ 需求概览：趋势图 + 最近需求 整合为单卡 ══ -->
+      <!-- ══ L5 分析层 ══ -->
+      <!-- 需求概览：趋势图 + 最近需求 整合为单卡 -->
       <BentoCard title="需求概览" :span="12">
         <template #action><a class="card-action" @click="goTo('/requirement-delivery')">需求与交付 →</a></template>
         <div class="req-overview">
@@ -222,10 +283,7 @@
                 </g>
               </svg>
             </div>
-            <div class="chart-legend ro-legend">
-              <div class="legend-item"><span class="legend-dot" style="background:#2f6fed"></span>已处理需求量</div>
-              <div class="legend-item"><span class="legend-dot" style="background:#e4e9f0"></span>网格参考线</div>
-            </div>
+            <div class="chart-note">近 7 日需求新增趋势（真实数据）</div>
           </div>
           <div class="ro-reqs">
             <div class="ro-reqs-h">最近需求</div>
@@ -248,25 +306,25 @@
         </div>
       </BentoCard>
 
-      <!-- ══ 我的待办 + 重点工作 ══ -->
-      <BentoCard title="智能优先级 · 我的待办" :span="6">
-        <template #action><a class="card-action" @click="goTo('/todo')">更多</a></template>
-        <ul class="todo-list">
-          <li class="todo-item" v-for="(t, i) in todos.slice(0,3)" :key="i">
-            <span class="todo-priority" :class="t.priorityClass">{{ t.priority }}</span>
-            <div class="todo-body">
-              <div class="todo-title">{{ t.title }}</div>
-              <div class="todo-meta">
-                <span v-if="t.deadline" :class="t.overdue ? 'todo-overdue' : 'todo-deadline'">{{ t.deadline }}</span>
-                <span v-if="t.owner">· 负责人 {{ t.owner }}</span>
-              </div>
-            </div>
-          </li>
-        </ul>
+      <!-- 今日聚焦（7 栏）-->
+      <BentoCard title="今日聚焦" :span="7">
+        <template #action>
+          <span class="head-extra">
+            <span class="caliber">个人待办 + 任务中心合并排序</span>
+            <a class="card-action" @click="goTo('/task-center')">任务中心 →</a>
+          </span>
+        </template>
+        <div class="fz-item" v-for="(f, i) in focusItems" :key="'fz' + i">
+          <span class="d-pri" :class="priClass(f.priority)">{{ f.priority }} {{ focusTag(f) }}</span>
+          <span class="d-t" :title="f.title">{{ f.title }}</span>
+          <span class="d-date" :class="{ ok: !f.overdue }">{{ f.date_text }}</span>
+        </div>
+        <div v-if="!focusItems.length" class="tc-empty">今日暂无聚焦事项，去任务中心看看 →</div>
       </BentoCard>
 
-      <BentoCard title="重点工作进度" :span="6">
-        <template #action><a class="card-action" @click="goTo('/key-works')">更多</a></template>
+      <!-- 重点工作（5 栏）-->
+      <BentoCard title="重点工作进度" :span="5">
+        <template #action><a class="card-action" @click="goTo('/key-works')">更多 →</a></template>
         <ul class="kp-list">
           <li class="kp-item" v-for="(p, i) in keyProjects" :key="i">
             <div class="kp-head">
@@ -275,61 +333,8 @@
             </div>
             <div class="kp-bar"><i class="kp-fill" :style="{ width: p.percent + '%' }"></i></div>
           </li>
-          <li v-if="!keyProjects.length" class="kp-empty">暂无进行中的重点工作</li>
+          <li v-if="!keyProjects.length" class="tc-empty">暂无进行中的重点工作</li>
         </ul>
-      </BentoCard>
-
-      <!-- ══ 模块概览：按菜单顺序（人员中台 / 知识中心 / 邮件中心）══ -->
-      <div class="section-title" style="grid-column:1/-1">
-        <span class="st-main">模块概览</span>
-        <span class="st-sub">人员中台 / 知识中心 / 邮件中心 / 一线调研</span>
-      </div>
-
-      <BentoCard title="人员中台" :span="3">
-        <div class="mod-grid">
-          <div class="mod-stat">
-            <span class="mod-num">{{ personnel.staff }}</span>
-            <span class="mod-key">在职人员</span>
-          </div>
-          <div class="mod-sub">{{ personnel.org }} 个组织 · 启用 {{ personnel.enabled }}</div>
-        </div>
-      </BentoCard>
-
-      <BentoCard title="知识中心" :span="4">
-        <div class="mod-grid">
-          <div class="mod-stat">
-            <span class="mod-num">{{ knowledge.total }}</span>
-            <span class="mod-key">知识条目</span>
-          </div>
-          <div class="mod-sub">本周新增 {{ knowledge.thisWeek }} 条</div>
-        </div>
-      </BentoCard>
-
-      <BentoCard title="邮件中心" :span="3">
-        <div class="mod-grid">
-          <div class="mod-stat">
-            <span class="mod-num">{{ emails.week }}</span>
-            <span class="mod-key">本周发送</span>
-          </div>
-          <div class="mod-sub">今日 {{ emails.today }} · 成功率 {{ emails.sr }}%</div>
-        </div>
-      </BentoCard>
-
-      <!-- 一线调研：2026-09-10 由运营监控子模块升级为独立一级模块 -->
-      <BentoCard title="一线调研" :span="3">
-        <template #action>
-          <a class="card-action" @click="goTo('/research')">一线调研 →</a>
-        </template>
-        <div class="mod-grid">
-          <div class="mod-stat">
-            <span class="mod-num">{{ researchStats.total }}</span>
-            <span class="mod-key">调研工单</span>
-          </div>
-          <div class="mod-sub">
-            待处理 {{ researchStats.pending }} · 超期
-            <span :class="{ 'rs-overdue': researchStats.overdue > 0 }">{{ researchStats.overdue }}</span>
-          </div>
-        </div>
       </BentoCard>
 
     </div>
@@ -364,7 +369,7 @@ const plotTop = 44
 const plotBottom = 179
 const yMin = 0
 
-/* ───────────────── Demo 有机数据（默认渲染） ───────────────── */
+/* ───────────────── Demo 有机数据（默认渲染，接口成功后被真实数据覆盖） ───────────────── */
 const dayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
 /* 运营问题类型中文映射（后端 distribution_charts.issueTypeDist 含英文 key） */
@@ -382,11 +387,12 @@ const ISSUE_TYPE_CN = {
 function pct(v, t) {
   return t ? Math.round((v / t) * 100) : 0
 }
+/* 需求状态分布条语义色（design.css bar-fill：ok 绿 / warn 琥珀 / mute 灰 / 默认蓝） */
 function rqStatusClass(name) {
-  if (name === '开发中') return 'st-dev'
-  if (name === '已上线') return 'st-live'
-  if (name === '评审中') return 'st-review'
-  return 'st-backlog'
+  if (name === '已上线') return 'ok'
+  if (name === '开发中') return 'warn'
+  if (name === '待排期' || name === '已暂停') return 'mute'
+  return ''
 }
 function rqStatusTone(name) {
   if (name === '开发中') return 'warning'
@@ -394,32 +400,45 @@ function rqStatusTone(name) {
   if (name === '评审中') return 'primary'
   return 'info'
 }
+/* 优先级徽章色（d-pri：P0 红 / P1 琥珀 / P2 蓝 / P3 灰，兼容中文） */
+const PRI_CLASS = { P0: '', P1: 'p1', P2: 'p2', P3: 'p3', 紧急: '', 高优: 'p1', 中等: 'p2', 低优: 'p3' }
+function priClass(p) {
+  return PRI_CLASS[p] ?? 'p3'
+}
+/* 动态来源徽章色（ls-src：调研/运营 红 / 会议 蓝 / 需求 绿 / 知识 琥珀） */
+const SRC_CLASS = { 调研: 'op', 运营: 'op', 会议: 'mt', 需求: 'rq', 知识: 'kn' }
+function srcClass(s) {
+  return SRC_CLASS[s] || 'op'
+}
+function focusTag(f) {
+  if (f.overdue) return '超期'
+  return f.date_text === '今日' ? '今日' : '本周'
+}
 
 const greeting = reactive({
-  name: '陈工',
-  sub: '本周共处理 127 条事项，较上周提升 14.3%。运营预警已从 8 条降至 5 条，闭环率 86.7%。',
-  efficiency: 86.7,
+  name: '老大',
+  sub: '本周共 2 场会议，运营问题 101 条（含一线调研 6，待处理 2），我的待办 105 条、42 条超期。',
+  efficiency: 55.4,
   stats: [
-    { value: '+14.3%', key: '周环比 ↑', cls: 'up' },
-    { value: '23', key: '已完成工单', cls: 'up' },
-    { value: '5', key: '待关注项', cls: 'down' },
-    { value: '3', key: '明日截止', cls: 'accent' },
+    { value: '2', key: '本周会议', cls: 'accent' },
+    { value: '42', key: '超期任务', cls: 'down' },
+    { value: '19', key: '3日内到期', cls: 'up' },
+    { value: '5', key: '待写纪要', cls: 'down' },
   ],
 })
 
 const liveStatus = ref([
-  { color: 'red', text: '超期工单：某园区5G弱覆盖', time: '12m 前' },
-  { color: 'amber', text: '新需求评审：云MAS扩容', time: '34m 前' },
-  { color: 'green', text: '知识库同步：极客FAQ 已更新', time: '1h 前' },
-  { color: 'red', text: '热点投诉升级：南京某园区', time: '2h 前' },
-  { color: 'green', text: '会议纪要已归档：周例会', time: '3h 前' },
+  { color: 'red', text: 'RES-20260901-506 领导调研反馈已超期', time: '09-01', source: '调研' },
+  { color: 'amber', text: 'TASK-2026091416284450109 能运交互相关接口详情梳理', time: '18 小时前', source: '运营' },
+  { color: 'amber', text: '「商客业务全省培训」已召开，纪要待补', time: '09-10', source: '会议' },
+  { color: 'green', text: '商客重点产品三个月信控销户需求 已上线', time: '09-14', source: '需求' },
 ])
 
 const kpis = ref([
-  { num: 14, color: 'blue', label: '我的待办', delta: '↑ 3 较昨日', deltaType: 'up' },
-  { num: 38, color: 'amber', label: '本周新增需求', delta: '评审中 11', deltaType: 'neutral' },
-  { num: 9, color: 'blue', label: '进行中工单', delta: '本周完成 23', deltaType: 'up' },
-  { num: 5, color: 'red', label: '运营预警', delta: '超期 2 条', deltaType: 'down' },
+  { num: 105, color: 'blue', label: '我的待办（任务中心）', delta: '超期 42 · 今日到期 1', deltaType: 'down' },
+  { num: 2, color: 'amber', label: '本周会议', delta: '待写纪要 5', deltaType: 'neutral' },
+  { num: 5, color: 'amber', label: '跟踪中需求', delta: '开发中 17 · 超期开发 11', deltaType: 'neutral' },
+  { num: '96.7%', color: 'green', label: '邮件 7 日成功率', delta: '本周发送 3', deltaType: 'neutral' },
 ])
 
 const trendValues = ref([18, 24, 21, 33, 29, 38, 42])
@@ -431,67 +450,56 @@ const yMax = computed(() => {
   return m <= 5 ? 5 : m <= 10 ? 10 : Math.ceil(m * 1.25)
 })
 
-const todos = ref([
-  { priority: '紧急', priorityClass: 'tp-urgent', title: '政企宽带续费流程优化需求评审', deadline: '今天 17:00 截止', owner: '李文倩', overdue: false },
-  { priority: '高优', priorityClass: 'tp-high', title: '热点投诉跟进：某园区5G信号弱', deadline: '超期 1 天', owner: '王海涛', overdue: true },
-  { priority: '中等', priorityClass: 'tp-med', title: '数据异常核查：B域用户画像校准缺失', deadline: '周三前完成', owner: '张明哲', overdue: false },
-  { priority: '中等', priorityClass: 'tp-med', title: '周报材料汇总（政企业务线 Q3）', deadline: '周五下班前提交', owner: '', overdue: false },
-  { priority: '低优', priorityClass: 'tp-low', title: '知识库补充：极客业务常见 FAQ 整理', deadline: '下周一前', owner: '', overdue: false },
-])
-
-const alerts = ref([
-  { sev: '严重', sevClass: 'as-red', msg: '超期未处理工单', count: '2 条（BUG类）' },
-  { sev: '严重', sevClass: 'as-red', msg: '热点投诉升级中', count: '1 起（南京园区）' },
-  { sev: '警告', sevClass: 'as-amber', msg: '数据异常待核查', count: '3 起（B域画像）' },
-  { sev: '正常', sevClass: 'as-green', msg: '系统巡检', count: '所有服务运行正常' },
-  { sev: '提醒', sevClass: 'as-amber', msg: '本周待办逾期风险', count: '3 项临近截止' },
-])
-
-const quickAccess = ref([
-  { label: '需求与交付', path: '/requirement-delivery', bg: 'var(--accent-soft)', color: 'var(--accent)',
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 6h3a3 3 0 013 3v0"/><path d="M9 18h3a3 3 0 003-3"/></svg>' },
-  { label: '运营监控', path: '/operation', bg: 'var(--danger-soft)', color: 'var(--danger)',
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82-.33h-.06A2 2 0 0011 21h-1a2 2 0 00-2 2 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00.33-1.82v-.06A2 2 0 003 11v-1a2 2 0 00-2-1.82 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001.82.33H11a2 2 0 002-2h1a2 2 0 002 1.82 1.65 1.65 0 001.82.33l.06.06a2 2 0 012.83-2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 00-.33 1.82V11a2 2 0 002 1.82z"/></svg>' },
-  { label: '会议日程', path: '/meeting', bg: '#f0e6ff', color: '#7c3aed',
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>' },
-  { label: '知识库', path: '/knowledge', bg: '#ecfdf5', color: '#059669',
-    icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>' },
-])
-
 const recentReqs = ref([
-  { name: '政企宽带续费流程优化', owner: '李文倩', status: '评审中', statusClass: 'st-review', date: '07-15' },
-  { name: '云MAS短信通道容量扩容', owner: '王海涛', status: '开发中', statusClass: 'st-dev', date: '07-14' },
-  { name: '物联网卡实名校验规则增强', owner: '张明哲', status: '待排期', statusClass: 'st-backlog', date: '07-12' },
-  { name: '政企业务APP首页改版 v2.3', owner: '陈思远', status: '已上线', statusClass: 'st-live', date: '07-10' },
-  { name: '集团客户电子签章对接（OA集成）', owner: '周敏', status: '评审中', statusClass: 'st-review', date: '07-09' },
+  { name: '关于新增特殊签名和高风险客户合规数据维护的需求', owner: '张振', status: '已上线', date: '09-14' },
+  { name: '关于新增集团下发的风险库数据支持在行短实名制菜单查询的需求', owner: '张振', status: '已上线', date: '09-14' },
+  { name: '关于商客重点产品三个月信控销户的需求', owner: '童振彦', status: '已上线', date: '09-14' },
+  { name: '关于电子协议统一条款格式的需求（第一批）', owner: '方舟', status: '评审中', date: '09-12' },
+  { name: '关于淮安订单中心集客增值业务结算系统功能扩展的需求', owner: '李能禾', status: '评审中', date: '09-11' },
 ])
 
-const schedule = ref([
-  { time: '09:30', title: '政企业务线 周例会', loc: '会议室 3F-02' },
-  { time: '14:00', title: '极客业务需求评审（Q3 迭代）', loc: '线上 · Tencent Meeting' },
-  { time: '16:30', title: '运营问题复盘会（超期工单）', loc: '会议室 5F-01' },
-  { time: '18:00', title: '1对1 导师辅导', loc: '茶水间' },
+const schedule = ref([])
+const upcomingMeeting = ref(null)
+const pendingMinutes = ref([])
+
+const focusItems = ref([
+  { priority: 'P0', title: '[COMP-20260914-250] 【投诉风险】后台执行批量销户，误操作手机用户被动销户的问题', date_text: '超期 1 天', overdue: true },
+  { priority: 'P0', title: '[BUG-20260824-520] HDICT业务办理后自动到期失效导致套餐费无法收取的问题', date_text: '超期 5 天', overdue: true },
+  { priority: 'P1', title: '需求方案评审 — 补录会议纪要', date_text: '今日', overdue: false },
+  { priority: 'P2', title: '[里程碑] 电子协议系统补推机制开发完成', date_text: '超期 3 天', overdue: true },
+  { priority: 'P3', title: '完成一键保障上报业务上下文字段确认及关联改造方案', date_text: '09-18', overdue: false },
+  { priority: 'P3', title: '评估电子协议系统 UI 改造教学指引能力建设方案', date_text: '09-19', overdue: false },
 ])
 
-/* ───────────────── 补充模块卡片数据（知识/邮件/人员/重点工作/任务中心/四核心卡片）───────────────── */
-const knowledge = ref({ total: 0, thisWeek: 0 })
+/* ───────────────── 模块概览 / 核心工作区数据 ───────────────── */
+const knowledge = ref({ total: 0, thisWeek: 0, domainCount: 0 })
 const emails = ref({ today: 0, week: 0, sr: 0 })
+const aiCenter = ref({ total: 0, thisWeek: 0, modelCount: 0 })
+const materials = ref({ total: 0, thisWeek: 0, categoryCount: 0 })
 const personnel = ref({ org: 0, staff: 0, enabled: 0, orgs: [] })
 const keyProjects = ref([])
-const taskCenter = ref({ total: 0, overdue: 0, due_soon: 0, processing: 0, pending: 0, by_source: [], by_priority: [], by_status: [] })
-// 四张核心卡片的丰富维度数据
+const taskCenter = ref({ total: 0, overdue: 0, due_soon: 0, processing: 0, pending: 0, by_source: [], overdue_items: [] })
 const reqs = ref({ total: 0, thisWeek: 0, inReview: 0, completed: 0, overdueDev: 0 })
-const issues = ref({ total: 0, pending: 0, processing: 0, resolved: 0, overdue: 0 })
+const issues = ref({ total: 0, pending: 0, processing: 0, resolved: 0, overdue: 0, researchTotal: 0 })
 const meetingStats = ref({ totalThisWeek: 0, today: 0, upcoming: 0, pendingMinutes: 0 })
 const activeOpts = ref({ total: 0, pending: 0, adopted: 0, rejected: 0, thisWeek: 0 })
 const reqStatusDist = ref([])
 const issueTypeDist = ref([])
 
+/* 超期 TOP 3（deadline "2026-09-14" → "09-14"） */
+const overdueTop3 = computed(() =>
+  (taskCenter.value.overdue_items || []).slice(0, 3).map((o) => ({
+    priority: o.priority || 'P3',
+    title: o.title || '',
+    date: (o.deadline || '').slice(5, 10),
+  }))
+)
+
 /* ───────────────── 命令栏打字机 ───────────────── */
 const cmdPhrases = [
   '搜索需求 / 工单 / 知识库…',
   '快速创建运营问题记录',
-  '查询「政企宽带」相关需求',
+  '查询「商客专区」相关需求',
   '查看今日待办与截止时间',
   '打开产品圣经 · 极客业务',
 ]
@@ -509,7 +517,7 @@ function _tick() {
   _timer = setTimeout(_tick, _erasing ? 35 : 80)
 }
 
-/* ───────────────── 派生：问候语 / 日期 ───────────────── */
+/* ───────────────── 派生：问候语 ───────────────── */
 const helloText = computed(() => {
   const h = new Date().getHours()
   if (h < 5) return '凌晨好'
@@ -568,16 +576,27 @@ function mergeDashboard(res) {
       color: x.color || 'green',
       text: x.text || '',
       time: x.time || '',
+      source: x.source || '',
     }))
   }
 
   if (Array.isArray(res.kpis) && res.kpis.length) {
     kpis.value = res.kpis.map((k) => ({
-      num: k.value ?? k.num ?? 0,
+      num: k.value_text || (k.value ?? k.num ?? 0),
       color: k.color || 'blue',
       label: k.label || '',
       delta: k.delta || '',
       deltaType: k.delta_type || k.trend || 'neutral',
+    }))
+  }
+
+  if (Array.isArray(res.focus_items)) {
+    focusItems.value = res.focus_items.map((f) => ({
+      priority: f.priority || 'P3',
+      title: f.title || '',
+      date_text: f.date_text || '',
+      overdue: !!f.overdue,
+      source_url: f.source_url || '',
     }))
   }
 
@@ -598,35 +617,13 @@ function mergeDashboard(res) {
     if (!res.trend_labels) trendLabels.value = tr.labs
   }
 
-  if (Array.isArray(res.todos) && res.todos.length) {
-    const pMap = { '紧急': 'tp-urgent', '高优': 'tp-high', '中等': 'tp-med', '低优': 'tp-low' }
-    todos.value = res.todos.map((t) => {
-      const p = t.priority || '中等'
-      return {
-        priority: p,
-        priorityClass: pMap[p] || 'tp-med',
-        title: t.title || '未命名待办',
-        deadline: t.deadline || '',
-        owner: t.owner || '',
-        overdue: !!t.overdue,
-      }
-    })
-  }
-
-  if (Array.isArray(res.alerts) && res.alerts.length) {
-    const sMap = { '严重': 'as-red', '警告': 'as-amber', '正常': 'as-green', '提醒': 'as-amber' }
-    alerts.value = res.alerts.map((a) => {
-      const s = a.severity || a.sev || '提醒'
-      return { sev: s, sevClass: sMap[s] || 'as-amber', msg: a.msg || a.message || '', count: a.count || '' }
-    })
-  }
-
   if (Array.isArray(res.recent_requirements) && res.recent_requirements.length) {
-    const stMap = { '评审中': 'st-review', '开发中': 'st-dev', '待排期': 'st-backlog', '已上线': 'st-live', '已完成': 'st-live' }
-    recentReqs.value = res.recent_requirements.map((r) => {
-      const st = r.status || ''
-      return { name: r.name || r.title || '', owner: r.owner || '', status: st, statusClass: stMap[st] || 'st-backlog', date: r.date || r.updated_at || '' }
-    })
+    recentReqs.value = res.recent_requirements.map((r) => ({
+      name: r.name || r.title || '',
+      owner: r.owner || '',
+      status: r.status || '',
+      date: (r.date || r.updated_at || '').slice(5, 10) || r.date || '',
+    }))
   }
 
   if (Array.isArray(res.schedule) && res.schedule.length) {
@@ -637,11 +634,42 @@ function mergeDashboard(res) {
     }))
   }
 
-  /* 补充模块卡片（知识/邮件/人员/重点工作/任务中心/四核心卡片）—— 后端已就绪数据 */
+  /* 即将召开（今日无日程时降级展示）：取 planned 最近一场 */
+  if (Array.isArray(res.recent_meetings) && res.recent_meetings.length) {
+    const next = res.recent_meetings[0]
+    upcomingMeeting.value = {
+      date: (next.start_time || '').slice(5, 10) || '',
+      title: next.title || '',
+    }
+  }
+
+  /* 待写纪要明细（date "2026-09-14" → "09-14"） */
+  if (Array.isArray(res.pending_minutes_meetings) && res.pending_minutes_meetings.length) {
+    pendingMinutes.value = res.pending_minutes_meetings.map((m) => ({
+      title: m.title || '',
+      date: (m.start_time || '').slice(5, 10) || '',
+    }))
+  }
+
+  /* 模块统计（含 aiCenter / materials / knowledge.domainCount / issues.researchTotal） */
   if (res.module_stats && typeof res.module_stats === 'object') {
     const ms = res.module_stats
-    if (ms.knowledge) knowledge.value = { total: ms.knowledge.total || 0, thisWeek: ms.knowledge.thisWeek || 0 }
+    if (ms.knowledge) knowledge.value = {
+      total: ms.knowledge.total || 0,
+      thisWeek: ms.knowledge.thisWeek || 0,
+      domainCount: ms.knowledge.domainCount || 0,
+    }
     if (ms.emails) emails.value = { today: ms.emails.todaySent || 0, week: ms.emails.weekSent || 0, sr: ms.emails.successRate || 0 }
+    if (ms.aiCenter) aiCenter.value = {
+      total: ms.aiCenter.total || 0,
+      thisWeek: ms.aiCenter.thisWeek || 0,
+      modelCount: ms.aiCenter.modelCount || 0,
+    }
+    if (ms.materials) materials.value = {
+      total: ms.materials.total || 0,
+      thisWeek: ms.materials.thisWeek || 0,
+      categoryCount: ms.materials.categoryCount || 0,
+    }
     if (ms.requirements) reqs.value = {
       total: ms.requirements.total || 0,
       thisWeek: ms.requirements.thisWeek || 0,
@@ -655,6 +683,7 @@ function mergeDashboard(res) {
       processing: ms.issues.processing || 0,
       resolved: ms.issues.resolved || 0,
       overdue: ms.issues.overdue || 0,
+      researchTotal: ms.issues.researchTotal || 0,
     }
     if (ms.meetings) meetingStats.value = {
       totalThisWeek: ms.meetings.totalThisWeek || 0,
@@ -697,7 +726,6 @@ function mergeDashboard(res) {
       const o = (arr || []).find((x) => names.some((n) => (x.name || '').includes(n)))
       return o ? (o.value || 0) : 0
     }
-    const PRIORITY_LABEL = { P0: '紧急', P1: '高优', P2: '中等', P3: '低优' }
     taskCenter.value = {
       total: tcd.total || 0,
       overdue: tcd.overdue || 0,
@@ -705,8 +733,7 @@ function mergeDashboard(res) {
       processing: findStatus(tcd.by_status, ['进行中']),
       pending: findStatus(tcd.by_status, ['待处理', '待办']),
       by_source: tcd.by_source || [],
-      by_priority: (tcd.by_priority || []).map((p) => ({ name: PRIORITY_LABEL[p.name] || p.name, value: p.value })),
-      by_status: tcd.by_status || [],
+      overdue_items: tcd.overdue_items || [],
     }
   }
 }
@@ -754,12 +781,27 @@ onUnmounted(() => {
 
 <style scoped>
 .home-view {
-  padding: 28px 32px 40px;
-  max-width: 1440px;
+  padding: 24px 28px 40px;
+  max-width: 1480px;
   width: 100%;
 }
 
-/* ── 问候区 ── */
+/* ── 轻量分区标题（design.css 风格 24px 细行）── */
+.row-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 0;
+  min-height: 24px;
+}
+.rl-t { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); letter-spacing: .06em; }
+.rl-s { font-size: 11.5px; color: var(--text-muted); }
+.rl-line { flex: 1; height: 1px; background: var(--border); }
+
+/* 卡头多元素组合（label + caliber / caliber + action 相邻排列）*/
+.head-extra { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+
+/* ── 问候卡（压缩版：上下两端对齐，无集中留白）── */
 .greeting-tile {
   background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
   border: none !important;
@@ -770,23 +812,24 @@ onUnmounted(() => {
 .greeting-tile::after {
   content: '';
   position: absolute;
-  top: -40%;
-  right: -10%;
-  width: 320px;
-  height: 320px;
+  top: -45%;
+  right: -6%;
+  width: 300px;
+  height: 300px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(47, 111, 237, .18) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(47, 111, 237, .16) 0%, transparent 70%);
   pointer-events: none;
 }
 .greeting-inner {
   position: relative;
   z-index: 1;
-  padding: 20px 26px;
+  padding: 16px 24px 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 10px;
   flex: 1;
+  min-height: 148px;
 }
 .g-top {
   display: flex;
@@ -795,7 +838,7 @@ onUnmounted(() => {
   gap: 16px;
 }
 .g-hello {
-  font-size: 30px;
+  font-size: 22px;
   font-weight: 800;
   letter-spacing: -.3px;
   line-height: 1.25;
@@ -804,93 +847,272 @@ onUnmounted(() => {
 .g-sub {
   font-size: 12.5px;
   color: #94a3b8;
-  line-height: 1.5;
-  max-width: 440px;
-  margin-top: 6px;
+  line-height: 1.55;
+  max-width: 520px;
+  margin-top: 4px;
 }
 .g-eff { text-align: right; flex-shrink: 0; }
-.g-eff-key { font-size: 12px; color: #cbd5e1; margin-bottom: 4px; }
+.g-eff-key { font-size: 11.5px; color: #cbd5e1; }
 .g-eff-val {
-  font-size: 38px;
+  font-size: 28px;
   font-weight: 800;
   font-family: var(--font-mono);
   color: #6ee7b7;
   letter-spacing: -1px;
+  line-height: 1.15;
 }
-.g-eff-unit { font-size: 16px; color: #cbd5e1; }
-.g-stats { display: flex; gap: 24px; flex-wrap: wrap; }
+.g-eff-unit { font-size: 13px; color: #cbd5e1; }
+.g-bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+.g-stats { display: flex; gap: 22px; flex-wrap: wrap; }
 .g-stat { display: flex; flex-direction: column; }
-.g-stat-val { font-size: 24px; font-weight: 700; font-family: var(--font-mono); line-height: 1.2; }
+.g-stat-val { font-size: 19px; font-weight: 700; font-family: var(--font-mono); line-height: 1.15; }
 .g-stat-val.up { color: #4ade80; }
 .g-stat-val.down { color: #f87171; }
 .g-stat-val.accent { color: #93c5fd; }
-.g-stat-key { font-size: 11.5px; color: #64748b; margin-top: 2px; letter-spacing: .03em; }
-
-.cmd-bar {
-  margin-top: 6px;
+.g-stat-val.neutral { color: #e2e8f0; }
+.g-stat-key { font-size: 11px; color: #64748b; margin-top: 1px; }
+.g-cmd {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   background: rgba(255, 255, 255, .07);
   border: 1px solid rgba(255, 255, 255, .09);
-  border-radius: 12px;
-  padding: 10px 16px;
-  backdrop-filter: blur(8px);
+  border-radius: 10px;
+  padding: 6px 13px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: #94a3b8;
+  white-space: nowrap;
 }
-.cmd-bar-kbd { display: flex; gap: 4px; }
 .kbd {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
   background: rgba(255, 255, 255, .1);
   border: 1px solid rgba(255, 255, 255, .14);
-  color: #94a3b8;
-  padding: 2px 7px;
+  color: #cbd5e1;
+  padding: 1px 6px;
   border-radius: 5px;
 }
-.cmd-bar-text { flex: 1; font-size: 13px; color: #94a3b8; min-width: 0; white-space: nowrap; overflow: hidden; }
 .cmd-cursor {
   display: inline-block;
   width: 2px;
-  height: 15px;
+  height: 13px;
   background: #60a5fa;
   vertical-align: text-bottom;
   animation: blink 1s step-end infinite;
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* ── 实时动态 ── */
-.ls-list { list-style: none; padding: 0 22px 18px; }
-.ls-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }
-.ls-item:last-child { border-bottom: none; }
-.ls-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.ls-dot.red { background: var(--danger); box-shadow: 0 0 6px rgba(217, 84, 77, .4); }
-.ls-dot.amber { background: var(--warning); box-shadow: 0 0 6px rgba(217, 138, 31, .35); }
-.ls-dot.green { background: var(--success); }
-.ls-text { font-size: 13px; color: var(--text-primary); flex: 1; min-width: 0; }
-.ls-time { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
-
-/* ── KPI 卡片（居中对齐 + 数字/标签样式）── */
-.kpi-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
-.kpi-num { font-size: 28px; font-weight: 800; font-family: var(--font-mono); line-height: 1.1; }
-.kpi-num.blue { color: var(--accent); }
-.kpi-num.amber { color: var(--warning); }
-.kpi-num.red { color: var(--danger); }
-.kpi-num.green { color: var(--success); }
-.kpi-label { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-top: 2px; }
-
-/* ── KPI 增量 ── */
-.kpi-delta {
-  font-size: 11.5px;
-  font-weight: 600;
-  margin-top: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
+/* ── 实时动态（紧凑多源）── */
+.ls-list { list-style: none; padding: 0; }
+.ls-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle);
 }
-.kpi-delta.up { color: var(--success); }
-.kpi-delta.down { color: var(--danger); }
-.kpi-delta.neutral { color: var(--text-muted); }
+.ls-item:last-child { border-bottom: none; padding-bottom: 0; }
+.ls-item:first-child { padding-top: 0; }
+.ls-body { flex: 1; min-width: 0; }
+.ls-text { font-size: 12px; color: var(--text-primary); line-height: 1.4; }
+.ls-src {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.ls-src.op { background: var(--danger-soft); color: var(--danger); }
+.ls-src.mt { background: var(--accent-soft); color: var(--accent); }
+.ls-src.rq { background: var(--success-soft); color: var(--success); }
+.ls-src.kn { background: var(--warning-soft); color: var(--warning); }
+.ls-foot { display: flex; justify-content: space-between; margin-top: 2px; }
+.ls-time { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+/* ── KPI（数值/标签走 design.css 全局 34px；此处仅补 neutral 色）── */
+.kpi-trend.neutral { color: var(--text-muted); }
+
+/* ── 主数字带（卡内四段式第 2 段）── */
+.stat4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat b {
+  font-size: 22px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  line-height: 1.1;
+  letter-spacing: -.5px;
+  color: var(--text-primary);
+}
+.stat b.danger { color: var(--danger); }
+.stat b.ok { color: var(--success); }
+.stat span { font-size: 11px; color: var(--text-muted); }
+
+/* ── 分布条（卡内四段式第 3 段）── */
+.dist-h {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: .08em;
+  margin: 0 0 8px;
+}
+.bar { display: grid; grid-template-columns: 76px 1fr 36px; gap: 10px; align-items: center; font-size: 12.5px; margin-bottom: 8px; }
+.bar:last-child { margin-bottom: 0; }
+.bar-k { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-track { height: 8px; background: var(--border-subtle); border-radius: 5px; overflow: hidden; }
+.bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 5px; transition: width var(--transition-normal); }
+.bar-fill.ok { background: var(--success); }
+.bar-fill.warn { background: var(--warning); }
+.bar-fill.mute { background: #cbd5e1; }
+.bar-v { text-align: right; font-family: var(--font-mono); font-weight: 600; font-size: 12px; color: var(--text-primary); }
+
+/* ── 明细区（卡内四段式第 4 段）── */
+.detail-box { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.detail-h { display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 600; color: var(--danger); margin-bottom: 8px; }
+.detail-h.ok { color: var(--text-secondary); }
+.detail-h .cnt { background: var(--danger-soft); color: var(--danger); padding: 0 8px; border-radius: 999px; font-family: var(--font-mono); font-size: 10.5px; }
+.d-item { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: 12.5px; }
+.d-pri {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  white-space: nowrap;
+}
+.d-pri.p1 { background: var(--warning-soft); color: var(--warning); }
+.d-pri.p2 { background: var(--accent-soft); color: var(--accent); }
+.d-pri.p3 { background: var(--border-subtle); color: var(--text-muted); }
+.d-t {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.d-date { color: var(--danger); font-family: var(--font-mono); font-size: 11px; flex-shrink: 0; margin-top: 1px; }
+.d-date.ok { color: var(--text-muted); }
+
+/* ── 口径徽标 ── */
+.caliber {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--border-subtle);
+  padding: 1px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* ── 会议列表 ── */
+.mt-item { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border-subtle); align-items: flex-start; }
+.mt-item:last-child { border-bottom: none; }
+.mt-time { font-size: 12px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); width: 46px; flex-shrink: 0; padding-top: 1px; }
+.mt-info { flex: 1; min-width: 0; }
+.mt-title { font-size: 12.5px; line-height: 1.4; color: var(--text-primary); }
+.mt-loc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.mt-sep {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: .08em;
+  margin: 10px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mt-sep::after { content: ''; flex: 1; height: 1px; background: var(--border-subtle); }
+
+/* ── 需求概览整合卡（趋势图 + 最近需求 同卡）── */
+.req-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .req-overview { grid-template-columns: 1fr; gap: 18px; }
+}
+.chart-wrap { padding: 4px 0 0; }
+.chart-svg { width: 100%; height: 200px; display: block; }
+.chart-note { font-size: 11px; color: var(--text-muted); padding: 2px 0 6px; }
+.ro-reqs-h {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: .08em;
+  margin-bottom: 8px;
+}
+.req-wrap { overflow-x: auto; }
+.req-table { width: 100%; border-collapse: collapse; }
+.req-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: .04em;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.req-table td { font-size: 12.5px; padding: 10px 10px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); vertical-align: middle; }
+.req-table tr:last-child td { border-bottom: none; }
+.req-name { font-weight: 500; max-width: 230px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.req-owner { color: var(--text-secondary); font-size: 12px; }
+.req-date { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+
+/* ── 今日聚焦条目 ── */
+.fz-item {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.fz-item:last-child { border-bottom: none; padding-bottom: 0; }
+.fz-item:first-child { padding-top: 0; }
+
+/* ── 重点工作进度 ── */
+.kp-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+.kp-item { display: flex; flex-direction: column; gap: 4px; }
+.kp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.kp-name { font-size: 12.5px; color: var(--text-primary); font-weight: 500; }
+.kp-pct { font-size: 12px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+.kp-bar { height: 6px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
+.kp-fill { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+
+/* ── 模块概览小卡 ── */
+.mod-grid { display: flex; flex-direction: column; gap: 6px; padding: 2px 0; }
+.mod-stat { display: flex; align-items: baseline; gap: 8px; }
+.mod-num { font-size: 26px; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; letter-spacing: -.5px; }
+.mod-unit { font-size: 14px; }
+.mod-key { font-size: 12px; color: var(--text-muted); }
+.mod-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.55; }
+.mod-sub b { color: var(--text-primary); font-weight: 600; }
+.mod-sub .hot { color: var(--danger); font-weight: 600; }
+.new-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: #fff;
+  background: var(--accent);
+  padding: 1px 8px;
+  border-radius: 999px;
+  vertical-align: 2px;
+  margin-left: 6px;
+}
+.mod-clickable { cursor: pointer; }
 
 /* ── 快捷操作 ── */
 .action-row {
@@ -898,260 +1120,8 @@ onUnmounted(() => {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  margin: 18px 0 4px;
 }
-.act-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 9px 18px;
-  border-radius: 9px;
-  font-size: 13px;
-  font-weight: 600;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  text-decoration: none;
-  line-height: 1.35;
-  font-family: var(--font-display);
-}
-.act-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
-.act-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.act-btn.primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px -4px rgba(47, 111, 237, .35); }
-.act-btn.success { background: var(--accent); color: #fff; border-color: var(--accent); }
-.act-btn.success:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px -4px rgba(47, 111, 237, .35); }
-.act-btn.warn { background: var(--accent); color: #fff; border-color: var(--accent); }
-.act-btn.warn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 6px 20px -4px rgba(47, 111, 237, .35); }
-.act-btn.ghost { background: transparent; color: var(--text-secondary); border-color: var(--border); }
-.act-btn.ghost:hover { background: var(--bg-app); color: var(--text-primary); border-color: var(--text-muted); }
 
-/* ── 趋势图 ── */
-.chart-wrap { padding: 8px 4px 4px; }
-.chart-svg { width: 100%; height: 220px; display: block; }
-.chart-legend {
-  display: flex;
-  gap: 20px;
-  padding: 12px 22px 0;
-  border-top: 1px solid var(--border-subtle);
-  margin-top: 4px;
-}
-.legend-item { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-secondary); }
-.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-
-/* ── 甜甜圈 ── */
-.donut-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  padding: 4px 0 16px;
-}
-.donut-svg { width: 180px; height: 180px; }
-.donut-legend {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 20px;
-  width: 100%;
-  padding: 0 22px;
-}
-.dl-item { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-secondary); }
-.dl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.dl-val { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); margin-left: auto; }
-
-/* ── 待办 ── */
-.todo-list { list-style: none; padding: 0 18px 14px; }
-.todo-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--border-subtle);
-  transition: background var(--transition-fast);
-}
-.todo-item:last-child { border-bottom: none; }
-.todo-item:hover { background: rgba(47, 111, 237, .02); margin: 0 -22px; padding: 11px 22px; border-radius: 8px; border-color: transparent; }
-.todo-priority {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 5px;
-  flex-shrink: 0;
-  line-height: 1.5;
-  white-space: nowrap;
-  margin-top: 1px;
-}
-.tp-urgent { background: var(--danger-soft); color: var(--danger); }
-.tp-high { background: var(--warning-soft); color: var(--warning); }
-.tp-med { background: var(--accent-soft); color: var(--accent); }
-.tp-low { background: var(--border-subtle); color: var(--text-muted); }
-.todo-body { flex: 1; min-width: 0; }
-.todo-title { font-size: 12.5px; color: var(--text-primary); line-height: 1.4; word-break: break-word; }
-.todo-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.todo-deadline { color: var(--danger); font-weight: 500; }
-.todo-overdue { color: var(--danger); background: var(--danger-soft); padding: 0 6px; border-radius: 4px; }
-
-/* ── 预警 ── */
-.alert-list { list-style: none; padding: 0 22px 16px; }
-.alert-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
-.alert-item:last-child { border-bottom: none; }
-.alert-sev {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 3px 9px;
-  border-radius: 5px;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.as-red { background: var(--danger-soft); color: var(--danger); }
-.as-amber { background: var(--warning-soft); color: var(--warning); }
-.as-green { background: var(--success-soft); color: var(--success); }
-.alert-body { flex: 1; min-width: 0; }
-.alert-msg { font-size: 13px; color: var(--text-primary); }
-.alert-count { font-size: 12px; font-family: var(--font-mono); font-weight: 600; margin-top: 2px; color: var(--text-secondary); }
-
-/* ── 快捷入口 ── */
-.qa-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 14px 22px 18px; }
-.qa-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 16px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  text-decoration: none;
-}
-.qa-btn:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
-.qa-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 17px; }
-.qa-label { font-size: 11.5px; color: var(--text-secondary); font-weight: 500; text-align: center; }
-
-/* ── 最近需求 ── */
-.req-wrap { padding: 0 22px 16px; overflow-x: auto; }
-.req-table { width: 100%; border-collapse: collapse; }
-.req-table th {
-  text-align: left;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  padding: 10px 10px 10px 0;
-  border-bottom: 1px solid var(--border);
-}
-.req-table td { font-size: 13px; padding: 12px 10px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); vertical-align: middle; }
-.req-table tr:last-child td { border-bottom: none; }
-.req-name { font-weight: 500; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.req-owner { color: var(--text-secondary); font-size: 12.5px; }
-.req-date { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
-
-  /* ── 需求概览整合卡（趋势图 + 最近需求 同卡）── */
-  .req-overview {
-    display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-    gap: 28px;
-    align-items: start;
-  }
-  @media (max-width: 1080px) {
-    .req-overview { grid-template-columns: 1fr; gap: 18px; }
-  }
-  .ro-legend { padding: 10px 0 0; }
-  .ro-reqs-h {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: .05em;
-    margin-bottom: 10px;
-  }
-  .ro-req-wrap { padding: 0; overflow-x: auto; }
-  .ro-reqs .req-table th { padding-top: 0; }
-
-/* ── 今日日程 ── */
-.sched-list { list-style: none; padding: 0 22px 16px; }
-.sched-item { display: flex; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--border-subtle); align-items: flex-start; }
-.sched-item:last-child { border-bottom: none; }
-.sched-time { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); width: 52px; flex-shrink: 0; padding-top: 1px; }
-.sched-info { flex: 1; min-width: 0; }
-.sched-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
-  .sched-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
-
-  /* ── 补充模块卡片（知识/邮件/人员）── */
-  .mod-grid { display: flex; flex-direction: column; gap: 6px; padding: 6px 4px; }
-  .mod-stat { display: flex; align-items: baseline; gap: 8px; }
-  .mod-num { font-size: 30px; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; }
-  .mod-key { font-size: 12.5px; color: var(--text-muted); }
-  .mod-sub { font-size: 12.5px; color: var(--text-secondary); }
-  .rs-overdue { color: var(--danger); font-weight: 600; }
-
-  /* ── 任务中心 / 运营工单 共用空态 ── */
-  .tc-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
-
-  /* ── 重点工作进度 ── */
-  .kp-list { list-style: none; padding: 4px 4px; display: flex; flex-direction: column; gap: 10px; }
-  .kp-item { display: flex; flex-direction: column; gap: 4px; }
-  .kp-head { display: flex; align-items: center; justify-content: space-between; }
-  .kp-name { font-size: 12.5px; color: var(--text-primary); font-weight: 500; }
-  .kp-pct { font-size: 12px; font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
-  .kp-bar { height: 5px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
-  .kp-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #6aa0ff); border-radius: 4px; }
-  .kp-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
-
-  /* ── 分区标题 ── */
-  .section-title {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    padding: 6px 4px 0;
-  }
-  .st-main { font-size: 16px; font-weight: 700; color: var(--text-primary); letter-spacing: -.2px; }
-  .st-sub { font-size: 12px; color: var(--text-muted); }
-
-  /* ── 核心卡片高亮（与全站 .card 视觉一致，仅以左侧强调条 + 徽标突出）── */
-  .card-highlight {
-    border-color: var(--border) !important;
-    box-shadow: inset 3px 0 0 var(--accent), var(--shadow-card);
-    background: var(--surface);
-  }
-  .card-highlight:hover {
-    box-shadow: inset 3px 0 0 var(--accent-hover), var(--shadow-elevated);
-    border-color: var(--border) !important;
-    transform: translateY(-2px);
-  }
-
-  /* ── 需求工单（增强）── */
-  .rq-stats, .op-stats, .mt-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
-  .rq-stat, .op-stat, .mt-stat { display: flex; flex-direction: column; gap: 2px; }
-  .rq-stat b, .op-stat b, .mt-stat b { font-size: 22px; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; }
-  .rq-stat span, .op-stat span, .mt-stat span { font-size: 11px; color: var(--text-muted); }
-  .rq-stat.danger b, .op-stat.danger b, .mt-stat.danger b { color: var(--danger); }
-  .rq-dist-h, .op-dist-h { font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
-  .rq-bar, .op-bar { display: grid; grid-template-columns: 64px 1fr 30px; align-items: center; gap: 10px; font-size: 12.5px; margin-bottom: 7px; }
-  .rq-bar-label, .op-bar-label { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .rq-bar-track, .op-bar-track { height: 7px; background: var(--border-subtle); border-radius: 4px; overflow: hidden; }
-  .rq-bar-fill, .op-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width var(--transition-normal); }
-  .rq-bar-fill.st-backlog { background: var(--text-muted); }
-  .rq-bar-fill.st-dev { background: var(--warning); }
-  .rq-bar-fill.st-review { background: var(--accent); }
-  .rq-bar-fill.st-live { background: var(--success); }
-  .rq-bar-val, .op-bar-val { text-align: right; font-family: var(--font-mono); color: var(--text-primary); font-weight: 600; }
-  .rq-opt { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
-  .rq-opt-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .rq-opt-stat { display: flex; flex-direction: column; gap: 2px; }
-  .rq-opt-stat b { font-size: 18px; font-weight: 700; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; }
-  .rq-opt-stat span { font-size: 11px; color: var(--text-muted); }
-
-  /* ── 会议日程（增强）── */
-  .mt-list { list-style: none; margin-top: 14px; padding: 0; }
-  .mt-item { display: flex; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border-subtle); align-items: flex-start; }
-  .mt-item:last-child { border-bottom: none; }
-  .mt-time { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); width: 52px; flex-shrink: 0; padding-top: 1px; }
-  .mt-info { flex: 1; min-width: 0; }
-  .mt-title { font-size: 13.5px; color: var(--text-primary); line-height: 1.35; }
-  .mt-loc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
-  .mt-empty { font-size: 12.5px; color: var(--text-muted); padding: 12px 0; }
+/* ── 任务中心 / 运营工单 共用空态 ── */
+.tc-empty { font-size: 12.5px; color: var(--text-muted); padding: 8px 0; }
 </style>

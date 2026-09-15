@@ -8,13 +8,19 @@ from sqlalchemy.orm import Session
 from db.models import (
     EmailRecord,
     PmwbActiveOptimization,
+    PmwbBusinessDomain,
     PmwbDevTicket,
     PmwbKeyWork,
     PmwbKnowledgeItem,
+    PmwbLlmProvider,
+    PmwbMaterial,
+    PmwbMaterialCategory,
     PmwbMeeting,
     PmwbOperationIssue,
+    PmwbResearchIssue,
     PmwbRequirementExt,
     PmwbTodo,
+    PmwbWorkReport,
     SentEmail,
 )
 from schemas.dashboard import (
@@ -22,14 +28,17 @@ from schemas.dashboard import (
     DashboardData,
     DashboardStats,
     DistributionItem,
+    FocusItem,
     GreetStat,
     KpiItem,
     LiveItem,
     ModuleStats,
     ModuleStatsActiveOptimization,
+    ModuleStatsAiCenter,
     ModuleStatsEmails,
     ModuleStatsIssues,
     ModuleStatsKnowledge,
+    ModuleStatsMaterials,
     ModuleStatsMeetings,
     ModuleStatsRequirements,
     ModuleStatsTickets,
@@ -259,60 +268,56 @@ class DashboardService:
 
     # ───────────────── 看板契约字段（真实数据） ─────────────────
 
-    def get_kpis(self, stats: DashboardStats) -> List[KpiItem]:
-        _, week_start, week_end = _week_bounds_cst()
-        ws_utc, _ = _cst_day_utc_bounds(week_start)
-        we_utc = _cst_day_utc_bounds(week_end)[0]
+    def get_kpis(
+        self,
+        stats: DashboardStats,
+        module_stats: Optional[ModuleStats] = None,
+        task_center: Optional[TaskCenterDist] = None,
+    ) -> List[KpiItem]:
+        """首页 KPI 换血（2026-09-15 看板 2.0）：
+        我的待办（任务中心口径）/ 本周会议 / 跟踪中需求 / 邮件 7 日成功率。
+        旧「进行中工单」（查空表 PmwbDevTicket 恒 0）与「运营预警」（口径失真）废弃。
+        """
+        ms = module_stats or self.get_module_stats()
+        tc = task_center or self.get_task_center_dist()
 
-        req_this_week = (
-            self.db.query(func.count(PmwbRequirementExt.id))
-            .filter(PmwbRequirementExt.created_at >= ws_utc, PmwbRequirementExt.created_at < we_utc)
-            .scalar()
-        )
-        req_in_review = (
-            self.db.query(func.count(PmwbRequirementExt.id))
-            .filter(PmwbRequirementExt.status.in_(["proposed", "accepted"]))
-            .scalar()
-        )
-        dev_in_progress = (
-            self.db.query(func.count(PmwbDevTicket.id))
-            .filter(PmwbDevTicket.status.in_(["created", "design_reviewed", "dev_completed", "test_completed"]))
-            .scalar()
-        )
-        dev_done_this_week = (
-            self.db.query(func.count(PmwbDevTicket.id))
-            .filter(PmwbDevTicket.go_live_date >= week_start, PmwbDevTicket.go_live_date < week_end)
-            .scalar()
-        )
+        # KPI1 我的待办（任务中心六源聚合口径）
+        todo_delta = f"超期 {tc.overdue} · 今日到期 {tc.due_today}" if tc.overdue else f"今日到期 {tc.due_today}"
+        # KPI2 本周会议
+        pending_minutes = ms.meetings.pendingMinutes if ms else 0
+        # KPI3 跟踪中需求（评审/待排期），附开发中与超期开发
+        # KPI4 邮件 7 日成功率（非整数，走 value_text）
+        sr = ms.emails.successRate if ms else 0.0
 
         return [
             KpiItem(
-                value=stats.todo_total,
+                value=tc.total,
                 color="blue",
-                label="我的待办",
-                delta=f"超期 {stats.todo_overdue} 条" if stats.todo_overdue else "无超期",
-                delta_type="down" if stats.todo_overdue else "neutral",
+                label="我的待办（任务中心）",
+                delta=todo_delta,
+                delta_type="down" if tc.overdue else "neutral",
             ),
             KpiItem(
-                value=req_this_week,
+                value=stats.meeting_this_week,
                 color="amber",
-                label="本周新增需求",
-                delta=f"跟踪中 {req_in_review}",
+                label="本周会议",
+                delta=f"待写纪要 {pending_minutes}" if pending_minutes else "纪要已清",
+                delta_type="down" if pending_minutes else "neutral",
+            ),
+            KpiItem(
+                value=ms.requirements.inReview if ms else 0,
+                color="amber",
+                label="跟踪中需求",
+                delta=f"开发中 {ms.requirements.devCount} · 超期开发 {ms.requirements.overdueDev}" if ms else "",
                 delta_type="neutral",
             ),
             KpiItem(
-                value=dev_in_progress,
-                color="blue",
-                label="进行中工单",
-                delta=f"本周完成 {dev_done_this_week}",
-                delta_type="up",
-            ),
-            KpiItem(
-                value=stats.issue_overdue,
-                color="red",
-                label="运营预警",
-                delta=f"待处理 {stats.issue_pending} 条",
-                delta_type="down" if stats.issue_overdue else "neutral",
+                value=round(sr),
+                value_text=f"{sr}%",
+                color="green",
+                label="邮件 7 日成功率",
+                delta=f"本周发送 {ms.emails.weekSent}" if ms else "",
+                delta_type="neutral",
             ),
         ]
 
@@ -431,18 +436,131 @@ class DashboardService:
         ]
 
     def get_live_status(self, recent_issues: List[dict], limit: int = 5) -> List[LiveItem]:
-        result = []
-        for it in recent_issues[:limit]:
-            lvl = it.get("impact_level")
-            color = "red" if lvl in ("P0", "P1") else ("amber" if lvl in ("P2", "P3") else "green")
-            result.append(
-                LiveItem(
-                    color=color,
-                    text=f"{it.get('issue_no', '')} {it.get('title', '')}",
-                    time=_rel_time(it.get("updated_at")),
-                )
+        """实时动态 · 多源聚合（2026-09-15 看板 2.0）：
+        调研 / 运营 / 会议 / 需求 / 知识 各取最新 1 条，按时间倒序混排。
+        """
+        candidates: List[tuple] = []  # (排序时间, LiveItem)
+
+        # 调研：最新超期调研工单优先，否则最新一条
+        try:
+            q = self.db.query(PmwbResearchIssue)
+            ri = q.filter(PmwbResearchIssue.is_overdue == 1).order_by(
+                PmwbResearchIssue.updated_at.desc()
+            ).first() or q.order_by(PmwbResearchIssue.updated_at.desc()).first()
+            if ri is not None:
+                _t = ri.updated_at or ri.created_at
+                candidates.append((_t, LiveItem(
+                    color="red" if ri.is_overdue else "amber",
+                    text=f"{ri.issue_no or ''} {(ri.title or '').strip()}".strip() or "一线调研工单更新",
+                    time=_rel_time(_t),
+                    source="调研",
+                )))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("实时动态-调研源失败: %s", e)
+
+        # 运营：最新未完结工单
+        for it in recent_issues[:2]:
+            candidates.append((it.get("updated_at"), LiveItem(
+                color="red" if it.get("impact_level") in ("P0", "P1") else "amber",
+                text=f"{it.get('issue_no', '')} {it.get('title', '')}".strip(),
+                time=_rel_time(it.get("updated_at")),
+                source="运营",
+            )))
+
+        # 会议：最新待写纪要
+        try:
+            m = (
+                self.db.query(PmwbMeeting)
+                .filter(PmwbMeeting.status == "held")
+                .order_by(PmwbMeeting.start_time.desc())
+                .first()
             )
-        return result
+            if m is not None and (m.summary is None or m.summary == ""):
+                candidates.append((m.start_time, LiveItem(
+                    color="amber",
+                    text=f"「{m.title}」已召开，纪要待补",
+                    time=m.start_time.strftime("%m-%d") if m.start_time else "—",
+                    source="会议",
+                )))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("实时动态-会议源失败: %s", e)
+
+        # 需求：最新已上线
+        try:
+            r = (
+                self.db.query(PmwbRequirementExt)
+                .filter(PmwbRequirementExt.status == "closed")
+                .order_by(PmwbRequirementExt.updated_at.desc())
+                .first()
+            )
+            if r is not None:
+                candidates.append((r.updated_at, LiveItem(
+                    color="green",
+                    text=f"{(r.req_name or '').strip()} 已上线",
+                    time=r.updated_at.strftime("%m-%d") if r.updated_at else "—",
+                    source="需求",
+                )))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("实时动态-需求源失败: %s", e)
+
+        # 知识：最新归档条目
+        try:
+            k = (
+                self.db.query(PmwbKnowledgeItem)
+                .order_by(PmwbKnowledgeItem.created_at.desc())
+                .first()
+            )
+            if k is not None:
+                candidates.append((k.created_at, LiveItem(
+                    color="blue",
+                    text=f"{(k.title or '').strip()} 已归档至领域库",
+                    time=k.created_at.strftime("%m-%d") if k.created_at else "—",
+                    source="知识",
+                )))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("实时动态-知识源失败: %s", e)
+
+        # 按时间倒序（None 排最后），截取 limit 条
+        candidates.sort(key=lambda x: x[0] or datetime.min, reverse=True)
+        return [item for _, item in candidates[:limit]]
+
+    def get_focus_items(self, limit: int = 6) -> List[FocusItem]:
+        """今日聚焦（2026-09-15 看板 2.0）：个人待办 + 任务中心今日到期/超期/临期合并智能排序。
+
+        排序规则：超期优先（超期越久越靠前）→ 今日到期 → 3 日内临期 → 本周。
+        优先级取统一任务 priority（P0-P3，无则 P3）。
+        """
+        today = _cst_date()
+        try:
+            items = TaskCenterService()._collect(self.db)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("今日聚焦-任务中心聚合失败: %s", e)
+            return []
+
+        selected = []
+        for t in items:
+            if t.status == "done":
+                continue
+            if not (t.is_overdue or t.due_date == today or t.is_due_soon):
+                continue
+            overdue_days = (today - t.due_date).days if (t.is_overdue and t.due_date) else 0
+            if t.is_overdue:
+                date_text = f"超期 {max(overdue_days, 1)} 天" if overdue_days > 0 else "已超期"
+            elif t.due_date == today:
+                date_text = "今日"
+            else:
+                date_text = t.due_date.strftime("%m-%d") if t.due_date else ""
+            selected.append((t.is_overdue, t.due_date or today, FocusItem(
+                priority=t.priority or "P3",
+                title=(t.title or "未命名任务").strip(),
+                date_text=date_text,
+                overdue=t.is_overdue,
+                source_url=t.source_url or "",
+            )))
+
+        # 超期在前；同为超期按截止日期升序（超期越久越靠前）；非超期按截止日期升序
+        selected.sort(key=lambda x: (not x[0], x[1]))
+        return [item for _, _, item in selected[:limit]]
 
     def get_todo_cards(self, limit: int = 5) -> List[TodoCardItem]:
         raw = self.get_recent_todos(limit)
@@ -462,17 +580,27 @@ class DashboardService:
             )
         return cards
 
-    def get_greeting(self, stats: DashboardStats):
-        efficiency = round(stats.issue_resolved / stats.issue_total * 100, 1) if stats.issue_total else 0.0
+    def get_greeting(
+        self,
+        stats: DashboardStats,
+        module_stats: Optional[ModuleStats] = None,
+        task_center: Optional[TaskCenterDist] = None,
+    ):
+        """问候区（2026-09-15 看板 2.0）：闭环率/文案与运营工单卡同口径（含一线调研）。"""
+        ms = module_stats or self.get_module_stats()
+        tc = task_center or self.get_task_center_dist()
+
+        efficiency = round(ms.issues.resolved / ms.issues.total * 100, 1) if ms.issues.total else 0.0
         sub = (
-            f"本周共 {stats.meeting_this_week} 场会议，运营问题 {stats.issue_total} 条"
-            f"（待处理 {stats.issue_pending}），我的待办 {stats.todo_total} 条。"
+            f"本周共 {stats.meeting_this_week} 场会议，运营问题 {ms.issues.total} 条"
+            f"（含一线调研 {ms.issues.researchTotal}，待处理 {ms.issues.pending}），"
+            f"我的待办 {tc.total} 条、{tc.overdue} 条超期。"
         )
         greet_stats = [
             GreetStat(value=str(stats.meeting_this_week), key="本周会议", cls="accent"),
-            GreetStat(value=str(stats.issue_total), key="运营问题", cls="down"),
-            GreetStat(value=str(stats.todo_total), key="我的待办", cls="up"),
-            GreetStat(value=str(stats.knowledge_total), key="知识条目", cls="neutral"),
+            GreetStat(value=str(tc.overdue), key="超期任务", cls="down"),
+            GreetStat(value=str(tc.due_soon), key="3日内到期", cls="up"),
+            GreetStat(value=str(ms.meetings.pendingMinutes), key="待写纪要", cls="down"),
         ]
         return sub, efficiency, greet_stats
 
@@ -501,6 +629,9 @@ class DashboardService:
             PmwbRequirementExt.status == "dev",
             PmwbRequirementExt.created_at < req_overdue_cutoff,
         ).scalar() or 0
+        req_dev_count = self.db.query(func.count(PmwbRequirementExt.id)).filter(
+            PmwbRequirementExt.status == "dev",
+        ).scalar() or 0
 
         # 工单
         ticket_total = self.db.query(func.count(PmwbDevTicket.id)).scalar() or 0
@@ -521,8 +652,10 @@ class DashboardService:
         stats = self.get_stats()
 
         # 一线调研工单（与运营问题合并统计，统一展示在首页「运营工单」卡片）
+        research_total = 0
+        research_pending = 0
+        research_overdue = 0
         try:
-            from db.models import PmwbResearchIssue
             research_total = self.db.query(func.count(PmwbResearchIssue.id)).scalar() or 0
             research_pending = self.db.query(func.count(PmwbResearchIssue.id)).filter(PmwbResearchIssue.status == "pending").scalar() or 0
             research_processing = self.db.query(func.count(PmwbResearchIssue.id)).filter(PmwbResearchIssue.status == "processing").scalar() or 0
@@ -555,24 +688,43 @@ class DashboardService:
             PmwbMeeting.status == "planned",
         ).scalar() or 0
         # 待处理会议纪要：已召开(held) 但未写纪要摘要(summary 为空) 且需要纪要(minutes_required 非 False)
-        meeting_pending_list = (
-            self.db.query(PmwbMeeting)
-            .filter(
-                PmwbMeeting.status == "held",
-                or_(PmwbMeeting.summary.is_(None), PmwbMeeting.summary == ""),
-                or_(PmwbMeeting.minutes_required.is_(None), PmwbMeeting.minutes_required == True),
-            )
-            .order_by(PmwbMeeting.start_time.desc())
-            .limit(5)
-            .all()
+        _pending_minutes_filter = [
+            PmwbMeeting.status == "held",
+            or_(PmwbMeeting.summary.is_(None), PmwbMeeting.summary == ""),
+            or_(PmwbMeeting.minutes_required.is_(None), PmwbMeeting.minutes_required == True),
+        ]
+        meeting_pending_minutes = (
+            self.db.query(func.count(PmwbMeeting.id)).filter(*_pending_minutes_filter).scalar() or 0
         )
-        meeting_pending_minutes = len(meeting_pending_list)
 
         # 知识
         kn_total = self.db.query(func.count(PmwbKnowledgeItem.id)).scalar() or 0
         kn_this_week = self.db.query(func.count(PmwbKnowledgeItem.id)).filter(
             PmwbKnowledgeItem.created_at >= ws_utc,
             PmwbKnowledgeItem.created_at < we_utc,
+        ).scalar() or 0
+        kn_domain_count = self.db.query(func.count(PmwbBusinessDomain.id)).filter(
+            PmwbBusinessDomain.enabled == True,  # noqa: E712
+        ).scalar() or 0
+
+        # AI 中心：AI 总结（pmwb_work_report）+ 启用大模型数
+        ai_total = self.db.query(func.count(PmwbWorkReport.id)).scalar() or 0
+        ai_this_week = self.db.query(func.count(PmwbWorkReport.id)).filter(
+            PmwbWorkReport.created_at >= ws_utc,
+            PmwbWorkReport.created_at < we_utc,
+        ).scalar() or 0
+        ai_model_count = self.db.query(func.count(PmwbLlmProvider.id)).filter(
+            PmwbLlmProvider.is_enabled == 1,
+        ).scalar() or 0
+
+        # 业务资料库：材料索引 + 启用分类数
+        mat_total = self.db.query(func.count(PmwbMaterial.id)).scalar() or 0
+        mat_this_week = self.db.query(func.count(PmwbMaterial.id)).filter(
+            PmwbMaterial.created_at >= ws_utc,
+            PmwbMaterial.created_at < we_utc,
+        ).scalar() or 0
+        mat_category_count = self.db.query(func.count(PmwbMaterialCategory.id)).filter(
+            PmwbMaterialCategory.enabled == True,  # noqa: E712
         ).scalar() or 0
 
         # 邮件（从 EmailRecord 统计）
@@ -613,7 +765,7 @@ class DashboardService:
         return ModuleStats(
             requirements=ModuleStatsRequirements(
                 total=req_total, thisWeek=req_this_week, inReview=req_in_review, completed=req_completed,
-                overdueDev=req_overdue_dev,
+                overdueDev=req_overdue_dev, devCount=req_dev_count,
             ),
             tickets=ModuleStatsTickets(
                 total=ticket_total, pending=ticket_pending, processing=ticket_processing,
@@ -622,18 +774,20 @@ class DashboardService:
             issues=ModuleStatsIssues(
                 total=issues_total, pending=issues_pending,
                 processing=issues_processing, resolved=issues_resolved,
-                overdue=issues_overdue,
+                overdue=issues_overdue, researchTotal=research_total,
             ),
             meetings=ModuleStatsMeetings(
                 totalThisWeek=meeting_this_week, today=meeting_today, upcoming=meeting_upcoming,
                 pendingMinutes=meeting_pending_minutes,
             ),
-            knowledge=ModuleStatsKnowledge(total=kn_total, thisWeek=kn_this_week),
+            knowledge=ModuleStatsKnowledge(total=kn_total, thisWeek=kn_this_week, domainCount=kn_domain_count),
             emails=ModuleStatsEmails(todaySent=email_today, weekSent=email_week, successRate=email_sr),
             activeOptimization=ModuleStatsActiveOptimization(
                 total=ao_total, pending=ao_pending, adopted=ao_adopted, rejected=ao_rejected,
                 thisWeek=ao_this_week,
             ),
+            aiCenter=ModuleStatsAiCenter(total=ai_total, thisWeek=ai_this_week, modelCount=ai_model_count),
+            materials=ModuleStatsMaterials(total=mat_total, thisWeek=mat_this_week, categoryCount=mat_category_count),
         )
 
     def get_trend_charts(self) -> dict:
@@ -803,6 +957,9 @@ class DashboardService:
                 total=stats.total,
                 overdue=stats.overdue,
                 due_soon=stats.due_soon,
+                due_today=sum(
+                    1 for t in items if t.due_date == _cst_date() and t.status != "done"
+                ),
                 by_source=src_items,
                 by_priority=prio_items,
                 by_status=st_items,
@@ -834,16 +991,16 @@ class DashboardService:
         recent_meetings = self.get_recent_meetings()
         recent_issues = self.get_recent_issues()
 
-        trend_values, trend_labels = self.get_trend()
-        sub, efficiency, greet_stats = self.get_greeting(stats)
-
-        # db-2 看板重构扩展
+        # db-2 看板重构扩展（先聚合，供 greeting/kpis 复用同一份数据，避免口径分叉）
         module_stats = self.get_module_stats()
         trend_charts = self.get_trend_charts()
         distribution_charts = self.get_distribution_charts()
         progress_items = self.get_progress_items()
         task_center_dist = self.get_task_center_dist()
         personnel = self.get_personnel_stats()
+
+        trend_values, trend_labels = self.get_trend()
+        sub, efficiency, greet_stats = self.get_greeting(stats, module_stats, task_center_dist)
 
         # 待处理会议纪要列表（held 且 summary 为空），供会议卡片展示
         pending_minutes_meetings = (
@@ -875,7 +1032,8 @@ class DashboardService:
             efficiency=efficiency,
             greet_stats=greet_stats,
             live_status=self.get_live_status(recent_issues),
-            kpis=self.get_kpis(stats),
+            kpis=self.get_kpis(stats, module_stats, task_center_dist),
+            focus_items=self.get_focus_items(),
             trend=trend_values,
             trend_labels=trend_labels,
             ticket_status=self.get_ticket_status(),

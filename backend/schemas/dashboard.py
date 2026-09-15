@@ -44,6 +44,7 @@ class IssueSummaryItem(BaseModel):
 
 class KpiItem(BaseModel):
     value: int = 0
+    value_text: str = ""  # 非整数值（如百分比 96.7%）优先展示；空则回退 value
     color: str = "blue"
     label: str = ""
     delta: str = ""
@@ -78,6 +79,7 @@ class ModuleStatsRequirements(BaseModel):
     inReview: int = 0
     completed: int = 0
     overdueDev: int = 0  # 开发中且建单超20天的需求数
+    devCount: int = 0  # 开发中数量
 
 
 class ModuleStatsTickets(BaseModel):
@@ -94,6 +96,7 @@ class ModuleStatsIssues(BaseModel):
     processing: int = 0
     resolved: int = 0
     overdue: int = 0
+    researchTotal: int = 0  # 其中一线调研工单数（口径标注「含一线调研 X + Y」）
 
 
 class ModuleStatsMeetings(BaseModel):
@@ -106,6 +109,23 @@ class ModuleStatsMeetings(BaseModel):
 class ModuleStatsKnowledge(BaseModel):
     total: int = 0
     thisWeek: int = 0
+    domainCount: int = 0  # 启用的业务领域数
+
+
+class ModuleStatsAiCenter(BaseModel):
+    """AI 中心（AI 总结 + 可用大模型）。"""
+
+    total: int = 0  # AI 总结累计篇数
+    thisWeek: int = 0  # 本周新增篇数
+    modelCount: int = 0  # 启用的大模型数
+
+
+class ModuleStatsMaterials(BaseModel):
+    """业务资料库。"""
+
+    total: int = 0
+    thisWeek: int = 0
+    categoryCount: int = 0
 
 
 class ModuleStatsEmails(BaseModel):
@@ -130,6 +150,8 @@ class ModuleStats(BaseModel):
     knowledge: ModuleStatsKnowledge = ModuleStatsKnowledge()
     emails: ModuleStatsEmails = ModuleStatsEmails()
     activeOptimization: ModuleStatsActiveOptimization = ModuleStatsActiveOptimization()
+    aiCenter: ModuleStatsAiCenter = ModuleStatsAiCenter()
+    materials: ModuleStatsMaterials = ModuleStatsMaterials()
 
 
 class TrendPoint(BaseModel):
@@ -150,9 +172,20 @@ class ProgressItem(BaseModel):
 
 
 class LiveItem(BaseModel):
-    color: str = "green"  # red | amber | green
+    color: str = "green"  # red | amber | green | blue
     text: str = ""
     time: str = ""
+    source: str = ""  # 来源徽标：调研/运营/会议/需求/知识
+
+
+class FocusItem(BaseModel):
+    """首页「今日聚焦」条目：个人待办 + 任务中心今日到期/超期合并排序。"""
+
+    priority: str = "P3"  # P0 | P1 | P2 | P3
+    title: str = ""
+    date_text: str = ""  # 超期 N 天 / 今日 / MM-DD
+    overdue: bool = False  # True=红色超期文案，False=中性日期
+    source_url: str = ""
 
 
 class TicketStatus(BaseModel):
@@ -182,6 +215,7 @@ class TaskCenterDist(BaseModel):
     total: int = 0
     overdue: int = 0
     due_soon: int = 0
+    due_today: int = 0  # 今日到期（未完成）
     by_source: List[TaskCenterDistItem] = []
     by_priority: List[TaskCenterDistItem] = []
     by_status: List[TaskCenterDistItem] = []
@@ -218,7 +252,7 @@ class DashboardData(BaseModel):
     recent_issues: List[IssueSummaryItem]
 
     # —— 前端看板契约字段（真实数据，避免回退 demo）——
-    user_name: str = "陈工"
+    user_name: str = "老大"
     greeting_sub: str = ""
     efficiency: float = 0
     greet_stats: List[GreetStat] = []
@@ -231,6 +265,7 @@ class DashboardData(BaseModel):
     alerts: List[AlertItem] = []
     recent_requirements: List[RequirementSummaryItem] = []
     schedule: List[ScheduleItem] = []
+    focus_items: List[FocusItem] = []  # 今日聚焦（个人待办+任务中心合并排序）
 
     # —— db-2 看板重构扩展字段 ——
     module_stats: Optional[ModuleStats] = None

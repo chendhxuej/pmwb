@@ -73,3 +73,13 @@
 - **联动实现**：前端 `weeklyTaskMap`（周计划 id → 关联待办列表，展示负责人+状态）双向可见；成员待办列表新增「关联」列与「编辑」入口（后端 PUT 早已存在）。
 - **alembic 双 head 坑**：`20260908105939_add_pmwb_req_interface_doc_table.py` 是坏壳文件（`revision='%(rev)s'`、`down_revision=None`，模板变量未渲染），正常链尾是 `a7c3e91d4b28`；新迁移一律挂后者之后。
 - **沙箱编辑会静默回滚（血泪教训）**：Edit 回执成功 ≠ 落盘。改完**必须立即 grep 复核关键串**（本次因 `_derive_iso_week` 未替换落盘导致接口 500 NameError）。
+
+## 12. 多负责人字段契约（2026-09-14）
+- **存储约定**：多选责任人一律 **逗号分隔字符串**（沿用运营监控工单 `handler` 的既有做法），**不建多对多表**。字段长度 512。历史单值数据天然兼容。
+- **单一实现**：后端 `backend/utils/owners.py`（`split_owners`/`join_owners`/`owners_display`/`owner_set`）；前端 `frontend/src/utils/owner.js`（`ownerList`/`ownerText`/`ownerLabel`）。**禁止各处再写 split/join 私有副本**。
+- **已支持多值的字段**：`pmwb_operation_issue.handler`、`pmwb_research_issue.vendor_handlers`、`pmwb_key_work_member_task.assignee`、`pmwb_meeting_action.owner`。仍是单值：`pmwb_dev_ticket.developer`、月计划/周计划 `assignee`、重点工作 `owner`。
+- **入参容错**：逗号 / 顿号 / 分号混用均可，入库前统一 `join_owners` 规范化（routers/keywork.py 成员待办、services/meeting.py 行动项 update、keywork_excel 导入均已接）。
+- **筛选语义**：任务中心「按人筛选」必须用集合求交集（`owner_set(t.owner) & wanted`），**不能整串比较** —— 否则一条任务挂 3 人时按任一人筛都筛不出来。
+- **邮件/纪要不变量**：展示统一顿号（`owners_display`）；但**收件人必须逐人展开**（会议行动项派发/督办 `split_owners(owner)`）。
+- **会议行动项分流**：owner 列表**含本人即建个人待办**（`SELF_NAME in owners`），其余负责人另行派发邮件。
+- **迁移链尾**：现为 `20260914000002`（多负责人扩容）；再新迁移挂它之后。注意 `alembic upgrade head` 会因坏壳文件报 multiple heads，**必须指定 revision id 升级**。

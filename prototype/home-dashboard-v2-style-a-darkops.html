@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风格 A · 暗夜指挥舱 — 首页看板 DEMO</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --bg-deep: #070d18;
+    --card: rgba(148, 163, 184, .06);
+    --card-solid: #101a2e;
+    --stroke: rgba(148, 163, 184, .16);
+    --stroke-strong: rgba(148, 163, 184, .3);
+    --cyan: #22d3ee;
+    --violet: #a78bfa;
+    --green: #34d399;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --text-hi: #f1f5f9;
+    --text-mid: #94a3b8;
+    --text-low: #64748b;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, 'Courier New', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(167,139,250,.14), transparent 60%),
+      radial-gradient(800px 460px at -10% 20%, rgba(34,211,238,.1), transparent 55%),
+      var(--bg);
+    color: var(--text-hi);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+  .demo-banner {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 9px 20px; font-size: 12px; color: var(--text-mid);
+    border-bottom: 1px solid var(--stroke);
+    background: rgba(7,13,24,.8);
+  }
+  .demo-banner .tag {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .14em;
+    color: #06121a; background: var(--cyan); padding: 3px 9px; border-radius: 4px;
+  }
+  .home-view { max-width: 1440px; margin: 0 auto; padding: 22px 30px 56px; }
+
+  /* ── 顶部指挥带 ── */
+  .cmd-strip {
+    display: grid; grid-template-columns: repeat(6, 1fr);
+    border: 1px solid var(--stroke); border-radius: 16px;
+    background: linear-gradient(180deg, rgba(148,163,184,.09), rgba(148,163,184,.03));
+    overflow: hidden;
+  }
+  .cmd-cell { padding: 16px 20px 14px; border-right: 1px solid var(--stroke); position: relative; }
+  .cmd-cell:last-child { border-right: none; }
+  .cmd-cell::before {
+    content: ''; position: absolute; left: 20px; top: 12px; width: 22px; height: 2px;
+    background: var(--ac, var(--cyan)); border-radius: 2px;
+  }
+  .cmd-key { font-size: 11px; color: var(--text-mid); margin-top: 8px; letter-spacing: .06em; }
+  .cmd-val { font-family: var(--mono); font-size: 30px; font-weight: 700; line-height: 1.05; letter-spacing: -.5px; margin-top: 2px; }
+  .cmd-sub { font-size: 11px; color: var(--text-low); margin-top: 4px; font-family: var(--mono); }
+  .cmd-sub .hot { color: var(--red); font-weight: 700; }
+
+  /* ── 网格 ── */
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; margin-top: 14px; }
+  .span4 { grid-column: span 4; } .span6 { grid-column: span 6; }
+  .span8 { grid-column: span 8; } .span12 { grid-column: span 12; }
+  .full { grid-column: 1 / -1; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--stroke); border-radius: 16px;
+    backdrop-filter: blur(10px); overflow: hidden;
+    transition: border-color .2s, transform .2s, box-shadow .2s;
+  }
+  .card:hover { border-color: var(--stroke-strong); transform: translateY(-2px); box-shadow: 0 12px 32px -12px rgba(2,8,20,.8); }
+  .card-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 20px 0; }
+  .card-title { font-size: 13px; font-weight: 700; letter-spacing: .12em; color: var(--text-mid); display: flex; align-items: center; gap: 8px; }
+  .card-title::before { content: ''; width: 6px; height: 6px; border-radius: 2px; background: var(--ac, var(--cyan)); }
+  .card-link { font-size: 11.5px; color: var(--text-low); cursor: pointer; font-family: var(--mono); }
+  .card-link:hover { color: var(--cyan); }
+  .card-body { padding: 12px 20px 18px; }
+  .accent-cyan { --ac: var(--cyan); } .accent-violet { --ac: var(--violet); }
+  .accent-green { --ac: var(--green); } .accent-red { --ac: var(--red); } .accent-amber { --ac: var(--amber); }
+
+  /* ── 问候（作战室）── */
+  .ops-hello { background: linear-gradient(120deg, rgba(34,211,238,.12), rgba(167,139,250,.14) 55%, rgba(148,163,184,.05)); position: relative; }
+  .ops-hello .card-body { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-top: 16px; }
+  .oh-title { font-size: 26px; font-weight: 800; letter-spacing: -.3px; }
+  .oh-title em { font-style: normal; color: var(--cyan); }
+  .oh-sub { font-size: 12px; color: var(--text-mid); margin-top: 7px; line-height: 1.7; max-width: 560px; }
+  .oh-sub b { color: var(--text-hi); font-weight: 600; }
+  .oh-sub .r { color: var(--red); font-weight: 700; }
+  .ops-score { text-align: right; flex-shrink: 0; }
+  .ops-score .lbl { font-size: 11px; color: var(--text-mid); letter-spacing: .12em; }
+  .ops-score .val { font-family: var(--mono); font-size: 46px; font-weight: 700; color: var(--green); line-height: 1.05; letter-spacing: -1px; text-shadow: 0 0 24px rgba(52,211,153,.35); }
+  .ops-score .unit { font-size: 18px; color: var(--text-mid); }
+  .ops-kbd {
+    margin-top: 12px; display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--stroke); border-radius: 9px; padding: 7px 14px;
+    font-size: 12px; color: var(--text-low); cursor: pointer; background: rgba(7,13,24,.5);
+  }
+  .ops-kbd:hover { border-color: var(--cyan); color: var(--text-mid); }
+  .key { font-family: var(--mono); font-size: 10px; border: 1px solid var(--stroke-strong); border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; color: var(--text-mid); }
+
+  /* ── 动态流（终端日志风）── */
+  .feed { font-family: var(--mono); font-size: 11.5px; }
+  .feed-row { display: flex; gap: 10px; padding: 7.5px 0; border-bottom: 1px dashed rgba(148,163,184,.12); align-items: baseline; }
+  .feed-row:last-child { border-bottom: none; }
+  .feed-t { color: var(--text-low); flex-shrink: 0; width: 74px; }
+  .feed-lv { flex-shrink: 0; width: 46px; font-weight: 700; font-size: 10px; letter-spacing: .08em; }
+  .feed-lv.warn { color: var(--amber); } .feed-lv.err { color: var(--red); } .feed-lv.ok { color: var(--green); } .feed-lv.info { color: var(--cyan); }
+  .feed-msg { color: var(--text-mid); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .feed-msg b { color: var(--text-hi); font-weight: 600; }
+
+  /* ── 模块统计卡 ── */
+  .big4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .b4 { border-left: 2px solid var(--stroke-strong); padding-left: 12px; }
+  .b4 .v { font-family: var(--mono); font-size: 24px; font-weight: 700; line-height: 1.1; }
+  .b4 .v.danger { color: var(--red); } .b4 .v.ok { color: var(--green); }
+  .b4 .k { font-size: 10.5px; color: var(--text-low); margin-top: 2px; letter-spacing: .05em; }
+  .bars { display: flex; flex-direction: column; gap: 8px; }
+  .bar-row { display: grid; grid-template-columns: 78px 1fr 34px; gap: 10px; align-items: center; font-size: 11.5px; }
+  .bar-k { color: var(--text-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-track { height: 5px; background: rgba(148,163,184,.12); border-radius: 3px; overflow: hidden; }
+  .bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--ac, var(--cyan)); box-shadow: 0 0 10px var(--ac, var(--cyan)); }
+  .bar-v { font-family: var(--mono); color: var(--text-hi); text-align: right; font-weight: 600; }
+  .tagchip { font-size: 9.5px; font-family: var(--mono); border: 1px solid var(--stroke); color: var(--text-low); padding: 1px 7px; border-radius: 20px; letter-spacing: .06em; }
+  .tagchip.hot { border-color: rgba(248,113,113,.5); color: var(--red); }
+
+  /* ── 超期列表 ── */
+  .od-box { margin-top: 12px; border-top: 1px solid var(--stroke); padding-top: 10px; }
+  .od-h { display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; letter-spacing: .14em; color: var(--red); font-family: var(--mono); margin-bottom: 6px; }
+  .od-row { display: flex; gap: 8px; align-items: baseline; padding: 4.5px 0; font-size: 11.5px; }
+  .od-id { font-family: var(--mono); color: var(--red); flex-shrink: 0; font-size: 10px; }
+  .od-t { flex: 1; color: var(--text-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .od-d { font-family: var(--mono); color: var(--text-low); flex-shrink: 0; font-size: 10.5px; }
+
+  /* ── 会议 ── */
+  .mt-row { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px dashed rgba(148,163,184,.12); font-size: 12.5px; align-items: baseline; }
+  .mt-row:last-child { border-bottom: none; }
+  .mt-d { font-family: var(--mono); color: var(--violet); flex-shrink: 0; width: 44px; font-size: 11px; }
+  .mt-n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-hi); }
+  .mt-badge { font-family: var(--mono); font-size: 9.5px; color: var(--amber); border: 1px solid rgba(251,191,36,.4); padding: 0 6px; border-radius: 4px; flex-shrink: 0; }
+
+  /* ── 需求概览 ── */
+  .ov-grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 26px; padding: 4px 20px 18px; }
+  .chart { width: 100%; height: 190px; display: block; }
+  .rt-row { display: grid; grid-template-columns: 1fr 52px 58px; gap: 10px; padding: 8.5px 0; border-bottom: 1px dashed rgba(148,163,184,.12); font-size: 12px; align-items: center; }
+  .rt-row:last-child { border-bottom: none; }
+  .rt-n { color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rt-o { color: var(--text-low); font-size: 11px; }
+  .rt-s { font-family: var(--mono); font-size: 10.5px; text-align: right; }
+  .rt-s.live { color: var(--green); } .rt-s.rev { color: var(--cyan); } .rt-s.dev { color: var(--amber); }
+
+  /* ── 今日聚焦 / 重点工作 ── */
+  .fz-row { display: flex; gap: 10px; padding: 7.5px 0; border-bottom: 1px dashed rgba(148,163,184,.12); align-items: baseline; }
+  .fz-row:last-child { border-bottom: none; }
+  .fz-lv { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; flex-shrink: 0; width: 60px; }
+  .fz-lv.p0 { color: var(--red); } .fz-lv.p1 { color: var(--amber); } .fz-lv.p2 { color: var(--cyan); } .fz-lv.p3 { color: var(--text-low); }
+  .fz-t { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fz-d { font-family: var(--mono); font-size: 10.5px; flex-shrink: 0; color: var(--text-low); }
+  .fz-d.hot { color: var(--red); }
+  .kp-row { padding: 6.5px 0; }
+  .kp-top { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+  .kp-n { color: var(--text-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kp-p { font-family: var(--mono); color: var(--violet); font-weight: 700; }
+  .kp-track { height: 4px; background: rgba(148,163,184,.14); border-radius: 2px; overflow: hidden; }
+  .kp-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), var(--violet)); border-radius: 2px; box-shadow: 0 0 8px rgba(167,139,250,.5); }
+
+  /* ── 模块概览 ── */
+  .sec-h { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 12px; padding: 14px 2px 0; }
+  .sec-t { font-size: 13px; font-weight: 700; letter-spacing: .14em; color: var(--text-mid); }
+  .sec-s { font-size: 11px; color: var(--text-low); }
+  .mod6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .mod-card { background: var(--card); border: 1px solid var(--stroke); border-radius: 14px; padding: 14px 16px; transition: border-color .2s, transform .2s; }
+  .mod-card:hover { border-color: var(--stroke-strong); transform: translateY(-2px); }
+  .mod-new { position: relative; }
+  .mod-new::after {
+    content: 'NEW'; position: absolute; top: 10px; right: 12px;
+    font-family: var(--mono); font-size: 8.5px; font-weight: 700; letter-spacing: .12em;
+    color: #06121a; background: var(--cyan); padding: 2px 6px; border-radius: 3px;
+  }
+  .mod-v { font-family: var(--mono); font-size: 26px; font-weight: 700; }
+  .mod-k { font-size: 11px; color: var(--text-mid); margin-top: 1px; }
+  .mod-s { font-size: 11px; color: var(--text-low); margin-top: 8px; line-height: 1.55; }
+  .mod-s b { color: var(--text-mid); font-weight: 600; }
+  .c-cyan { color: var(--cyan); } .c-violet { color: var(--violet); } .c-green { color: var(--green); }
+  .c-amber { color: var(--amber); } .c-red { color: var(--red); }
+
+  .foot { margin-top: 26px; text-align: center; font-size: 11px; color: var(--text-low); line-height: 1.8; font-family: var(--mono); }
+  @media (max-width: 1100px) {
+    .cmd-strip { grid-template-columns: repeat(3, 1fr); }
+    .cmd-cell { border-bottom: 1px solid var(--stroke); }
+    .span4, .span6, .span8 { grid-column: span 12; }
+    .ov-grid { grid-template-columns: 1fr; }
+    .mod6 { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-banner"><span class="tag">STYLE A</span>暗夜指挥舱 · Dark Ops — 深色数据驾驶舱，玻璃拟态 + 霓虹描边，为长时间盯盘与预警而设计 · 数据为 2026-09-15 实测快照</div>
+
+<div class="home-view">
+
+  <!-- 顶部指挥带：6 项核心指标 -->
+  <div class="cmd-strip">
+    <div class="cmd-cell" style="--ac:var(--cyan)"><div class="cmd-key">我的待办 TASKS</div><div class="cmd-val">105</div><div class="cmd-sub">超期 <span class="hot">42</span> · 3日内 19</div></div>
+    <div class="cmd-cell" style="--ac:var(--violet)"><div class="cmd-key">本周会议 MEETINGS</div><div class="cmd-val">2</div><div class="cmd-sub">待写纪要 <span class="hot">5</span></div></div>
+    <div class="cmd-cell" style="--ac:var(--amber)"><div class="cmd-key">跟踪需求 REQS</div><div class="cmd-val">5</div><div class="cmd-sub">开发中 17 · 超期 11</div></div>
+    <div class="cmd-cell" style="--ac:var(--red)"><div class="cmd-key">运营工单 OPS</div><div class="cmd-val">101</div><div class="cmd-sub">含调研 6 · 处理中 38</div></div>
+    <div class="cmd-cell" style="--ac:var(--green)"><div class="cmd-key">邮件成功率 MAIL</div><div class="cmd-val">96.7<span style="font-size:16px">%</span></div><div class="cmd-sub">本周发送 3</div></div>
+    <div class="cmd-cell" style="--ac:var(--green)"><div class="cmd-key">运营闭环率 CLOSED</div><div class="cmd-val">55.4<span style="font-size:16px">%</span></div><div class="cmd-sub">56 / 101 · 含调研口径</div></div>
+  </div>
+
+  <div class="grid">
+
+    <!-- 作战室问候 -->
+    <div class="card ops-hello span8">
+      <div class="card-body">
+        <div>
+          <div class="oh-title">早上好，<em>陈工</em>。今天有 <em>6</em> 项今日到期。</div>
+          <div class="oh-sub">运营问题 <b>101</b> 条（含一线调研 6，待处理 <b>2</b>），我的待办 <b>105</b> 条，其中 <span class="r">42 条超期</span>；本周会议 <b>2</b> 场，<span class="r">5 场纪要未补</span>。</div>
+          <div class="ops-kbd"><span class="key">Ctrl</span><span class="key">K</span> 唤起指令面板，搜索或下达指令</div>
+        </div>
+        <div class="ops-score">
+          <div class="lbl">OPS CLOSURE</div>
+          <div class="val">55.4<span class="unit">%</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 终端日志动态流 -->
+    <div class="card accent-cyan span4">
+      <div class="card-head"><span class="card-title">实时动态 · LIVE</span><span class="card-link">ALL SOURCES</span></div>
+      <div class="card-body feed">
+        <div class="feed-row"><span class="feed-t">09-01</span><span class="feed-lv err">ERR</span><span class="feed-msg"><b>RES-20260901-506</b> 领导调研反馈已超期</span></div>
+        <div class="feed-row"><span class="feed-t">18h ago</span><span class="feed-lv warn">WARN</span><span class="feed-msg"><b>TASK-…4450109</b> 能运交互相关接口详情梳理</span></div>
+        <div class="feed-row"><span class="feed-t">09-10</span><span class="feed-lv warn">MEMO</span><span class="feed-msg">「商客业务全省培训」纪要待补</span></div>
+        <div class="feed-row"><span class="feed-t">09-14</span><span class="feed-lv ok">SHIP</span><span class="feed-msg">商客重点产品三个月信控销户 <b>已上线</b></span></div>
+        <div class="feed-row"><span class="feed-t">昨天</span><span class="feed-lv info">KNLG</span><span class="feed-msg">电子协议条款规范归档至领域库</span></div>
+        <div class="feed-row"><span class="feed-t">今天</span><span class="feed-lv ok">SYS</span><span class="feed-msg">全部服务运行正常 · 8000/5173/3210</span></div>
+      </div>
+    </div>
+
+    <!-- 任务中心 -->
+    <div class="card accent-red span6">
+      <div class="card-head"><span class="card-title">任务中心</span><span class="card-link">全部任务 →</span></div>
+      <div class="card-body">
+        <div class="big4">
+          <div class="b4"><div class="v">105</div><div class="k">共待办</div></div>
+          <div class="b4"><div class="v">79</div><div class="k">进行中</div></div>
+          <div class="b4"><div class="v">26</div><div class="k">待处理</div></div>
+          <div class="b4"><div class="v danger">42</div><div class="k">超期</div></div>
+        </div>
+        <div class="bars">
+          <div class="bar-row"><span class="bar-k">重点工作</span><span class="bar-track"><i class="bar-fill" style="width:52%"></i></span><span class="bar-v">55</span></div>
+          <div class="bar-row"><span class="bar-k">运营问题</span><span class="bar-track"><i class="bar-fill" style="width:35%"></i></span><span class="bar-v">37</span></div>
+          <div class="bar-row"><span class="bar-k">一线调研</span><span class="bar-track"><i class="bar-fill" style="width:5%"></i></span><span class="bar-v">5</span></div>
+          <div class="bar-row"><span class="bar-k">主动优化</span><span class="bar-track"><i class="bar-fill" style="width:5%"></i></span><span class="bar-v">5</span></div>
+          <div class="bar-row"><span class="bar-k">会议行动项</span><span class="bar-track"><i class="bar-fill" style="width:2%"></i></span><span class="bar-v">2</span></div>
+        </div>
+        <div class="od-box">
+          <div class="od-h"><span>OVERDUE · 超期 TOP 3</span><span>共 42 条</span></div>
+          <div class="od-row"><span class="od-id">COMP-…-250</span><span class="od-t">批量销户误操作手机用户被动销户（投诉风险）</span><span class="od-d">09-14</span></div>
+          <div class="od-row"><span class="od-id">BUG-…-520</span><span class="od-t">HDICT 自动到期失效致套餐费无法收取</span><span class="od-d">09-10</span></div>
+          <div class="od-row"><span class="od-id">TASK-…-276</span><span class="od-t">分公司专题交流材料集中准备工作</span><span class="od-d">09-11</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 运营工单 -->
+    <div class="card accent-amber span6">
+      <div class="card-head"><span class="card-title">运营工单</span><span class="tagchip">含一线调研 95+6</span></div>
+      <div class="card-body">
+        <div class="big4">
+          <div class="b4"><div class="v">101</div><div class="k">问题总数</div></div>
+          <div class="b4"><div class="v">38</div><div class="k">处理中</div></div>
+          <div class="b4"><div class="v ok">56</div><div class="k">已解决</div></div>
+          <div class="b4"><div class="v danger">5</div><div class="k">超期</div></div>
+        </div>
+        <div class="bars">
+          <div class="bar-row"><span class="bar-k">临时交办</span><span class="bar-track"><i class="bar-fill" style="width:46%"></i></span><span class="bar-v">46</span></div>
+          <div class="bar-row"><span class="bar-k">BUG管理</span><span class="bar-track"><i class="bar-fill" style="width:25%"></i></span><span class="bar-v">25</span></div>
+          <div class="bar-row"><span class="bar-k">数据异常</span><span class="bar-track"><i class="bar-fill" style="width:14%"></i></span><span class="bar-v">14</span></div>
+          <div class="bar-row"><span class="bar-k">专题分析</span><span class="bar-track"><i class="bar-fill" style="width:6%"></i></span><span class="bar-v">6</span></div>
+          <div class="bar-row"><span class="bar-k">热点投诉</span><span class="bar-track"><i class="bar-fill" style="width:3%"></i></span><span class="bar-v">3</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 需求工单 -->
+    <div class="card accent-violet span6">
+      <div class="card-head"><span class="card-title">需求工单</span><span class="card-link">需求与交付 →</span></div>
+      <div class="card-body">
+        <div class="big4">
+          <div class="b4"><div class="v">53</div><div class="k">需求总数</div></div>
+          <div class="b4"><div class="v">0</div><div class="k">本周新增</div></div>
+          <div class="b4"><div class="v">5</div><div class="k">跟踪中</div></div>
+          <div class="b4"><div class="v danger">11</div><div class="k">超期开发</div></div>
+        </div>
+        <div class="bars">
+          <div class="bar-row"><span class="bar-k">已上线</span><span class="bar-track"><i class="bar-fill" style="width:53%;--ac:var(--green)"></i></span><span class="bar-v">28</span></div>
+          <div class="bar-row"><span class="bar-k">开发中</span><span class="bar-track"><i class="bar-fill" style="width:32%;--ac:var(--amber)"></i></span><span class="bar-v">17</span></div>
+          <div class="bar-row"><span class="bar-k">待排期</span><span class="bar-track"><i class="bar-fill" style="width:6%"></i></span><span class="bar-v">3</span></div>
+          <div class="bar-row"><span class="bar-k">评审中</span><span class="bar-track"><i class="bar-fill" style="width:4%"></i></span><span class="bar-v">2</span></div>
+          <div class="bar-row"><span class="bar-k">已暂停</span><span class="bar-track"><i class="bar-fill" style="width:6%"></i></span><span class="bar-v">3</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 会议 -->
+    <div class="card accent-violet span6">
+      <div class="card-head"><span class="card-title">会议日程</span><span class="tagchip hot">今日 0 场</span></div>
+      <div class="card-body">
+        <div class="mt-row"><span class="mt-d">09-16</span><span class="mt-n">商客专区跨系统待办任务工单流监控专题会</span><span class="mt-badge">即将</span></div>
+        <div class="mt-row"><span class="mt-d">09-14</span><span class="mt-n">需求方案评审</span><span class="mt-badge">待纪要</span></div>
+        <div class="mt-row"><span class="mt-d">09-10</span><span class="mt-n">商客业务全省培训</span><span class="mt-badge">待纪要</span></div>
+        <div class="mt-row"><span class="mt-d">09-10</span><span class="mt-n">【第五期】每人一件事专题会议</span><span class="mt-badge">待纪要</span></div>
+        <div class="mt-row"><span class="mt-d">09-09</span><span class="mt-n">需求设计方案评审（网格通）</span><span class="mt-badge">待纪要</span></div>
+      </div>
+    </div>
+
+    <!-- 需求概览 -->
+    <div class="card accent-cyan span12">
+      <div class="card-head"><span class="card-title">需求概览</span><span class="card-link">需求与交付 →</span></div>
+      <div class="ov-grid">
+        <div>
+          <svg class="chart" viewBox="0 0 600 190" preserveAspectRatio="xMidYMid meet">
+            <g stroke="rgba(148,163,184,.14)" stroke-width="1">
+              <line x1="36" y1="36" x2="564" y2="36" stroke-dasharray="3,5"/>
+              <line x1="36" y1="76" x2="564" y2="76" stroke-dasharray="3,5"/>
+              <line x1="36" y1="116" x2="564" y2="116" stroke-dasharray="3,5"/>
+              <line x1="36" y1="156" x2="564" y2="156"/>
+            </g>
+            <path d="M40,144 L130,124 L220,138 L312,98 L404,112 L496,66 L560,84 L560,156 L40,156 Z" fill="rgba(34,211,238,.1)"/>
+            <polyline points="40,144 130,124 220,138 312,98 404,112 496,66 560,84" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <g fill="#22d3ee"><circle cx="40" cy="144" r="3.5"/><circle cx="130" cy="124" r="3.5"/><circle cx="220" cy="138" r="3.5"/><circle cx="312" cy="98" r="3.5"/><circle cx="404" cy="112" r="3.5"/><circle cx="496" cy="66" r="3.5"/><circle cx="560" cy="84" r="3.5"/></g>
+            <g fill="#0b1220" stroke="#22d3ee" stroke-width="1.5"><circle cx="40" cy="144" r="2"/><circle cx="130" cy="124" r="2"/><circle cx="220" cy="138" r="2"/><circle cx="312" cy="98" r="2"/><circle cx="404" cy="112" r="2"/><circle cx="496" cy="66" r="2"/><circle cx="560" cy="84" r="2"/></g>
+            <g fill="#f1f5f9" font-size="10" font-weight="600" text-anchor="middle" font-family="monospace"><text x="40" y="134">4</text><text x="130" y="114">7</text><text x="220" y="128">5</text><text x="312" y="88">12</text><text x="404" y="102">9</text><text x="496" y="56">18</text><text x="560" y="74">14</text></g>
+            <g fill="#64748b" font-size="10.5" text-anchor="middle" font-family="monospace"><text x="40" y="176">09-09</text><text x="130" y="176">09-10</text><text x="220" y="176">09-11</text><text x="312" y="176">09-12</text><text x="404" y="176">09-13</text><text x="496" y="176">09-14</text><text x="560" y="176">09-15</text></g>
+          </svg>
+        </div>
+        <div>
+          <div class="rt-row"><span class="rt-n">关于新增特殊签名和高风险客户合规数据维护的需求</span><span class="rt-o">张振</span><span class="rt-s live">已上线 09-14</span></div>
+          <div class="rt-row"><span class="rt-n">关于新增集团下发的风险库数据支持在行短实名制菜单查询的需求</span><span class="rt-o">张振</span><span class="rt-s live">已上线 09-14</span></div>
+          <div class="rt-row"><span class="rt-n">关于商客重点产品三个月信控销户的需求</span><span class="rt-o">童振彦</span><span class="rt-s live">已上线 09-14</span></div>
+          <div class="rt-row"><span class="rt-n">关于电子协议统一条款格式的需求（第一批）</span><span class="rt-o">方舟</span><span class="rt-s rev">评审中 09-12</span></div>
+          <div class="rt-row"><span class="rt-n">关于淮安订单中心集客增值业务结算系统功能扩展的需求</span><span class="rt-o">李能禾</span><span class="rt-s rev">评审中 09-11</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 今日聚焦 -->
+    <div class="card accent-red span6">
+      <div class="card-head"><span class="card-title">今日聚焦</span><span class="tagchip">个人待办 + 任务中心合并</span></div>
+      <div class="card-body">
+        <div class="fz-row"><span class="fz-lv p0">P0 超期</span><span class="fz-t">[COMP-20260914-250] 批量销户误操作手机用户被动销户</span><span class="fz-d hot">超期 1d</span></div>
+        <div class="fz-row"><span class="fz-lv p0">P0 超期</span><span class="fz-t">[BUG-20260824-520] HDICT 到期失效套餐费无法收取</span><span class="fz-d hot">超期 5d</span></div>
+        <div class="fz-row"><span class="fz-lv p1">P1 今日</span><span class="fz-t">需求方案评审 — 补录会议纪要</span><span class="fz-d">今日</span></div>
+        <div class="fz-row"><span class="fz-lv p2">P2 超期</span><span class="fz-t">[里程碑] 电子协议系统补推机制开发完成</span><span class="fz-d hot">超期 3d</span></div>
+        <div class="fz-row"><span class="fz-lv p3">P3 本周</span><span class="fz-t">一键保障上报业务上下文字段确认及关联改造方案</span><span class="fz-d">09-18</span></div>
+      </div>
+    </div>
+
+    <!-- 重点工作 -->
+    <div class="card accent-violet span6">
+      <div class="card-head"><span class="card-title">重点工作进度</span><span class="card-link">更多 →</span></div>
+      <div class="card-body">
+        <div class="kp-row"><div class="kp-top"><span class="kp-n">电子合同展示的总金额计算能力优化提升</span><span class="kp-p">45%</span></div><div class="kp-track"><i class="kp-fill" style="width:45%"></i></div></div>
+        <div class="kp-row"><div class="kp-top"><span class="kp-n">政企业务电子合同条款瘦身</span><span class="kp-p">35%</span></div><div class="kp-track"><i class="kp-fill" style="width:35%"></i></div></div>
+        <div class="kp-row"><div class="kp-top"><span class="kp-n">电子协议系统与生产运营平台合同数据同步专项治理</span><span class="kp-p">30%</span></div><div class="kp-track"><i class="kp-fill" style="width:30%"></i></div></div>
+        <div class="kp-row"><div class="kp-top"><span class="kp-n">商客维系单体系能力建设</span><span class="kp-p">30%</span></div><div class="kp-track"><i class="kp-fill" style="width:30%"></i></div></div>
+        <div class="kp-row"><div class="kp-top"><span class="kp-n">一网通选址能力公共化、统一化建设</span><span class="kp-p">20%</span></div><div class="kp-track"><i class="kp-fill" style="width:20%"></i></div></div>
+        <div class="kp-row"><div class="kp-top"><span class="kp-n">商客专区跨系统待办任务工单流监控与保障闭环专题</span><span class="kp-p">15%</span></div><div class="kp-track"><i class="kp-fill" style="width:15%"></i></div></div>
+        <div class="kp-row"><div class="kp-top"><span class="kp-n">【外部认证】HCIP 认证</span><span class="kp-p">11%</span></div><div class="kp-track"><i class="kp-fill" style="width:11%"></i></div></div>
+        <div class="kp-row"><div class="kp-top"><span class="kp-n">集客订单中心商客施工单全流程能力整治提升</span><span class="kp-p">5%</span></div><div class="kp-track"><i class="kp-fill" style="width:5%"></i></div></div>
+      </div>
+    </div>
+
+    <!-- 模块概览 -->
+    <div class="sec-h"><span class="sec-t">模块概览 · MODULES</span><span class="sec-s">13 个一级模块全部覆盖</span></div>
+    <div class="mod6 full">
+      <div class="mod-card"><div class="mod-v c-cyan">94</div><div class="mod-k">在职人员</div><div class="mod-s"><b>19</b> 个组织 · 人员中台</div></div>
+      <div class="mod-card"><div class="mod-v c-violet">142</div><div class="mod-k">知识条目</div><div class="mod-s"><b>14</b> 个业务领域 · 本周沉淀 <b>1</b></div></div>
+      <div class="mod-card"><div class="mod-v c-green">3</div><div class="mod-k">本周邮件</div><div class="mod-s">7 日成功率 <b>96.7%</b></div></div>
+      <div class="mod-card mod-new"><div class="mod-v c-violet">12</div><div class="mod-k">AI 总结</div><div class="mod-s">本周 <b>2</b> 篇 · 可用模型 <b>2</b></div></div>
+      <div class="mod-card mod-new"><div class="mod-v c-amber">86</div><div class="mod-k">资料库</div><div class="mod-s"><b>6</b> 个分类 · 本周新增 <b>3</b></div></div>
+      <div class="mod-card"><div class="mod-v c-red">6</div><div class="mod-k">一线调研</div><div class="mod-s">待处理 <b>2</b> · 超期 <b>1</b> · 同源口径</div></div>
+    </div>
+
+    <div class="foot">STYLE A · 暗夜指挥舱 — 为监控与预警而生 · 任务/超期口径统一自任务中心 · 运营 101 = 运营 95 + 调研 6</div>
+  </div>
+</div>
+
+</body>
+</html>
