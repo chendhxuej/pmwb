@@ -166,7 +166,7 @@ async function run() {
     check('C3. KPI 数值与接口一致', false, `接口不可用: ${api && api.__err ? api.__err : 'unknown'}`);
   }
   check('D1. 模块概览 6 卡', dom.modCards === 6, `got ${dom.modCards}`);
-  check('D2. NEW 徽标 ×2', dom.newBadges.length === 2, dom.newBadges.join(','));
+  check('D2. 无 NEW 徽标（已按老大要求移除）', dom.newBadges.length === 0, `got ${dom.newBadges.length}`);
   check('D3. 运营卡含「含一线调研」caliber', dom.calibers.some((c) => c.includes('含一线调研')), dom.calibers.join(' / '));
   check('D4. 会议卡含「去补录」', dom.pmTags.some((t) => t.includes('去补录')), dom.pmTags.join(',') || 'none');
   check('D5. 今日聚焦条目 > 0', dom.fzItems > 0, `got ${dom.fzItems}`);

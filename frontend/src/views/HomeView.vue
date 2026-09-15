@@ -86,14 +86,14 @@
 
       <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-tile mod-clickable" @click.native="goTo('/ai-center')">
         <div class="mod-grid">
-          <div class="mod-stat"><span class="mod-num">{{ aiCenter.total }}</span><span class="mod-key">AI 总结 · AI 中心<span class="new-badge">NEW</span></span></div>
+          <div class="mod-stat"><span class="mod-num">{{ aiCenter.total }}</span><span class="mod-key">AI 总结 · AI 中心</span></div>
           <div class="mod-sub">本周新增 <b>{{ aiCenter.thisWeek }}</b> 篇 · 可用模型 <b>{{ aiCenter.modelCount }}</b> 个 · 自动归档 Obsidian</div>
         </div>
       </BentoCard>
 
       <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-tile mod-clickable" @click.native="goTo('/material-library')">
         <div class="mod-grid">
-          <div class="mod-stat"><span class="mod-num">{{ materials.total }}</span><span class="mod-key">资料总数 · 业务资料库<span class="new-badge">NEW</span></span></div>
+          <div class="mod-stat"><span class="mod-num">{{ materials.total }}</span><span class="mod-key">资料总数 · 业务资料库</span></div>
           <div class="mod-sub"><b>{{ materials.categoryCount }}</b> 个分类 · 本周新增 <b>{{ materials.thisWeek }}</b> 份 · 接口规范/操作手册自动归档</div>
         </div>
       </BentoCard>
@@ -1103,17 +1103,6 @@ onUnmounted(() => {
 .mod-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.55; max-width: 94%; }
 .mod-sub b { color: var(--text-primary); font-weight: 600; }
 .mod-sub .hot { color: var(--danger); font-weight: 600; }
-.new-badge {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  color: #fff;
-  background: var(--accent);
-  padding: 1px 8px;
-  border-radius: 999px;
-  vertical-align: 2px;
-  margin-left: 6px;
-}
 .mod-clickable { cursor: pointer; }
 
 /* ── 快捷操作 ── */
