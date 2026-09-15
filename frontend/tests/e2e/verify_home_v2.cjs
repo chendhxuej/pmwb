@@ -104,6 +104,18 @@ async function run() {
         worklabel_focus: following(labels[1], fzFirst),
       },
       heights: { greet: Math.round(greetH), live: Math.round(liveH) },
+      modCenters: qa('.mod-grid').map((g) => {
+        const card = g.closest('.card');
+        const num = g.querySelector('.mod-num');
+        const sub = g.querySelector('.mod-sub');
+        const cr = card ? card.getBoundingClientRect() : g.getBoundingClientRect();
+        const nr = num.getBoundingClientRect();
+        const hDev = Math.abs((nr.left + nr.right) / 2 - (cr.left + cr.right) / 2);
+        const gr = g.getBoundingClientRect();
+        const sr = sub ? sub.getBoundingClientRect() : nr;
+        const vDev = Math.abs((nr.top - gr.top) - (gr.bottom - sr.bottom));
+        return { h: Math.round(hDev * 10) / 10, v: Math.round(vDev) };
+      }),
     };
   });
 
@@ -164,6 +176,10 @@ async function run() {
   check('D8. 需求概览趋势 SVG polyline 存在', dom.chartPoly >= 1, `got ${dom.chartPoly}`);
   check('E. 首行两卡高度对齐(容差2px)', Math.abs(dom.heights.greet - dom.heights.live) <= 2,
     `greet=${dom.heights.greet} live=${dom.heights.live}`);
+  check('D9. 模块概览数字水平居中(≤4px)', dom.modCenters.length === 6 && dom.modCenters.every((c) => c.h <= 4),
+    dom.modCenters.map((c) => c.h).join(','));
+  check('D10. 模块概览内容垂直居中(≤8px)', dom.modCenters.length === 6 && dom.modCenters.every((c) => c.v <= 8),
+    dom.modCenters.map((c) => c.v).join(','));
 
   // info 输出
   console.log('\n── 关键内容快照 ──');

@@ -63,42 +63,42 @@
         <span class="rl-line"></span>
       </div>
 
-      <BentoCard :span="4" :body-padding="'14px 22px 16px'">
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-tile">
         <div class="mod-grid">
           <div class="mod-stat"><span class="mod-num">{{ personnel.staff }}</span><span class="mod-key">在职人员 · 人员中台</span></div>
           <div class="mod-sub"><b>{{ personnel.org }}</b> 个组织 · 订单中心 / 电子协议 / CRM / BOSS 等条线全覆盖</div>
         </div>
       </BentoCard>
 
-      <BentoCard :span="4" :body-padding="'14px 22px 16px'">
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-tile">
         <div class="mod-grid">
           <div class="mod-stat"><span class="mod-num">{{ knowledge.total }}</span><span class="mod-key">知识条目 · 知识中心</span></div>
           <div class="mod-sub"><b>{{ knowledge.domainCount }}</b> 个业务领域 · 本周沉淀 <b>{{ knowledge.thisWeek }}</b> 条 · 需求/运营自动归档汇入</div>
         </div>
       </BentoCard>
 
-      <BentoCard :span="4" :body-padding="'14px 22px 16px'">
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-tile">
         <div class="mod-grid">
           <div class="mod-stat"><span class="mod-num">{{ emails.sr }}<span class="mod-unit">%</span></span><span class="mod-key">邮件中心</span></div>
           <div class="mod-sub">本周发送 <b>{{ emails.week }}</b> · 今日 {{ emails.today }} · 12 类场景模板</div>
         </div>
       </BentoCard>
 
-      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-clickable" @click.native="goTo('/ai-center')">
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-tile mod-clickable" @click.native="goTo('/ai-center')">
         <div class="mod-grid">
           <div class="mod-stat"><span class="mod-num">{{ aiCenter.total }}</span><span class="mod-key">AI 总结 · AI 中心<span class="new-badge">NEW</span></span></div>
           <div class="mod-sub">本周新增 <b>{{ aiCenter.thisWeek }}</b> 篇 · 可用模型 <b>{{ aiCenter.modelCount }}</b> 个 · 自动归档 Obsidian</div>
         </div>
       </BentoCard>
 
-      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-clickable" @click.native="goTo('/material-library')">
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-tile mod-clickable" @click.native="goTo('/material-library')">
         <div class="mod-grid">
           <div class="mod-stat"><span class="mod-num">{{ materials.total }}</span><span class="mod-key">资料总数 · 业务资料库<span class="new-badge">NEW</span></span></div>
           <div class="mod-sub"><b>{{ materials.categoryCount }}</b> 个分类 · 本周新增 <b>{{ materials.thisWeek }}</b> 份 · 接口规范/操作手册自动归档</div>
         </div>
       </BentoCard>
 
-      <BentoCard :span="4" :body-padding="'14px 22px 16px'">
+      <BentoCard :span="4" :body-padding="'14px 22px 16px'" class="mod-tile">
         <div class="mod-grid">
           <div class="mod-stat"><span class="mod-num">{{ researchStats.total }}</span><span class="mod-key">调研工单 · 一线调研</span></div>
           <div class="mod-sub">待处理 <b>{{ researchStats.pending }}</b> · 超期 <span class="hot">{{ researchStats.overdue }}</span> · 已并入任务中心来源分布</div>
@@ -1093,12 +1093,14 @@ onUnmounted(() => {
 .kp-fill { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
 
 /* ── 模块概览小卡 ── */
-.mod-grid { display: flex; flex-direction: column; gap: 6px; padding: 2px 0; }
-.mod-stat { display: flex; align-items: baseline; gap: 8px; }
+/* 模块概览居中指标卡：数字→标签→描述三层中线对齐，水平+垂直双向居中 */
+.mod-tile :deep(.card-body) { display: flex; flex-direction: column; }
+.mod-grid { display: flex; flex-direction: column; gap: 8px; padding: 2px 0; align-items: center; justify-content: center; text-align: center; flex: 1; }
+.mod-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .mod-num { font-size: 26px; font-weight: 800; font-family: var(--font-mono); color: var(--text-primary); line-height: 1.1; letter-spacing: -.5px; }
 .mod-unit { font-size: 14px; }
 .mod-key { font-size: 12px; color: var(--text-muted); }
-.mod-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.55; }
+.mod-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.55; max-width: 94%; }
 .mod-sub b { color: var(--text-primary); font-weight: 600; }
 .mod-sub .hot { color: var(--danger); font-weight: 600; }
 .new-badge {
