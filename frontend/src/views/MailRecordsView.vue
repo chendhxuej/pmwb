@@ -65,6 +65,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getReminderRecordsList } from '@/api/reminder.js'
+import PageHeader from '@/components/Common/PageHeader.vue'
 
 const loading = ref(false)
 const limit = ref(50)
