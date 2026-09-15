@@ -820,7 +820,8 @@ const onPreviewConfirm = async (legacyTasks) => {
     const um = res.unmatched_handlers?.length
       ? `（${res.unmatched_handlers.length} 个责任人未匹配人员中台：${res.unmatched_handlers.join('、')}）`
       : ''
-    ElMessage.success(`导入成功：分析工单 ${res.issue_no}，自动建遗留任务 ${res.legacy_task_count} 条${um}`)
+    const att = res.saved_attachment ? `，已自动附带附件「${res.saved_attachment}」` : ''
+    ElMessage.success(`导入成功：分析工单 ${res.issue_no}，自动建遗留任务 ${res.legacy_task_count} 条${um}${att}`)
     loadData()
     loadStats()
   } catch (err) {

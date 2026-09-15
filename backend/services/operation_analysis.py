@@ -181,30 +181,171 @@ def build_analysis_template_bytes() -> bytes:
 
 
 def _parse_analysis_fields(ws) -> Dict[str, str]:
-    """按列A标签解析字段区，兼容「标签=值」与「小节标题+下方内容」两种布局。"""
+    """解析分析字段区。
+
+    兼容四种布局：
+      - 布局1 生成模板：列A=label（无冒号）、列B=value
+      - 布局2 顾杨豪/网格通：列A=描述提示、列B=label（带"："）、列C=value
+      - 布局3 孟华：列A=label（带"："）、列B=value
+      - 布局4 方磊磊：列A=label（无冒号）、列B=label重复、列C=value
+
+    容错优先，任何识别失败降级为 warnings，不抛错。
+    """
     data: Dict[str, str] = {}
+
+    def _strip_colon(s: str) -> str:
+        """去除字符串末尾的冒号（中文或英文）。"""
+        return re.sub(r"[：:]\s*$", "", s.strip())
+
+    def _get_content(col_c, col_d) -> str:
+        """从结果子标题行中提取内容：优先 col_d，否则 col_c。"""
+        if col_d and str(col_d).strip():
+            return str(col_d).strip()
+        return str(col_c).strip() if col_c else ""
+
+    # ========== 先处理「分析人员信息」，避免被布局解析覆盖 ==========
+    pb = ws.cell(row=3, column=2).value
+    pc = ws.cell(row=3, column=3).value
+    person_str = None
+    if pb and str(pb).strip():
+        pb_s = str(pb).strip()
+        if pb_s.endswith('：') or pb_s.endswith(':'):
+            if pc and str(pc).strip():
+                person_str = str(pc).strip()
+        else:
+            person_str = pb_s
+    elif pc and str(pc).strip():
+        person_str = str(pc).strip()
+
+    if person_str:
+        name_match = re.search(r'运营人员姓名?[：:]\s*(.+?)(?:，|、|\s|$)', person_str)
+        team_match = re.search(r'运营团队[：:]\s*(.+?)(?:，|、|\s{4,}|\s*$)', person_str)
+        if name_match:
+            data["analyst_name"] = name_match.group(1).strip()
+        if team_match:
+            data["analyst_team"] = team_match.group(1).strip()
+
+    # ========== 布局1&4：colA=label（无冒号），从 colB 或 colC 取 value ==========
     for r in range(1, ws.max_row + 1):
         a = ws.cell(row=r, column=1).value
         if not a:
             continue
-        a = str(a).strip()
-        if a in _LABEL_TO_KEY:
-            b = ws.cell(row=r, column=2).value
-            val = b if b is not None else ""
-            if val == "":
-                # 小节标题式：内容在下一行的 A 或 B 列
-                nxt_b = ws.cell(row=r + 1, column=2).value
-                nxt_a = ws.cell(row=r + 1, column=1).value
-                if nxt_b not in (None, ""):
-                    val = str(nxt_b).strip()
-                elif nxt_a not in (None, ""):
-                    val = str(nxt_a).strip()
-            data[_LABEL_TO_KEY[a]] = str(val).strip() if val != "" else ""
-    # 标题兜底：若未识别到「课题名称」，尝试取首行 B 列（附件示例标题常落在 A1 说明旁）
+        label = _strip_colon(str(a).strip())
+        if label not in _LABEL_TO_KEY:
+            continue
+        key = _LABEL_TO_KEY[label]
+        if data.get(key):  # 已解析则不覆盖
+            continue
+        b = ws.cell(row=r, column=2).value
+        if b and str(b).strip():
+            b_s = str(b).strip()
+            # 若 colB 本身也是 label（以冒号结尾，或属于已知 label），跳过取 colC
+            if _strip_colon(b_s) in _LABEL_TO_KEY or b_s.endswith('：') or b_s.endswith(':'):
+                c = ws.cell(row=r, column=3).value
+                data[key] = str(c).strip() if c else ""
+            else:
+                data[key] = b_s
+            continue
+        c = ws.cell(row=r, column=3).value
+        if c and str(c).strip():
+            data[key] = str(c).strip()
+
+    # ========== 布局2&3：colA=label（带冒号），从 colB 取 value ==========
+    for r in range(1, ws.max_row + 1):
+        a = ws.cell(row=r, column=1).value
+        if not a:
+            continue
+        a_stripped = _strip_colon(str(a).strip())
+        if a_stripped not in _LABEL_TO_KEY:
+            continue
+        key = _LABEL_TO_KEY[a_stripped]
+        if data.get(key):  # 已解析则不覆盖
+            continue
+        b = ws.cell(row=r, column=2).value
+        if b and str(b).strip():
+            data[key] = str(b).strip()
+
+    # ========== 特殊处理：「分析人员信息」从 row3 解析姓名/团队 ==========
+    # 布局2（顾杨豪）：colB = 含人员和团队的信息
+    # 布局3（孟华）：colB = 含人员和团队的信息（colC 为空）
+    # 布局4（方磊磊）：colB = "分析人员信息："（label），colC = 含人员和团队的信息
+    pb = ws.cell(row=3, column=2).value
+    pc = ws.cell(row=3, column=3).value
+    person_str = None
+    if pb and str(pb).strip():
+        pb_s = str(pb).strip()
+        # 若 colB 本身是 label（以冒号结尾），跳过取 colC
+        if pb_s.endswith('：') or pb_s.endswith(':'):
+            if pc and str(pc).strip():
+                person_str = str(pc).strip()
+        else:
+            person_str = pb_s
+    elif pc and str(pc).strip():
+        person_str = str(pc).strip()
+
+    if person_str:
+        name_match = re.search(r'运营人员姓名?[：:]\s*(.+?)(?:，|、|\s|$)', person_str)
+        team_match = re.search(r'运营团队[：:]\s*（([^）]+)）', person_str)
+        if not data.get("analyst_name") and name_match:
+            data["analyst_name"] = name_match.group(1).strip()
+        if not data.get("analyst_team") and team_match:
+            data["analyst_team"] = team_match.group(1).strip()
+        # 兜底：无括号情况
+        if not data.get("analyst_team"):
+            team_alt = re.search(r'运营团队[：:]\s*(.+?)(?:\s+运营|，|、|\s*$)', person_str)
+            if team_alt:
+                data["analyst_team"] = team_alt.group(1).strip()
+
+    # ========== 结果区解析 ==========
+    result_labels = {
+        "result_flow": "流程优化方面",
+        "result_rule": "规则优化方面",
+        "result_model": "数据模型方面",
+        "result_abnormal_user": "异常用户数据方面",
+        "result_monitor_blind": "监控补盲方面",
+    }
+
+    for r in range(1, ws.max_row + 1):
+        a = ws.cell(row=r, column=1).value
+        b = ws.cell(row=r, column=2).value
+        c = ws.cell(row=r, column=3).value
+        d = ws.cell(row=r, column=4).value
+        a_s = _strip_colon(str(a).strip()) if a else ""
+        b_s = _strip_colon(str(b).strip()) if b else ""
+        c_s = str(c).strip() if c else ""
+        d_s = str(d).strip() if d else ""
+
+        # 检测"分析结果"行（布局2 顾杨豪：colB；布局3 孟华：colA）
+        is_result_header = (a_s == "分析结果") or (b_s == "分析结果")
+        if is_result_header:
+            for rr in range(r, ws.max_row + 1):
+                cc = ws.cell(row=rr, column=3).value
+                dd = ws.cell(row=rr, column=4).value
+                if not cc and not dd:
+                    continue
+                cc_str = str(cc).strip() if cc else ""
+                dd_str = str(dd).strip() if dd else ""
+                if not cc_str and not dd_str:
+                    continue
+                for key, label in result_labels.items():
+                    if cc_str == label and not data.get(key):
+                        data[key] = _get_content(cc, dd)
+                        break
+                    # 布局3（孟华）：colB=子标题，colC=内容
+                    if b_s == label and not data.get(key):
+                        data[key] = _get_content(cc, dd)
+                        break
+            break
+
+    # ========== 标题兜底 ==========
     if not data.get("topic_name"):
         b1 = ws.cell(row=1, column=2).value
-        if b1 and "：" not in str(b1) and str(b1).strip():
+        a1 = ws.cell(row=1, column=1).value
+        if b1 and "：" not in str(b1) and ":" not in str(b1) and str(b1).strip():
             data["topic_name"] = str(b1).strip()
+        elif a1 and "填写说明" not in str(a1) and "：" not in str(a1) and ":" not in str(a1) and str(a1).strip():
+            data["topic_name"] = str(a1).strip()
+
     return data
 
 

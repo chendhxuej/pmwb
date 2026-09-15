@@ -83,3 +83,11 @@
 - **邮件/纪要不变量**：展示统一顿号（`owners_display`）；但**收件人必须逐人展开**（会议行动项派发/督办 `split_owners(owner)`）。
 - **会议行动项分流**：owner 列表**含本人即建个人待办**（`SELF_NAME in owners`），其余负责人另行派发邮件。
 - **迁移链尾**：现为 `20260914000002`（多负责人扩容）；再新迁移挂它之后。注意 `alembic upgrade head` 会因坏壳文件报 multiple heads，**必须指定 revision id 升级**。
+
+## 13. 首页看板 2.0 统一规范版（2026-09-15，commit c3acd20）
+- **DEMO 基准**：prototype/home-dashboard-v2-r3-unified.html 是唯一开发基准（行序：问候→KPI→模块概览6卡→快捷操作→核心工作区4卡→需求概览/今日聚焦/重点工作）；三风格过程稿同目录归档。
+- **数据契约**：KpiItem.value_text（百分比串）；DashboardData.user_name="老大"、focus_items（今日聚焦6条超期优先）；LiveItem.source 五源混排（调研/运营/会议/需求/知识）；ModuleStats.aiCenter/materials + req.devCount + issues.researchTotal + knowledge.domainCount + task_center_dist.due_today；待写纪要=全量 count 非 limit(5)。
+- **前端关键**：BentoCard header 多元素用 .head-extra 包装类；KPI num 取值必须写 k.value_text || (k.value ?? k.num ?? 0)——||与??混用不加括号 vite build 直接报错。
+- **验证工具**：frontend/tests/e2e/verify_home_v2.cjs（23项：行序/老大问候/无陈工/KPI与接口4/4一致/NEW×2/含一线调研/去补录/首行两卡等高/console零fatal）。首页改动后必跑。
+- **合规例外**：HomeView 保留 DEMO 硬编码色值（深色问候卡与 SVG 浅色系无对应令牌、#2f6fed=--accent 同值），替换会破坏与 DEMO 一致，属有意识例外。
+- **遗留半成品（未提交，勿混入其他提交）**：backend/services/operation_analysis.py（运营分析Excel四布局解析增强）+ frontend/src/views/WorkOrderView.vue（导入提示加附件字段）仍在工作区，待单独验证后提交。
