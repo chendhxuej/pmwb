@@ -289,7 +289,7 @@
             </el-select>
             <el-button @click="loadActiveOpts"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
-          <el-table v-loading="activeOptLoading" :data="activeOpts" stripe scrollbar-always-on row-class-name="req-table">
+          <el-table v-loading="activeOptLoading" :data="activeOpts" stripe scrollbar-always-on row-class-name="req-table" @row-click="openActiveOptDetail">
             <el-table-column label="优先级" width="70" align="center">
               <template #default="{ row }">
                 <el-tag size="small" :type="priorityType(row.priority)" effect="dark">{{ row.priority || 'P2' }}</el-tag>
@@ -324,8 +324,9 @@
                 <span class="text-muted">{{ formatDate(row.created_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="200" align="center" fixed="right">
+            <el-table-column label="操作" width="230" align="center" fixed="right">
               <template #default="{ row }">
+                <el-button link type="primary" size="small" @click.stop="openActiveOptDetail(row)">详情</el-button>
                 <el-button link type="primary" size="small" @click.stop="openActiveOptDialog(row)">编辑</el-button>
                 <el-button link type="warning" size="small" @click.stop="openActiveOptMail(row, 'urge')">催办</el-button>
                 <el-button link type="info" size="small" @click.stop="openActiveOptMail(row, 'sync')">同步</el-button>
