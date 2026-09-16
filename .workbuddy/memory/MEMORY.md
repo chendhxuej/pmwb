@@ -91,3 +91,9 @@
 - **验证工具**：frontend/tests/e2e/verify_home_v2.cjs（23项：行序/老大问候/无陈工/KPI与接口4/4一致/NEW×2/含一线调研/去补录/首行两卡等高/console零fatal）。首页改动后必跑。
 - **合规例外**：HomeView 保留 DEMO 硬编码色值（深色问候卡与 SVG 浅色系无对应令牌、#2f6fed=--accent 同值），替换会破坏与 DEMO 一致，属有意识例外。
 - **遗留半成品（未提交，勿混入其他提交）**：backend/services/operation_analysis.py（运营分析Excel四布局解析增强）+ frontend/src/views/WorkOrderView.vue（导入提示加附件字段）仍在工作区，待单独验证后提交。
+
+- **居中改版（e388749）**：模块概览 6 卡为纵排居中指标卡（数字→标签→描述中线对齐，水平+垂直双向居中）；实现靠 .mod-tile 挂类 + :deep(.card-body) flex 化（BentoCard 内部元素 scoped 选不到必须 :deep）。断言 D9/D10 已入 verify_home_v2.cjs。
+
+- **NEW 徽标已移除（72db0b0）**：模块概览不再有 new-badge（老大 09-15 指令），verify_home_v2 D2 断言「无 NEW」，勿再加回。
+
+- **推送验证铁律**（2026-09-15 复盘）：72db0b0c39c6fca8ddfe4d01742f0fab946a0c0f 在沙箱可能返回过期 stale value；**以 72db0b0c39c6fca8ddfe4d01742f0fab946a0c0f	refs/heads/main 返回的 SHA 为准**——与 HEAD 一致 = 推送真成功； 无输出 = 无未推送提交。
