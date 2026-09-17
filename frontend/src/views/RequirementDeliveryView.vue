@@ -362,6 +362,9 @@
       :scene="mailDialogScene"
       :variables="mailDialogVariables"
       value-key="email"
+      :ref-type="mailDialogRefType"
+      :ref-id="mailDialogRefId"
+      @success="mailLogKey++"
     />
 
     <!-- ════════ 6步工作流抽屉 ════════ -->
@@ -380,6 +383,9 @@
       </template>
 
       <!-- 步骤指示（双击步骤时间可修正） -->
+      <!-- 邮件督办记录 -->
+      <EmailSuperviseLog ref-type="requirement" :ref-id="current?.req_id" :key="mailLogKey" />
+
       <div class="wf-steps">
         <div
           v-for="(s, i) in steps"
@@ -1245,6 +1251,7 @@ import StaffSelect from '@/components/Common/StaffSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
+import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { knowledgeApi } from '@/api/knowledge.js'
@@ -1335,6 +1342,9 @@ const mailDialogBody = ref('')
 const mailDialogScene = ref('supervise_urge')
 // T-E：supervise_urge/sync 模板变量（复用工单 7 变量：no/title/category/handler/resolveDate/status/description）
 const mailDialogVariables = ref({})
+const mailDialogRefType = ref('')
+const mailDialogRefId = ref('')
+const mailLogKey = ref(0)
 
 /** 需求侧「计划完成日期」：版本要求上线时间 → 回退实际交付日期，统一 YYYY-MM-DD */
 const planFinishDate = (row) => {
@@ -1385,6 +1395,8 @@ function openSupervise(row, scene = 'urge') {
   mailDialogBody.value = buildReqSuperviseBody(row, scene)
   mailDialogScene.value = scene === 'sync' ? 'supervise_sync' : 'supervise_urge'
   mailDialogVisible.value = true
+  mailDialogRefType.value = 'requirement'
+  mailDialogRefId.value = row.req_id || ''
 }
 
 function openReqDialog(row) {

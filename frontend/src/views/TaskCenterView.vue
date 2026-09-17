@@ -232,6 +232,9 @@
           </el-descriptions-item>
         </el-descriptions>
         <div class="drawer-actions">
+        <!-- 邮件督办记录 -->
+        <EmailSuperviseLog ref-type="task_center" :ref-id="detailTask ? detailTask.source + ':' + detailTask.source_id : ''" :key="mailLogKey" />
+
           <el-button type="primary" @click="gotoSource(detailTask)">前往源模块</el-button>
           <el-button type="warning" @click="openTaskEmail([detailTask], 'urge')">邮件催办</el-button>
           <el-button @click="openTaskEmail([detailTask], 'notify')">邮件通知</el-button>
@@ -250,6 +253,8 @@
       :default-body="mailDialogBody"
       value-key="email"
       :custom-send="mailDialogSendFn"
+      :ref-type="mailDialogRefType"
+      :ref-id="mailDialogRefId"
       @success="handleMailSuccess"
     />
 
@@ -323,6 +328,7 @@ import { getPendingReminders, sendReminder } from '@/api/reminder.js'
 import { todoApi } from '@/api/todo'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
+import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 
@@ -540,6 +546,9 @@ const mailDialogMode = ref('task')
 const mailDialogScene = ref('')
 const mailDialogVariables = ref({})
 const mailDialogContext = ref({})
+const mailDialogRefType = ref('')
+const mailDialogRefId = ref('')
+const mailLogKey = ref(0)
 
 async function mailDialogSendFn(payload) {
   if (mailDialogMode.value === 'task') {
@@ -552,6 +561,8 @@ async function mailDialogSendFn(payload) {
       body: payload.body,
       send_type: ctx.send_type,
       operator: 'pmwb',
+      ref_type: mailDialogRefType.value,
+      ref_id: mailDialogRefId.value,
       confirm_send: true,
       // T-E：scene 模式下把模板变量透传后端（tasks HTML 列表），保证发送与预览同模板渲染
       template_data: payload.variables || null,
@@ -567,12 +578,15 @@ async function mailDialogSendFn(payload) {
     subject: payload.subject,
     body: payload.variables?.body || payload.body || '',
     template_data: payload.variables || null,
+    ref_type: mailDialogRefType.value,
+    ref_id: mailDialogRefId.value,
     operator: 'pmwb',
   })
 }
 
 function handleMailSuccess() {
   mailDialogVisible.value = false
+  mailLogKey.value++
   if (mailDialogMode.value === 'task') {
     selectedTasks.value = []
   } else {
@@ -647,6 +661,8 @@ async function openTaskEmail(rows, sendType) {
   // 正文完全由后端装配（品牌带+称呼+引导语+任务卡片+签名），前端留空。
   mailDialogBody.value = ''
   mailDialogContext.value = { tasks: rows.slice(), send_type: sendType }
+  mailDialogRefType.value = 'task_center'
+  mailDialogRefId.value = rows[0] ? rows[0].source + ':' + rows[0].source_id : ''
   // 预填负责人姓名（StaffSelect 会按姓名解析邮箱）
   const names = [
     ...new Set(

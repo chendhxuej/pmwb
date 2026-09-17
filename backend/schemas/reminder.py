@@ -17,6 +17,9 @@ class ReminderSendRequest(BaseModel):
     operator: Optional[str] = Field(None, description="操作人")
 
 
+    ref_type: Optional[str] = Field(None, description="关联模块类型(邮件督办记录统一化): task_center")
+    ref_id: Optional[str] = Field(None, description="关联业务主键/编号(req_id)")
+
 class ReminderSendResponse(BaseModel):
     success: bool
     record_id: int

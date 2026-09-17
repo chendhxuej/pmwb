@@ -141,6 +141,9 @@
       </template>
 
       <el-tabs v-model="activeSection" class="drawer-tabs" @tab-change="handleSectionChange">
+      <!-- 邮件督办记录 -->
+      <EmailSuperviseLog ref-type="keywork" :ref-id="detail?.work_no" :key="mailLogKey" />
+
         <!-- 基本信息 -->
         <el-tab-pane label="基本信息" name="basic">
           <div v-if="detail" class="sec-body">
@@ -844,7 +847,9 @@
     :default-subject="mailDialogSubject"
     :default-body="mailDialogBody"
     value-key="email"
-    @success="handleFeedbackMailSuccess"
+    :ref-type="mailDialogRefType"
+    :ref-id="mailDialogRefId"
+    @success="handleFeedbackMailSuccess(); mailLogKey++"
   />
 </template>
 
@@ -857,6 +862,7 @@ import StaffSelect from '@/components/Common/StaffSelect.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
+import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
 import {
@@ -994,6 +1000,9 @@ const mailDialogBody = ref('')
 const mailDialogScene = ref('keywork_feedback')
 const mailDialogVariables = ref({})
 const mailDialogContext = ref({})
+const mailDialogRefType = ref('')
+const mailDialogRefId = ref('')
+const mailLogKey = ref(0)
 
 /** 用 feedbackGroups 真实数据构建周反馈邮件正文（Markdown） */
 function buildFeedbackMailBody(g) {
@@ -1125,6 +1134,8 @@ function openFeedbackMailDialog(g, owner, week, title, workNo) {
   }
   mailDialogContext.value = {}
   mailDialogVisible.value = true
+  mailDialogRefType.value = 'keywork'
+  mailDialogRefId.value = workNo || ''
 }
 const lastWeekFeedback = ref(null)
 const isMonthEnd = ref(false)
@@ -1331,6 +1342,7 @@ async function openFeedbackMail() {
 
 /** 邮件预览弹窗确认发送回调 */
 function handleFeedbackMailSuccess() {
+  mailLogKey.value++
   mailDialogVisible.value = false
   ElMessage.success('周反馈请求邮件已发送')
 }

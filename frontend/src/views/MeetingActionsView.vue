@@ -114,6 +114,8 @@
       scene="action_supervise"
       :variables="mailDialogVariables"
       value-key="email"
+      :ref-type="'meeting_action'"
+      :ref-id="mailDialogRefId"
       @success="handleMailSuccess"
     />
 
@@ -150,6 +152,7 @@
           </el-select>
         </el-form-item>
       </el-form>
+      <EmailSuperviseLog ref-type="meeting_action" :ref-id="String(editForm.id || '')" :key="editForm.id || 'none'" />
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" @click="confirmEdit" :loading="editLoading">保存</el-button>
@@ -166,6 +169,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import { meetingApi } from '@/api/meeting'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
+import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
@@ -291,6 +295,7 @@ const mailDialogSubject = ref('')
 const mailDialogBody = ref('')
 // T-D：action_supervise 模板变量（3210 action_supervise 模板：owner/content/dueDate/status/sceneLabel）
 const mailDialogVariables = ref({})
+const mailDialogRefId = ref('')
 
 function buildSuperviseBody(row, scene) {
   const owners = ownerLabel(row.owner) || '相关同事'
@@ -324,6 +329,7 @@ function handleSupervise(row, scene = 'urge') {
     sceneLabel: scene === 'urge' ? '催办' : '同步',
   }
   mailDialogBody.value = buildSuperviseBody(row, scene)
+  mailDialogRefId.value = String(row.id || '')
   mailDialogVisible.value = true
 }
 

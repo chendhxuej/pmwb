@@ -124,6 +124,8 @@ class ReminderService:
             req_id=obj_in.req_id,
             req_name=obj_in.req_name,
             recipient_name=obj_in.recipient_name,
+            ref_type=obj_in.ref_type or "task_center",
+            ref_id=obj_in.ref_id or obj_in.req_id,
             raise_on_error=False,
             confirm_send=True,
         )

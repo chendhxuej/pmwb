@@ -882,6 +882,8 @@ class TaskCenterService:
             email_type=email_type,
             req_id=";".join(f"{t.source}:{t.source_id}" for t in obj_in.tasks)[:64],
             req_name=(first_title or "任务中心邮件")[:255],
+            ref_type=obj_in.ref_type or "task_center",
+            ref_id=obj_in.ref_id or ";".join(f"{t.source}:{t.source_id}" for t in obj_in.tasks)[:64],
             raise_on_error=False,
             confirm_send=obj_in.confirm_send,
         )
