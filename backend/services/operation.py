@@ -1,16 +1,22 @@
 from datetime import datetime
 from typing import Any, Dict, List
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from db.models import PmwbOperationAnalysis, PmwbOperationIssue, PmwbKnowledgeLink
+from db.models import PmwbOperationAnalysis, PmwbOperationIssue, PmwbKnowledgeLink, now_cn
 from schemas.operation import OperationIssueStats, IssueStatsItem
 from services.base import BaseService
+from utils.owners import split_owners
 
 
 class OperationIssueService(BaseService[PmwbOperationIssue]):
     """业务运营问题 Service。"""
+
+    # 状态全集（顺序即前端展示顺序；pending 虽当前无数据也保留列，保证各责任人区块结构一致）
+    STATUS_ORDER = ("pending", "processing", "verify", "resolved", "closed", "suspended")
+    # 责任人字段为空时的兜底桶名
+    UNASSIGNED_LABEL = "未指派"
 
     def __init__(self):
         super().__init__(PmwbOperationIssue)
@@ -88,6 +94,7 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
         status: str = None,
         impact_level: str = None,
         handler: str = None,
+        handler_exact: bool = False,
         related_system: str = None,
         page: int = 1,
         page_size: int = 20,
@@ -103,7 +110,19 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
         if impact_level:
             query = query.filter(self.model.impact_level == impact_level)
         if handler:
-            query = query.filter(self.model.handler.like(f"%{handler}%"))
+            if handler_exact:
+                # 精确命中某人：按逗号边界匹配，避免「王伟」误命中「王伟民」。
+                # handler 为多负责人逗号串，四个条件覆盖 单值/首/尾/中间 四种位置。
+                conds = []
+                for name in split_owners(handler):
+                    conds.append(self.model.handler == name)
+                    conds.append(self.model.handler.like(f"{name},%"))
+                    conds.append(self.model.handler.like(f"%,{name}"))
+                    conds.append(self.model.handler.like(f"%,{name},%"))
+                if conds:
+                    query = query.filter(or_(*conds))
+            else:
+                query = query.filter(self.model.handler.like(f"%{handler}%"))
         if related_system:
             query = query.filter(self.model.related_system == related_system)
         if keyword:
@@ -183,6 +202,134 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
             by_type=by_type,
             by_category=by_category,
         )
+
+    def _empty_status_bucket(self) -> Dict[str, int]:
+        bucket = {s: 0 for s in self.STATUS_ORDER}
+        bucket["total"] = 0
+        bucket["overdue"] = 0
+        return bucket
+
+    @staticmethod
+    def _rate(closed: int, total: int) -> float:
+        return round(closed * 100.0 / total, 1) if total else 0.0
+
+    def get_stats_by_handler(self, db: Session) -> dict:
+        """责任人维度统计：责任人 × 工单类别 × 状态 的数量矩阵（总览页责任人分布用）。
+
+        口径说明：
+        - 全局块（summary / category_matrix）按 category + status 聚合，不做责任人拆分，
+          因此多负责人工单不会被重复计数，与 /operation/stats 的口径一致；
+        - 责任人块按 split_owners 拆分 handler 逗号串，一条工单挂多人时人人计数；
+        - 责任人字段为空的历史脏数据归入「未指派」桶，保证总览与全量工单数对得上。
+        """
+        # 1) 全局：类别 × 状态（含超期数）
+        global_rows = (
+            db.query(
+                self.model.category,
+                self.model.status,
+                func.count(self.model.id),
+                func.coalesce(func.sum(self.model.is_overdue), 0),
+            )
+            .group_by(self.model.category, self.model.status)
+            .all()
+        )
+
+        category_matrix: Dict[str, Dict[str, int]] = {}
+        status_totals = {s: 0 for s in self.STATUS_ORDER}
+        overdue_total = 0
+        grand_total = 0
+        for category, status, cnt, overdue in global_rows:
+            cnt = int(cnt or 0)
+            overdue = int(overdue or 0)
+            bucket = category_matrix.setdefault(category, self._empty_status_bucket())
+            bucket["total"] += cnt
+            bucket["overdue"] += overdue
+            grand_total += cnt
+            overdue_total += overdue
+            if status in self.STATUS_ORDER:
+                bucket[status] += cnt
+                status_totals[status] += cnt
+
+        for bucket in category_matrix.values():
+            bucket["closed_loop_rate"] = self._rate(
+                bucket["resolved"] + bucket["closed"], bucket["total"]
+            )
+
+        summary = {
+            **status_totals,
+            "total": grand_total,
+            "overdue": overdue_total,
+            "closed_loop_rate": self._rate(
+                status_totals["resolved"] + status_totals["closed"], grand_total
+            ),
+        }
+
+        # 2) 责任人：handler × 类别 × 状态
+        handler_rows = (
+            db.query(
+                self.model.handler,
+                self.model.category,
+                self.model.status,
+                func.count(self.model.id),
+                func.coalesce(func.sum(self.model.is_overdue), 0),
+            )
+            .group_by(self.model.handler, self.model.category, self.model.status)
+            .all()
+        )
+
+        buckets: Dict[str, dict] = {}
+        for handler, category, status, cnt, overdue in handler_rows:
+            cnt = int(cnt or 0)
+            overdue = int(overdue or 0)
+            names = split_owners(handler)
+            is_unassigned = not names
+            for name in (names or [self.UNASSIGNED_LABEL]):
+                b = buckets.get(name)
+                if b is None:
+                    b = {
+                        "name": name,
+                        "unassigned": is_unassigned,
+                        "total": 0,
+                        "overdue": 0,
+                        "matrix": {},
+                        "cat_totals": {},
+                        "status_totals": {s: 0 for s in self.STATUS_ORDER},
+                    }
+                    buckets[name] = b
+                b["total"] += cnt
+                b["overdue"] += overdue
+                row = b["matrix"].setdefault(
+                    category, {s: 0 for s in self.STATUS_ORDER}
+                )
+                if status in self.STATUS_ORDER:
+                    row[status] += cnt
+                    b["status_totals"][status] += cnt
+
+        handlers = []
+        for b in buckets.values():
+            b["cat_totals"] = {c: sum(row.values()) for c, row in b["matrix"].items()}
+            b["closed_total"] = b["status_totals"]["resolved"] + b["status_totals"]["closed"]
+            # 未闭环 = 仍在流转的状态（不含待处理以外的人工挂起）
+            b["active"] = (
+                b["status_totals"]["pending"]
+                + b["status_totals"]["processing"]
+                + b["status_totals"]["verify"]
+            )
+            b["closed_loop_rate"] = self._rate(b["closed_total"], b["total"])
+            handlers.append(b)
+
+        # 工单量降序；「未指派」沉底
+        handlers.sort(key=lambda x: (bool(x["unassigned"]), -x["total"], x["name"]))
+
+        return {
+            "generated_at": now_cn().isoformat(),
+            "statuses": list(self.STATUS_ORDER),
+            "summary": summary,
+            "category_matrix": category_matrix,
+            "handler_count": sum(1 for h in handlers if not h["unassigned"]),
+            "unassigned_total": sum(h["total"] for h in handlers if h["unassigned"]),
+            "handlers": handlers,
+        }
 
     def update_status(self, db: Session, id: int, status: str, resolve_date: datetime = None):
         obj = self.get(db, id)

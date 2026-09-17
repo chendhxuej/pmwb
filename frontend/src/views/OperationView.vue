@@ -39,14 +39,14 @@
         </div>
       </div>
 
-      <!-- 5 大类统计磁贴（点击筛选下方列表） -->
+      <!-- 6 类统计磁贴（点击进入对应工单子页面） -->
       <div class="cat-tiles">
         <div
           v-for="t in tiles"
           :key="t.key"
           class="card cat-tile"
-          :class="{ active: selectedCategory === t.key }"
-          @click="selectCategory(t.key)"
+          :class="{ clickable: t.key !== 'all' }"
+          @click="openCategory(t.key)"
         >
           <div class="cat-tile-top">
             <span class="cat-name">{{ t.label }}</span>
@@ -66,301 +66,25 @@
         </div>
       </div>
 
-      <!-- 一线调研快捷入口 -->
-      <div class="card research-quick-card" @click="goResearch">
-        <div class="research-quick-header">
-          <span class="research-quick-title">一线调研</span>
-          <span class="research-quick-sub">领导调研 · 一线驻点</span>
-          <el-icon class="research-quick-arrow"><ArrowRight /></el-icon>
-        </div>
-        <div class="research-quick-stats">
-          <div class="rq-stat">
-            <div class="rq-num">{{ researchStats.total || 0 }}</div>
-            <div class="rq-lab">工单总量</div>
-          </div>
-          <div class="rq-divider"></div>
-          <div class="rq-stat">
-            <div class="rq-num rq-pending">{{ researchStats.pending || 0 }}</div>
-            <div class="rq-lab">待处理</div>
-          </div>
-          <div class="rq-divider"></div>
-          <div class="rq-stat">
-            <div class="rq-num rq-processing">{{ researchStats.processing || 0 }}</div>
-            <div class="rq-lab">进行中</div>
-          </div>
-          <div class="rq-divider"></div>
-          <div class="rq-stat">
-            <div class="rq-num rq-overdue" :class="{ warn: researchStats.overdue > 0 }">{{ researchStats.overdue || 0 }}</div>
-            <div class="rq-lab">已逾期</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 工单列表 -->
-      <div class="card ops-list-col">
-        <div class="card-header" style="padding:18px 20px 0">
-          <div>
-            <div class="card-title-styled">工单列表</div>
-            <div class="card-sub-styled">{{ currentLabel }} · {{ filteredList.length }} 条</div>
-          </div>
-          <el-button type="primary" size="small" @click="openEntry">
-            <el-icon><Plus /></el-icon><span>录入工单</span>
-          </el-button>
-        </div>
-        <div class="ops-tabs">
-          <div
-            v-for="t in tiles"
-            :key="t.key"
-            class="ops-tab"
-            :class="{ active: selectedCategory === t.key }"
-            @click="selectCategory(t.key)"
-          >{{ t.label }}<span class="cnt">{{ t.count }}</span></div>
-        </div>
-        <div class="list-toolbar">
-          <EnlargeInput
-            v-model="keyword"
-            placeholder="搜索工单号 / 标题 / 责任人"
-            clearable
-            size="small"
-            style="width: 260px"
-          />
-          <el-button size="small" type="danger" plain :disabled="!selectedRows.length || deleting" @click="handleBatchDelete">批量删除 ({{ selectedRows.length }})</el-button>
-        </div>
-        <el-table :data="pagedList" v-loading="loading" class="ops-table" @row-click="onRowClick" @selection-change="onSelectionChange">
-          <el-table-column prop="issue_no" label="工单号" width="160" />
-          <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span class="iss-title">{{ row.title }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="子类" width="120">
-            <template #default="{ row }">{{ issueTypeLabel(row.category, row.issue_type) }}</template>
-          </el-table-column>
-          <el-table-column label="责任人" width="160">
-            <template #default="{ row }">
-              <template v-if="row.handler">
-                <el-tag v-for="h in row.handler.split(',').filter(Boolean)" :key="h" size="small" class="handler-tag">{{ h }}</el-tag>
-              </template>
-              <span v-else>-</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }">
-              <StatusBadge module="operation" :value="row.status" :sensitive="row.is_overdue" />
-            </template>
-          </el-table-column>
-          <el-table-column label="逾期" width="80">
-            <template #default="{ row }">
-              <el-tag v-if="row.is_overdue" type="danger" size="small">逾期</el-tag>
-              <span v-else>-</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="创建时间" width="140">
-            <template #default="{ row }">{{ row.created_at ? String(row.created_at).slice(0, 10) : '-' }}</template>
-          </el-table-column>
-          <el-table-column label="计划完成" width="130">
-            <template #default="{ row }">{{ row.go_live_date ? String(row.go_live_date).slice(0, 10) : '-' }}</template>
-          </el-table-column>
-          <el-table-column type="selection" width="46" />
-          <el-table-column label="操作" width="210" fixed="right">
-            <template #default="{ row }">
-              <div class="row-actions">
-                <el-button link type="primary" @click.stop="openDetail(row)">详情</el-button>
-                <el-dropdown size="small" trigger="click" @command="(cmd) => changeStatus(row, cmd)">
-                  <el-button link type="primary" :loading="statusLoadingMap[row.id]">
-                    改状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-                  </el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item
-                        v-for="s in STATUS_OPTIONS"
-                        :key="s.key"
-                        :command="s.key"
-                        :disabled="row.status === s.key"
-                      >
-                        <span :class="['status-dot', 'dot-' + s.key]"></span>{{ s.label }}
-                      </el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-                <el-button link type="warning" @click.stop="openEmailFromRow(row)">督办</el-button>
-                <el-button link type="danger" :loading="deleting" @click.stop="handleDelete(row)">删除</el-button>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div class="list-foot" v-if="filteredList.length > pageSize">
-          <el-pagination
-            v-model:current-page="page"
-            :page-size="pageSize"
-            :total="filteredList.length"
-            layout="prev, pager, next"
-            small
-            background
-          />
-        </div>
-      </div>
-
-      <!-- 侧栏：知识沉淀 + 超期预警 -->
-      <div class="ops-side-col">
-        <div class="card">
-          <div class="card-header" style="padding:18px 18px 0">
-            <div>
-              <div class="card-title-styled">知识沉淀</div>
-              <div class="card-sub-styled">联动 Obsidian · 业务运营库</div>
-            </div>
-          </div>
-          <div class="know-list">
-            <div
-              v-for="n in sideNotes"
-              :key="n.path"
-              class="know-item"
-              @click="goNotes"
-            >
-              <div class="know-ico"><el-icon><Document /></el-icon></div>
-              <div>
-                <div class="know-name">{{ n.title }}</div>
-                <div class="know-meta">{{ n.folder }}</div>
-              </div>
-            </div>
-            <el-empty v-if="!sideNotes.length" description="暂无知识条目" :image-size="48" />
-            <div class="know-more" @click="goNotes">查看全部知识沉淀 →</div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header" style="padding:18px 18px 0">
-            <div>
-              <div class="card-title-styled">超期预警</div>
-              <div class="card-sub-styled">需优先介入</div>
-            </div>
-          </div>
-          <div class="urgent-list">
-            <div v-for="i in overdueList" :key="i.id" class="urgent-item" @click="openDetail(i)">
-              <span class="urgent-dot"></span>
-              <div class="urgent-text"><b>{{ i.issue_no }}</b> {{ i.title }}</div>
-            </div>
-            <el-empty v-if="!overdueList.length" description="当前无逾期工单" :image-size="48" />
-          </div>
-        </div>
-      </div>
+      <!-- 责任人分布矩阵：责任人 × 工单类别 × 状态，点击单元格跳对应子页面 -->
+      <HandlerMatrix
+        class="matrix-span"
+        :handlers="handlers"
+        :summary="summary"
+        :statuses="statuses"
+        :loading="loading"
+      />
     </div>
-
-    <!-- 录入工单弹层（总览入口，真实调用 createIssue） -->
-    <el-dialog v-model="entryVisible" title="录入工单" width="640px" destroy-on-close>
-      <el-form :model="entryForm" label-width="96px" :rules="entryRules" ref="entryRef">
-        <el-row :gutter="14">
-          <el-col :span="12">
-            <el-form-item label="工单类别" prop="category">
-              <el-select v-model="entryForm.category" style="width:100%" @change="onEntryCatChange">
-                <el-option v-for="c in CATEGORIES" :key="c.key" :label="c.label" :value="c.key" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="子类" prop="issue_type">
-              <el-select v-model="entryForm.issue_type" style="width:100%">
-                <el-option v-for="o in entryTypeOptions" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="工单标题" prop="title">
-          <EnlargeInput v-model="entryForm.title" placeholder="简要描述问题或任务" />
-        </el-form-item>
-        <el-form-item label="责任人" prop="handler">
-          <StaffSelect v-model="entryForm.handler" multiple placeholder="可多选，逗号存储" />
-        </el-form-item>
-        <el-row :gutter="14">
-          <el-col :span="12">
-            <el-form-item label="优先级">
-              <el-select v-model="entryForm.impact_level" style="width:100%">
-                <el-option v-for="p in PRIORITY_OPTIONS" :key="p.value" :label="p.label" :value="p.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="期望完成">
-              <el-date-picker v-model="entryForm.due" type="date" placeholder="选填" style="width:100%" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="14">
-          <el-col :span="12">
-            <el-form-item label="业务领域" prop="domain_code">
-              <BusinessDomainSelect v-model="entryForm.domain_code" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="14">
-          <el-col :span="12">
-            <el-form-item label="根因分类">
-              <el-select v-model="entryForm.root_cause_type" clearable placeholder="选填" style="width:100%">
-                <el-option label="系统配置问题" value="system_config" />
-                <el-option label="业务规则问题" value="business_rule" />
-                <el-option label="数据问题" value="data_issue" />
-                <el-option label="流程缺口" value="process_gap" />
-                <el-option label="外部依赖" value="external_dependency" />
-                <el-option label="其他" value="other" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="影响范围">
-              <el-select v-model="entryForm.impact_scope" clearable placeholder="选填" style="width:100%">
-                <el-option label="单个客户" value="single_customer" />
-                <el-option label="部分区域" value="partial_region" />
-                <el-option label="全区域" value="full_region" />
-                <el-option label="业务线" value="business_line" />
-                <el-option label="平台级" value="platform" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="解决方案类型">
-          <el-select v-model="entryForm.solution_type" clearable placeholder="选填" style="width:100%">
-            <el-option label="配置修复" value="config_fix" />
-            <el-option label="代码修复" value="code_fix" />
-            <el-option label="数据修复" value="data_repair" />
-            <el-option label="流程优化" value="process_optimization" />
-            <el-option label="培训" value="training" />
-            <el-option label="升级处理" value="escalation" />
-            <el-option label="其他" value="other" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="经验总结">
-          <EnlargeInput v-model="entryForm.lesson_learned" type="textarea" :rows="2" placeholder="防止再次发生的措施 / 沉淀为业务规则" />
-        </el-form-item>
-        <el-form-item label="情况说明" prop="situation_desc">
-          <EnlargeInput v-model="entryForm.situation_desc" type="textarea" :rows="3" placeholder="现象、影响范围、初步定位…" />
-        </el-form-item>
-        <el-form-item label="关联知识库">
-          <el-select v-model="entryForm.obsidian_path" filterable placeholder="不关联" clearable style="width:100%">
-            <el-option v-for="n in noteOptions" :key="n.path" :label="n.title" :value="n.path" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="entryVisible = false">取消</el-button>
-        <el-button type="primary" :loading="entryLoading" @click="submitEntry">提交工单</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Document, Warning, DataLine, Cpu, List, ChatDotRound, ArrowDown, ArrowRight } from '@element-plus/icons-vue'
-import StatusBadge from '@/components/Common/StatusBadge.vue'
-import StaffSelect from '@/components/Common/StaffSelect.vue'
-import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
-import RelatedKnowledgePanel from '@/components/Common/RelatedKnowledgePanel.vue'
+import { ElMessage } from 'element-plus'
+import { Document, Warning, DataLine, Cpu, List, ChatDotRound } from '@element-plus/icons-vue'
+import HandlerMatrix from '@/components/Operation/HandlerMatrix.vue'
 import { operationApi } from '@/api/operation'
-import { researchApi } from '@/api/research'
-import { obsidianApi } from '@/api/obsidian'
-import { formatDate } from '@/utils/format'
-import { TYPE_BY_CAT, issueTypeLabel } from '@/constants/operation.js'
 
 const router = useRouter()
 
@@ -372,332 +96,70 @@ const CATEGORIES = [
   { key: 'complaint', label: '热点投诉', icon: ChatDotRound, bg: '#ecfdf3', fg: '#0f9d6b' },
 ]
 
-const PRIORITY_OPTIONS = [
-  { value: 'P0', label: '严重' },
-  { value: 'P1', label: '高' },
-  { value: 'P2', label: '中' },
-  { value: 'P3', label: '低' },
-]
+// ---- 指数数据（单一来源：/operation/stats/by-handler）----
+// 全局口径与责任人矩阵来自同一次聚合，避免总览数字与矩阵求和互相打架。
+const loading = ref(false)
+const statsData = ref(null)
 
-const statusBadgeOptions = {
-  pending: { label: '待处理', type: 'danger' },
-  processing: { label: '处理中', type: 'warning' },
-  verify: { label: '验证中', type: 'primary' },
-  resolved: { label: '已解决', type: 'success' },
-  closed: { label: '已关闭', type: 'info' },
-  suspended: { label: '已挂起', type: 'info' },
-}
+const summary = computed(() => statsData.value?.summary || {})
+const handlers = computed(() => statsData.value?.handlers || [])
+const statuses = computed(() => statsData.value?.statuses || [])
+const categoryMatrix = computed(() => statsData.value?.category_matrix || {})
 
-const STATUS_OPTIONS = [
-  { key: 'pending', label: '待处理' },
-  { key: 'processing', label: '处理中' },
-  { key: 'verify', label: '验证中' },
-  { key: 'resolved', label: '已解决' },
-  { key: 'closed', label: '已关闭' },
-  { key: 'suspended', label: '已挂起' },
-]
-
-const overall = reactive({
-  total: 0, processing: 0, resolved: 0, closed: 0, overdue: 0, closed_loop_rate: 0,
-})
-const closedCount = computed(() => (overall.resolved || 0) + (overall.closed || 0))
+const overall = computed(() => ({
+  total: summary.value.total || 0,
+  processing: summary.value.processing || 0,
+  overdue: summary.value.overdue || 0,
+  closed_loop_rate: summary.value.closed_loop_rate || 0,
+}))
+const closedCount = computed(() => (summary.value.resolved || 0) + (summary.value.closed || 0))
 
 const donutOffset = computed(() => {
   const C = 263.9
-  const rate = Number(overall.closed_loop_rate) || 0
+  const rate = Number(summary.value.closed_loop_rate) || 0
   return C * (1 - rate / 100)
-})
-
-const allIssues = ref([])
-const loading = ref(false)
-const keyword = ref('')
-const selectedCategory = ref('all')
-const page = ref(1)
-const pageSize = 20
-
-const catStats = computed(() => {
-  const map = {}
-  for (const c of CATEGORIES) {
-    const items = allIssues.value.filter((i) => i.category === c.key)
-    const total = items.length
-    const closed = items.filter((i) => i.status === 'resolved' || i.status === 'closed').length
-    map[c.key] = { total, rate: total ? +(closed * 100 / total).toFixed(1) : 0 }
-  }
-  return map
 })
 
 const tiles = computed(() => {
   const all = [
     {
       key: 'all', label: '全部', icon: Document, bg: '#eef2f7', fg: '#64748b',
-      count: allIssues.value.length,
+      count: summary.value.total || 0,
       sub: '全部工单',
-      rate: overall.closed_loop_rate || 0,
+      rate: summary.value.closed_loop_rate || 0,
     },
   ]
   for (const c of CATEGORIES) {
-    const s = catStats.value[c.key] || { total: 0, rate: 0 }
-    all.push({ ...c, count: s.total, sub: `进行中 ${allIssues.value.filter((i) => i.category === c.key && i.status === 'processing').length}`, rate: s.rate })
+    const m = categoryMatrix.value[c.key] || {}
+    all.push({
+      ...c,
+      count: m.total || 0,
+      sub: `进行中 ${m.processing || 0}`,
+      rate: m.closed_loop_rate || 0,
+    })
   }
   return all
 })
 
-const currentLabel = computed(() => tiles.value.find((t) => t.key === selectedCategory.value)?.label || '全部')
-
-const filteredList = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  return allIssues.value.filter((i) => {
-    if (selectedCategory.value !== 'all' && i.category !== selectedCategory.value) return false
-    if (kw && !(`${i.issue_no} ${i.title} ${i.handler || ''}`.toLowerCase().includes(kw))) return false
-    return true
-  })
-})
-
-const pagedList = computed(() => {
-  const start = (page.value - 1) * pageSize
-  return filteredList.value.slice(start, start + pageSize)
-})
-
-const sideNotes = ref([])
-const overdueList = computed(() => allIssues.value.filter((i) => i.is_overdue).slice(0, 5))
-
-const researchStats = reactive({ total: 0, pending: 0, processing: 0, resolved: 0, overdue: 0 })
-
-const loadResearchStats = async () => {
-  try {
-    const res = await researchApi.getStats()
-    Object.assign(researchStats, {
-      total: res.total || 0,
-      pending: res.pending || 0,
-      processing: res.processing || 0,
-      resolved: (res.resolved || 0) + (res.closed || 0),
-      overdue: res.overdue || 0,
-    })
-  } catch (e) {
-    // ignore
-  }
-}
-
-// 一线调研已升级为独立一级模块（/research），此处快捷入口保持不变
-const goResearch = () => router.push('/research')
-
 const loadStats = async () => {
-  try {
-    const res = await operationApi.getStats()
-    Object.assign(overall, {
-      total: res.total || 0,
-      processing: res.processing || 0,
-      resolved: res.resolved || 0,
-      closed: res.closed || 0,
-      overdue: res.overdue || 0,
-      closed_loop_rate: res.closed_loop_rate || 0,
-    })
-  } catch (e) {
-    ElMessage.error('加载总统计失败')
-  }
-}
-
-const loadIssues = async () => {
   loading.value = true
   try {
-    const res = await operationApi.listIssues({ page: 1, page_size: 300 })
-    allIssues.value = res.items || []
+    statsData.value = await operationApi.getStatsByHandler()
   } catch (e) {
-    ElMessage.error('加载工单失败')
+    ElMessage.error('加载运营总览失败：' + (e?.response?.data?.message || e.message || '未知错误'))
   } finally {
     loading.value = false
   }
 }
 
-const loadNotes = async () => {
-  try {
-    const res = await obsidianApi.listNotes()
-    sideNotes.value = (res || []).slice(0, 3)
-  } catch (e) {
-    sideNotes.value = []
-  }
-}
-
-const selectCategory = (key) => {
-  selectedCategory.value = key
-  page.value = 1
-}
-
-const statusLoadingMap = ref({})
-const changeStatus = async (row, status) => {
-  if (!row || row.status === status) return
-  statusLoadingMap.value[row.id] = true
-  try {
-    await operationApi.updateIssue(row.id, { status })
-    ElMessage.success('状态已更新')
-    loadStats()
-    loadIssues()
-  } catch (e) {
-    ElMessage.error('状态更新失败：' + (e?.response?.data?.message || e.message || '未知错误'))
-  } finally {
-    delete statusLoadingMap.value[row.id]
-  }
-}
-
-const onRowClick = (row) => openDetail(row)
-
-// ---- 删除 / 批量删除工单 ----
-const deleting = ref(false)
-const selectedRows = ref([])
-const onSelectionChange = (rows) => { selectedRows.value = rows }
-
-const handleDelete = async (row) => {
-  if (!row || !row.id) return
-  try {
-    await ElMessageBox.confirm(
-      `确认删除工单「${row.issue_no || row.id}」${row.title ? '（' + row.title + '）' : ''}？此操作不可恢复，将同时删除其分析明细与关联遗留任务。`,
-      '删除工单',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
-    )
-  } catch (e) {
-    return
-  }
-  deleting.value = true
-  try {
-    const res = await operationApi.deleteIssue(row.id)
-    const extra = res.legacy_tasks_deleted ? `（含遗留任务 ${res.legacy_tasks_deleted} 条）` : ''
-    ElMessage.success('已删除' + extra)
-    loadStats()
-    loadIssues()
-  } catch (e) {
-    ElMessage.error('删除失败：' + (e?.response?.data?.message || e.message || '未知错误'))
-  } finally {
-    deleting.value = false
-  }
-}
-
-const handleBatchDelete = async () => {
-  if (!selectedRows.value.length) return
-  const ids = selectedRows.value.map((r) => r.id)
-  try {
-    await ElMessageBox.confirm(
-      `确认批量删除选中的 ${ids.length} 条工单？此操作不可恢复，主动运营分析主工单将同时删除其关联遗留任务。`,
-      '批量删除工单',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
-    )
-  } catch (e) {
-    return
-  }
-  deleting.value = true
-  try {
-    const res = await operationApi.batchDeleteIssues(ids)
-    const extra = res.legacy_tasks_deleted ? `（含遗留任务 ${res.legacy_tasks_deleted} 条）` : ''
-    ElMessage.success(`已删除 ${res.deleted_count} 条工单${extra}`)
-    selectedRows.value = []
-    loadStats()
-    loadIssues()
-  } catch (e) {
-    ElMessage.error('批量删除失败：' + (e?.response?.data?.message || e.message || '未知错误'))
-  } finally {
-    deleting.value = false
-  }
-}
-
-const openDetail = (row) => {
-  router.push({ path: routeCategoryPath(row.category), query: { issue: row.id } })
-}
-const routeCategoryPath = (cat) => `/operation/${cat || 'prod'}`
-
-const openEmailFromRow = (row) => {
-  router.push({ path: routeCategoryPath(row.category), query: { email: row.id } })
-}
-
-const goNotes = () => router.push('/operation/notes')
-
-// ---- 录入工单（总览入口） ----
-const entryVisible = ref(false)
-const entryLoading = ref(false)
-const entryRef = ref(null)
-const noteOptions = ref([])
-const entryForm = reactive({
-  category: 'bug', issue_type: 'bug', title: '', handler: [], impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '', domain_code: '',
-  root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
-})
-const entryTypeOptions = computed(() => TYPE_BY_CAT[entryForm.category] || [])
-const entryRules = {
-  category: [{ required: true, message: '请选择类别', trigger: 'change' }],
-  issue_type: [{ required: true, message: '请选择子类', trigger: 'change' }],
-  title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
-  handler: [{ required: true, type: 'array', min: 1, message: '请至少选择一名责任人', trigger: 'change' }],
-  situation_desc: [{ required: true, message: '请输入情况说明', trigger: 'blur' }],
-  domain_code: [{ required: true, message: '请选择业务领域', trigger: 'change' }],
-}
-
-const onEntryCatChange = () => {
-  const opts = TYPE_BY_CAT[entryForm.category] || []
-  entryForm.issue_type = opts.length ? opts[0].value : 'other'
-}
-
-const openEntry = async () => {
-  Object.assign(entryForm, {
-    category: 'bug', issue_type: 'bug', title: '', handler: [], impact_level: 'P2', due: '', situation_desc: '', obsidian_path: '', domain_code: '',
-    root_cause_type: '', impact_scope: '', solution_type: '', lesson_learned: '',
-  })
-  entryVisible.value = true
-  if (!noteOptions.value.length) {
-    try {
-      const res = await obsidianApi.listNotes()
-      noteOptions.value = res || []
-    } catch (e) {
-      noteOptions.value = []
-    }
-  }
-}
-
-const generateIssueNo = (cat) => {
-  const prefixMap = { bug: 'BUG', data: 'DATA', prod: 'PROD', task: 'TASK', complaint: 'COMP' }
-  const prefix = prefixMap[cat] || 'WO'
-  const d = new Date()
-  const ds = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
-  const rnd = Math.floor(Math.random() * 900 + 100)
-  return `${prefix}-${ds}-${rnd}`
-}
-
-const submitEntry = () => {
-  entryRef.value.validate(async (valid) => {
-    if (!valid) return
-    entryLoading.value = true
-    const payload = {
-      issue_no: generateIssueNo(entryForm.category),
-      title: entryForm.title.trim(),
-      category: entryForm.category,
-      issue_type: entryForm.issue_type,
-      status: 'pending',
-      handler: entryForm.handler.join(','),
-      impact_level: entryForm.impact_level,
-      situation_desc: entryForm.situation_desc.trim(),
-      obsidian_path: entryForm.obsidian_path || null,
-      domain_code: entryForm.domain_code || null,
-      root_cause_type: entryForm.root_cause_type || null,
-      impact_scope: entryForm.impact_scope || null,
-      solution_type: entryForm.solution_type || null,
-      lesson_learned: (entryForm.lesson_learned || '').trim() || null,
-      discovery_date: new Date().toISOString(),
-    }
-    try {
-      await operationApi.createIssue(payload)
-      ElMessage.success('工单已录入')
-      entryVisible.value = false
-      loadStats()
-      loadIssues()
-    } catch (e) {
-      ElMessage.error('录入失败：' + (e?.response?.data?.message || e.message || '未知错误'))
-    } finally {
-      entryLoading.value = false
-    }
-  })
+// 分类磁贴 → 对应工单子页面（「全部」磁贴仅作汇总展示）
+const openCategory = (key) => {
+  if (!key || key === 'all') return
+  router.push(`/operation/${key}`)
 }
 
 onMounted(() => {
   loadStats()
-  loadIssues()
-  loadNotes()
-  loadResearchStats()
 })
 </script>
 
@@ -770,18 +232,16 @@ onMounted(() => {
 }
 .cat-tile {
   padding: 18px;
-  cursor: pointer;
   transition: all var(--transition-fast);
   position: relative;
   overflow: hidden;
 }
-.cat-tile:hover {
+.cat-tile.clickable {
+  cursor: pointer;
+}
+.cat-tile.clickable:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-elevated);
-}
-.cat-tile.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .cat-tile-top {
   display: flex;
@@ -838,166 +298,8 @@ onMounted(() => {
   border-radius: 6px;
 }
 
-.ops-list-col {
-  grid-column: span 8;
-}
-.card-title-styled {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.card-sub-styled {
-  font-size: 12.5px;
-  color: var(--text-muted);
-  margin-top: 3px;
-}
-.ops-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 14px 16px 0;
-  flex-wrap: wrap;
-}
-.ops-tab {
-  padding: 7px 14px;
-  border-radius: 9px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  border: 1px solid transparent;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.ops-tab:hover {
-  background: var(--border-subtle);
-}
-.ops-tab.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.ops-tab .cnt {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  opacity: 0.7;
-}
-.list-toolbar {
-  padding: 12px 16px 0;
-}
-.ops-table {
-  padding: 8px 8px 4px;
-}
-.iss-title {
-  font-weight: 600;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-.iss-title:hover {
-  color: var(--accent);
-}
-.handler-tag {
-  margin: 0 4px 4px 0;
-}
-/* 操作区按钮：单行不换行，等间距排列 */
-.row-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-}
-.list-foot {
-  display: flex;
-  justify-content: flex-end;
-  padding: 10px 16px 14px;
-}
-
-.ops-side-col {
-  grid-column: span 4;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.know-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 18px;
-}
-.know-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 11px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.know-item:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.know-ico {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.know-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.4;
-}
-.know-meta {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-.know-more {
-  font-size: 12px;
-  color: var(--accent);
-  cursor: pointer;
-  padding: 4px 12px;
-  font-weight: 500;
-}
-.urgent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 18px;
-}
-.urgent-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--danger-soft);
-  border-radius: 9px;
-  cursor: pointer;
-}
-.urgent-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--danger);
-  flex-shrink: 0;
-}
-.urgent-text {
-  font-size: 12.5px;
-  color: var(--text-primary);
-  line-height: 1.4;
-}
-.urgent-text b {
-  color: var(--danger);
+.matrix-span {
+  grid-column: span 12;
 }
 
 .bento-grid {
@@ -1006,104 +308,8 @@ onMounted(() => {
   gap: 18px;
 }
 @media (max-width: 1280px) {
-  .ops-list-col,
-  .ops-side-col {
-    grid-column: span 12;
-  }
   .cat-tiles {
     grid-template-columns: repeat(3, 1fr);
   }
 }
-
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 8px;
-}
-.dot-pending { background: #f56c6c; }
-.dot-processing { background: #e6a23c; }
-.dot-verify { background: #409eff; }
-.dot-resolved { background: #67c23a; }
-.dot-closed { background: #909399; }
-.dot-suspended { background: #909399; }
-
-/* 一线调研快捷入口 */
-.research-quick-card {
-  grid-column: span 12;
-  padding: 20px 24px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f0f5ff 0%, #f6faff 100%);
-}
-.research-quick-card:hover {
-  border-color: var(--accent);
-  box-shadow: 0 4px 16px var(--accent-soft);
-  transform: translateY(-1px);
-}
-.research-quick-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-.research-quick-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.research-quick-sub {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.research-quick-arrow {
-  margin-left: auto;
-  color: var(--text-muted);
-  transition: transform var(--transition-fast);
-}
-.research-quick-card:hover .research-quick-arrow {
-  transform: translateX(3px);
-  color: var(--accent);
-}
-.research-quick-stats {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-.rq-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.rq-num {
-  font-size: 28px;
-  font-weight: 800;
-  font-family: var(--font-mono);
-  color: var(--accent);
-  line-height: 1;
-}
-.rq-pending .rq-num { color: var(--danger); }
-.rq-processing .rq-num { color: var(--warning); }
-.rq-overdue .rq-num { color: var(--danger); }
-.rq-overdue.warn .rq-num { animation: blink 1.2s ease-in-out infinite; }
-.rq-lab {
-  font-size: 11.5px;
-  color: var(--text-muted);
-}
-.rq-divider {
-  width: 1px;
-  height: 36px;
-  background: var(--border);
-  flex-shrink: 0;
-}
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-
 </style>

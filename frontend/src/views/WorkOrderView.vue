@@ -65,7 +65,7 @@
           :key="s.key"
           class="st-tag"
           :class="['st-' + s.key, { active: statusFilter === s.key }]"
-          @click="statusFilter = s.key"
+          @click="onStatusTagClick(s.key)"
         >{{ s.label }}</span>
       </div>
       <EnlargeInput
@@ -80,6 +80,18 @@
       <el-button size="small" @click="handleSearch">查询</el-button>
       <el-button size="small" @click="loadStats">刷新统计</el-button>
       <el-button size="small" type="danger" plain :disabled="!selectedRows.length || deleting" @click="handleBatchDelete">批量删除 ({{ selectedRows.length }})</el-button>
+    </div>
+
+    <!-- 深链筛选提示：从总览「责任人分布」点单元格跳入时，在此可见并一键清除 -->
+    <div v-if="handlerFilter || statusFilter !== 'all'" class="filter-hint">
+      <span class="fh-label">当前检索</span>
+      <el-tag v-if="handlerFilter" size="small" effect="light" closable @close="clearHandlerFilter">
+        责任人：{{ handlerFilter }}
+      </el-tag>
+      <el-tag v-if="statusFilter !== 'all'" size="small" effect="light" closable @close="clearStatusFilter">
+        状态：{{ statusLabel(statusFilter) }}
+      </el-tag>
+      <span class="fh-count">命中 {{ pagination.total }} 条</span>
     </div>
 
     <!-- 工单列表 -->
@@ -560,7 +572,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Promotion, RefreshRight, Connection, Document, ArrowDown, Download, UploadFilled } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
@@ -581,6 +593,7 @@ import AnalysisImportPreview from '@/components/Operation/AnalysisImportPreview.
 import { WORK_ORDER_CATEGORIES, TYPE_BY_CAT, issueTypeLabel } from '@/constants/operation.js'
 
 const route = useRoute()
+const router = useRouter()
 const category = computed(() => route.meta.category || 'prod')
 const title = computed(() => route.meta.title || '工单管理')
 
@@ -630,6 +643,10 @@ const pagination = reactive({ page: 1, page_size: 20, total: 0 })
 const keyword = ref('')
 const activeTab = ref(category.value)
 const statusFilter = ref('all')
+// 责任人精确筛选（总览「责任人分布」矩阵深链 ?handler=xx 传入）
+const handlerFilter = ref('')
+// 深链筛选是否已随首次加载生效（避免挂载时重复请求）
+let filtersInitialized = false
 
 const subTabs = computed(() => [{ key: 'all', label: '全部', count: overallTotal.value }, ...CATEGORIES.map((c) => ({ ...c, count: catCount(c.key) }))])
 const overallTotal = ref(0)
@@ -658,6 +675,9 @@ const loadData = async () => {
       keyword: keyword.value || undefined,
       category: activeTab.value === 'all' ? undefined : activeTab.value,
       status: statusFilter.value === 'all' ? undefined : statusFilter.value,
+      handler: handlerFilter.value || undefined,
+      // 按人精确匹配（逗号边界），避免「王伟」误命中「王伟民」
+      handler_exact: handlerFilter.value ? true : undefined,
       page: pagination.page,
       page_size: pagination.page_size,
     })
@@ -685,6 +705,56 @@ const loadStats = async () => {
 }
 
 const handleSearch = () => { pagination.page = 1; loadData() }
+
+// ---- 深链筛选：总览「责任人分布」矩阵 → /operation/{类别}?handler=xx&status=yy ----
+const VALID_STATUS_KEYS = ['pending', 'processing', 'verify', 'resolved', 'closed', 'suspended']
+const statusLabel = (k) => statusFilterOptions.find((s) => s.key === k)?.label || k
+
+// 路由 query → 筛选状态（返回是否发生变化，供调用方决定要不要重新拉数据）
+const applyRouteFilters = () => {
+  const q = route.query
+  const h = q.handler ? String(q.handler) : ''
+  const s = q.status && VALID_STATUS_KEYS.includes(String(q.status)) ? String(q.status) : 'all'
+  const changed = h !== handlerFilter.value || s !== statusFilter.value
+  handlerFilter.value = h
+  statusFilter.value = s
+  return changed
+}
+
+// 筛选状态 → 路由 query（刷新/分享不丢筛选条件）
+const syncQuery = () => {
+  const q = { ...route.query }
+  if (handlerFilter.value) q.handler = handlerFilter.value
+  else delete q.handler
+  if (statusFilter.value !== 'all') q.status = statusFilter.value
+  else delete q.status
+  const same =
+    (q.handler || '') === (route.query.handler || '') &&
+    (q.status || '') === (route.query.status || '')
+  if (!same) router.replace({ query: q })
+}
+
+const onStatusTagClick = (key) => {
+  statusFilter.value = key
+  pagination.page = 1
+  loadData()
+}
+
+const clearHandlerFilter = () => {
+  handlerFilter.value = ''
+  pagination.page = 1
+  loadData()
+}
+
+const clearStatusFilter = () => {
+  statusFilter.value = 'all'
+  pagination.page = 1
+  loadData()
+}
+
+// 筛选状态变化 → 地址栏单向同步（含子页签切换导致的 status 复位），保证 URL 与页面所见一致
+watch(statusFilter, syncQuery)
+watch(handlerFilter, syncQuery)
 
 // ---- 删除 / 批量删除工单 ----
 const deleting = ref(false)
@@ -1375,6 +1445,12 @@ const openSupervise = (row, scene = 'urge') => {
 watch(
   () => route.query,
   async (q) => {
+    // 责任人 / 状态深链（总览责任人分布矩阵）
+    const filtersChanged = applyRouteFilters()
+    if (filtersChanged && filtersInitialized) {
+      pagination.page = 1
+      loadData()
+    }
     if (q.issue) {
       try {
         const num = Number(q.issue)
@@ -1403,7 +1479,8 @@ watch(
     activeTab.value = category.value
     pagination.page = 1
     keyword.value = ''
-    statusFilter.value = 'all'
+    // 子页面间跳转时保留 deep link 带来的责任人 / 状态筛选
+    applyRouteFilters()
     loadData()
     loadStats()
   }
@@ -1413,6 +1490,7 @@ onMounted(async () => {
   loadAllCounts()
   await loadData()
   loadStats()
+  filtersInitialized = true
   // 深链：?issueId= 定位并编辑运营问题
   const issueId = route.query.issueId
   if (issueId) {
@@ -1453,6 +1531,15 @@ onMounted(async () => {
 .sub-tab .cnt { font-family: var(--font-mono); font-size: 11px; opacity: 0.75; }
 
 .filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+/* 深链筛选提示条（从总览责任人分布跳入） */
+.filter-hint {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 14px; padding: 8px 12px;
+  border: 1px solid var(--accent-soft); background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+.fh-label { font-size: 12px; color: var(--text-secondary); }
+.fh-count { font-size: 12px; color: var(--text-secondary); margin-left: auto; font-family: var(--font-mono); }
 .status-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .st-tag {
   padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer;

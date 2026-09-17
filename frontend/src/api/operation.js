@@ -36,6 +36,11 @@ export const operationApi = {
     return request.get('/operation/stats', { params: category ? { category } : {} })
   },
 
+  // 责任人维度统计：责任人 × 工单类别 × 状态 的数量矩阵（总览页责任人分布）
+  getStatsByHandler() {
+    return request.get('/operation/stats/by-handler')
+  },
+
   // 下载主动运营分析 Excel 模板
   downloadAnalysisTemplate() {
     return request.get('/operation/analysis-template/download', {

@@ -65,6 +65,7 @@ def list_issues(
     status: Optional[str] = Query(None, description="状态"),
     impact_level: Optional[str] = Query(None, description="影响等级"),
     handler: Optional[str] = Query(None, description="处理人"),
+    handler_exact: bool = Query(False, description="处理人精确匹配(按逗号边界，不传则模糊匹配)"),
     related_system: Optional[str] = Query(None, description="关联系统"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=1000, description="每页条数"),
@@ -79,6 +80,7 @@ def list_issues(
         status=status,
         impact_level=impact_level,
         handler=handler,
+        handler_exact=handler_exact,
         related_system=related_system,
         page=page,
         page_size=page_size,
@@ -222,6 +224,16 @@ def get_stats(
 ):
     """获取运营工单统计。"""
     return success(data=operation_issue_service.get_stats(db, category=category))
+
+
+@router.get("/stats/by-handler")
+def get_stats_by_handler(db: Session = Depends(get_db)):
+    """责任人维度统计：责任人 × 工单类别 × 状态 的数量矩阵（总览页责任人分布）。
+
+    返回 summary（全局口径）+ category_matrix（类别 × 状态）+ handlers（每人一块矩阵）。
+    工单子页面按人 + 状态检索请配合 /issues?handler=xx&handler_exact=true&status=yy 使用。
+    """
+    return success(data=operation_issue_service.get_stats_by_handler(db))
 
 
 @router.get("/analysis-template/download")

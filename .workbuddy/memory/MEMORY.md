@@ -86,7 +86,19 @@
 - 合规例外：HomeView 保留 DEMO 硬编码色值（深色问候卡/SVG 浅色系无对应令牌）。
 - 遗留半成品（未提交，勿混入其他提交）：backend/services/operation_analysis.py + frontend/src/views/WorkOrderView.vue 导入提示加附件字段，待单独验证后提交。
 
-## 14. 邮件督办记录统一化（2026-09-17 本期任务）
+## 14. 邮件督办记录统一化（2026-09-17 本期任务）**✅ 已完成**
 - 问题：督办类邮件未稳定关联工单（遗留 /supervise/* 不落库；MailComposeDialog 落库但 req_id 恒 null）；前端展示为组件内存态（刷新即丢）；缺按工单查邮件的统一接口。
-- 方案(P0 后端)：① EmailRecord 增 ref_type/ref_id 列+索引；② 所有出信经 dispatch_email 必写 email_records，弃用不落库旧路径；③ 新增 GET /mail-dispatch/records?ref_type=&ref_id=（回退 source+req_id）。
-- 方案(P1 前端)：封装通用 <EmailSuperviseLog :refType :refId/> 组件，统一接入运营工单/一线调研/会议行动项/需求与交付/任务中心/重点工作明细页，替换前端内存态。
+- 方案(P0 后端)：① EmailRecord 增 ref_type/ref_id 列+索引；② 所有出信经 dispatch_email 必写 email_records；③ 新增 GET /mail-dispatch/records?ref_type=&ref_id=（回退 source+req_id）。
+- 方案(P1 前端)：封装通用 `<EmailSuperviseLog :refType :refId/>` 组件，统一接入运营工单/一线调研/会议行动项/需求与交付/任务中心/重点工作明细页，替换前端内存态。
+- 方案(P1b 后端)：TaskSendRequest/ReminderSendRequest 新增 ref_type/ref_id 可选字段；services/task_center.py + services/reminder.py 透传到 dispatch_email。
+- Commit 记录：P0=`3b640ef`，P1a=`648e4fc`（WO/RI），P1b=`8b24ba8`（5 模块+TC 后端）。
+- TC 自定义发送路径 ref 透传已就绪，TC 500 为预存模板渲染问题（与本期改动无关）。
+- §13 遗留半成品已被 2026-09-17 WIP 自动提交收走，现工作区已干净。
+
+## 15. 运营监控总览·责任人分布矩阵（2026-09-17）
+- 总览页数据单一来源：GET /api/v1/operation/stats/by-handler（summary 全局口径 + category_matrix + handlers[].matrix）。总览卡/磁贴/矩阵同源，禁止再单独拉列表算数。
+- 口径：全局块按 category+status 聚合（多负责人不重复计数，与 /operation/stats 完全对齐）；责任人块按 utils/owners.split_owners 拆分（一条工单挂多人人人计数）；空责任人归「未指派」沉底。
+- /operation/issues 新增 handler_exact=true（逗号边界精确匹配，防「王伟」误命中「王伟民」）；按人筛选必须带它。
+- 深链契约：矩阵格子 → /operation/{category}?handler=X&status=Y；WorkOrderView 用 applyRouteFilters/syncQuery 做「URL↔筛选状态」双向同步，子页签切换会复位 status 但保留 handler，地址栏自动跟随。
+- 矩阵组件：components/Operation/HandlerMatrix.vue（搜索责任人 + 按工单量/未闭环/闭环率/姓名排序）；总览页已无工单列表、知识沉淀、超期预警、录入工单入口（录入在各子页面 PageHeader）。
+- 回归工具：frontend/tests/e2e/verify_ops_handler_matrix.cjs（24 项断言：780 格逐格比对、跳转命中数=格值、清除筛选、5 子页面无白屏）。改总览或工单子页必跑。
