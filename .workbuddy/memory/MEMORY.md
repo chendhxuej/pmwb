@@ -55,6 +55,9 @@
 - WorkBuddy Bash 的 shell-runtime-bash-env.sh 第 3 行 dirname 缺失→cd 失败；coreutils 缺。shim 内禁止 cd/head/tail/grep。
 - git 绕过：绝对路径 C:/Program Files/Git/cmd/git.exe -C "D:/项目/个人工作台系统" <cmd> > <log> 2>&1，回 echo "E=$?"，再 Read 日志。
 - 提交走 git-safe-commit.sh -m "…" [--push] [--all | -- <files>]。
+- git-safe-commit.sh 直调报 E=127（`/usr/bin/env: 'bash': No such file or directory`，shim 环境 PATH 残缺）：须用显式 bash + 手工 PATH 调用，即 `C:/Users/chend/.workbuddy/binaries/PortableGit/versions/1.2.0/bin/bash.exe -c 'export PATH="/c/Users/chend/.workbuddy/binaries/PortableGit/versions/1.2.0/bin:.../usr/bin:/c/Windows/System32:$PATH"; C:/Users/chend/.workbuddy/bin/git-safe-commit.sh -C <repo> -m "…" --push -- <files>'`。
+- .workbuddy/* 在 .gitignore（第56行），当日日志 2026-*.md 不入库；git add 带上它会报 ignored 且脚本 set -e 中断（部分文件其实已进暂存区），提交文件清单里不要列当日日志。
+- push 需访问 ~/.ssh；沙箱默认拦截，用户拒绝授权时提交留在本地，向老大报告手动推。
 - push 成功判定：本机看 <old>..<new> <branch> -> <branch> 即真成功；沙箱吞 refs/remotes 本地写入，故 rev-parse origin/<branch> 与 git status 不可信，用 ls-remote/fetch 判远端。
 
 ## 10. 运营监控工单删除契约（2026-09-14）
@@ -101,4 +104,5 @@
 - /operation/issues 新增 handler_exact=true（逗号边界精确匹配，防「王伟」误命中「王伟民」）；按人筛选必须带它。
 - 深链契约：矩阵格子 → /operation/{category}?handler=X&status=Y；WorkOrderView 用 applyRouteFilters/syncQuery 做「URL↔筛选状态」双向同步，子页签切换会复位 status 但保留 handler，地址栏自动跟随。
 - 矩阵组件：components/Operation/HandlerMatrix.vue（搜索责任人 + 按工单量/未闭环/闭环率/姓名排序）；总览页已无工单列表、知识沉淀、超期预警、录入工单入口（录入在各子页面 PageHeader）。
-- 回归工具：frontend/tests/e2e/verify_ops_handler_matrix.cjs（24 项断言：780 格逐格比对、跳转命中数=格值、清除筛选、5 子页面无白屏）。改总览或工单子页必跑。
+- 2026-09-17 下午 UI 二次迭代（A+B 融合版，老大确认方案）：默认每人一张紧凑摘要卡（头像+姓名+逾期/压单最多 tag 前置+闭环率迷你条+非零格子状态色 chips，chip 可点直达下钻，超 8 个折叠 +n）；点击卡片/「全部展开」出热力矩阵（格子颜色=状态、深浅=数量 3 档，空格弱化「–」）。热力色一律 color-mix(var(--st) N%, #fff) 派生自 design token，禁止硬编码十六进制。风险前置：未闭环最多的人整卡描红边 + 「压单最多」标。
+- 回归工具：frontend/tests/e2e/verify_ops_handler_matrix.cjs（32 项断言：摘要卡/chips 折叠求和/风险卡/默认收起/展开后 780 格逐格比对/chip 与格子双通道下钻命中数=格值/清除筛选/5 子页面无白屏）。改总览或工单子页必跑。

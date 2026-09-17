@@ -4,7 +4,7 @@
       <div>
         <div class="hm-title">责任人分布</div>
         <div class="hm-sub">
-          {{ handlerCount }} 位责任人 · 工单 {{ (summary && summary.total) || 0 }} 条 · 点击任一单元格查看对应工单
+          {{ handlerCount }} 位责任人 · 工单 {{ (summary && summary.total) || 0 }} 条 · 点击责任人卡片展开明细，点彩色格子直达工单列表
         </div>
       </div>
       <div class="hm-tools">
@@ -18,29 +18,65 @@
         <el-select v-model="sortBy" size="small" style="width: 148px">
           <el-option v-for="o in SORT_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
+        <el-button size="small" @click="toggleAll">
+          {{ allOpen ? '全部收起' : '全部展开' }}
+        </el-button>
       </div>
     </div>
 
     <div class="hm-legend">
       <span v-for="s in statuses" :key="s.key" class="hm-lg">
-        <i :class="'hm-dot dot-' + s.key"></i>{{ s.label }}
+        <i :class="'hm-dot st-' + s.key"></i>{{ s.label }}
       </span>
+      <span class="hm-lg-note">颜色=状态，深浅=数量</span>
       <span class="hm-legend-hint">「–」表示该组合暂无工单</span>
     </div>
 
     <div class="hm-grid" v-loading="loading">
-      <div v-for="h in visibleHandlers" :key="h.name" class="hm-block">
-        <div class="hm-block-head">
+      <div
+        v-for="h in visibleHandlers"
+        :key="h.name"
+        class="hm-block"
+        :class="{ 'is-open': isOpen(h), 'is-risk': isTopActive(h) }"
+      >
+        <!-- 摘要头：默认态即完整摘要，点击展开热力矩阵 -->
+        <div class="hm-head" @click="toggleOpen(h.name)">
           <span class="hm-avatar">{{ avatarOf(h.name) }}</span>
-          <span class="hm-name">{{ h.name }}</span>
-          <span class="hm-kpi">工单 <b>{{ h.total }}</b></span>
-          <span class="hm-kpi">未闭环 <b>{{ h.active }}</b></span>
-          <span class="hm-kpi">闭环率 <b>{{ h.closed_loop_rate }}%</b></span>
-          <el-tag v-if="h.overdue" size="small" type="danger" effect="plain">逾期 {{ h.overdue }}</el-tag>
-          <el-tag v-if="h.unassigned" size="small" type="info" effect="plain">未指派</el-tag>
+          <div class="hm-head-main">
+            <div class="hm-head-row1">
+              <span class="hm-name">{{ h.name }}</span>
+              <el-tag v-if="h.overdue" size="small" type="danger" effect="plain">逾期 {{ h.overdue }}</el-tag>
+              <span v-if="isTopActive(h)" class="hm-risk-tag">压单最多</span>
+              <span v-if="h.unassigned" class="hm-unassigned-tag">未指派</span>
+            </div>
+            <div class="hm-head-row2">
+              <span class="hm-rate" :title="'闭环率 ' + h.closed_loop_rate + '%'">
+                <i class="hm-rate-bar"><b :class="rateClass(h)" :style="{ width: h.closed_loop_rate + '%' }"></b></i>
+                <em>{{ h.closed_loop_rate }}%</em>
+              </span>
+              <span class="hm-stat">工单 <b>{{ h.total }}</b></span>
+              <span class="hm-stat">未闭环 <b class="hm-active-num">{{ h.active }}</b></span>
+            </div>
+          </div>
+          <el-icon class="hm-chev" :class="{ open: isOpen(h) }"><ArrowDown /></el-icon>
         </div>
 
-        <table class="hm-table">
+        <!-- 非零格子 chips：颜色=状态，点击直达（未指派除外） -->
+        <div class="hm-chips" @click="toggleOpen(h.name)">
+          <span
+            v-for="ch in chipsOf(h).shown"
+            :key="ch.cat + ch.st"
+            class="hm-chip"
+            :class="['st-' + ch.st, { 'chip-disabled': h.unassigned }]"
+            :title="h.unassigned ? '未指派工单无责任人，无法按人检索' : `查看 ${h.name} 的${catLabel(ch.cat)} · ${statusLabel(ch.st)}工单`"
+            @click.stop="!h.unassigned && openCategory(h, ch.cat, ch.st)"
+          >{{ ch.label }} {{ ch.v }}</span>
+          <span v-if="chipsOf(h).hidden" class="hm-chip-more">+{{ chipsOf(h).hidden }}</span>
+          <span v-if="!chipsOf(h).shown.length" class="hm-chips-none">暂无工单</span>
+        </div>
+
+        <!-- 展开态：热力矩阵（行=类别，列=状态，颜色=状态、深浅=数量） -->
+        <table v-show="isOpen(h)" class="hm-table">
           <thead>
             <tr>
               <th class="hm-th-cat">工单类别</th>
@@ -55,9 +91,9 @@
                 <span
                   v-if="cellOf(h, c.key, s.key)"
                   class="hm-cell"
-                  :class="{ 'cell-disabled': h.unassigned }"
+                  :class="['st-' + s.key, lvClass(cellOf(h, c.key, s.key))]"
                   :title="h.unassigned ? '未指派工单无责任人，无法按人检索' : `查看 ${h.name} 的${c.label} · ${s.label}工单`"
-                  @click="openCategory(h, c.key, s.key)"
+                  @click.stop="!h.unassigned && openCategory(h, c.key, s.key)"
                 >{{ cellOf(h, c.key, s.key) }}</span>
                 <span v-else class="hm-cell hm-cell-empty">–</span>
               </td>
@@ -84,6 +120,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { WORK_ORDER_CATEGORIES } from '@/constants/operation.js'
 
 const props = defineProps({
@@ -107,12 +144,18 @@ const STATUS_META = [
   { key: 'suspended', label: '已挂起' },
 ]
 
+// 摘要 chips 用类别简称，控制宽度
+const CAT_SHORT = { bug: 'BUG', data: '数据', prod: '运营', task: '交办', complaint: '投诉' }
+
 const SORT_OPTIONS = [
   { label: '按工单量', value: 'total' },
   { label: '按未闭环量', value: 'active' },
   { label: '按闭环率', value: 'rate' },
   { label: '按姓名', value: 'name' },
 ]
+
+// 摘要 chips 上限，超出折叠为 +n
+const CHIP_LIMIT = 8
 
 // 状态列固定 6 列：即使某状态当前无数据也保留，保证各责任人区块横向可比
 const statuses = computed(() => {
@@ -125,6 +168,7 @@ const categories = WORK_ORDER_CATEGORIES
 
 const keyword = ref('')
 const sortBy = ref('total')
+const openSet = ref(new Set())
 
 const handlerCount = computed(() => props.handlers.filter((h) => !h.unassigned).length)
 
@@ -147,13 +191,52 @@ const visibleHandlers = computed(() => {
   })
 })
 
+// 风险前置：未闭环最多的责任人（并列时取排序首位），描红边 + 标记
+const maxActive = computed(() =>
+  props.handlers.reduce((m, h) => (!h.unassigned && h.active > m ? h.active : m), 0)
+)
+const isTopActive = (h) => !h.unassigned && h.active > 0 && h.active === maxActive.value
+
+const isOpen = (h) => openSet.value.has(h.name)
+const toggleOpen = (name) => {
+  const next = new Set(openSet.value)
+  next.has(name) ? next.delete(name) : next.add(name)
+  openSet.value = next
+}
+const allOpen = computed(
+  () => visibleHandlers.value.length > 0 && visibleHandlers.value.every((h) => openSet.value.has(h.name))
+)
+const toggleAll = () => {
+  openSet.value = allOpen.value ? new Set() : new Set(visibleHandlers.value.map((h) => h.name))
+}
+
 const avatarOf = (name) => String(name || '?').slice(0, 1)
+const catLabel = (k) => (categories.find((c) => c.key === k) || {}).label || k
+const statusLabel = (k) => (statuses.value.find((s) => s.key === k) || {}).label || k
 
 const cellOf = (h, category, status) => {
   const row = h.matrix && h.matrix[category]
   if (!row) return 0
   return row[status] || 0
 }
+
+// 摘要 chips：状态优先（未闭环类在前），同一状态内按类别顺序
+const chipsOf = (h) => {
+  const list = []
+  for (const s of statuses.value) {
+    for (const c of categories) {
+      const v = cellOf(h, c.key, s.key)
+      if (v) list.push({ cat: c.key, st: s.key, label: CAT_SHORT[c.key] || c.label, v })
+    }
+  }
+  return { shown: list.slice(0, CHIP_LIMIT), hidden: Math.max(0, list.length - CHIP_LIMIT) }
+}
+
+// 热力分档：1 档浅 / 2~5 档中 / ≥6 档深
+const lvClass = (v) => (v <= 1 ? 'lv-1' : v <= 5 ? 'lv-2' : 'lv-3')
+
+// 闭环率进度条颜色：≥80 绿 / ≥50 橙 / <50 红
+const rateClass = (h) => (h.closed_loop_rate >= 80 ? 'rc-good' : h.closed_loop_rate >= 50 ? 'rc-mid' : 'rc-low')
 
 const openCategory = (h, category, status) => {
   if (h.unassigned) return
@@ -200,38 +283,57 @@ const openCategory = (h, category, status) => {
   height: 7px;
   border-radius: 50%;
 }
-.dot-pending { background: var(--danger); }
-.dot-processing { background: var(--warning); }
-.dot-verify { background: var(--accent); }
-.dot-resolved { background: var(--success); }
-.dot-closed { background: var(--text-muted); }
-.dot-suspended { background: var(--text-muted); }
+.hm-dot.st-pending { background: var(--danger); }
+.hm-dot.st-processing { background: var(--warning); }
+.hm-dot.st-verify { background: var(--accent); }
+.hm-dot.st-resolved,
+.hm-dot.st-closed,
+.hm-dot.st-suspended { background: var(--success); }
+.hm-lg-note {
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, #fff);
+  color: var(--accent);
+  font-size: 11.5px;
+}
 .hm-legend-hint {
   margin-left: auto;
   color: var(--text-muted);
 }
+
+/* ---- 摘要卡网格：默认态更紧凑，一屏可见更多责任人 ---- */
 .hm-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
   padding: 14px 20px 20px;
 }
 .hm-block {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  padding: 12px 14px 10px;
+  padding: 10px 12px 9px;
   background: var(--surface);
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .hm-block:hover {
   border-color: var(--border);
 }
-.hm-block-head {
+.hm-block.is-open {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-subtle));
+}
+/* 风险前置：未闭环最多的人整卡描红边 */
+.hm-block.is-risk {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border-subtle));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+/* ---- 摘要头 ---- */
+.hm-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
 }
 .hm-avatar {
   width: 28px;
@@ -246,41 +348,175 @@ const openCategory = (h, category, status) => {
   justify-content: center;
   flex-shrink: 0;
 }
+.hm-head-main {
+  flex: 1;
+  min-width: 0;
+}
+.hm-head-row1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .hm-name {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
   color: var(--text-primary);
 }
-.hm-kpi {
-  font-size: 12px;
+.hm-risk-tag {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--danger) 12%, #fff);
+  color: var(--danger);
+  font-weight: 600;
+}
+.hm-unassigned-tag {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-muted) 12%, #fff);
   color: var(--text-secondary);
 }
-.hm-kpi b {
+.hm-head-row2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.hm-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hm-rate-bar {
+  display: inline-block;
+  width: 64px;
+  height: 5px;
+  border-radius: 3px;
+  background: #eef2f7;
+  overflow: hidden;
+}
+.hm-rate-bar b {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+.hm-rate-bar b.rc-good { background: var(--success); }
+.hm-rate-bar b.rc-mid { background: var(--warning); }
+.hm-rate-bar b.rc-low { background: var(--danger); }
+.hm-rate em {
+  font-style: normal;
   font-family: var(--font-mono);
   font-weight: 700;
   color: var(--text-primary);
 }
+.hm-stat b {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.hm-stat .hm-active-num {
+  color: var(--danger);
+}
+.hm-chev {
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+.hm-chev.open {
+  transform: rotate(180deg);
+}
+
+/* ---- 摘要 chips：颜色=状态 ---- */
+.hm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 9px;
+  cursor: pointer;
+}
+.hm-chip {
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter var(--transition-fast), transform var(--transition-fast);
+  --st: var(--text-muted);
+}
+.hm-chip.st-pending {
+  --st: var(--danger);
+}
+.hm-chip.st-processing {
+  --st: var(--warning);
+}
+.hm-chip.st-verify {
+  --st: var(--accent);
+}
+.hm-chip.st-resolved,
+.hm-chip.st-closed,
+.hm-chip.st-suspended {
+  --st: var(--success);
+}
+.hm-chip {
+  background: color-mix(in srgb, var(--st) 12%, #fff);
+  color: color-mix(in srgb, var(--st) 80%, #000);
+  border: 1px solid color-mix(in srgb, var(--st) 26%, transparent);
+}
+.hm-chip:hover {
+  filter: brightness(0.96);
+  transform: translateY(-1px);
+}
+.hm-chip.chip-disabled {
+  cursor: default;
+  filter: grayscale(0.9);
+  opacity: 0.6;
+}
+.hm-chip.chip-disabled:hover {
+  transform: none;
+}
+.hm-chip-more {
+  font-size: 11px;
+  padding: 4px 6px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.hm-chips-none {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* ---- 展开态：热力矩阵 ---- */
 .hm-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 12px;
+  font-size: 11.5px;
+  margin-top: 10px;
+  cursor: default;
 }
 .hm-table th {
   font-weight: 500;
   color: var(--text-muted);
-  padding: 4px 2px;
+  padding: 3px 2px;
   text-align: center;
 }
 .hm-th-cat {
   text-align: left !important;
-  width: 78px;
+  width: 80px;
 }
 .hm-th-sum {
   width: 34px;
 }
 .hm-table td {
-  padding: 3px 2px;
+  padding: 2px 2px;
   text-align: center;
   border-top: 1px solid var(--border-subtle);
 }
@@ -295,40 +531,47 @@ const openCategory = (h, category, status) => {
   color: var(--text-primary);
 }
 .hm-cell {
+  --st: var(--text-muted);
   display: block;
-  border-radius: 6px;
+  border-radius: 5px;
   padding: 3px 0;
   font-family: var(--font-mono);
   font-weight: 700;
   color: var(--text-primary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: filter var(--transition-fast);
+}
+.hm-cell.st-pending { --st: var(--danger); }
+.hm-cell.st-processing { --st: var(--warning); }
+.hm-cell.st-verify { --st: var(--accent); }
+.hm-cell.st-resolved,
+.hm-cell.st-closed,
+.hm-cell.st-suspended { --st: var(--success); }
+.hm-cell.lv-1 {
+  background: color-mix(in srgb, var(--st) 10%, #fff);
+  color: color-mix(in srgb, var(--st) 72%, #000);
+}
+.hm-cell.lv-2 {
+  background: color-mix(in srgb, var(--st) 20%, #fff);
+  color: color-mix(in srgb, var(--st) 82%, #000);
+}
+.hm-cell.lv-3 {
+  background: color-mix(in srgb, var(--st) 34%, #fff);
+  color: color-mix(in srgb, var(--st) 90%, #000);
 }
 .hm-cell:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  filter: brightness(0.94);
 }
 .hm-cell-empty {
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 45%, #fff);
   font-weight: 400;
   cursor: default;
 }
 .hm-cell-empty:hover {
-  background: transparent;
-  color: var(--text-muted);
-}
-.cell-disabled {
-  cursor: default;
-}
-.cell-disabled:hover {
-  background: transparent;
-  color: var(--text-primary);
+  filter: none;
 }
 .hm-row-sum td {
   border-top: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-.hm-row-sum .hm-td-cat {
   color: var(--text-secondary);
 }
 
