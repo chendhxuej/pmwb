@@ -359,6 +359,9 @@ const props = defineProps({
   extraMsgLabel: { type: String, default: '' },
   // 自定义预览函数：async (payload) => ({ html, subject })。督办等需走自有预览接口的场景使用
   customPreview: { type: Function, default: null },
+  // 关联业务对象（用于邮件督办记录统一归并到具体工单/行动项/需求等）
+  refType: { type: String, default: '' },
+  refId: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue', 'send', 'success', 'error'])
@@ -580,6 +583,8 @@ function buildSendPayload() {
     body: body.value,
     recipientName: recipientNameText(),
     extraMsg: extraMsg.value,
+    ref_type: props.refType || undefined,
+    ref_id: props.refId || undefined,
   }
   if (isRawMode.value) {
     return { ...base, body_format: props.bodyFormat }

@@ -313,23 +313,10 @@
           </div>
         </div>
 
-        <!-- 邮件督办记录 -->
+        <!-- 邮件督办记录（后端统一存储，按工单号归并展示） -->
         <div class="dt-sec">
           <div class="dt-sec-title">邮件督办记录</div>
-          <div class="email-log">
-            <div v-for="(e, i) in supervisionList" :key="i" class="email-log-item">
-              <div class="el-ico"><el-icon><Promotion /></el-icon></div>
-              <div>
-                <div class="email-log-to">收件：{{ e.to }}</div>
-                <div class="email-log-time">{{ e.time }}</div>
-                <div class="email-log-result">{{ e.result }}</div>
-              </div>
-            </div>
-            <div v-if="!supervisionList.length" class="dt-link-meta">暂无督办邮件</div>
-          </div>
-          <div class="dt-link-meta" style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-            收件人通过「统一邮件中心」按姓名解析，不拼接邮箱地址
-          </div>
+          <EmailSuperviseLog ref-type="research" :ref-id="detailRow?.issue_no" :key="emailLogKey" />
         </div>
       </div>
       <template #footer>
@@ -539,7 +526,9 @@
       :scene="mailDialogScene"
       :variables="mailDialogVariables"
       value-key="email"
-      @success="recordSupervise"
+      :ref-type="'research'"
+      :ref-id="detailRow?.issue_no"
+      @success="emailLogKey++"
     />
   </div>
 </template>
@@ -549,6 +538,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Edit, Promotion, RefreshRight, Document, ArrowDown } from '@element-plus/icons-vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
@@ -689,8 +679,7 @@ const nextStatus = ref('')
 const currentIdx = computed(() => STATUS_FLOW.findIndex((s) => s.key === detailRow.value?.status))
 const stepClass = (idx) => (idx < currentIdx.value ? 'done' : idx === currentIdx.value ? 'active' : '')
 
-const supervisionRecords = reactive({})
-const supervisionList = computed(() => (detailRow.value && supervisionRecords[detailRow.value.id]) || [])
+const emailLogKey = ref(0)
 const detailAttachments = computed(() => parseAttachments(detailRow.value?.attachments))
 
 const noteTitle = (path) => (path || '').split('/').pop().replace(/\.md$/, '') || path
@@ -1071,17 +1060,6 @@ const openSupervise = (row, scene = 'urge') => {
   mailDialogVisible.value = true
 }
 
-const recordSupervise = () => {
-  const issue = _researchIssue.value
-  if (!issue?.id) return
-  const rec = {
-    to: (issue.vendor_handlers || '').split(',').filter(Boolean).join('、'),
-    time: formatDateTime(new Date()),
-    result: '已送达（统一邮件中心）',
-  }
-  if (!supervisionRecords[issue.id]) supervisionRecords[issue.id] = []
-  supervisionRecords[issue.id].push(rec)
-}
 
 onMounted(async () => {
   await loadData()
