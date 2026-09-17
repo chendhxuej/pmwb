@@ -929,6 +929,9 @@ class EmailRecord(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     req_id = Column(String(255), comment="需求编号")
     req_name = Column(String(500), comment="需求名称")
+    # 邮件督办记录统一化（2026-09-17）：稳定关联具体工单/业务对象，替代仅 req_id 的松散关联
+    ref_type = Column(String(64), comment="关联模块类型(operation/research/meeting_action/meeting/requirement/task_center/keywork/active_optimization/work_report/plugin)")
+    ref_id = Column(String(255), comment="关联业务主键/编号(issue_no/req_no/action_id 等)")
     email_type = Column(String(255), comment="邮件类型")
     recipient = Column(Text, comment="收件人邮箱（逗号分隔，多个邮箱可能超长）")
     recipient_name = Column(Text, comment="收件人姓名（逗号分隔，可能超长）")
@@ -942,6 +945,7 @@ class EmailRecord(Base):
 
     __table_args__ = (
         Index("idx_email_record_req_id", "req_id"),
+        Index("idx_email_record_ref", "ref_type", "ref_id"),
         {"comment": "邮件发送记录"},
     )
 

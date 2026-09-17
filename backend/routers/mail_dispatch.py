@@ -8,11 +8,13 @@ import html
 import logging
 
 from fastapi import APIRouter, Depends
+from typing import Optional
 
 from core.config import settings
 from core.exceptions import ValidationException
 from core.response import success
 from db.base import get_db
+from db.models import EmailRecord
 from sqlalchemy.orm import Session
 from services.mail_dispatch import SCENES, dispatch_email, _render_mail
 from utils.email import EmailCenterClient
@@ -189,6 +191,8 @@ def send_email_endpoint(req: dict, db=Depends(get_db)):
         template_data=req.get("templateData"),
         req_id=req.get("req_id"),
         req_name=req.get("req_name"),
+        ref_type=req.get("ref_type") or req.get("refType"),
+        ref_id=req.get("ref_id") or req.get("refId"),
         html_passthrough=req.get("htmlPassthrough", False),
         confirm_send=bool(req.get("confirm_send", False)),
         fields=req.get("fields"),
@@ -196,3 +200,51 @@ def send_email_endpoint(req: dict, db=Depends(get_db)):
         extra_html=req.get("extraHtml") or "",
     )
     return success(data=res)
+
+
+@router.get("/records")
+def list_mail_records(
+    ref_type: Optional[str] = None,
+    ref_id: Optional[str] = None,
+    source: Optional[str] = None,
+    req_id: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    """按工单/模块查询邮件督办记录（统一数据源，供各模块明细页「邮件督办记录」区块调用）。
+
+    优先 ref_type+ref_id 精确关联；当二者缺失时回退 source+req_id（兼容历史仅 req_id 的记录）。
+    """
+    q = db.query(EmailRecord)
+    if ref_type:
+        q = q.filter(EmailRecord.ref_type == ref_type)
+    if ref_id:
+        q = q.filter(EmailRecord.ref_id == ref_id)
+    if (not ref_type or not ref_id) and (source or req_id):
+        if source:
+            q = q.filter(EmailRecord.source == source)
+        if req_id:
+            q = q.filter(EmailRecord.req_id == req_id)
+    rows = q.order_by(EmailRecord.created_at.desc()).limit(max(1, min(limit, 200))).all()
+    return success(data=[_serialize_email_record(r) for r in rows])
+
+
+def _serialize_email_record(r: EmailRecord) -> dict:
+    """EmailRecord → 前端友好的 dict（含可展开正文）。"""
+    return {
+        "id": r.id,
+        "ref_type": r.ref_type,
+        "ref_id": r.ref_id,
+        "req_id": r.req_id,
+        "req_name": r.req_name,
+        "email_type": r.email_type,
+        "recipient": r.recipient,
+        "recipient_name": r.recipient_name,
+        "subject": r.subject,
+        "content": r.content,
+        "send_status": r.send_status,
+        "error_msg": r.error_msg,
+        "source": r.source,
+        "sender": r.sender,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }

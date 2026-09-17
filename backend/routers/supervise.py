@@ -83,6 +83,16 @@ class SuperviseActionRequest(BaseModel):
     extra_msg: Optional[str] = None
 
 
+def _ref_type_of(ticket_type: str) -> str:
+    """工单类型 → email_records.ref_type 模块枚举（与统一邮件中心归类一致）。"""
+    return {
+        "work_order": "operation",
+        "operation": "operation",
+        "dev_ticket": "dev_ticket",
+        "requirement": "requirement",
+    }.get(ticket_type, ticket_type)
+
+
 def _build_ticket_info(ticket_type: str, ticket_id: int | str, db: Session) -> dict | None:
     """根据工单类型查询工单详情并构建 template_data。"""
     if ticket_type in ("work_order", "operation"):
@@ -223,5 +233,8 @@ def supervise_action(req: SuperviseActionRequest, db: Session = Depends(get_db))
         action_data,
         req.recipients,
         extra_msg=req.extra_msg,
+        db=db,
+        ref_type="meeting_action",
+        ref_id=str(action.id),
     )
     return success(data=result)

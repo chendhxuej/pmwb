@@ -384,6 +384,8 @@ def dispatch_email(
     source: Optional[str] = None,
     req_id: Optional[str] = None,
     req_name: Optional[str] = None,
+    ref_type: Optional[str] = None,
+    ref_id: Optional[str] = None,
     signature_key: Optional[str] = None,
     add_signature: Optional[bool] = None,
     signature: Optional[str] = None,
@@ -441,6 +443,8 @@ def dispatch_email(
                 subject=final_subject,
                 content=final_body,
                 send_status="dry_run",
+                ref_type=ref_type,
+                ref_id=ref_id,
                 source=src,
                 sender="pmwb",
             )
@@ -483,9 +487,11 @@ def dispatch_email(
             recipient=",".join(to_list),
             recipient_name=recipient_name or ",".join(to_list),
             subject=final_subject,
-            content=final_body,
-            send_status="pending",
-            source=src,
+                content=final_body,
+                send_status="pending",
+                ref_type=ref_type,
+                ref_id=ref_id,
+                source=src,
             sender="pmwb",
         )
         db.add(record)

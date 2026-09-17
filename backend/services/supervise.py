@@ -47,6 +47,9 @@ def _render_and_send(
     extra_msg: Optional[str] = None,
     extra_html: str = "",
     attachments: Optional[list] = None,
+    db: Optional[Any] = None,
+    ref_type: Optional[str] = None,
+    ref_id: Optional[str] = None,
 ) -> dict:
     """装配正文 → 解析收件人邮箱 → 走统一邮件治理门面发信。
 
@@ -66,8 +69,11 @@ def _render_and_send(
         return {"ok": False, "error": "无法解析收件人邮箱"}
 
     result = dispatch_email(
+        db=db,
         to=to_emails,
         scene=scene_key,
+        ref_type=ref_type,
+        ref_id=ref_id,
         fields=fields,
         raw_content=_compose_body_md(scene_key, fields, body_md, extra_msg),
         extra_html=extra_html,
@@ -216,6 +222,9 @@ def supervise_action(
     *,
     extra_msg: Optional[str] = None,
     body_md: Optional[str] = None,
+    db: Optional[Any] = None,
+    ref_type: Optional[str] = None,
+    ref_id: Optional[str] = None,
 ) -> dict:
     """发送会议行动项督办邮件（含行动项完整信息）。"""
     return _render_and_send(
@@ -224,4 +233,7 @@ def supervise_action(
         recipients,
         body_md=body_md,
         extra_msg=extra_msg,
+        db=db,
+        ref_type=ref_type,
+        ref_id=ref_id,
     )
