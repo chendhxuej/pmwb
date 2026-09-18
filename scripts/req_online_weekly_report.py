@@ -9,8 +9,8 @@
 统计口径（与人工查询一致）：
   - 开发单号取 sent_emails.dev_ticket_no
   - dev 环节进入时间取 pmwb_requirement_stage_log stage='dev' 的 entered_at
-  - 需求提出时间取 sent_emails MIN(propose_time)
-  - 开发周期 = 今天 - max(dev进入时间, 提出时间) 的自然日，>15 天命中
+  - 首次登记开发单号日期取 sent_emails 中 dev_ticket_no 非空的最早 send_datetime
+  - 开发周期 = 今天 - max(dev进入时间, 首次登记开发单号日期) 的自然日，>15 天命中
   - 功能提炼素材：sent_emails.background / description / clarification
   - 数据库只读，凭据从 backend/.env 读取，不硬编码
 """
@@ -59,14 +59,15 @@ def main():
     for r in cur.fetchall():
         dev_stage.setdefault(r["req_id"], r["entered_at"])
 
-    # 需求提出时间
-    propose = {}
+    # 首次登记开发单号的日期（dev_ticket_no 非空的最早 send_datetime）
+    first_dev_ticket = {}
     cur.execute(
-        "SELECT req_id, MIN(propose_time) p FROM sent_emails "
-        "WHERE propose_time IS NOT NULL AND propose_time<>'' GROUP BY req_id"
+        "SELECT req_id, MIN(send_datetime) sd FROM sent_emails "
+        "WHERE dev_ticket_no IS NOT NULL AND dev_ticket_no<>'' "
+        "AND send_datetime IS NOT NULL AND send_datetime<>'' GROUP BY req_id"
     )
     for r in cur.fetchall():
-        propose[r["req_id"]] = r["p"]
+        first_dev_ticket[r["req_id"]] = r["sd"]
 
     # 澄清内容（去重，保留首条）
     clarify = {}
@@ -115,22 +116,29 @@ def main():
     """)
     dev_rows = cur.fetchall()
 
-    forecast = []
-    for r in dev_rows:
-        req = r["req_id"]
-        span = None
+    def get_dev_start(req):
+        # 取 dev 进入时间与首次登记开发单号日期的最大值
+        start = None
         st = dev_stage.get(req)
         if st:
             d = st.date() if hasattr(st, "date") else parse_date(st)
             if d:
-                span = (today - d).days
-        pt = propose.get(req)
-        if pt:
-            d = parse_date(pt)
-            if d and (span is None or (today - d).days > span):
-                span = (today - d).days
-        if span is not None and span > 15:
-            forecast.append((span, r))
+                start = d
+        ft = first_dev_ticket.get(req)
+        if ft:
+            d = parse_date(ft)
+            if d and (start is None or d > start):
+                start = d
+        return start
+
+    forecast = []
+    for r in dev_rows:
+        req = r["req_id"]
+        start = get_dev_start(req)
+        if start is not None:
+            span = (today - start).days
+            if span > 15:
+                forecast.append((span, r))
     forecast.sort(key=lambda x: -x[0])
 
     conn.close()
@@ -168,7 +176,7 @@ def main():
         print(f"澄清：{cl[:800] if cl else '无'}")
 
     print(f"\n# 统计口径说明")
-    print("一：delivered_date >= 统计日-5 天的需求；二：status='dev' 且开发周期(dev进入或提出时间到今天)>15 天。")
+    print("一：delivered_date >= 统计日-5 天的需求；二：status='dev' 且开发周期(dev进入时间或首次登记开发单号日期到今天，取较早者)>15 天。")
 
 
 if __name__ == "__main__":
