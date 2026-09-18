@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-# 任务来源枚举（七大来源）
+# 任务来源枚举（八大来源）
 TASK_SOURCES = [
     "todo",                # 个人待办 pmwb_todo
     "operation_issue",     # 运营问题 pmwb_operation_issue

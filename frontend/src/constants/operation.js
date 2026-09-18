@@ -40,6 +40,9 @@ export const CATEGORY_LABEL = Object.fromEntries(
   WORK_ORDER_CATEGORIES.map((c) => [c.key, c.label])
 )
 
+// 工单大类 key -> 摘要 chips 用简称（控制宽度，避免卡片被长名撑开）
+export const CATEGORY_SHORT = { bug: 'BUG', data: '数据', prod: '运营', task: '交办', complaint: '投诉' }
+
 // 工单大类 key -> color
 export const CATEGORY_COLOR = Object.fromEntries(
   WORK_ORDER_CATEGORIES.map((c) => [c.key, c.color])

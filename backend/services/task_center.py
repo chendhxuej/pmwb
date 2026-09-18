@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from core.config import settings
 from core.exceptions import ValidationException
 from db.models import (
     EmailRecord,
@@ -26,11 +27,13 @@ from db.models import (
     PmwbResearchIssue,
     PmwbTodo,
     SentEmail,
+    now_cn,
 )
 from schemas.task_center import (
     SOURCE_LABELS,
     STATUS_LABELS,
     TASK_SOURCES,
+    UNIFIED_STATUSES,
     TaskItem,
     TaskRef,
     TaskSendRequest,
@@ -39,7 +42,7 @@ from schemas.task_center import (
 from services.mail_dispatch import _render_mail, dispatch_email
 from utils.dateflags import flag_due_date
 from utils.email import EmailCenterClient
-from utils.owners import owner_set
+from utils.owners import owner_set, split_owners
 from utils.master_service import master_service_client
 from utils.validators import split_and_validate_emails
 
@@ -147,6 +150,9 @@ class TaskCenterService:
     def collect_todo(self, db: Session) -> List[TaskItem]:
         rows = db.query(PmwbTodo).all()
         items: List[TaskItem] = []
+        # 个人待办表无 owner 字段（天然属于本人），统一取 settings.SELF_NAME。
+        # 历史遗留：此处曾硬编码 "我"，导致按人汇总时本人被拆成「我」「陈大海」两个桶。
+        self_name = getattr(settings, "SELF_NAME", "") or ""
         for r in rows:
             status = _STATUS_MAP["todo"].get(r.status or "todo", "pending")
             flags = _flag_dates(r.due_date, status)
@@ -159,7 +165,7 @@ class TaskCenterService:
                 status=status,
                 status_label=STATUS_LABELS[status],
                 raw_status=r.status or "",
-                owner="我",
+                owner=self_name,
                 priority=r.priority,
                 due_date=r.due_date,
                 created_at=r.created_at.date() if r.created_at else None,
@@ -657,6 +663,124 @@ class TaskCenterService:
             by_issue_type=by_issue_type,
         )
 
+    # ------------------------------------------------------------------
+    # 总览统计（来源维度 + 责任人维度）
+    # ------------------------------------------------------------------
+
+    UNASSIGNED_LABEL = "未指派"
+
+    @staticmethod
+    def _rate(part: int, total: int) -> float:
+        """百分比（保留 1 位小数），分母为 0 时返回 0。"""
+        return round(part * 100.0 / total, 1) if total else 0.0
+
+    def get_stats_by_owner(self, db: Session) -> Dict[str, Any]:
+        """任务总览统计：来源维度 + 责任人维度（任务总览页责任人分布矩阵用）。
+
+        与运营监控 /operation/stats/by-handler 同构，按任务中心实际语义定制：
+
+        - 口径为「全量」（含已完成/阻塞）：总览要同时回答完成率、在办量、超期量，
+          若沿用列表页的在办口径则完成率恒为 0；
+        - 全局块（summary / source_matrix）按 source + status 聚合，一条任务只计一次；
+        - 责任人块按 split_owners 拆分 owner 串（库中逗号/顿号混用），一条任务挂多人时
+          人人计数，因此责任人块求和 ≥ 全局 total，属刻意设计（与运营监控同口径）；
+        - 责任人字段为空的历史脏数据归入「未指派」桶并沉底；
+        - 超期为实时计算（不同于运营工单依赖库字段 is_overdue），单独作为风险指标暴露。
+        """
+        items = self._collect(db)
+        statuses = list(UNIFIED_STATUSES)
+
+        # 1) 全局：来源 × 状态（全量口径）
+        source_matrix: Dict[str, Dict[str, Any]] = {}
+        status_totals: Dict[str, int] = {s: 0 for s in statuses}
+        overdue_total = due_soon_total = 0
+        for t in items:
+            bucket = source_matrix.setdefault(
+                t.source,
+                {**{s: 0 for s in statuses}, "total": 0, "overdue": 0},
+            )
+            bucket["total"] += 1
+            if t.status in status_totals:
+                bucket[t.status] += 1
+                status_totals[t.status] += 1
+            if t.is_overdue:
+                bucket["overdue"] += 1
+                overdue_total += 1
+            if t.is_due_soon:
+                due_soon_total += 1
+        for bucket in source_matrix.values():
+            bucket["completion_rate"] = self._rate(bucket["done"], bucket["total"])
+            bucket["active"] = bucket["pending"] + bucket["in_progress"]
+
+        grand_total = len(items)
+        summary = {
+            **status_totals,
+            "total": grand_total,
+            "active": status_totals["pending"] + status_totals["in_progress"],
+            "overdue": overdue_total,
+            "due_soon": due_soon_total,
+            "completion_rate": self._rate(status_totals["done"], grand_total),
+        }
+
+        # 2) 责任人：owner × 来源 × 状态
+        buckets: Dict[str, Dict[str, Any]] = {}
+        for t in items:
+            names = split_owners(t.owner)
+            is_unassigned = not names
+            for name in (names or [self.UNASSIGNED_LABEL]):
+                b = buckets.get(name)
+                if b is None:
+                    b = {
+                        "name": name,
+                        "unassigned": is_unassigned,
+                        "total": 0,
+                        "overdue": 0,
+                        "due_soon": 0,
+                        "matrix": {},
+                        "source_totals": {},
+                        "status_totals": {s: 0 for s in statuses},
+                    }
+                    buckets[name] = b
+                b["total"] += 1
+                if t.is_overdue:
+                    b["overdue"] += 1
+                if t.is_due_soon:
+                    b["due_soon"] += 1
+                b["source_totals"][t.source] = b["source_totals"].get(t.source, 0) + 1
+                row = b["matrix"].setdefault(t.source, {s: 0 for s in statuses})
+                if t.status in row:
+                    row[t.status] += 1
+                    b["status_totals"][t.status] += 1
+
+        owners: List[Dict[str, Any]] = []
+        for b in buckets.values():
+            st = b["status_totals"]
+            # 行合计（矩阵右侧「合计」列）：每个来源在该责任人下的任务数
+            b["cat_totals"] = {src: sum(row.values()) for src, row in b["matrix"].items()}
+            b["done"] = st["done"]
+            b["active"] = st["pending"] + st["in_progress"]
+            b["completion_rate"] = self._rate(st["done"], b["total"])
+            owners.append(b)
+
+        # 排序：超期多者前置（风险可见），任务量次之；「未指派」永远沉底
+        owners.sort(
+            key=lambda x: (bool(x["unassigned"]), -x["overdue"], -x["total"], x["name"])
+        )
+
+        # 只暴露有数据的来源行（如开发工单为 0 时不占位），前端据此渲染矩阵行
+        sources = [s for s in TASK_SOURCES if source_matrix.get(s, {}).get("total")]
+
+        return {
+            "generated_at": now_cn().isoformat(),
+            "statuses": statuses,
+            "sources": sources,
+            "summary": summary,
+            "source_matrix": source_matrix,
+            "owner_count": sum(1 for o in owners if not o["unassigned"]),
+            "unassigned_total": sum(o["total"] for o in owners if o["unassigned"]),
+            "owners": owners,
+        }
+
     def get_detail(self, db: Session, task_id: str) -> Optional[TaskItem]:
         """任务详情：按复合键定位。"""
         if ":" not in task_id:
@@ -787,12 +911,16 @@ class TaskCenterService:
         """聚合去重后的负责人姓名（"X、Y"），用于称呼生成。
 
         多人称呼由 render_greeting 自动判定（1 人/2 人用名字，3+ 降级"各位同事，"）。
+        本人（SELF_NAME）与历史遗留的"我"一并跳过——个人待办默认归属本人，
+        不参与收件人预填与称呼聚合。
         """
+        self_name = getattr(settings, "SELF_NAME", "") or ""
+        skip = {"我", "未分配", self_name}
         names: List[str] = []
         seen: set[str] = set()
         for t in tasks or []:
             raw_owner = (t.get("owner") or "").strip()
-            if not raw_owner or raw_owner in ("我", "未分配"):
+            if not raw_owner or raw_owner in skip:
                 continue
             for sub in re.split(r"[,;，；、\s]+", raw_owner):
                 sub = sub.strip()

@@ -21,8 +21,19 @@ class ContactResolveRequest(BaseModel):
 
 @router.get("/stats")
 def get_stats(db=Depends(get_db)):
-    """任务中心统计：总待办/超期/临期/各来源/各状态计数。"""
+    """任务中心统计：总待办/超期/临期/各来源/各状态计数（在办口径，列表页用）。"""
     data = task_center_service.get_stats(db)
+    return success(data=data)
+
+
+@router.get("/stats/by-owner")
+def get_stats_by_owner(db=Depends(get_db)):
+    """任务总览统计：来源维度 + 责任人维度矩阵（全量口径，总览页用）。
+
+    单一数据源：总览卡、来源磁贴、责任人分布矩阵均取本接口，避免各自拉列表算数
+    导致口径打架。责任人块按 split_owners 拆分（一条任务挂多人时人人计数）。
+    """
+    data = task_center_service.get_stats_by_owner(db)
     return success(data=data)
 
 

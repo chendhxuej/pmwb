@@ -5,6 +5,12 @@ export function getTaskStats() {
   return request.get('/task-center/stats')
 }
 
+// 任务总览统计（来源维度 + 责任人维度矩阵，全量口径）
+// 单一数据源：总览卡 / 来源磁贴 / 责任人分布矩阵均取本接口，禁止再各自拉列表算数。
+export function getTaskStatsByOwner() {
+  return request.get('/task-center/stats/by-owner')
+}
+
 // 统一任务列表（来源/状态/超期/关键字筛选 + 分页）
 export function getTasks(params) {
   return request.get('/task-center/tasks', { params })

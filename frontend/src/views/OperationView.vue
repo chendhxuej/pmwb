@@ -67,12 +67,15 @@
       </div>
 
       <!-- 责任人分布矩阵：责任人 × 工单类别 × 状态，点击单元格跳对应子页面 -->
-      <HandlerMatrix
+      <OwnerMatrix
         class="matrix-span"
         :handlers="handlers"
         :summary="summary"
         :statuses="statuses"
+        :categories="WORK_ORDER_CATEGORIES"
+        :cat-short="CATEGORY_SHORT"
         :loading="loading"
+        :jump="jumpToWorkOrders"
       />
     </div>
   </div>
@@ -83,7 +86,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Document, Warning, DataLine, Cpu, List, ChatDotRound } from '@element-plus/icons-vue'
-import HandlerMatrix from '@/components/Operation/HandlerMatrix.vue'
+import OwnerMatrix from '@/components/Common/OwnerMatrix.vue'
+import { WORK_ORDER_CATEGORIES, CATEGORY_SHORT } from '@/constants/operation.js'
 import { operationApi } from '@/api/operation'
 
 const router = useRouter()
@@ -156,6 +160,11 @@ const loadStats = async () => {
 const openCategory = (key) => {
   if (!key || key === 'all') return
   router.push(`/operation/${key}`)
+}
+
+// 责任人矩阵格子 → 对应工单子页面（深链契约 ?handler=&status=，由 WorkOrderView 反向还原筛选）
+const jumpToWorkOrders = (handler, category, status) => {
+  router.push({ path: `/operation/${category}`, query: { handler, status } })
 }
 
 onMounted(() => {

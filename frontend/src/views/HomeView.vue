@@ -124,7 +124,7 @@
       <!-- 任务中心 -->
       <BentoCard :span="6" :body-padding="'14px 20px 16px'">
         <template #head><span class="card-label">任务中心</span></template>
-        <template #action><a class="card-action" @click="goTo('/task-center')">全部任务 →</a></template>
+        <template #action><a class="card-action" @click="goTo('/task-center/all')">全部任务 →</a></template>
         <div class="stat4">
           <div class="stat"><b>{{ taskCenter.total }}</b><span>共待办</span></div>
           <div class="stat"><b>{{ taskCenter.processing }}</b><span>进行中</span></div>

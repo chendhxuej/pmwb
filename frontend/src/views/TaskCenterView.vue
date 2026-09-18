@@ -1,8 +1,8 @@
 <template>
   <div class="task-center">
     <PageHeader
-      title="任务中心"
-      subtitle="需求催办 / 邮件中心 / 运营监控 —— 三端任务聚合"
+      :title="pageTitle"
+      :subtitle="pageSubtitle"
     >
       <template #actions>
         <el-button type="primary" @click="openNewTodo">
@@ -13,11 +13,11 @@
       </template>
     </PageHeader>
 
-    <!-- 统计卡 -->
+    <!-- 统计卡（在办口径，与表格默认筛选一致） -->
     <div class="stats-row">
       <el-card shadow="hover" class="stat-card">
         <div class="stat-value">{{ stats.total }}</div>
-        <div class="stat-label">全部待办</div>
+        <div class="stat-label">在办任务</div>
       </el-card>
       <el-card shadow="hover" class="stat-card stat-danger">
         <div class="stat-value">{{ stats.overdue }}</div>
@@ -29,18 +29,8 @@
       </el-card>
     </div>
 
-    <el-tabs v-model="activeTab" class="task-tabs">
-      <el-tab-pane label="全部任务" name="all" />
-      <el-tab-pane
-        v-for="src in sourceList"
-        :key="src.key"
-        :label="`${src.label} (${stats.by_source?.[src.key] ?? 0})`"
-        :name="src.key"
-      />
-    </el-tabs>
-
     <!-- 需求催办 Tab：保留按 SA 分组批量催办交互 -->
-    <template v-if="activeTab === 'requirement_urge'">
+    <template v-if="activeSource === 'requirement_urge'">
       <div class="table-hint">
         按 SA 分组的待催办需求（团队评估中「工作量（人天）」未登记且未复核的行，按该行 SA 负责人归集；已复核/不需要开发不催办）。「批量催办」向该 SA 群发汇总邮件，
         单行「催办」单独发送；收件人邮箱按姓名从统一邮件中心通讯录自动解析。
@@ -81,7 +71,7 @@
     <!-- 其余 Tab：统一任务表格 -->
     <template v-else>
       <!-- 运营问题按问题类型汇聚 -->
-      <div v-if="activeTab === 'operation_issue' && issueTypeList.length" class="issue-type-bar">
+      <div v-if="activeSource === 'operation_issue' && issueTypeList.length" class="issue-type-bar">
         <span class="issue-type-label">问题类型：</span>
         <el-check-tag
           v-for="it in issueTypeList"
@@ -149,7 +139,7 @@
             <el-tag v-if="row.synced_to_todo" size="small" type="success" style="margin-left: 6px">已转待办</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="问题类型" width="110" v-if="activeTab === 'operation_issue'">
+        <el-table-column label="问题类型" width="110" v-if="activeSource === 'operation_issue'">
           <template #default="{ row }">
             {{ row.detail?.['问题类型'] || '—' }}
           </template>
@@ -320,7 +310,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Plus } from '@element-plus/icons-vue'
 import { getTaskStats, getTasks, sendTaskEmail, requestTaskCenterDraft } from '@/api/taskCenter.js'
@@ -332,7 +322,12 @@ import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 
+const route = useRoute()
 const router = useRouter()
+
+// 与后端 settings.SELF_NAME 对齐（同 MeetingView 约定）：个人待办归属本人，
+// 不参与邮件收件人预填。后端 collect_todo 已统一用 SELF_NAME（历史上硬编码「我」）。
+const SELF_NAME = '陈大海'
 
 // ------- 新建待办（整合个人待办入口） -------
 const newTodoVisible = ref(false)
@@ -410,18 +405,32 @@ async function handleNewTodoSubmit() {
   })
 }
 
-const sourceList = [
-  { key: 'todo', label: '个人待办' },
-  { key: 'operation_issue', label: '运营问题' },
-  { key: 'research_issue', label: '一线调研' },
-  { key: 'dev_ticket', label: '开发工单' },
-  { key: 'meeting_action', label: '会议行动项' },
-  { key: 'key_work', label: '重点工作' },
-  { key: 'requirement_urge', label: '需求催办' },
-]
+// 来源 key → 中文名（与后端 schemas.task_center.SOURCE_LABELS 对齐）
+const SOURCE_LABELS = {
+  todo: '个人待办',
+  operation_issue: '运营问题',
+  research_issue: '一线调研',
+  dev_ticket: '开发工单',
+  meeting_action: '会议行动项',
+  key_work: '重点工作',
+  requirement_urge: '需求催办',
+  active_optimization: '主动优化',
+}
+
+// 当前来源由二级路由 meta.source 决定（空 = 全部任务）；顶部 el-tabs 已退役，改由左侧二级导航承载
+const activeSource = computed(() => route.meta?.source || '')
+const pageTitle = computed(() =>
+  activeSource.value
+    ? `任务中心 · ${SOURCE_LABELS[activeSource.value] || activeSource.value}`
+    : '任务中心'
+)
+const pageSubtitle = computed(() =>
+  activeSource.value
+    ? '该来源任务列表（在办口径，不含已完成/挂起）'
+    : '需求催办 / 邮件中心 / 运营监控 —— 三端任务聚合（在办口径）'
+)
 
 const loading = ref(false)
-const activeTab = ref('all')
 const stats = ref({ total: 0, overdue: 0, due_soon: 0, by_source: {}, by_status: {}, by_issue_type: {} })
 const tasks = ref([])
 const selectedTasks = ref([])
@@ -446,7 +455,7 @@ async function loadStats() {
 }
 
 async function loadTasks() {
-  if (activeTab.value === 'requirement_urge') return
+  if (activeSource.value === 'requirement_urge') return
   loading.value = true
   try {
     const params = {
@@ -455,9 +464,12 @@ async function loadTasks() {
       include_done: filters.includeDone,
       only_overdue: filters.onlyOverdue,
     }
-    if (activeTab.value !== 'all') params.source = activeTab.value
+    if (activeSource.value) params.source = activeSource.value
     if (filters.status) params.status = filters.status
-    if (filters.issueType) params.issue_type = filters.issueType
+    // 「问题类型」仅对运营问题来源有意义，切到其他来源后忽略残留值（避免筛出空列表）
+    if (filters.issueType && activeSource.value === 'operation_issue') {
+      params.issue_type = filters.issueType
+    }
     if (filters.keyword) params.keyword = filters.keyword
     if (filters.owners?.length) params.owners = filters.owners.join(',')
     const res = await getTasks(params)
@@ -472,38 +484,126 @@ async function loadTasks() {
 
 function refreshAll() {
   loadStats()
-  if (activeTab.value === 'requirement_urge') loadUrgeGroups()
+  if (activeSource.value === 'requirement_urge') loadUrgeGroups()
   else loadTasks()
 }
 
-watch(activeTab, () => {
-  pager.page = 1
-  selectedTasks.value = []
-  filters.issueType = ''
-  if (activeTab.value === 'requirement_urge') loadUrgeGroups()
-  else loadTasks()
-})
+// ---- 深链筛选：任务总览「责任人分布」矩阵 → /task-center/{来源}?owner=xx&status=yy ----
+const VALID_STATUS_KEYS = ['pending', 'in_progress', 'done', 'blocked']
 
-watch(() => filters.issueType, () => {
-  pager.page = 1
-  selectedTasks.value = []
-  loadTasks()
-})
+// 当前筛选是否与地址栏一致（用于识别 filters 变更是否由路由同步引起，避免重复拉取）
+function filtersMatchQuery() {
+  const q = route.query
+  return (
+    (filters.owners || []).join(',') === (q.owner ? String(q.owner) : '') &&
+    filters.status === (q.status ? String(q.status) : '') &&
+    filters.issueType === (q.issue_type ? String(q.issue_type) : '') &&
+    filters.keyword === (q.keyword ? String(q.keyword) : '')
+  )
+}
 
-watch(() => filters.owners, () => {
-  pager.page = 1
-  selectedTasks.value = []
-  loadTasks()
-}, { deep: true })
+// 路由 query → 筛选状态（返回是否发生变化，供调用方决定要不要重新拉数据）
+function applyRouteFilters() {
+  const q = route.query
+  const nextOwners = q.owner
+    ? String(q.owner).split(',').map((s) => s.trim()).filter(Boolean)
+    : []
+  const st = q.status && VALID_STATUS_KEYS.includes(String(q.status)) ? String(q.status) : ''
+  const it = q.issue_type ? String(q.issue_type) : ''
+  const kw = q.keyword ? String(q.keyword) : ''
+  const changed =
+    nextOwners.join(',') !== (filters.owners || []).join(',') ||
+    st !== filters.status ||
+    it !== filters.issueType ||
+    kw !== filters.keyword
+  filters.owners = nextOwners
+  filters.status = st
+  filters.issueType = it
+  filters.keyword = kw
+  return changed
+}
+
+// 筛选状态 → 路由 query（刷新/分享不丢筛选条件）
+function syncQuery() {
+  const q = { ...route.query }
+  const owners = filters.owners || []
+  if (owners.length) q.owner = owners.join(',')
+  else delete q.owner
+  if (filters.status) q.status = filters.status
+  else delete q.status
+  if (filters.issueType) q.issue_type = filters.issueType
+  else delete q.issue_type
+  if (filters.keyword) q.keyword = filters.keyword
+  else delete q.keyword
+  const same =
+    (q.owner || '') === (route.query.owner || '') &&
+    (q.status || '') === (route.query.status || '') &&
+    (q.issue_type || '') === (route.query.issue_type || '') &&
+    (q.keyword || '') === (route.query.keyword || '')
+  if (!same) router.replace({ query: q })
+}
+
+// 筛选变化 → 地址栏同步 + 重新拉取（与地址栏一致的变更说明来自路由，跳过避免重复请求）
+watch(
+  () => [filters.status, filters.issueType, filters.keyword, filters.onlyOverdue, filters.includeDone],
+  () => {
+    if (filtersMatchQuery()) return
+    pager.page = 1
+    selectedTasks.value = []
+    syncQuery()
+    loadTasks()
+  }
+)
+
+watch(
+  () => filters.owners,
+  () => {
+    if (filtersMatchQuery()) return
+    pager.page = 1
+    selectedTasks.value = []
+    syncQuery()
+    loadTasks()
+  },
+  { deep: true }
+)
+
+// 来源切换（左侧二级导航）→ 重置分页、应用深链筛选、重新加载
+watch(
+  () => route.meta?.source,
+  () => {
+    pager.page = 1
+    selectedTasks.value = []
+    applyRouteFilters()
+    if (activeSource.value === 'requirement_urge') loadUrgeGroups()
+    else loadTasks()
+    loadStats()
+  }
+)
+
+// 地址栏 query 变化（矩阵下钻 / 手动改地址栏）→ 同步到筛选并重新拉取
+let filtersInitialized = false
+watch(
+  () => route.query,
+  () => {
+    const changed = applyRouteFilters()
+    if (changed && filtersInitialized) {
+      pager.page = 1
+      selectedTasks.value = []
+      if (activeSource.value !== 'requirement_urge') loadTasks()
+    }
+  }
+)
 
 function sourceTagType(source) {
   return {
     todo: 'primary',
     operation_issue: 'danger',
+    research_issue: 'primary',
     dev_ticket: 'warning',
     meeting_action: 'success',
     key_work: 'info',
     requirement_urge: 'warning',
+    active_optimization: 'success',
   }[source] || 'info'
 }
 
@@ -631,7 +731,8 @@ function aggregateOwners(rows) {
   const names = []
   for (const t of rows || []) {
     const owner = (t.owner || '').trim()
-    if (!owner || owner === '我' || owner === '未分配') continue
+    // 本人（SELF_NAME）与历史遗留的「我」一并跳过：个人待办默认归属本人，不参与收件人预填
+    if (!owner || owner === '我' || owner === SELF_NAME || owner === '未分配') continue
     for (const sub of owner.split(/[,;，；、\s]+/)) {
       const s = sub.trim()
       if (s && !seen.has(s)) {
@@ -668,7 +769,7 @@ async function openTaskEmail(rows, sendType) {
     ...new Set(
       rows
         .map((t) => (t.owner || '').trim())
-        .filter((n) => n && n !== '我' && n !== '未分配')
+        .filter((n) => n && n !== '我' && n !== SELF_NAME && n !== '未分配')
         .flatMap((n) => n.split(/[,;，；、\s]+/).filter(Boolean)),
     ),
   ]
@@ -822,8 +923,12 @@ function openUrgeSingle(item) {
 }
 
 onMounted(() => {
+  // 首次进入时先应用地址栏深链（?owner=&status=&keyword=），再做首次拉取
+  applyRouteFilters()
   loadStats()
-  loadTasks()
+  if (activeSource.value === 'requirement_urge') loadUrgeGroups()
+  else loadTasks()
+  filtersInitialized = true
 })
 </script>
 
@@ -864,9 +969,6 @@ onMounted(() => {
 }
 .stat-warning .stat-value {
   color: #e6a23c;
-}
-.task-tabs {
-  margin-bottom: 4px;
 }
 .filter-bar {
   display: flex;

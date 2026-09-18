@@ -2,21 +2,21 @@
   <div class="card hm-card">
     <div class="card-header" style="padding: 18px 20px 0">
       <div>
-        <div class="hm-title">责任人分布</div>
+        <div class="hm-title">{{ L.title }}</div>
         <div class="hm-sub">
-          {{ handlerCount }} 位责任人 · 工单 {{ (summary && summary.total) || 0 }} 条 · 点击责任人卡片展开明细，点彩色格子直达工单列表
+          {{ handlerCount }} 位{{ L.entityLabel }}责任人 · {{ L.itemLabel }} {{ (summary && summary.total) || 0 }} 条 · 点击责任人卡片展开明细，点彩色格子直达{{ L.listLabel }}
         </div>
       </div>
       <div class="hm-tools">
         <EnlargeInput
           v-model="keyword"
-          placeholder="搜索责任人"
+          :placeholder="L.searchPlaceholder"
           clearable
           size="small"
           style="width: 170px"
         />
         <el-select v-model="sortBy" size="small" style="width: 148px">
-          <el-option v-for="o in SORT_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+          <el-option v-for="o in sortOptions" :key="o.value" :label="o.label" :value="o.value" />
         </el-select>
         <el-button size="small" @click="toggleAll">
           {{ allOpen ? '全部收起' : '全部展开' }}
@@ -29,7 +29,7 @@
         <i :class="'hm-dot st-' + s.key"></i>{{ s.label }}
       </span>
       <span class="hm-lg-note">颜色=状态，深浅=数量</span>
-      <span class="hm-legend-hint">「–」表示该组合暂无工单</span>
+      <span class="hm-legend-hint">「–」表示该组合暂无{{ L.itemLabel }}</span>
     </div>
 
     <div class="hm-grid" v-loading="loading">
@@ -37,7 +37,7 @@
         v-for="h in visibleHandlers"
         :key="h.name"
         class="hm-block"
-        :class="{ 'is-open': isOpen(h), 'is-risk': isTopActive(h) }"
+        :class="{ 'is-open': isOpen(h), 'is-risk': isTopRisk(h) }"
       >
         <!-- 摘要头：默认态即完整摘要，点击展开热力矩阵 -->
         <div class="hm-head" @click="toggleOpen(h.name)">
@@ -46,16 +46,16 @@
             <div class="hm-head-row1">
               <span class="hm-name">{{ h.name }}</span>
               <el-tag v-if="h.overdue" size="small" type="danger" effect="plain">逾期 {{ h.overdue }}</el-tag>
-              <span v-if="isTopActive(h)" class="hm-risk-tag">压单最多</span>
-              <span v-if="h.unassigned" class="hm-unassigned-tag">未指派</span>
+              <span v-if="isTopRisk(h)" class="hm-risk-tag">{{ L.riskLabel }}</span>
+              <span v-if="h.unassigned" class="hm-unassigned-tag">{{ L.unassignedLabel }}</span>
             </div>
             <div class="hm-head-row2">
-              <span class="hm-rate" :title="'闭环率 ' + h.closed_loop_rate + '%'">
-                <i class="hm-rate-bar"><b :class="rateClass(h)" :style="{ width: h.closed_loop_rate + '%' }"></b></i>
-                <em>{{ h.closed_loop_rate }}%</em>
+              <span class="hm-rate" :title="L.rateLabel + ' ' + rateOf(h) + '%'">
+                <i class="hm-rate-bar"><b :class="rateClass(h)" :style="{ width: rateOf(h) + '%' }"></b></i>
+                <em>{{ rateOf(h) }}%</em>
               </span>
-              <span class="hm-stat">工单 <b>{{ h.total }}</b></span>
-              <span class="hm-stat">未闭环 <b class="hm-active-num">{{ h.active }}</b></span>
+              <span class="hm-stat">{{ L.itemLabel }} <b>{{ h.total }}</b></span>
+              <span class="hm-stat">{{ L.activeLabel }} <b class="hm-active-num">{{ h.active }}</b></span>
             </div>
           </div>
           <el-icon class="hm-chev" :class="{ open: isOpen(h) }"><ArrowDown /></el-icon>
@@ -68,18 +68,18 @@
             :key="ch.cat + ch.st"
             class="hm-chip"
             :class="['st-' + ch.st, { 'chip-disabled': h.unassigned }]"
-            :title="h.unassigned ? '未指派工单无责任人，无法按人检索' : `查看 ${h.name} 的${catLabel(ch.cat)} · ${statusLabel(ch.st)}工单`"
+            :title="cellTip(h, ch.cat, ch.st)"
             @click.stop="!h.unassigned && openCategory(h, ch.cat, ch.st)"
           >{{ ch.label }} {{ ch.v }}</span>
           <span v-if="chipsOf(h).hidden" class="hm-chip-more">+{{ chipsOf(h).hidden }}</span>
-          <span v-if="!chipsOf(h).shown.length" class="hm-chips-none">暂无工单</span>
+          <span v-if="!chipsOf(h).shown.length" class="hm-chips-none">暂无{{ L.itemLabel }}</span>
         </div>
 
         <!-- 展开态：热力矩阵（行=类别，列=状态，颜色=状态、深浅=数量） -->
         <table v-show="isOpen(h)" class="hm-table">
           <thead>
             <tr>
-              <th class="hm-th-cat">工单类别</th>
+              <th class="hm-th-cat">{{ L.catHeader }}</th>
               <th v-for="s in statuses" :key="s.key">{{ s.label }}</th>
               <th class="hm-th-sum">合计</th>
             </tr>
@@ -92,7 +92,7 @@
                   v-if="cellOf(h, c.key, s.key)"
                   class="hm-cell"
                   :class="['st-' + s.key, lvClass(cellOf(h, c.key, s.key))]"
-                  :title="h.unassigned ? '未指派工单无责任人，无法按人检索' : `查看 ${h.name} 的${c.label} · ${s.label}工单`"
+                  :title="cellTip(h, c.key, s.key)"
                   @click.stop="!h.unassigned && openCategory(h, c.key, s.key)"
                 >{{ cellOf(h, c.key, s.key) }}</span>
                 <span v-else class="hm-cell hm-cell-empty">–</span>
@@ -118,53 +118,85 @@
 </template>
 
 <script setup>
+/**
+ * 通用「责任人分布矩阵」组件（2026-09-18 从 Operation/HandlerMatrix 泛化）。
+ *
+ * 结构：责任人摘要卡（头像+姓名+风险标签+完成率迷你条+非零状态 chips）
+ *      → 点击展开「类别 × 状态」热力矩阵（颜色=状态、深浅=数量）→ 点格子深链下钻。
+ *
+ * 单一实现纪律：运营监控总览与任务中心总览共用本组件，禁止再写第二份热力矩阵。
+ * 两侧差异（类别维度 / 状态维度 / 跳转路径 / 率指标 / 文案）全部通过 props 注入，
+ * 运营侧不传时使用与改造前完全一致的默认值（行为零变化）。
+ */
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import EnlargeInput from '@/components/Common/EnlargeInput.vue'
 import { ArrowDown } from '@element-plus/icons-vue'
-import { WORK_ORDER_CATEGORIES } from '@/constants/operation.js'
+
+// 默认文案 = 运营监控总览现状（保证既有页面零变化）
+const DEFAULT_LABELS = {
+  title: '责任人分布',
+  catHeader: '工单类别',
+  rateLabel: '闭环率',
+  riskLabel: '压单最多',
+  itemLabel: '工单',
+  listLabel: '工单列表',
+  entityLabel: '',            // 「103 位工单责任人」中的冗余词，运营侧为空
+  activeLabel: '未闭环',
+  unassignedLabel: '未指派',
+  unassignedTip: '未指派工单无责任人，无法按人检索',
+  searchPlaceholder: '搜索责任人',
+  sortByTotal: '按工单量',
+  sortByRisk: '按超期量',
+  sortByRate: '按闭环率',
+}
 
 const props = defineProps({
-  // 后端 /operation/stats/by-handler 的 data.handlers
+  // 后端统计接口的 data.handlers（责任人块数组）
   handlers: { type: Array, default: () => [] },
-  // 同上接口的 data.summary
+  // 同接口的 data.summary
   summary: { type: Object, default: () => ({}) },
-  // 同接口的 data.statuses（缺省时用本地兜底，保证列结构永远一致）
+  // 同接口的 data.statuses（状态 key 数组，缺省时用 statusLabels 的键）
   statuses: { type: Array, default: () => [] },
+  // 状态 key → 中文（两侧语义不同，必须由调用方提供）
+  statusLabels: { type: Object, default: () => ({}) },
+  // 矩阵行维度：[{ key, label }]，运营=工单类别 / 任务中心=任务来源
+  categories: { type: Array, default: () => [] },
+  // 摘要 chips 用的类别简称：{ key: 简称 }
+  catShort: { type: Object, default: () => ({}) },
+  // 文案覆盖（浅合并到 DEFAULT_LABELS）
+  labels: { type: Object, default: () => ({}) },
+  // 完成率字段名：运营 closed_loop_rate / 任务中心 completion_rate
+  rateKey: { type: String, default: 'closed_loop_rate' },
+  // 风险前置指标：运营 active（未闭环最多）/ 任务中心 overdue（超期最多）
+  riskMetric: { type: String, default: 'active' },
   loading: { type: Boolean, default: false },
+  // 深链跳转：(ownerName, categoryKey, statusKey) => void
+  jump: { type: Function, default: null },
 })
 
-const router = useRouter()
+const L = computed(() => ({ ...DEFAULT_LABELS, ...props.labels }))
 
-const STATUS_META = [
-  { key: 'pending', label: '待处理' },
-  { key: 'processing', label: '处理中' },
-  { key: 'verify', label: '验证中' },
-  { key: 'resolved', label: '已解决' },
-  { key: 'closed', label: '已关闭' },
-  { key: 'suspended', label: '已挂起' },
-]
-
-// 摘要 chips 用类别简称，控制宽度
-const CAT_SHORT = { bug: 'BUG', data: '数据', prod: '运营', task: '交办', complaint: '投诉' }
-
-const SORT_OPTIONS = [
-  { label: '按工单量', value: 'total' },
-  { label: '按未闭环量', value: 'active' },
-  { label: '按闭环率', value: 'rate' },
+// 排序项：按量 / 按风险 / 按率 / 按姓名（后两项文案由 labels 定制）
+const sortOptions = computed(() => [
+  { label: L.value.sortByTotal, value: 'total' },
+  { label: L.value.sortByRisk, value: 'risk' },
+  { label: L.value.sortByRate, value: 'rate' },
   { label: '按姓名', value: 'name' },
-]
+])
 
 // 摘要 chips 上限，超出折叠为 +n
 const CHIP_LIMIT = 8
 
-// 状态列固定 6 列：即使某状态当前无数据也保留，保证各责任人区块横向可比
+// 状态列固定展示：即使某状态当前无数据也保留，保证各责任人区块横向可比
 const statuses = computed(() => {
-  const incoming = props.statuses || []
-  if (!incoming.length) return STATUS_META
-  return incoming.map((k) => STATUS_META.find((s) => s.key === k) || { key: k, label: k })
+  const keys =
+    props.statuses && props.statuses.length
+      ? props.statuses
+      : Object.keys(props.statusLabels || {})
+  return keys.map((k) => ({ key: k, label: props.statusLabels[k] || k }))
 })
 
-const categories = WORK_ORDER_CATEGORIES
+const categories = computed(() => props.categories || [])
 
 const keyword = ref('')
 const sortBy = ref('total')
@@ -172,14 +204,17 @@ const openSet = ref(new Set())
 
 const handlerCount = computed(() => props.handlers.filter((h) => !h.unassigned).length)
 
+const rateOf = (h) => Number(h[props.rateKey]) || 0
+const riskOf = (h) => Number(h[props.riskMetric]) || 0
+
 const visibleHandlers = computed(() => {
   const kw = keyword.value.trim()
   const list = props.handlers.filter((h) => !kw || String(h.name || '').includes(kw))
   // 「未指派」始终沉底（无责任人，不可按人检索）
   const bySort = {
     total: (a, b) => b.total - a.total,
-    active: (a, b) => b.active - a.active,
-    rate: (a, b) => b.closed_loop_rate - a.closed_loop_rate,
+    risk: (a, b) => riskOf(b) - riskOf(a) || b.total - a.total,
+    rate: (a, b) => rateOf(b) - rateOf(a),
     name: (a, b) => String(a.name).localeCompare(String(b.name), 'zh'),
   }
   const cmp = bySort[sortBy.value] || bySort.total
@@ -191,11 +226,11 @@ const visibleHandlers = computed(() => {
   })
 })
 
-// 风险前置：未闭环最多的责任人（并列时取排序首位），描红边 + 标记
-const maxActive = computed(() =>
-  props.handlers.reduce((m, h) => (!h.unassigned && h.active > m ? h.active : m), 0)
+// 风险前置：风险指标最高的责任人（并列时取排序首位），描红边 + 标记
+const maxRisk = computed(() =>
+  props.handlers.reduce((m, h) => (!h.unassigned && riskOf(h) > m ? riskOf(h) : m), 0)
 )
-const isTopActive = (h) => !h.unassigned && h.active > 0 && h.active === maxActive.value
+const isTopRisk = (h) => !h.unassigned && riskOf(h) > 0 && riskOf(h) === maxRisk.value
 
 const isOpen = (h) => openSet.value.has(h.name)
 const toggleOpen = (name) => {
@@ -211,7 +246,7 @@ const toggleAll = () => {
 }
 
 const avatarOf = (name) => String(name || '?').slice(0, 1)
-const catLabel = (k) => (categories.find((c) => c.key === k) || {}).label || k
+const catLabel = (k) => (categories.value.find((c) => c.key === k) || {}).label || k
 const statusLabel = (k) => (statuses.value.find((s) => s.key === k) || {}).label || k
 
 const cellOf = (h, category, status) => {
@@ -220,13 +255,18 @@ const cellOf = (h, category, status) => {
   return row[status] || 0
 }
 
+const cellTip = (h, category, status) =>
+  h.unassigned
+    ? L.value.unassignedTip
+    : `查看 ${h.name} 的${catLabel(category)} · ${statusLabel(status)}${L.value.itemLabel}`
+
 // 摘要 chips：状态优先（未闭环类在前），同一状态内按类别顺序
 const chipsOf = (h) => {
   const list = []
   for (const s of statuses.value) {
-    for (const c of categories) {
+    for (const c of categories.value) {
       const v = cellOf(h, c.key, s.key)
-      if (v) list.push({ cat: c.key, st: s.key, label: CAT_SHORT[c.key] || c.label, v })
+      if (v) list.push({ cat: c.key, st: s.key, label: props.catShort[c.key] || c.label, v })
     }
   }
   return { shown: list.slice(0, CHIP_LIMIT), hidden: Math.max(0, list.length - CHIP_LIMIT) }
@@ -235,15 +275,12 @@ const chipsOf = (h) => {
 // 热力分档：1 档浅 / 2~5 档中 / ≥6 档深
 const lvClass = (v) => (v <= 1 ? 'lv-1' : v <= 5 ? 'lv-2' : 'lv-3')
 
-// 闭环率进度条颜色：≥80 绿 / ≥50 橙 / <50 红
-const rateClass = (h) => (h.closed_loop_rate >= 80 ? 'rc-good' : h.closed_loop_rate >= 50 ? 'rc-mid' : 'rc-low')
+// 完成率进度条颜色：≥80 绿 / ≥50 橙 / <50 红
+const rateClass = (h) => (rateOf(h) >= 80 ? 'rc-good' : rateOf(h) >= 50 ? 'rc-mid' : 'rc-low')
 
 const openCategory = (h, category, status) => {
-  if (h.unassigned) return
-  router.push({
-    path: `/operation/${category}`,
-    query: { handler: h.name, status },
-  })
+  if (h.unassigned || !props.jump) return
+  props.jump(h.name, category, status)
 }
 </script>
 
@@ -289,6 +326,10 @@ const openCategory = (h, category, status) => {
 .hm-dot.st-resolved,
 .hm-dot.st-closed,
 .hm-dot.st-suspended { background: var(--success); }
+/* 任务中心统一状态（4 态） */
+.hm-dot.st-in_progress { background: var(--warning); }
+.hm-dot.st-done { background: var(--success); }
+.hm-dot.st-blocked { background: var(--text-muted); }
 .hm-lg-note {
   padding: 1px 8px;
   border-radius: 8px;
@@ -321,7 +362,7 @@ const openCategory = (h, category, status) => {
 .hm-block.is-open {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border-subtle));
 }
-/* 风险前置：未闭环最多的人整卡描红边 */
+/* 风险前置：风险指标最高的人整卡描红边 */
 .hm-block.is-risk {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border-subtle));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 25%, transparent);
@@ -465,6 +506,16 @@ const openCategory = (h, category, status) => {
 .hm-chip.st-suspended {
   --st: var(--success);
 }
+/* 任务中心统一状态（4 态） */
+.hm-chip.st-in_progress {
+  --st: var(--warning);
+}
+.hm-chip.st-done {
+  --st: var(--success);
+}
+.hm-chip.st-blocked {
+  --st: var(--text-muted);
+}
 .hm-chip {
   background: color-mix(in srgb, var(--st) 12%, #fff);
   color: color-mix(in srgb, var(--st) 80%, #000);
@@ -547,6 +598,10 @@ const openCategory = (h, category, status) => {
 .hm-cell.st-resolved,
 .hm-cell.st-closed,
 .hm-cell.st-suspended { --st: var(--success); }
+/* 任务中心统一状态（4 态） */
+.hm-cell.st-in_progress { --st: var(--warning); }
+.hm-cell.st-done { --st: var(--success); }
+.hm-cell.st-blocked { --st: var(--text-muted); }
 .hm-cell.lv-1 {
   background: color-mix(in srgb, var(--st) 10%, #fff);
   color: color-mix(in srgb, var(--st) 72%, #000);
