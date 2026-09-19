@@ -1,8 +1,11 @@
-// 任务中心「任务总览」端到端验证（2026-09-18 新增）
+// 任务中心「任务总览」端到端验证（2026-09-18 新增，2026-09-19 改未完结口径）
 //
-// 覆盖：二级导航结构 / 总览卡与来源磁贴取数与接口一致 / 责任人分布矩阵逐格比对 /
-//       格子深链下钻到来源子页并还原筛选 / 8 个来源子页 + 全部任务页冒烟 /
+// 覆盖：二级导航结构 / 总览卡(超期率主指标)与来源磁贴(超期率)取数与接口一致 /
+//       责任人分布矩阵逐格比对(仅未完结2态) / 格子深链下钻 / 8 来源子页 + 全部任务页冒烟 /
 //       运营监控矩阵未被泛化改造改坏（回归）
+//
+// 口径（2026-09-19 老大拍板）：未完结 = pending + in_progress，排除 done 与 blocked；
+// 总览主指标改为「整体超期率」，blocked_total 单独暴露。
 //
 // 运行：cd frontend && node tests/e2e/verify_task_overview.cjs
 const puppeteer = require('puppeteer-core');
@@ -16,6 +19,8 @@ const OUT = path.resolve(__dirname, '../../tmp_uishots');
 
 const STATUS_KEYS = ['pending', 'in_progress', 'done', 'blocked'];
 const STATUS_LABELS = { pending: '待处理', in_progress: '进行中', done: '已完成', blocked: '阻塞/挂起' };
+// 任务总览矩阵仅展示未完结两态（与前端 TaskOverviewView.MATRIX_STATUSES 一致）
+const MATRIX_STATUSES = ['pending', 'in_progress'];
 const SOURCES = [
   { key: 'todo', label: '个人待办', slug: 'todo' },
   { key: 'operation_issue', label: '运营问题', slug: 'operation-issue' },
@@ -42,14 +47,21 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
     const r = await fetch(API + '/api/v1/task-center/stats/by-owner');
     data = (await r.json()).data;
     check('聚合接口可用', !!data && Array.isArray(data.owners), `owners=${data ? data.owners.length : 0}`);
-    check('summary 含全量口径字段', !!(data && data.summary && data.summary.total > 0 && 'completion_rate' in data.summary),
-      data ? `total=${data.summary.total} rate=${data.summary.completion_rate}` : '');
+    check('summary 含未完结口径字段(超期率，无完成率)',
+      !!(data && data.summary && data.summary.total > 0 && 'overdue_rate' in data.summary && !('completion_rate' in data.summary)),
+      data ? `total=${data.summary.total} rate=${data.summary.overdue_rate}` : '');
     check('四态状态枚举', !!data && JSON.stringify(data.statuses) === JSON.stringify(STATUS_KEYS), data ? String(data.statuses) : '');
     check('责任人已归一(无「我」桶)', !!data && !data.owners.some((o) => o.name === '我'), '');
-    check('全量口径 = 在办 + 已完成 + 阻塞',
-      !!data && data.summary.total === data.summary.pending + data.summary.in_progress + data.summary.done + data.summary.blocked,
-      data ? `${data.summary.total} vs ${data.summary.pending}+${data.summary.in_progress}+${data.summary.done}+${data.summary.blocked}` : '');
-    check('来源矩阵求和 = 全量', !!data && (() => {
+    // 未完结口径：total = pending + in_progress（排除 done/blocked），blocked_total 单独计数
+    check('未完结口径 total = pending + in_progress',
+      !!data && data.summary.total === data.summary.pending + data.summary.in_progress,
+      data ? `${data.summary.total} vs ${data.summary.pending}+${data.summary.in_progress}` : '');
+    check('blocked_total 单独暴露(>=0)', !!data && typeof data.summary.blocked_total === 'number' && data.summary.blocked_total >= 0,
+      data ? `blocked_total=${data.summary.blocked_total}` : '');
+    check('超期率=超期/未完结(四舍五入1位)',
+      !!data && data.summary.overdue_rate === Math.round((data.summary.overdue / data.summary.total) * 1000) / 10,
+      data ? `rate=${data.summary.overdue_rate} calc=${Math.round((data.summary.overdue / data.summary.total) * 1000) / 10}` : '');
+    check('来源矩阵求和 = 未完结 total', !!data && (() => {
       const sum = Object.values(data.source_matrix).reduce((s, m) => s + m.total, 0);
       return sum === data.summary.total;
     })(), data ? `matrix=${Object.values(data.source_matrix).reduce((s, m) => s + m.total, 0)} total=${data.summary.total}` : '');
@@ -120,19 +132,19 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
   });
 
   check('总览页容器渲染', ov.rootFound);
-  check('甜甜圈标签=整体完成率', ov.donutLabel === '整体完成率', ov.donutLabel);
+  check('甜甜圈标签=整体超期率', ov.donutLabel === '整体超期率', ov.donutLabel);
   check('矩阵行表头=任务来源', ov.matrixHeader === '任务来源', ov.matrixHeader);
-  check('口径提示存在(全量口径)', ov.rootText.includes('全量口径'), '');
+  check('口径提示存在(未完结口径)', ov.rootText.includes('未完结口径'), '');
 
   if (data) {
     const s = data.summary;
-    check('甜甜圈值=接口完成率', ov.donutVal === `${s.completion_rate}%`, `dom=${ov.donutVal} api=${s.completion_rate}%`);
+    check('甜甜圈值=接口超期率', ov.donutVal === `${s.overdue_rate}%`, `dom=${ov.donutVal} api=${s.overdue_rate}%`);
     const metaMap = Object.fromEntries(ov.metas.map((m) => [m.lab, m]));
-    check('指标-任务总量', metaMap['任务总量'] && metaMap['任务总量'].num === String(s.total), `dom=${metaMap['任务总量'] && metaMap['任务总量'].num} api=${s.total}`);
-    check('指标-在办', metaMap['在办'] && metaMap['在办'].num === String(s.active), `dom=${metaMap['在办'] && metaMap['在办'].num} api=${s.active}`);
+    check('指标-未完结总量', metaMap['未完结总量'] && metaMap['未完结总量'].num === String(s.total), `dom=${metaMap['未完结总量'] && metaMap['未完结总量'].num} api=${s.total}`);
     check('指标-已超期(有超期时红色)', metaMap['已超期'] && metaMap['已超期'].num === String(s.overdue) && (s.overdue === 0 || metaMap['已超期'].warn),
       `dom=${metaMap['已超期'] && metaMap['已超期'].num} warn=${metaMap['已超期'] && metaMap['已超期'].warn}`);
-    check('指标-已完成', metaMap['已完成'] && metaMap['已完成'].num === String(s.done), `dom=${metaMap['已完成'] && metaMap['已完成'].num} api=${s.done}`);
+    check('指标-阻塞挂起', metaMap['阻塞挂起'] && metaMap['阻塞挂起'].num === String(s.blocked_total), `dom=${metaMap['阻塞挂起'] && metaMap['阻塞挂起'].num} api=${s.blocked_total}`);
+    check('指标-临期(3天内)', metaMap['临期(3天内)'] && metaMap['临期(3天内)'].num === String(s.due_soon), `dom=${metaMap['临期(3天内)'] && metaMap['临期(3天内)'].num} api=${s.due_soon}`);
 
     // 磁贴：全部 + 有数据的来源
     const expectTiles = 1 + data.sources.length;
@@ -141,7 +153,7 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
     const tileOk = data.sources.every((src) => {
       const t = ov.tiles.find((x) => x.name === labelOf(src));
       const m = data.source_matrix[src];
-      return t && t.count === String(m.total) && t.rate === `${m.completion_rate}%`;
+      return t && t.count === String(m.total) && t.rate === `${m.overdue_rate}%`;
     });
     check('各来源磁贴数量/完成率=接口', tileOk, ov.tiles.map((t) => `${t.name}:${t.count}/${t.rate}`).join(' '));
     check('开发工单(0 条)磁贴不占位', !ov.tiles.some((t) => t.name === '开发工单'), '');
@@ -152,7 +164,7 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
     check('每卡都有完成率条', ov.blocks.every((b) => b.hasRateBar), '');
     const rateMatch = ov.blocks.every((b) => {
       const api = data.owners.find((o) => o.name === b.name);
-      return api && b.rateText === `${api.completion_rate}%`;
+      return api && b.rateText === `${api.overdue_rate}%`;
     });
     check('卡内完成率=接口值', rateMatch, '');
     const chipsMatch = ov.blocks.every((b) => {
@@ -204,7 +216,7 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
   });
 
   check('点击后展开热力矩阵', detail.isOpen && detail.tableVisible, `isOpen=${detail.isOpen}`);
-  check('矩阵列头=4 个统一状态', detail.headers.length === 6 && STATUS_KEYS.every((k) => detail.headers.includes(STATUS_LABELS[k])),
+  check('矩阵列头=未完结2态+类别+合计', detail.headers.length === MATRIX_STATUSES.length + 2 && MATRIX_STATUSES.every((k) => detail.headers.includes(STATUS_LABELS[k])),
     detail.headers.join('|'));
 
   if (data) {
@@ -217,19 +229,19 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
     detail.grid.forEach((row) => {
       const catKey = (SOURCES.find((s2) => s2.label === row.cat) || {}).key;
       if (!catKey) { bad.push(`未知行:${row.cat}`); return; }
-      STATUS_KEYS.forEach((st, i) => {
+      MATRIX_STATUSES.forEach((st, i) => {
         const v = (api.matrix[catKey] || {})[st] || 0;
         const cell = row.cells[i];
         if (v > 0 && (cell.empty || cell.text !== String(v))) bad.push(`${catKey}.${st} dom=${cell.text}${cell.empty ? '(empty)' : ''} api=${v}`);
         if (v === 0 && !cell.empty) bad.push(`${catKey}.${st} dom=${cell.text} api=0`);
       });
-      const rowSum = Object.values(api.matrix[catKey] || {}).reduce((a, b2) => a + b2, 0);
+      const rowSum = MATRIX_STATUSES.reduce((a, st) => a + ((api.matrix[catKey] || {})[st] || 0), 0);
       if (row.sum !== String(rowSum)) bad.push(`${catKey}.合计 dom=${row.sum} api=${rowSum}`);
     });
     check('矩阵逐格数值=接口', bad.length === 0, `mismatch=${bad.length} ${bad.slice(0, 5).join(' ; ')}`);
-    const colSum = STATUS_KEYS.map((st) => String(api.status_totals[st]));
-    const domColSum = detail.sumRow.slice(1, 1 + STATUS_KEYS.length);
-    check('矩阵列合计=接口 status_totals', STATUS_KEYS.every((st, i) => domColSum[i] === colSum[i]),
+    const colSum = MATRIX_STATUSES.map((st) => String(api.status_totals[st]));
+    const domColSum = detail.sumRow.slice(1, 1 + MATRIX_STATUSES.length);
+    check('矩阵列合计=接口 status_totals', MATRIX_STATUSES.every((st, i) => domColSum[i] === colSum[i]),
       `dom=${domColSum.join(',')} api=${colSum.join(',')}`);
   }
 

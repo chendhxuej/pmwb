@@ -27,13 +27,14 @@ def get_stats(db=Depends(get_db)):
 
 
 @router.get("/stats/by-owner")
-def get_stats_by_owner(db=Depends(get_db)):
-    """任务总览统计：来源维度 + 责任人维度矩阵（全量口径，总览页用）。
+def get_stats_by_owner(include_done: bool = False, db=Depends(get_db)):
+    """任务总览统计：来源维度 + 责任人维度矩阵（默认未完结口径，总览页用）。
 
     单一数据源：总览卡、来源磁贴、责任人分布矩阵均取本接口，避免各自拉列表算数
     导致口径打架。责任人块按 split_owners 拆分（一条任务挂多人时人人计数）。
+    include_done=true 时含已完成/阻塞（用于对比展示）。
     """
-    data = task_center_service.get_stats_by_owner(db)
+    data = task_center_service.get_stats_by_owner(db, include_done=include_done)
     return success(data=data)
 
 

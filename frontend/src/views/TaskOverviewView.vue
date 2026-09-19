@@ -1,45 +1,47 @@
 <template>
   <div class="task-overview">
     <div class="bento-grid">
-      <!-- 总览：甜甜圈（整体完成率） + 4 项指标 -->
+      <!-- 总览：甜甜圈（整体超期率） + 4 项指标 -->
       <div class="card to-summary">
         <div class="to-donut">
           <svg width="104" height="104" viewBox="0 0 104 104">
             <circle cx="52" cy="52" r="42" fill="none" stroke="#eef2f7" stroke-width="11" />
             <circle
-              cx="52" cy="52" r="42" fill="none" stroke="#2f6fed" stroke-width="11"
+              cx="52" cy="52" r="42" fill="none"
+              :stroke="donutColor"
+              stroke-width="11"
               stroke-linecap="round" stroke-dasharray="263.9"
               :stroke-dashoffset="donutOffset"
               transform="rotate(-90 52 52)"
             />
           </svg>
           <div class="to-donut-center">
-            <div class="to-donut-val">{{ overall.completion_rate || 0 }}%</div>
-            <div class="to-donut-label">整体完成率</div>
+            <div class="to-donut-val" :class="{ warn: overall.overdue_rate >= 30 }">{{ overall.overdue_rate || 0 }}%</div>
+            <div class="to-donut-label">整体超期率</div>
           </div>
         </div>
         <div class="to-summary-divider"></div>
         <div class="to-summary-meta">
           <div class="to-meta-item">
             <div class="to-meta-num">{{ overall.total }}</div>
-            <div class="to-meta-lab">任务总量</div>
-          </div>
-          <div class="to-meta-item">
-            <div class="to-meta-num">{{ overall.active }}</div>
-            <div class="to-meta-lab">在办</div>
+            <div class="to-meta-lab">未完结总量</div>
           </div>
           <div class="to-meta-item">
             <div class="to-meta-num" :class="{ warn: overall.overdue > 0 }">{{ overall.overdue }}</div>
             <div class="to-meta-lab">已超期</div>
           </div>
           <div class="to-meta-item">
-            <div class="to-meta-num">{{ overall.done }}</div>
-            <div class="to-meta-lab">已完成</div>
+            <div class="to-meta-num" :class="{ block: overall.blocked_total > 0 }">{{ overall.blocked_total }}</div>
+            <div class="to-meta-lab">阻塞挂起</div>
+          </div>
+          <div class="to-meta-item">
+            <div class="to-meta-num">{{ overall.due_soon }}</div>
+            <div class="to-meta-lab">临期(3天内)</div>
           </div>
         </div>
         <div class="to-summary-note">
-          <span class="to-note-tag">全量口径</span>
-          含已完成 / 阻塞挂起，与子页签「在办」口径不同
+          <span class="to-note-tag">未完结口径</span>
+          仅 pending + 进行中，排除已完成 / 阻塞挂起
         </div>
       </div>
 
@@ -63,11 +65,11 @@
             在办 {{ t.active }}<template v-if="t.overdue"> · <em class="src-overdue">超期 {{ t.overdue }}</em></template>
           </div>
           <div class="src-rate">
-            <span>完成率</span>
-            <span class="src-rate-val">{{ t.rate }}%</span>
+            <span>超期率</span>
+            <span class="src-rate-val" :class="rateCls(t.rate)">{{ t.rate }}%</span>
           </div>
           <div class="src-bar">
-            <div class="src-bar-fill" :class="'tone-' + t.tone" :style="{ width: t.rate + '%' }"></div>
+            <div class="src-bar-fill" :class="rateCls(t.rate)" :style="{ width: t.rate + '%' }"></div>
           </div>
         </div>
       </div>
@@ -77,31 +79,37 @@
         class="matrix-span"
         :handlers="owners"
         :summary="summary"
-        :statuses="statuses"
+        :statuses="MATRIX_STATUSES"
         :status-labels="STATUS_LABELS"
         :categories="categoryRows"
         :cat-short="SOURCE_SHORT"
         :labels="MATRIX_LABELS"
-        rate-key="completion_rate"
+        rate-key="overdue_rate"
         risk-metric="overdue"
         :loading="loading"
         :jump="jumpToTasks"
+        supervise-label="督办"
+        @supervise="openSupervise"
       />
     </div>
+
+    <!-- 批量督办弹窗：人员卡片督办入口 -->
+    <TaskBatchSuperviseDialog
+      v-model="superviseVisible"
+      :owner-name="superviseOwner"
+    />
   </div>
 </template>
 
 <script setup>
 /**
- * 任务总览（2026-09-18 新增）。
+ * 任务总览（2026-09-18 新增，2026-09-19 改未完结口径）。
  *
  * 结构与运营监控总览（OperationView）保持同构：甜甜圈 + 4 指标 / 来源磁贴 / 责任人矩阵。
- * 单一数据源：GET /task-center/stats/by-owner —— 三块内容取同一次聚合，
- * 避免总览数字与矩阵求和互相打架（与 /operation/stats/by-handler 的做法一致）。
+ * 单一数据源：GET /task-center/stats/by-owner（默认未完结口径）—— 三块内容取同一次聚合。
  *
- * 口径差异（刻意设计，勿"修正"）：
- * - 全量口径（含已完成/阻塞），故完成率可算；子页签沿用「在办」口径；
- * - 超期为实时计算（运营工单依赖库字段，实测恒为 0），因此本页把超期作为风险锚点。
+ * 口径（2026-09-19 老大拍板）：未完结 = pending + in_progress，排除 done 与 blocked；
+ * 因此甜甜圈主指标改为「整体超期率」（红系），直击超期痛点；blocked_total 作为旁注暴露被卡任务。
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -110,6 +118,7 @@ import {
   Document, Check, Warning, Search, Tools, Calendar, Files, Bell, MagicStick,
 } from '@element-plus/icons-vue'
 import OwnerMatrix from '@/components/Common/OwnerMatrix.vue'
+import TaskBatchSuperviseDialog from '@/components/Common/TaskBatchSuperviseDialog.vue'
 import { getTaskStatsByOwner } from '@/api/taskCenter.js'
 
 const router = useRouter()
@@ -120,6 +129,9 @@ const STATUS_LABELS = {
   done: '已完成',
   blocked: '阻塞/挂起',
 }
+
+// 矩阵状态列：仅展示未完结两态（done/blocked 已排除，恒为 0 不占位）
+const MATRIX_STATUSES = ['pending', 'in_progress']
 
 // 来源元数据：图标 + 色调（色调走设计令牌，组件内禁硬编码十六进制）+ 二级路由 slug
 const SOURCE_META = [
@@ -149,16 +161,16 @@ const SOURCE_SHORT = {
 const MATRIX_LABELS = {
   title: '责任人分布',
   catHeader: '任务来源',
-  rateLabel: '完成率',
+  rateLabel: '超期率',
   riskLabel: '超期最多',
   itemLabel: '任务',
   listLabel: '任务列表',
-  activeLabel: '在办',
+  activeLabel: '未完结',
   unassignedLabel: '未指派',
   unassignedTip: '未指派任务无责任人，无法按人检索',
   sortByTotal: '按任务量',
   sortByRisk: '按超期量',
-  sortByRate: '按完成率',
+  sortByRate: '按超期率',
 }
 
 const loading = ref(false)
@@ -174,15 +186,32 @@ const overall = computed(() => ({
   total: summary.value.total || 0,
   active: summary.value.active || 0,
   overdue: summary.value.overdue || 0,
-  done: summary.value.done || 0,
-  completion_rate: summary.value.completion_rate || 0,
+  blocked_total: summary.value.blocked_total || 0,
+  due_soon: summary.value.due_soon || 0,
+  overdue_rate: summary.value.overdue_rate || 0,
 }))
 
 const donutOffset = computed(() => {
   const C = 263.9
-  const rate = Number(summary.value.completion_rate) || 0
+  const rate = Number(summary.value.overdue_rate) || 0
   return C * (1 - rate / 100)
 })
+
+// 甜甜圈颜色：超期率 ≥30% 红 / ≥10% 橙 / 否则绿
+const donutColor = computed(() => {
+  const r = Number(summary.value.overdue_rate) || 0
+  if (r >= 30) return 'var(--danger)'
+  if (r >= 10) return 'var(--warning)'
+  return 'var(--success)'
+})
+
+// 超期率分档（文字色 + 进度条色共用）
+const rateCls = (rate) => {
+  const r = Number(rate) || 0
+  if (r >= 30) return 'rd-high'
+  if (r >= 10) return 'rd-mid'
+  return 'rd-low'
+}
 
 // 磁贴：全部 + 仅当前有数据的来源（如开发工单为 0 时不占位，与矩阵行一致）
 const tiles = computed(() => {
@@ -192,7 +221,7 @@ const tiles = computed(() => {
       count: summary.value.total || 0,
       active: summary.value.active || 0,
       overdue: summary.value.overdue || 0,
-      rate: summary.value.completion_rate || 0,
+      rate: summary.value.overdue_rate || 0,
     },
   ]
   for (const meta of SOURCE_META) {
@@ -206,7 +235,7 @@ const tiles = computed(() => {
       count: m.total || 0,
       active: m.active || 0,
       overdue: m.overdue || 0,
-      rate: m.completion_rate || 0,
+      rate: m.overdue_rate || 0,
     })
   }
   return list
@@ -229,6 +258,15 @@ const openSource = (key) => {
 // 矩阵格子 → 对应来源子页面并按人/状态下钻（深链契约 ?owner=&status=）
 const jumpToTasks = (owner, source, status) => {
   router.push({ path: `/task-center/${slugOf(source)}`, query: { owner, status } })
+}
+
+// 人员卡片督办入口 → 打开批量督办弹窗（弹窗内部按责任人拉取在途任务）
+const superviseVisible = ref(false)
+const superviseOwner = ref('')
+const openSupervise = (name) => {
+  if (!name) return
+  superviseOwner.value = name
+  superviseVisible.value = true
 }
 
 const loadStats = async () => {
@@ -281,6 +319,9 @@ onMounted(() => {
   color: var(--text-primary);
   line-height: 1;
 }
+.to-donut-val.warn {
+  color: var(--danger);
+}
 .to-donut-label {
   font-size: 11px;
   color: var(--text-muted);
@@ -305,12 +346,15 @@ onMounted(() => {
 .to-meta-num.warn {
   color: var(--danger);
 }
+.to-meta-num.block {
+  color: var(--warning);
+}
 .to-meta-lab {
   font-size: 12.5px;
   color: var(--text-secondary);
   margin-top: 2px;
 }
-/* 口径提示：告诉使用者本页是全量口径，与子页签的「在办」不一致是预期的 */
+/* 口径提示：告诉使用者本页是未完结口径，与子页签在办口径同源 */
 .to-summary-note {
   position: absolute;
   right: 26px;
@@ -420,6 +464,9 @@ onMounted(() => {
   font-weight: 700;
   font-family: var(--font-mono);
 }
+.src-rate-val.rd-high { color: var(--danger); }
+.src-rate-val.rd-mid { color: var(--warning); }
+.src-rate-val.rd-low { color: var(--success); }
 .src-bar {
   height: 6px;
   border-radius: 6px;
@@ -430,20 +477,11 @@ onMounted(() => {
 .src-bar-fill {
   height: 100%;
   border-radius: 6px;
-  background: var(--accent);
+  transition: width var(--transition-normal);
 }
-.src-bar-fill.tone-danger {
-  background: var(--danger);
-}
-.src-bar-fill.tone-warning {
-  background: var(--warning);
-}
-.src-bar-fill.tone-success {
-  background: var(--success);
-}
-.src-bar-fill.tone-muted {
-  background: var(--text-secondary);
-}
+.src-bar-fill.rd-high { background: var(--danger); }
+.src-bar-fill.rd-mid { background: var(--warning); }
+.src-bar-fill.rd-low { background: var(--success); }
 
 .matrix-span {
   grid-column: span 12;

@@ -59,6 +59,12 @@
             </div>
           </div>
           <el-icon class="hm-chev" :class="{ open: isOpen(h) }"><ArrowDown /></el-icon>
+          <el-button
+            v-if="props.superviseLabel && !h.unassigned"
+            size="small"
+            class="hm-supervise"
+            @click.stop="emit('supervise', h.name)"
+          >{{ props.superviseLabel }}</el-button>
         </div>
 
         <!-- 非零格子 chips：颜色=状态，点击直达（未指派除外） -->
@@ -172,7 +178,11 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   // 深链跳转：(ownerName, categoryKey, statusKey) => void
   jump: { type: Function, default: null },
+  // 责任人卡片「督办」按钮文案（空=不显示，运营侧不传则隐藏；任务中心传"督办"）
+  superviseLabel: { type: String, default: '' },
 })
+
+const emit = defineEmits(['supervise'])
 
 const L = computed(() => ({ ...DEFAULT_LABELS, ...props.labels }))
 
@@ -471,6 +481,21 @@ const openCategory = (h, category, status) => {
 }
 .hm-chev.open {
   transform: rotate(180deg);
+}
+/* 人员卡片督办按钮：默认态低调，悬停显蓝 */
+.hm-supervise {
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 2px 9px;
+  height: 24px;
+  font-size: 11.5px;
+  border-color: var(--border);
+  color: var(--accent);
+  background: var(--surface);
+}
+.hm-supervise:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 /* ---- 摘要 chips：颜色=状态 ---- */

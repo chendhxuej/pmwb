@@ -674,30 +674,38 @@ class TaskCenterService:
         """百分比（保留 1 位小数），分母为 0 时返回 0。"""
         return round(part * 100.0 / total, 1) if total else 0.0
 
-    def get_stats_by_owner(self, db: Session) -> Dict[str, Any]:
+    def get_stats_by_owner(self, db: Session, include_done: bool = False) -> Dict[str, Any]:
         """任务总览统计：来源维度 + 责任人维度（任务总览页责任人分布矩阵用）。
 
         与运营监控 /operation/stats/by-handler 同构，按任务中心实际语义定制：
 
-        - 口径为「全量」（含已完成/阻塞）：总览要同时回答完成率、在办量、超期量，
-          若沿用列表页的在办口径则完成率恒为 0；
+        - 默认口径为「未完结」（仅 pending + in_progress，排除 done 与 blocked）：
+          任务中心仅关注在途工单；blocked_total 单独计数作为旁注暴露被卡任务；
+          include_done=true 时含已完成/阻塞（用于对比展示）；
         - 全局块（summary / source_matrix）按 source + status 聚合，一条任务只计一次；
         - 责任人块按 split_owners 拆分 owner 串（库中逗号/顿号混用），一条任务挂多人时
           人人计数，因此责任人块求和 ≥ 全局 total，属刻意设计（与运营监控同口径）；
         - 责任人字段为空的历史脏数据归入「未指派」桶并沉底；
         - 超期为实时计算（不同于运营工单依赖库字段 is_overdue），单独作为风险指标暴露。
         """
-        items = self._collect(db)
+        all_items = self._collect(db)
+        blocked_total = sum(1 for t in all_items if t.status == "blocked")
+        # 未完结口径（默认）：仅 pending + in_progress，排除 done 与 blocked
+        items = (
+            all_items
+            if include_done
+            else [t for t in all_items if t.status in ("pending", "in_progress")]
+        )
         statuses = list(UNIFIED_STATUSES)
 
-        # 1) 全局：来源 × 状态（全量口径）
+        # 1) 全局：来源 × 状态（未完结口径，blocked_total 单独计）
         source_matrix: Dict[str, Dict[str, Any]] = {}
         status_totals: Dict[str, int] = {s: 0 for s in statuses}
         overdue_total = due_soon_total = 0
         for t in items:
             bucket = source_matrix.setdefault(
                 t.source,
-                {**{s: 0 for s in statuses}, "total": 0, "overdue": 0},
+                {**{s: 0 for s in statuses}, "total": 0, "overdue": 0, "due_soon": 0},
             )
             bucket["total"] += 1
             if t.status in status_totals:
@@ -707,10 +715,11 @@ class TaskCenterService:
                 bucket["overdue"] += 1
                 overdue_total += 1
             if t.is_due_soon:
+                bucket["due_soon"] += 1
                 due_soon_total += 1
         for bucket in source_matrix.values():
-            bucket["completion_rate"] = self._rate(bucket["done"], bucket["total"])
             bucket["active"] = bucket["pending"] + bucket["in_progress"]
+            bucket["overdue_rate"] = self._rate(bucket["overdue"], bucket["total"])
 
         grand_total = len(items)
         summary = {
@@ -719,7 +728,8 @@ class TaskCenterService:
             "active": status_totals["pending"] + status_totals["in_progress"],
             "overdue": overdue_total,
             "due_soon": due_soon_total,
-            "completion_rate": self._rate(status_totals["done"], grand_total),
+            "blocked_total": blocked_total,
+            "overdue_rate": self._rate(overdue_total, grand_total),
         }
 
         # 2) 责任人：owner × 来源 × 状态
@@ -759,7 +769,7 @@ class TaskCenterService:
             b["cat_totals"] = {src: sum(row.values()) for src, row in b["matrix"].items()}
             b["done"] = st["done"]
             b["active"] = st["pending"] + st["in_progress"]
-            b["completion_rate"] = self._rate(st["done"], b["total"])
+            b["overdue_rate"] = self._rate(b["overdue"], b["total"])
             owners.append(b)
 
         # 排序：超期多者前置（风险可见），任务量次之；「未指派」永远沉底
@@ -1015,7 +1025,43 @@ class TaskCenterService:
             raise_on_error=False,
             confirm_send=obj_in.confirm_send,
         )
-        return {"success": result.get("success", False), "record_ids": [result.get("record_id")] if result.get("record_id") else [], "message": result.get("message", "")}
+        main_record_id = result.get("record_id")
+        record_ids = [main_record_id] if main_record_id else []
+
+        # 逐任务落库：一封邮件涵盖多个任务时，为每个任务各记一条 email_records
+        # （ref_id=单任务 source:id），使单任务详情页的督办历史（EmailSuperviseLog）可查到本次催办。
+        # 仅在真实发信（confirm_send=True）时复制，避免污染 dry_run 验证记录。
+        if obj_in.confirm_send and main_record_id and result.get("success"):
+            main = db.query(EmailRecord).filter(EmailRecord.id == main_record_id).first()
+            if main:
+                recs = []
+                for ref in obj_in.tasks:
+                    rec = EmailRecord(
+                        req_id=main.req_id,
+                        req_name=main.req_name,
+                        email_type=main.email_type,
+                        recipient=main.recipient,
+                        recipient_name=main.recipient_name,
+                        subject=main.subject,
+                        content=main.content,
+                        send_status=main.send_status,
+                        error_msg=main.error_msg,
+                        source=main.source,
+                        sender=main.sender,
+                        ref_type="task_center",
+                        ref_id=f"{ref.source}:{ref.source_id}",
+                    )
+                    db.add(rec)
+                    recs.append(rec)
+                db.commit()
+                for rec in recs:
+                    record_ids.append(rec.id)
+
+        return {
+            "success": result.get("success", False),
+            "record_ids": [i for i in record_ids if i],
+            "message": result.get("message", ""),
+        }
 
 
 task_center_service = TaskCenterService()
