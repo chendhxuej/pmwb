@@ -59,7 +59,8 @@
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
       <el-button
         type="primary"
-        :disabled="!selectedTasks.length"
+        :disabled="!selectedTasks.length || composeLoading"
+        :loading="composeLoading"
         @click="toCompose"
       >撰写催办邮件</el-button>
     </template>
@@ -70,6 +71,8 @@
       title="撰写催办邮件"
       scene="task_center_urge"
       :default-to="[ownerName]"
+      :default-body="composeBody"
+      value-key="email"
       :variables="composeVariables"
       :custom-send="batchSendFn"
       @success="onSent"
@@ -90,7 +93,7 @@
 import { ref, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
-import { getTasks, sendTaskEmail } from '@/api/taskCenter.js'
+import { getTasks, sendTaskEmail, requestTaskCenterDraft } from '@/api/taskCenter.js'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -105,6 +108,8 @@ const selectedTasks = ref([])
 const tableRef = ref(null)
 const composeVisible = ref(false)
 const composeVariables = ref({})
+const composeBody = ref('') // 左侧 Markdown 编辑区默认值（后端按场景装配的草稿）
+const composeLoading = ref(false)
 
 const allChecked = computed(
   () => tasks.value.length > 0 && selectedTasks.value.length === tasks.value.length
@@ -154,27 +159,40 @@ async function onOpen() {
   if (tableRef.value) tableRef.value.toggleAllSelection()
 }
 
-// 进入撰写：把选中的任务结构化后透传 variables（预览/实发共用）
-function toCompose() {
+// 进入撰写：把选中的任务结构化后透传 variables（预览/实发共用），
+// 并拉取后端按场景装配的 Markdown 草稿填充左侧编辑框（保证可手工调整 + 发送时正文非空）
+async function toCompose() {
   if (!selectedTasks.value.length) return
+  composeLoading.value = true
+  const structured = selectedTasks.value.map((t, i) => ({
+    index: i + 1,
+    title: t.title || '（无标题）',
+    source_label: t.source_label || t.source,
+    source: t.source,
+    source_id: t.source_id,
+    owner: t.owner || '未分配',
+    due_date: t.due_date || '',
+    status_label: t.status_label || t.status,
+    priority: t.priority || '',
+    description: pickDescription(t.detail || {}),
+    is_overdue: !!t.is_overdue,
+    is_due_soon: !!t.is_due_soon,
+    source_url: t.source_url || '',
+  }))
   composeVariables.value = {
-    tasks: selectedTasks.value.map((t, i) => ({
-      index: i + 1,
-      title: t.title || '（无标题）',
-      source_label: t.source_label || t.source,
-      source: t.source,
-      source_id: t.source_id,
-      owner: t.owner || '未分配',
-      due_date: t.due_date || '',
-      status_label: t.status_label || t.status,
-      priority: t.priority || '',
-      description: pickDescription(t.detail || {}),
-      is_overdue: !!t.is_overdue,
-      is_due_soon: !!t.is_due_soon,
-      source_url: t.source_url || '',
-    })),
+    tasks: structured,
     sendType: 'urge',
     recipient_name: props.ownerName,
+  }
+  // 拉取 Markdown 草稿（与 TaskCenterView 单任务催办同链路）
+  try {
+    const res = await requestTaskCenterDraft(structured, 'urge', '')
+    composeBody.value = (res && res.body_md) || ''
+  } catch (e) {
+    composeBody.value = ''
+    console.warn('[TaskBatchSupervise] requestTaskCenterDraft failed:', e && e.message)
+  } finally {
+    composeLoading.value = false
   }
   composeVisible.value = true
 }

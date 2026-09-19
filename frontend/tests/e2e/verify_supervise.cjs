@@ -1,6 +1,7 @@
 // 任务中心「批量督办」弹窗接线验证（2026-09-19 新增）
-// 仅验证交互接线：责任人卡片「督办」按钮 → 弹窗打开 → 拉取该人未完结任务 → 默认全选。
-// 不发送真实邮件（遵守邮件红线）。
+// 验证：责任人卡片「督办」按钮 → 弹窗打开 → 拉取该人未完结任务 → 默认全选 →
+//       点击「撰写催办邮件」→ MailComposeDialog 打开且左侧 Markdown 草稿已填充、右侧预览已渲染。
+// 不点击「发送」，避免真实发信（邮件红线）；正文非空即保证不会再报“请输入邮件正文”。
 const puppeteer = require('puppeteer-core');
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:5173';
 const API = process.env.API_URL || 'http://127.0.0.1:8000';
@@ -74,6 +75,34 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       check('默认全选(表头勾选且行勾选数=任务数)', selectedOk, `header=${dlg.headerChecked} checked=${dlg.checked} rows=${dlg.rows} count="${dlg.countText}"`);
       // 截图备查
       await page.screenshot({ path: require('path').resolve(__dirname, '../../tmp_uishots/supervise_dialog.png') });
+
+      // 点击「撰写催办邮件」→ 进入 MailComposeDialog（会拉取草稿 + 预览，不发送）
+      await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('.task-batch-supervise .el-dialog__footer .el-button'));
+        const b = btns.find((x) => x.innerText.includes('撰写催办邮件'));
+        if (b) b.click();
+      });
+      await sleep(2500); // 等草稿拉取 + 预览渲染
+
+      const compose = await page.evaluate(() => {
+        const cd = document.querySelector('.mail-compose-dialog');
+        if (!cd) return null;
+        // 左侧正文编辑区（Markdown textarea）
+        const ta = cd.querySelector('.compose-body textarea, .compose-edit .el-textarea__inner');
+        const bodyVal = ta ? ta.value || '' : '';
+        // 右侧预览 iframe
+        const frame = cd.querySelector('.compose-preview-frame');
+        const previewHasContent = !!(frame && frame.getAttribute('srcdoc') && frame.getAttribute('srcdoc').length > 50);
+        const title = (cd.querySelector('.el-dialog__title')?.innerText || '').trim();
+        return { title, bodyLen: bodyVal.length, bodyHead: bodyVal.slice(0, 40), previewHasContent };
+      });
+      check('撰写弹窗(MailComposeDialog)打开', !!compose, compose ? compose.title : '');
+      if (compose) {
+        check('左侧 Markdown 编辑框已填充草稿(非空)', compose.bodyLen > 0, `len=${compose.bodyLen} head="${compose.bodyHead}"`);
+        check('右侧预览 iframe 已渲染', compose.previewHasContent, `preview=${compose.previewHasContent}`);
+        await page.screenshot({ path: require('path').resolve(__dirname, '../../tmp_uishots/supervise_compose.png') });
+      }
+      // 注意：不点击「发送」，避免真实发信（邮件红线）；正文非空即意味着不会再报“请输入邮件正文”
     }
   }
 
