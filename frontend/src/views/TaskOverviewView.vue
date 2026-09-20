@@ -3,76 +3,108 @@
     <div class="bento-grid">
       <!-- 总览：甜甜圈（整体超期率） + 4 项指标 -->
       <div class="card to-summary">
-        <div class="to-donut">
-          <svg width="104" height="104" viewBox="0 0 104 104">
-            <circle cx="52" cy="52" r="42" fill="none" stroke="#eef2f7" stroke-width="11" />
-            <circle
-              cx="52" cy="52" r="42" fill="none"
-              :stroke="donutColor"
-              stroke-width="11"
-              stroke-linecap="round" stroke-dasharray="263.9"
-              :stroke-dashoffset="donutOffset"
-              transform="rotate(-90 52 52)"
-            />
-          </svg>
-          <div class="to-donut-center">
-            <div class="to-donut-val" :class="{ warn: overall.overdue_rate >= 30 }">{{ overall.overdue_rate || 0 }}%</div>
-            <div class="to-donut-label">整体超期率</div>
+        <div class="card-header to-header">
+          <div class="to-title-group">
+            <span class="to-title">任务总览</span>
+            <span class="to-sub">未完结工作态势一览</span>
           </div>
+          <span class="to-pill"><i class="to-pill-dot"></i>未完结口径</span>
         </div>
-        <div class="to-summary-divider"></div>
-        <div class="to-summary-meta">
-          <div class="to-meta-item">
-            <div class="to-meta-num">{{ overall.total }}</div>
-            <div class="to-meta-lab">未完结总量</div>
+        <div class="to-body">
+          <div class="to-donut-wrap">
+            <div class="to-donut-glow"></div>
+            <div class="to-donut">
+              <svg width="116" height="116" viewBox="0 0 116 116">
+                <circle cx="58" cy="58" r="47" fill="none" stroke="var(--border-subtle)" stroke-width="12" />
+                <circle
+                  cx="58" cy="58" r="47" fill="none"
+                  :stroke="donutColor"
+                  stroke-width="12"
+                  stroke-linecap="round" stroke-dasharray="295.3"
+                  :stroke-dashoffset="donutOffset"
+                  transform="rotate(-90 58 58)"
+                />
+              </svg>
+              <div class="to-donut-center">
+                <div class="to-donut-val" :class="{ warn: overall.overdue_rate >= 30 }">{{ overall.overdue_rate || 0 }}%</div>
+                <div class="to-donut-label">整体超期率</div>
+              </div>
+            </div>
           </div>
-          <div class="to-meta-item">
-            <div class="to-meta-num" :class="{ warn: overall.overdue > 0 }">{{ overall.overdue }}</div>
-            <div class="to-meta-lab">已超期</div>
+          <div class="to-summary-divider"></div>
+          <div class="to-meta-grid">
+            <div class="to-meta-item">
+              <span class="to-meta-dot accent"></span>
+              <div class="to-meta-text">
+                <div class="to-meta-num">{{ overall.total }}</div>
+                <div class="to-meta-lab">未完结总量</div>
+              </div>
+            </div>
+            <div class="to-meta-item">
+              <span class="to-meta-dot danger"></span>
+              <div class="to-meta-text">
+                <div class="to-meta-num" :class="{ warn: overall.overdue > 0 }">{{ overall.overdue }}</div>
+                <div class="to-meta-lab">已超期</div>
+              </div>
+            </div>
+            <div class="to-meta-item">
+              <span class="to-meta-dot warning"></span>
+              <div class="to-meta-text">
+                <div class="to-meta-num" :class="{ block: overall.blocked_total > 0 }">{{ overall.blocked_total }}</div>
+                <div class="to-meta-lab">阻塞挂起</div>
+              </div>
+            </div>
+            <div class="to-meta-item">
+              <span class="to-meta-dot muted"></span>
+              <div class="to-meta-text">
+                <div class="to-meta-num">{{ overall.due_soon }}</div>
+                <div class="to-meta-lab">临期(3天内)</div>
+              </div>
+            </div>
           </div>
-          <div class="to-meta-item">
-            <div class="to-meta-num" :class="{ block: overall.blocked_total > 0 }">{{ overall.blocked_total }}</div>
-            <div class="to-meta-lab">阻塞挂起</div>
-          </div>
-          <div class="to-meta-item">
-            <div class="to-meta-num">{{ overall.due_soon }}</div>
-            <div class="to-meta-lab">临期(3天内)</div>
-          </div>
-        </div>
-        <div class="to-summary-note">
-          <span class="to-note-tag">未完结口径</span>
-          仅 pending + 进行中，排除已完成 / 阻塞挂起
         </div>
       </div>
 
-      <!-- 来源磁贴（点击进入对应来源子页面） -->
-      <div class="src-tiles">
-        <div
-          v-for="t in tiles"
-          :key="t.key"
-          class="card src-tile"
-          :class="{ clickable: t.key !== 'all' }"
-          @click="openSource(t.key)"
-        >
-          <div class="src-tile-top">
-            <span class="src-name">{{ t.label }}</span>
-            <span class="src-ico" :class="'tone-' + t.tone">
-              <el-icon><component :is="t.icon" /></el-icon>
-            </span>
-          </div>
-          <div class="src-count">{{ t.count }}</div>
-          <div class="src-count-sub">
-            在办 {{ t.active }}<template v-if="t.overdue"> · <em class="src-overdue">超期 {{ t.overdue }}</em></template>
-          </div>
-          <div class="src-rate">
-            <span>超期率</span>
-            <span class="src-rate-val" :class="rateCls(t.rate)">{{ t.rate }}%</span>
-          </div>
-          <div class="src-bar">
-            <div class="src-bar-fill" :class="rateCls(t.rate)" :style="{ width: t.rate + '%' }"></div>
+      <!-- 来源磁贴（点击进入全部任务页并按来源自动设置检索条件） -->
+      <section class="src-section">
+        <div class="card-header src-header">
+          <div class="src-header-left">
+            <span class="card-label">任务来源</span>
+            <span class="src-header-sub">点击磁贴进入全部任务页 · 按来源自动检索</span>
           </div>
         </div>
-      </div>
+        <div class="src-tiles">
+          <div
+            v-for="t in tiles"
+            :key="t.key"
+            class="card src-tile"
+            :class="['clickable', { featured: t.key === 'all' }]"
+            @click="openSource(t.key)"
+          >
+            <span class="src-stripe" :class="'tone-' + t.tone"></span>
+            <div class="src-tile-top">
+              <div class="src-id">
+                <span class="src-ico" :class="'tone-' + t.tone">
+                  <el-icon><component :is="t.icon" /></el-icon>
+                </span>
+                <span class="src-name">{{ t.label }}</span>
+              </div>
+              <span class="src-enter">进入 →</span>
+            </div>
+            <div class="src-count">{{ t.count }}</div>
+            <div class="src-count-sub">
+              在办 {{ t.active }}<template v-if="t.overdue"> · <em class="src-overdue">超期 {{ t.overdue }}</em></template>
+            </div>
+            <div class="src-rate">
+              <span>超期率</span>
+              <span class="src-rate-val" :class="rateCls(t.rate)">{{ t.rate }}%</span>
+            </div>
+            <div class="src-bar">
+              <div class="src-bar-fill" :class="rateCls(t.rate)" :style="{ width: t.rate + '%' }"></div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <!-- 责任人分布矩阵：责任人 × 任务来源 × 状态，点击单元格深链到对应来源列表 -->
       <OwnerMatrix
@@ -192,7 +224,7 @@ const overall = computed(() => ({
 }))
 
 const donutOffset = computed(() => {
-  const C = 263.9
+  const C = 295.3
   const rate = Number(summary.value.overdue_rate) || 0
   return C * (1 - rate / 100)
 })
@@ -291,17 +323,70 @@ onMounted(() => {
 /* ---- 总览卡 ---- */
 .to-summary {
   grid-column: span 12;
+  padding: 0;
+  overflow: visible;
+}
+.to-header {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  align-items: center;
+}
+.to-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.to-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.to-sub {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.to-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.to-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.to-body {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 22px 26px;
+  gap: 28px;
+  padding: 24px;
+}
+.to-donut-wrap {
   position: relative;
+  width: 140px;
+  height: 140px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.to-donut-glow {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, var(--accent-soft) 0%, rgba(234, 241, 254, 0) 68%);
 }
 .to-donut {
   position: relative;
-  width: 104px;
-  height: 104px;
-  flex-shrink: 0;
+  width: 116px;
+  height: 116px;
 }
 .to-donut-center {
   position: absolute;
@@ -312,10 +397,11 @@ onMounted(() => {
   justify-content: center;
 }
 .to-donut-val {
-  font-size: 22px;
+  font-size: 27px;
   font-weight: 800;
   color: var(--text-primary);
   line-height: 1;
+  font-family: var(--font-mono);
 }
 .to-donut-val.warn {
   color: var(--danger);
@@ -323,23 +409,42 @@ onMounted(() => {
 .to-donut-label {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 4px;
+  margin-top: 5px;
+  font-weight: 500;
 }
 .to-summary-divider {
   width: 1px;
-  height: 56px;
+  height: 72px;
   background: var(--border);
+  flex-shrink: 0;
 }
-.to-summary-meta {
+.to-meta-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px 20px;
+}
+.to-meta-item {
   display: flex;
-  gap: 36px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
+.to-meta-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.to-meta-dot.accent { background: var(--accent); }
+.to-meta-dot.danger { background: var(--danger); }
+.to-meta-dot.warning { background: var(--warning); }
+.to-meta-dot.muted { background: var(--text-muted); }
 .to-meta-num {
-  font-size: 26px;
+  font-size: 25px;
   font-weight: 800;
   font-family: var(--font-mono);
   color: var(--text-primary);
+  line-height: 1.1;
 }
 .to-meta-num.warn {
   color: var(--danger);
@@ -348,39 +453,36 @@ onMounted(() => {
   color: var(--warning);
 }
 .to-meta-lab {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-secondary);
-  margin-top: 2px;
-}
-/* 口径提示：告诉使用者本页是未完结口径，与子页签在办口径同源 */
-.to-summary-note {
-  position: absolute;
-  right: 26px;
-  top: 20px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.to-note-tag {
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
+  margin-top: 3px;
 }
 
-/* ---- 来源磁贴 ---- */
-.src-tiles {
+/* ---- 来源磁贴区块 ---- */
+.src-section {
   grid-column: span 12;
+}
+.src-header {
+  padding: 14px 4px 12px;
+  align-items: center;
+}
+.src-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.src-header-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.src-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
   gap: 16px;
 }
 .src-tile {
-  padding: 18px;
-  transition: all var(--transition-fast);
+  padding: 0 18px 18px;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
   position: relative;
   overflow: hidden;
 }
@@ -388,28 +490,43 @@ onMounted(() => {
   cursor: pointer;
 }
 .src-tile.clickable:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   box-shadow: var(--shadow-elevated);
 }
+.src-tile.featured {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, var(--accent-soft) 0%, var(--surface) 46%);
+}
+.src-stripe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+.src-stripe.tone-accent { background: var(--accent); }
+.src-stripe.tone-danger { background: var(--danger); }
+.src-stripe.tone-warning { background: var(--warning); }
+.src-stripe.tone-success { background: var(--success); }
+.src-stripe.tone-muted { background: var(--text-muted); }
 .src-tile-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
+  justify-content: flex-start;
+  margin: 18px 0 14px;
   gap: 8px;
 }
-.src-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.src-id {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
 }
 .src-ico {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -433,8 +550,31 @@ onMounted(() => {
   background: var(--success-soft);
   color: var(--success);
 }
+.src-name {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.src-enter {
+  position: absolute;
+  top: 15px;
+  right: 16px;
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  opacity: 0;
+  transform: translateX(-5px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+.src-tile.clickable:hover .src-enter {
+  opacity: 1;
+  transform: none;
+}
 .src-count {
-  font-size: 30px;
+  font-size: 32px;
   font-weight: 800;
   font-family: var(--font-mono);
   color: var(--text-primary);
@@ -443,7 +583,7 @@ onMounted(() => {
 .src-count-sub {
   font-size: 11.5px;
   color: var(--text-muted);
-  margin-top: 3px;
+  margin-top: 4px;
 }
 .src-overdue {
   font-style: normal;
@@ -466,9 +606,9 @@ onMounted(() => {
 .src-rate-val.rd-mid { color: var(--warning); }
 .src-rate-val.rd-low { color: var(--success); }
 .src-bar {
-  height: 6px;
+  height: 5px;
   border-radius: 6px;
-  background: #eef2f7;
+  background: var(--border-subtle);
   margin-top: 6px;
   overflow: hidden;
 }
@@ -490,9 +630,18 @@ onMounted(() => {
   grid-template-columns: repeat(12, 1fr);
   gap: 18px;
 }
-@media (max-width: 1280px) {
-  .to-summary-note {
+
+/* 中等屏：指标网格仍保持两列，甜甜圈与指标上下略紧凑 */
+@media (max-width: 1100px) {
+  .to-body {
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .to-summary-divider {
     display: none;
+  }
+  .to-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>
