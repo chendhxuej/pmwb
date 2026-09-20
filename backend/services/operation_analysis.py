@@ -61,6 +61,31 @@ CATEGORY_DEFAULT_TYPE = {
 
 _LABEL_TO_KEY = {label: key for key, label in TEMPLATE_FIELDS}
 
+# 分析正文核心字段：缺失过多必须显式告警，禁止「静默丢字段」
+# （2026-09-20 事故：191/199 两份「填写说明」模板文件正文七字段全空却无任何提示）
+CORE_ANALYSIS_KEYS: List[tuple] = [
+    ("background", "课题背景说明"),
+    ("scenario", "操作场景介绍"),
+    ("biz_flow", "业务流程梳理"),
+    ("biz_rule", "业务规则梳理"),
+    ("monitoring", "业务监控梳理"),
+    ("analysis_goal", "本次分析目标"),
+    ("data_analysis", "数据分析过程"),
+]
+
+
+def _missing_field_warnings(fields: Dict[str, str]) -> List[str]:
+    """正文核心字段缺失告警：全空→强提示核对模板；部分空→提示可手工补录。"""
+    missing = [label for key, label in CORE_ANALYSIS_KEYS if not fields.get(key)]
+    if len(missing) >= len(CORE_ANALYSIS_KEYS) - 1:
+        return [
+            f"未识别到分析正文（{'、'.join(missing)} 全部为空）——该文件可能不是标准模板布局，"
+            f"请核对后重新上传，勿直接确认导入"
+        ]
+    if missing:
+        return [f"以下字段未识别到内容，可导入后在工单详情手工补录：{'、'.join(missing)}"]
+    return []
+
 
 _gen_counter = 0
 
@@ -69,6 +94,32 @@ def _gen_no(prefix: str) -> str:
     global _gen_counter
     _gen_counter += 1
     return f"{prefix}-{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}{_gen_counter:02d}"
+
+
+# Excel 日期序列号合理下限（1982-02-15 ≈ 30000）。低于该值不可能是真实日期序列号，
+# 多为「9.24」这类「月.日」手写值被 Excel 存成数字，若照序列号解析会得到 1900-01-xx 的脏数据。
+_MIN_EXCEL_SERIAL = 30000
+
+
+def _parse_month_day(v: float) -> Optional[date]:
+    """把「9.24」这类数字按 M.D 解释为当年（必要时次年）的日期。失败返回 None。"""
+    try:
+        iv = int(v)
+        frac = round((float(v) - iv) * 100)
+    except Exception:
+        return None
+    if not (1 <= iv <= 12 and 1 <= frac <= 31):
+        return None
+    today = datetime.now().date()
+    for year in (today.year, today.year + 1):
+        try:
+            d = date(year, iv, frac)
+        except ValueError:
+            continue
+        # 明显早于当前（>180 天）视为跨年填写，取次年
+        if (today - d).days <= 180:
+            return d
+    return None
 
 
 def _parse_date(v) -> Optional[date]:
@@ -80,16 +131,24 @@ def _parse_date(v) -> Optional[date]:
     if isinstance(v, date):
         return v
     if isinstance(v, (int, float)):
-        try:
-            return (datetime(1899, 12, 30) + timedelta(days=float(v))).date()
-        except Exception:
-            return None
+        fv = float(v)
+        # 仅合理区间内的数值才按 Excel 序列号解析；其余按「月.日」尝试
+        if fv >= _MIN_EXCEL_SERIAL:
+            try:
+                return (datetime(1899, 12, 30) + timedelta(days=fv)).date()
+            except Exception:
+                return None
+        return _parse_month_day(fv)
     s = str(v).strip()
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y年%m月%d日", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
         try:
             return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
+    # 「9.24」「9-24」「9月24日」「9月22号」等缺年份写法 → 按当年/次年补全
+    m = re.fullmatch(r"(\d{1,2})[.\-/月](\d{1,2})[日号]?", s)
+    if m:
+        return _parse_month_day(float(f"{m.group(1)}.{m.group(2)}"))
     return None
 
 
@@ -265,6 +324,28 @@ def _parse_analysis_fields(ws) -> Dict[str, str]:
         if b and str(b).strip():
             data[key] = str(b).strip()
 
+    # ========== 布局5「填写说明模板」：colA=长描述提示、colB=label（带"："）、colC=value ==========
+    # 例：周大宁/工号权限类文件。colB 才是真标签，内容在 colC；此前只扫 colA 导致正文全丢。
+    for r in range(1, ws.max_row + 1):
+        b = ws.cell(row=r, column=2).value
+        if not b:
+            continue
+        b_raw = str(b).strip()
+        b_label = _strip_colon(b_raw)
+        if b_label not in _LABEL_TO_KEY:
+            continue
+        key = _LABEL_TO_KEY[b_label]
+        if data.get(key):  # 已解析则不覆盖
+            continue
+        c = ws.cell(row=r, column=3).value
+        if c and str(c).strip():
+            c_s = str(c).strip()
+            # 填写说明模板里 colC 常把标签再抄一遍（如「课题背景说明：\n正文」），去掉重复前缀
+            if re.match(r"^%s[：:]\s*" % re.escape(b_label), c_s):
+                c_s = re.sub(r"^%s[：:]\s*" % re.escape(b_label), "", c_s, count=1).strip()
+            if c_s:
+                data[key] = c_s
+
     # ========== 特殊处理：「分析人员信息」从 row3 解析姓名/团队 ==========
     # 布局2（顾杨豪）：colB = 含人员和团队的信息
     # 布局3（孟华）：colB = 含人员和团队的信息（colC 为空）
@@ -308,33 +389,38 @@ def _parse_analysis_fields(ws) -> Dict[str, str]:
     for r in range(1, ws.max_row + 1):
         a = ws.cell(row=r, column=1).value
         b = ws.cell(row=r, column=2).value
-        c = ws.cell(row=r, column=3).value
-        d = ws.cell(row=r, column=4).value
         a_s = _strip_colon(str(a).strip()) if a else ""
         b_s = _strip_colon(str(b).strip()) if b else ""
-        c_s = str(c).strip() if c else ""
-        d_s = str(d).strip() if d else ""
 
         # 检测"分析结果"行（布局2 顾杨豪：colB；布局3 孟华：colA）
         is_result_header = (a_s == "分析结果") or (b_s == "分析结果")
         if is_result_header:
+            # 逐行识别子标题与内容，兼容两种排布：
+            #   ① colC=子标题、colD=内容（周大宁/工号权限「填写说明」模板）
+            #   ② colB=子标题、colC=内容（孟华/顾杨豪模板）
+            # 旧实现用外层行的 colB 匹配且命中即 break → 多行结果只落进第一项，其余四项静默丢失。
+            label_keys = {label: key for key, label in result_labels.items()}
             for rr in range(r, ws.max_row + 1):
+                aa = ws.cell(row=rr, column=1).value
+                bb = ws.cell(row=rr, column=2).value
                 cc = ws.cell(row=rr, column=3).value
                 dd = ws.cell(row=rr, column=4).value
-                if not cc and not dd:
-                    continue
+                bb_s = _strip_colon(str(bb).strip()) if bb else ""
+                aa_s = _strip_colon(str(aa).strip()) if aa else ""
+                # 区块结束：进入「遗留任务」区
+                if bb_s.startswith("遗留任务") or aa_s.startswith("遗留任务"):
+                    break
                 cc_str = str(cc).strip() if cc else ""
                 dd_str = str(dd).strip() if dd else ""
-                if not cc_str and not dd_str:
+                key = label_keys.get(cc_str) or label_keys.get(bb_s)
+                if not key or data.get(key):
                     continue
-                for key, label in result_labels.items():
-                    if cc_str == label and not data.get(key):
-                        data[key] = _get_content(cc, dd)
-                        break
-                    # 布局3（孟华）：colB=子标题，colC=内容
-                    if b_s == label and not data.get(key):
-                        data[key] = _get_content(cc, dd)
-                        break
+                if cc_str in label_keys:  # 排布①：子标题在列C，内容在列D
+                    content = dd_str
+                else:  # 排布②：子标题在列B，内容在列C
+                    content = cc_str
+                if content:
+                    data[key] = content
             break
 
     # ========== 标题兜底 ==========
@@ -444,6 +530,7 @@ def parse_analysis_workbook(file_bytes: bytes) -> Dict:
     warnings.extend(legacy_warnings)
     if not fields.get("topic_name"):
         warnings.append("未识别到「课题名称」，将使用兜底标题，可手工修正")
+    warnings.extend(_missing_field_warnings(fields))
     preview = []
     for i, t in enumerate(legacy):
         preview.append(
@@ -486,6 +573,7 @@ def import_analysis_workbook(
         raise ValueError(f"无法读取 Excel 文件（可能不是 xlsx 或损坏）：{e}")
     ws = wb.worksheets[0]
     fields = _parse_analysis_fields(ws)
+    warnings.extend(_missing_field_warnings(fields))
 
     topic = fields.get("topic_name") or "未命名分析工单（导入）"
     issue_no = _gen_no("ANA")
