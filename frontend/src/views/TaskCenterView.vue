@@ -29,6 +29,15 @@
       </el-card>
     </div>
 
+    <!-- 来源切换（2026-09-20 精简后：来源不再独立子页，统一在全部任务页通过下拉检索） -->
+    <div class="source-bar">
+      <span class="source-bar-label">来源</span>
+      <el-select v-model="filters.source" placeholder="全部来源" clearable style="width: 168px">
+        <el-option label="全部来源" value="" />
+        <el-option v-for="s in SOURCE_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
+      </el-select>
+    </div>
+
     <!-- 需求催办 Tab：保留按 SA 分组批量催办交互 -->
     <template v-if="activeSource === 'requirement_urge'">
       <div class="table-hint">
@@ -417,24 +426,26 @@ const SOURCE_LABELS = {
   active_optimization: '主动优化',
 }
 
-// 当前来源由二级路由 meta.source 决定（空 = 全部任务）；顶部 el-tabs 已退役，改由左侧二级导航承载
-const activeSource = computed(() => route.meta?.source || '')
+// 当前来源：优先地址栏 ?source=（总览下钻自动设置检索条件），其次旧二级路由 meta.source（现已废弃恒空）；空 = 全部任务
+const activeSource = computed(() => route.query.source || route.meta?.source || '')
+// 来源下拉选项（全部来源 + 8 个聚合来源），供用户在全部任务页手动切换来源
+const SOURCE_OPTIONS = Object.entries(SOURCE_LABELS).map(([value, label]) => ({ value, label }))
 const pageTitle = computed(() =>
   activeSource.value
     ? `任务中心 · ${SOURCE_LABELS[activeSource.value] || activeSource.value}`
     : '任务中心'
 )
-const pageSubtitle = computed(() =>
-  activeSource.value
-    ? '该来源任务列表（在办口径，不含已完成/挂起）'
-    : '需求催办 / 邮件中心 / 运营监控 —— 三端任务聚合（在办口径）'
-)
+const pageSubtitle = computed(() => {
+  if (activeSource.value === 'requirement_urge') return '待催办需求（团队评估环节，按 SA 分组催办）'
+  if (activeSource.value) return '该来源任务列表（在办口径，不含已完成/挂起）'
+  return '需求催办 / 邮件中心 / 运营监控 —— 三端任务聚合（在办口径）'
+})
 
 const loading = ref(false)
 const stats = ref({ total: 0, overdue: 0, due_soon: 0, by_source: {}, by_status: {}, by_issue_type: {} })
 const tasks = ref([])
 const selectedTasks = ref([])
-const filters = reactive({ status: '', onlyOverdue: false, includeDone: false, keyword: '', issueType: '', owners: [] })
+const filters = reactive({ source: '', status: '', onlyOverdue: false, includeDone: false, keyword: '', issueType: '', owners: [] })
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
 
 // 运营问题类型汇聚列表
@@ -464,7 +475,7 @@ async function loadTasks() {
       include_done: filters.includeDone,
       only_overdue: filters.onlyOverdue,
     }
-    if (activeSource.value) params.source = activeSource.value
+    if (filters.source) params.source = filters.source
     if (filters.status) params.status = filters.status
     // 「问题类型」仅对运营问题来源有意义，切到其他来源后忽略残留值（避免筛出空列表）
     if (filters.issueType && activeSource.value === 'operation_issue') {
@@ -482,10 +493,15 @@ async function loadTasks() {
   }
 }
 
-function refreshAll() {
-  loadStats()
+// 按当前来源分流加载：需求催办走 SA 分组视图，其余走统一任务表格
+function loadBySource() {
   if (activeSource.value === 'requirement_urge') loadUrgeGroups()
   else loadTasks()
+}
+
+function refreshAll() {
+  loadStats()
+  loadBySource()
 }
 
 // ---- 深链筛选：任务总览「责任人分布」矩阵 → /task-center/{来源}?owner=xx&status=yy ----
@@ -495,6 +511,7 @@ const VALID_STATUS_KEYS = ['pending', 'in_progress', 'done', 'blocked']
 function filtersMatchQuery() {
   const q = route.query
   return (
+    filters.source === (q.source ? String(q.source) : '') &&
     (filters.owners || []).join(',') === (q.owner ? String(q.owner) : '') &&
     filters.status === (q.status ? String(q.status) : '') &&
     filters.issueType === (q.issue_type ? String(q.issue_type) : '') &&
@@ -505,6 +522,7 @@ function filtersMatchQuery() {
 // 路由 query → 筛选状态（返回是否发生变化，供调用方决定要不要重新拉数据）
 function applyRouteFilters() {
   const q = route.query
+  const nextSource = q.source ? String(q.source) : ''
   const nextOwners = q.owner
     ? String(q.owner).split(',').map((s) => s.trim()).filter(Boolean)
     : []
@@ -512,10 +530,12 @@ function applyRouteFilters() {
   const it = q.issue_type ? String(q.issue_type) : ''
   const kw = q.keyword ? String(q.keyword) : ''
   const changed =
+    nextSource !== filters.source ||
     nextOwners.join(',') !== (filters.owners || []).join(',') ||
     st !== filters.status ||
     it !== filters.issueType ||
     kw !== filters.keyword
+  filters.source = nextSource
   filters.owners = nextOwners
   filters.status = st
   filters.issueType = it
@@ -527,6 +547,8 @@ function applyRouteFilters() {
 function syncQuery() {
   const q = { ...route.query }
   const owners = filters.owners || []
+  if (filters.source) q.source = filters.source
+  else delete q.source
   if (owners.length) q.owner = owners.join(',')
   else delete q.owner
   if (filters.status) q.status = filters.status
@@ -536,6 +558,7 @@ function syncQuery() {
   if (filters.keyword) q.keyword = filters.keyword
   else delete q.keyword
   const same =
+    (q.source || '') === (route.query.source || '') &&
     (q.owner || '') === (route.query.owner || '') &&
     (q.status || '') === (route.query.status || '') &&
     (q.issue_type || '') === (route.query.issue_type || '') &&
@@ -545,13 +568,13 @@ function syncQuery() {
 
 // 筛选变化 → 地址栏同步 + 重新拉取（与地址栏一致的变更说明来自路由，跳过避免重复请求）
 watch(
-  () => [filters.status, filters.issueType, filters.keyword, filters.onlyOverdue, filters.includeDone],
+  () => [filters.source, filters.status, filters.issueType, filters.keyword, filters.onlyOverdue, filters.includeDone],
   () => {
     if (filtersMatchQuery()) return
     pager.page = 1
     selectedTasks.value = []
     syncQuery()
-    loadTasks()
+    loadBySource()
   }
 )
 
@@ -562,25 +585,12 @@ watch(
     pager.page = 1
     selectedTasks.value = []
     syncQuery()
-    loadTasks()
+    loadBySource()
   },
   { deep: true }
 )
 
-// 来源切换（左侧二级导航）→ 重置分页、应用深链筛选、重新加载
-watch(
-  () => route.meta?.source,
-  () => {
-    pager.page = 1
-    selectedTasks.value = []
-    applyRouteFilters()
-    if (activeSource.value === 'requirement_urge') loadUrgeGroups()
-    else loadTasks()
-    loadStats()
-  }
-)
-
-// 地址栏 query 变化（矩阵下钻 / 手动改地址栏）→ 同步到筛选并重新拉取
+// 地址栏 query 变化（总览矩阵下钻 / 来源磁贴下钻 / 手动改地址栏）→ 同步到筛选并重新加载
 let filtersInitialized = false
 watch(
   () => route.query,
@@ -589,7 +599,7 @@ watch(
     if (changed && filtersInitialized) {
       pager.page = 1
       selectedTasks.value = []
-      if (activeSource.value !== 'requirement_urge') loadTasks()
+      loadBySource()
     }
   }
 )
@@ -923,11 +933,10 @@ function openUrgeSingle(item) {
 }
 
 onMounted(() => {
-  // 首次进入时先应用地址栏深链（?owner=&status=&keyword=），再做首次拉取
+  // 首次进入时先应用地址栏深链（?source=&owner=&status=&keyword=），再做首次拉取
   applyRouteFilters()
   loadStats()
-  if (activeSource.value === 'requirement_urge') loadUrgeGroups()
-  else loadTasks()
+  loadBySource()
   filtersInitialized = true
 })
 </script>
@@ -969,6 +978,20 @@ onMounted(() => {
 }
 .stat-warning .stat-value {
   color: #e6a23c;
+}
+.source-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+.source-bar-label {
+  font-size: 13px;
+  color: #606266;
+  font-weight: 600;
 }
 .filter-bar {
   display: flex;

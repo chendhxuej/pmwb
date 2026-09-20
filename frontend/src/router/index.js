@@ -15,8 +15,8 @@ const routes = [
         meta: { title: '首页看板', icon: 'House' },
       },
       {
-        // 任务中心：2026-09-18 由单页改左导航二级结构（对齐运营监控）
-        // 二级 = 任务总览（仪表盘）+ 全部任务 + 8 个来源列表；
+        // 任务中心：2026-09-18 由单页改左导航二级结构；2026-09-20 精简为「任务总览 + 全部任务」两个子页，
+        // 8 个来源不再单独建子路由，统一在「全部任务」页通过 ?source= 检索条件展示（下钻即自动设置筛选）。
         // /task-center 保留重定向到总览，旧深链 ?tab=xxx 不再使用（催办中心深链仍可重定向）。
         path: 'task-center',
         component: () => import('@/views/TaskCenterLayout.vue'),
@@ -34,54 +34,6 @@ const routes = [
             name: 'TaskAll',
             component: () => import('@/views/TaskCenterView.vue'),
             meta: { title: '全部任务', icon: 'Tickets' },
-          },
-          {
-            path: 'todo',
-            name: 'TaskTodo',
-            component: () => import('@/views/TaskCenterView.vue'),
-            meta: { title: '个人待办', source: 'todo' },
-          },
-          {
-            path: 'operation-issue',
-            name: 'TaskOperationIssue',
-            component: () => import('@/views/TaskCenterView.vue'),
-            meta: { title: '运营问题', source: 'operation_issue' },
-          },
-          {
-            path: 'research-issue',
-            name: 'TaskResearchIssue',
-            component: () => import('@/views/TaskCenterView.vue'),
-            meta: { title: '一线调研', source: 'research_issue' },
-          },
-          {
-            path: 'dev-ticket',
-            name: 'TaskDevTicket',
-            component: () => import('@/views/TaskCenterView.vue'),
-            meta: { title: '开发工单', source: 'dev_ticket' },
-          },
-          {
-            path: 'meeting-action',
-            name: 'TaskMeetingAction',
-            component: () => import('@/views/TaskCenterView.vue'),
-            meta: { title: '会议行动项', source: 'meeting_action' },
-          },
-          {
-            path: 'key-work',
-            name: 'TaskKeyWork',
-            component: () => import('@/views/TaskCenterView.vue'),
-            meta: { title: '重点工作', source: 'key_work' },
-          },
-          {
-            path: 'requirement-urge',
-            name: 'TaskRequirementUrge',
-            component: () => import('@/views/TaskCenterView.vue'),
-            meta: { title: '需求催办', source: 'requirement_urge' },
-          },
-          {
-            path: 'active-optimization',
-            name: 'TaskActiveOptimization',
-            component: () => import('@/views/TaskCenterView.vue'),
-            meta: { title: '主动优化', source: 'active_optimization' },
           },
         ],
       },

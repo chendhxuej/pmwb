@@ -247,17 +247,15 @@ const categoryRows = computed(() =>
     .map((m) => ({ key: m.key, label: m.label }))
 )
 
-const slugOf = (source) => (SOURCE_META.find((m) => m.key === source) || {}).slug || 'all'
-
-// 来源磁贴 → 对应来源子页面（「全部」磁贴仅作汇总展示）
+// 来源磁贴 → 全部任务页并按来源自动设置检索条件（2026-09-20 精简：不再进来源子页）
 const openSource = (key) => {
   if (!key || key === 'all') return
-  router.push(`/task-center/${slugOf(key)}`)
+  router.push({ path: '/task-center/all', query: { source: key } })
 }
 
-// 矩阵格子 → 对应来源子页面并按人/状态下钻（深链契约 ?owner=&status=）
+// 矩阵格子 → 全部任务页并按来源/责任人/状态自动设置检索条件（深链契约 ?source=&owner=&status=）
 const jumpToTasks = (owner, source, status) => {
-  router.push({ path: `/task-center/${slugOf(source)}`, query: { owner, status } })
+  router.push({ path: '/task-center/all', query: { source, owner, status } })
 }
 
 // 人员卡片督办入口 → 打开批量督办弹窗（弹窗内部按责任人拉取在途任务）

@@ -178,11 +178,11 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
       && ov.blocks.some((b) => /^逾期 \d+$/.test(b.overdueTag));
     check('超期责任人显示逾期 tag', overdueTagOk, '');
 
-    // ---- 3. 二级导航 ----
-    const expectNav = ['任务总览', '全部任务', ...SOURCES.map((s2) => s2.label)];
+    // ---- 3. 二级导航（2026-09-20 精简：仅总览 + 全部任务，来源不再独立子页）----
+    const expectNav = ['任务总览', '全部任务'];
     const navOk = expectNav.every((n) => ov.navChildren.includes(n));
-    check('二级导航含总览/全部/8 来源', navOk, `nav=${ov.navChildren.join(',')}`);
-    check('主动优化页签已补齐', ov.navChildren.includes('主动优化'), '');
+    check('二级导航含总览/全部', navOk, `nav=${ov.navChildren.join(',')}`);
+    check('二级导航不含来源子页(已精简)', !SOURCES.some((s2) => ov.navChildren.includes(s2.label)), `nav=${ov.navChildren.join(',')}`);
     check('当前高亮=任务总览', ov.activeChild.includes('任务总览'), ov.activeChild.join(','));
   }
 
@@ -245,7 +245,7 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
       `dom=${domColSum.join(',')} api=${colSum.join(',')}`);
   }
 
-  // ---- 5. 格子深链下钻 ----
+  // ---- 5. 格子深链下钻（2026-09-20 精简后：下钻到全部任务页并自动设置 ?source=&owner=&status=）----
   apiCalls.length = 0;
   const jump = await page.evaluate(() => {
     const b = document.querySelector('.hm-block');
@@ -254,10 +254,12 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
     const headers = Array.from(b.querySelectorAll('thead th')).map((t) => t.innerText.trim());
     for (const tr of rows) {
       const tds = Array.from(tr.querySelectorAll('td'));
+      const cat = tds[0].innerText.trim();
+      if (cat === '需求催办') continue; // SA 分组视图无 filter-bar，下钻验证跳过该来源
       for (let i = 1; i < tds.length - 1; i++) {
         const cell = tds[i].querySelector('.hm-cell:not(.hm-cell-empty)');
         if (cell) {
-          const info = { name, cat: tds[0].innerText.trim(), stLabel: headers[i], val: cell.innerText.trim() };
+          const info = { name, cat, stLabel: headers[i], val: cell.innerText.trim() };
           cell.click();
           return info;
         }
@@ -269,52 +271,49 @@ const slugOf = (k) => (SOURCES.find((s) => s.key === k) || {}).slug || k;
   await sleep(2500);
   if (jump) {
     const stKey = Object.entries(STATUS_LABELS).find(([, v]) => v === jump.stLabel)?.[0];
-    const slug = slugOf((SOURCES.find((s2) => s2.label === jump.cat) || {}).key);
+    const srcKey = (SOURCES.find((s2) => s2.label === jump.cat) || {}).key;
     const u = new URL(page.url());
-    check('格子下钻到对应来源子页', u.pathname === `/task-center/${slug}`, `${page.url()} expect=/task-center/${slug}`);
+    check('格子下钻到全部任务页(all)', u.pathname === '/task-center/all', `${page.url()} expect=/task-center/all`);
+    check('下钻 query 带 source', u.searchParams.get('source') === srcKey, `source=${u.searchParams.get('source')} expect=${srcKey}`);
     check('下钻 query 带 owner', u.searchParams.get('owner') === jump.name, `owner=${u.searchParams.get('owner')}`);
     check('下钻 query 带 status', u.searchParams.get('status') === stKey, `status=${u.searchParams.get('status')} expect=${stKey}`);
     const called = apiCalls.some((c) => c.includes(`owners=${jump.name}`) && c.includes(`status=${stKey}`)
-      && c.includes(`source=${(SOURCES.find((s2) => s2.label === jump.cat) || {}).key}`));
-    check('列表页按深链参数拉取(owners+status+source)', called, apiCalls[0] || 'no call');
+      && c.includes(`source=${srcKey}`));
+    check('列表页按深链参数拉取(owner+status+source)', called, apiCalls[0] || 'no call');
 
     // 列表页可见筛选控件回填
     const back = await page.evaluate(() => {
       const sel = document.querySelector('.filter-bar .el-select');
+      const srcSel = document.querySelector('.source-bar .el-select');
       const tags = Array.from(document.querySelectorAll('.filter-bar .el-tag, .filter-bar .el-select__tags-text')).map((t) => t.innerText.trim());
       const statusText = sel ? sel.innerText.trim() : '';
+      const srcText = srcSel ? srcSel.innerText.trim() : '';
       const title = (document.querySelector('.pm-page-header__title')?.innerText || '').trim();
-      const bodyText = document.body.innerText;
-      return { statusText, tags, title, bodyText, tabs: document.querySelectorAll('.task-tabs').length };
+      return { statusText, srcText, tags, title, tabs: document.querySelectorAll('.task-tabs').length };
     });
-    check('来源页标题含来源名', back.title === `任务中心 · ${jump.cat}`, back.title);
+    check('列表页标题=任务中心·来源名', back.title === `任务中心 · ${jump.cat}`, back.title);
+    check('来源下拉回填为下钻来源', back.srcText.includes(jump.cat), `sourceSelect=${back.srcText}`);
     check('状态筛选回填', back.statusText.includes(jump.stLabel), `statusSelect=${back.statusText}`);
     check('责任人筛选回填', back.tags.some((t) => t.includes(jump.name)), `tags=${back.tags.join(',')}`);
     check('顶部 el-tabs 已退役', back.tabs === 0, '');
   } else {
-    check('格子深链下钻', false, '未找到可点击的非空格子');
+    check('格子深链下钻', false, '未找到可点击的非空格子(或仅剩需求催办)');
   }
 
-  // ---- 6. 各子路由冒烟 ----
-  for (const s2 of [{ slug: 'all', label: '全部任务' }, ...SOURCES]) {
-    apiCalls.length = 0;
-    await page.goto(`${BASE}/task-center/${s2.slug}`, { waitUntil: 'networkidle2', timeout: 45000 });
-    await sleep(1200);
-    const st = await page.evaluate(() => ({
-      hasRoot: !!document.querySelector('.task-center'),
-      empty: document.querySelectorAll('.el-table__empty-block').length > 0,
-      title: (document.querySelector('.pm-page-header__title')?.innerText || '').trim(),
-      navActive: Array.from(document.querySelectorAll('.nav-child.active')).map((b) => b.innerText.trim()),
-    }));
-    const noErr = errs.filter((e) => !e.includes('favicon')).length === 0;
-    check(`子页 /task-center/${s2.slug} 渲染`, st.hasRoot && noErr, `title=${st.title} active=${st.navActive.join(',')} errs=${errs.length}`);
-    const expectTitle = s2.slug === 'all' ? '任务中心' : `任务中心 · ${s2.label}`;
-    check(`子页 /task-center/${s2.slug} 标题正确`, st.title === expectTitle, `dom=${st.title} expect=${expectTitle}`);
-    if (s2.slug !== 'all') {
-      const calledSrc = apiCalls.some((c) => c.includes(`source=${s2.key}`));
-      check(`子页 /task-center/${s2.slug} 按来源拉取`, calledSrc || s2.key === 'requirement_urge', apiCalls[0] || 'no call');
-    }
-  }
+  // ---- 6. 全部任务页冒烟（精简后仅 /task-center/all 一个列表页）----
+  apiCalls.length = 0;
+  await page.goto(`${BASE}/task-center/all`, { waitUntil: 'networkidle2', timeout: 45000 });
+  await sleep(1200);
+  const allSt = await page.evaluate(() => ({
+    hasRoot: !!document.querySelector('.task-center'),
+    title: (document.querySelector('.pm-page-header__title')?.innerText || '').trim(),
+    navActive: Array.from(document.querySelectorAll('.nav-child.active')).map((b) => b.innerText.trim()),
+    sourceBar: !!document.querySelector('.source-bar .el-select'),
+  }));
+  const allNoErr = errs.filter((e) => !e.includes('favicon')).length === 0;
+  check('子页 /task-center/all 渲染', allSt.hasRoot && allNoErr, `title=${allSt.title} active=${allSt.navActive.join(',')} errs=${errs.length}`);
+  check('子页 /task-center/all 标题=任务中心', allSt.title === '任务中心', `dom=${allSt.title}`);
+  check('子页 /task-center/all 含来源下拉', allSt.sourceBar, '');
 
   // ---- 7. 无 JS 错误 ----
   const realErrs = errs.filter((e) => !e.includes('favicon'));
