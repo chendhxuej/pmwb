@@ -43,10 +43,12 @@ export function previewTaskEmail(tasks, sendType) {
 // 邮件正文 Markdown 草稿（左侧 Markdown 编辑区默认值）
 // 2026-09-07：后端按场景装配引导语 + 任务卡片 Markdown 源（含 H3/超期/字段表/工单内容），
 // 用户可基于此继续编辑；编辑后通过 TaskSendRequest.body 透传回后端再次渲染。
-export function requestTaskCenterDraft(tasks, sendType, body) {
+// 2026-09-20：新增 recipient_name，用于后端生成针对性主题（如「X，您有 N 项待办」）。
+export function requestTaskCenterDraft(tasks, sendType, body, recipientName) {
   return request.post('/task-center/draft', {
     tasks,
     send_type: sendType || 'urge',
     body: body || '',
+    recipient_name: recipientName || '',
   })
 }

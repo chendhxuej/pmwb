@@ -11,34 +11,19 @@
 
     <!-- 统计卡片 -->
     <el-row :gutter="12" class="stats-row">
-      <el-col :span="3">
-        <el-card shadow="hover"><div class="stat-item"><div class="stat-value" v-countup="stats.total"></div><div class="stat-label">工单总数</div></div></el-card>
-      </el-col>
-      <el-col :span="3">
-        <el-card shadow="hover" class="status-pending"><div class="stat-item"><div class="stat-value" v-countup="stats.pending"></div><div class="stat-label">待处理</div></div></el-card>
-      </el-col>
-      <el-col :span="3">
-        <el-card shadow="hover" class="status-processing"><div class="stat-item"><div class="stat-value" v-countup="stats.processing"></div><div class="stat-label">处理中</div></div></el-card>
-      </el-col>
-      <el-col :span="3">
-        <el-card shadow="hover" class="status-verify"><div class="stat-item"><div class="stat-value" v-countup="stats.verify"></div><div class="stat-label">待验证</div></div></el-card>
-      </el-col>
-      <el-col :span="3">
-        <el-card shadow="hover" class="status-resolved"><div class="stat-item"><div class="stat-value" v-countup="stats.resolved"></div><div class="stat-label">已解决</div></div></el-card>
-      </el-col>
-      <el-col :span="3">
-        <el-card shadow="hover" class="status-closed"><div class="stat-item"><div class="stat-value" v-countup="stats.closed"></div><div class="stat-label">已关闭</div></div></el-card>
-      </el-col>
-      <el-col :span="3">
-        <el-card shadow="hover" class="status-overdue"><div class="stat-item"><div class="stat-value" v-countup="stats.overdue"></div><div class="stat-label">超期</div></div></el-card>
-      </el-col>
-      <el-col :span="3">
-        <el-card shadow="hover" class="status-loop"><div class="stat-item"><div class="stat-value">{{ stats.closed_loop_rate }}%</div><div class="stat-label">闭环率</div></div></el-card>
-      </el-col>
+      <el-col :span="3"><div class="stat-card"><div class="stat-num" v-countup="stats.total"></div><div class="stat-label">工单总数</div></div></el-col>
+      <el-col :span="3"><div class="stat-card is-pending"><div class="stat-num" v-countup="stats.pending"></div><div class="stat-label">待处理</div></div></el-col>
+      <el-col :span="3"><div class="stat-card is-processing"><div class="stat-num" v-countup="stats.processing"></div><div class="stat-label">处理中</div></div></el-col>
+      <el-col :span="3"><div class="stat-card is-verify"><div class="stat-num" v-countup="stats.verify"></div><div class="stat-label">待验证</div></div></el-col>
+      <el-col :span="3"><div class="stat-card is-resolved"><div class="stat-num" v-countup="stats.resolved"></div><div class="stat-label">已解决</div></div></el-col>
+      <el-col :span="3"><div class="stat-card is-closed"><div class="stat-num" v-countup="stats.closed"></div><div class="stat-label">已关闭</div></div></el-col>
+      <el-col :span="3"><div class="stat-card is-overdue"><div class="stat-num" v-countup="stats.overdue"></div><div class="stat-label">超期</div></div></el-col>
+      <el-col :span="3"><div class="stat-card is-loop"><div class="stat-num">{{ stats.closed_loop_rate }}%</div><div class="stat-label">闭环率</div></div></el-col>
     </el-row>
 
-    <!-- 过滤栏 -->
-    <div class="filter-bar">
+    <!-- 工单面板：筛选 + 列表 -->
+    <div class="pm-table-wrap research-panel">
+      <div class="panel-toolbar">
       <el-select v-model="filterCity" clearable placeholder="地市" size="small" style="width:120px">
         <el-option v-for="c in CITY_OPTIONS" :key="c.value" :label="c.label" :value="c.value" />
       </el-select>
@@ -46,7 +31,7 @@
         <el-option v-for="t in SUB_TYPE_OPTIONS" :key="t.value" :label="t.label" :value="t.value" />
       </el-select>
       <el-select v-model="filterStatus" clearable placeholder="状态" size="small" style="width:100px">
-        <el-option v-for="s in STATUS_FLOW" :key="s.key" :label="s.label" :value="s.key" />
+        <el-option v-for="s in STATUS_OPTIONS" :key="s.key" :label="s.label" :value="s.key" />
       </el-select>
       <el-select v-model="filterNature" clearable placeholder="问题性质" size="small" style="width:120px">
         <el-option v-for="n in NATURE_OPTIONS" :key="n.value" :label="n.label" :value="n.value" />
@@ -62,7 +47,7 @@
       />
       <el-button size="small" @click="handleSearch">查询</el-button>
       <el-button size="small" @click="loadStats">刷新统计</el-button>
-    </div>
+      </div>
 
     <!-- 工单列表 -->
     <el-table
@@ -172,6 +157,7 @@
         @current-change="loadData"
       />
     </div>
+    </div>
 
     <!-- 工单详情抽屉 -->
     <el-drawer
@@ -190,6 +176,13 @@
             </div>
             <div v-if="idx < STATUS_FLOW.length - 1" class="pm-step-line" :class="{ done: idx < currentIdx }"></div>
           </template>
+        </div>
+
+        <!-- 当前状态徽标（统一转译，覆盖挂起等旁路状态） -->
+        <div class="dt-status-row">
+          <StatusBadge module="research" :value="detailRow?.status" :sensitive="detailRow?.is_overdue" />
+          <span v-if="detailRow?.sub_type" class="dt-sub-type">{{ SUB_TYPE_LABELS[detailRow.sub_type] || detailRow.sub_type }}</span>
+          <span v-if="detailRow?.is_overdue" class="dt-overdue-flag">已超期</span>
         </div>
 
         <!-- 基本信息 -->
@@ -230,7 +223,7 @@
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="问题性质">
               <el-tag v-if="detailRow?.issue_nature" :type="natureTag(detailRow.issue_nature)" size="small">
-                {{ NATURE_LABELS[detailRow.issue_nature] }}
+                {{ NATURE_LABELS[detailRow.issue_nature] || detailRow.issue_nature }}
               </el-tag>
               <span v-else>-</span>
             </el-descriptions-item>
@@ -549,6 +542,7 @@ import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import PageHeader from '@/components/Common/PageHeader.vue'
+import { getStatusMeta } from '@/constants/statusConfig.js'
 
 // ---- 常量定义 ----
 const CITY_OPTIONS = [
@@ -599,14 +593,6 @@ const STATUS_OPTIONS = [
   ...STATUS_FLOW,
   { key: 'suspended', label: '已挂起' },
 ]
-const statusBadgeOptions = {
-  pending: { label: '待处理', type: 'danger' },
-  processing: { label: '处理中', type: 'warning' },
-  verify: { label: '验证中', type: 'primary' },
-  resolved: { label: '已解决', type: 'success' },
-  closed: { label: '已关闭', type: 'info' },
-  suspended: { label: '已挂起', type: 'info' },
-}
 
 const subTypeTag = (val) => val === 'leader_research' ? 'primary' : 'success'
 const natureTag = (val) => {
@@ -1026,7 +1012,7 @@ const buildResearchSuperviseBody = (row, scene = 'urge') => {
     `| 问题性质 | ${natureLabel || ''} |`,
     `| 厂家责任人 | ${row.vendor_handlers || ''} |`,
     `| 计划完成日期 | ${planFinishDate(row)} |`,
-    `| 当前状态 | ${statusBadgeOptions[row.status]?.label || row.status || ''} |`,
+    `| 当前状态 | ${getStatusMeta('research', row.status).label} |`,
     '',
     '### 情况说明',
     row.situation_desc || '（无）',
@@ -1052,7 +1038,7 @@ const openSupervise = (row, scene = 'urge') => {
     nature: NATURE_LABELS[row.issue_nature] || row.issue_nature || '',
     vendorHandler: row.vendor_handlers || '',
     resolveDate: planFinishDate(row),
-    status: statusBadgeOptions[row.status]?.label || row.status || '',
+    status: getStatusMeta('research', row.status).label,
     description: row.situation_desc || '（无）',
   }
   mailDialogBody.value = buildResearchSuperviseBody(row, scene)
@@ -1073,18 +1059,31 @@ onMounted(async () => {
 .page-title { font-size: 20px; font-weight: 600; margin: 0; }
 
 .stats-row { margin-bottom: 18px; }
-.stat-item { text-align: center; padding: 10px 0; }
-.stat-value { font-size: 26px; font-weight: 700; color: #303133; }
-.stat-label { font-size: 13px; color: #606266; margin-top: 6px; }
-.status-pending .stat-value { color: #f56c6c; }
-.status-processing .stat-value { color: #e6a23c; }
-.status-verify .stat-value { color: #409eff; }
-.status-resolved .stat-value { color: #67c23a; }
-.status-closed .stat-value { color: #909399; }
-.status-overdue .stat-value { color: #f56c6c; }
-.status-loop .stat-value { color: #409eff; }
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 16px 8px;
+  text-align: center;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elevated);
+}
+.stat-num { font-size: 26px; font-weight: 800; font-family: var(--font-mono); line-height: 1.1; color: var(--text-primary); }
+.stat-label { font-size: 12.5px; color: var(--text-secondary); margin-top: 8px; }
+.stat-card.is-pending .stat-num { color: var(--danger); }
+.stat-card.is-processing .stat-num { color: var(--warning); }
+.stat-card.is-verify .stat-num { color: var(--accent); }
+.stat-card.is-resolved .stat-num { color: var(--success); }
+.stat-card.is-closed .stat-num { color: var(--text-muted); }
+.stat-card.is-overdue .stat-num { color: var(--danger); }
+.stat-card.is-loop .stat-num { color: var(--accent); }
 
-.filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.research-panel { padding: 16px; }
+.panel-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 
 .wo-table { margin-top: 4px; }
 .iss-title { font-weight: 600; color: var(--text-primary); cursor: pointer; }
@@ -1107,7 +1106,10 @@ onMounted(async () => {
 .paste-attachment-zone:focus-visible { box-shadow: 0 0 0 2px var(--el-color-primary-light-5); background-color: var(--el-fill-color-light) }
 
 .drawer-body-inner { padding: 4px 4px 8px; }
-.detail-stepper { padding: 4px 0 18px; }
+.detail-stepper { padding: 4px 0 10px; }
+.dt-status-row { display: flex; align-items: center; gap: 10px; padding: 6px 2px 14px; flex-wrap: wrap; }
+.dt-sub-type { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); background: var(--border-subtle); padding: 3px 10px; border-radius: 999px; }
+.dt-overdue-flag { font-size: 12px; font-weight: 600; color: var(--danger); background: var(--danger-soft); padding: 3px 10px; border-radius: 999px; }
 .dt-sec { border-top: 1px solid var(--border-subtle); padding: 18px 4px; }
 .dt-sec-title { font-size: 13px; font-weight: 700; color: var(--text-secondary); margin-bottom: 14px; }
 .dt-desc { font-size: 13.5px; line-height: 1.75; color: var(--text-secondary); background: var(--border-subtle); border-radius: 11px; padding: 14px 16px; }
@@ -1124,10 +1126,10 @@ onMounted(async () => {
 .drawer-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
-.dot-pending { background: #f56c6c; }
-.dot-processing { background: #e6a23c; }
-.dot-verify { background: #409eff; }
-.dot-resolved { background: #67c23a; }
-.dot-closed { background: #909399; }
-.dot-suspended { background: #909399; }
+.dot-pending { background: var(--danger); }
+.dot-processing { background: var(--warning); }
+.dot-verify { background: var(--accent); }
+.dot-resolved { background: var(--success); }
+.dot-closed { background: var(--text-muted); }
+.dot-suspended { background: var(--text-muted); }
 </style>

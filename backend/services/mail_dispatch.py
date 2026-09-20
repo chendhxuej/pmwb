@@ -172,6 +172,38 @@ def _norm_list(v) -> list[str]:
     return [str(x).strip() for x in v if str(x).strip()]
 
 
+def format_task_center_subject(
+    scene: str, tasks: Any, recipient_name: Optional[str] = None
+) -> str:
+    """任务中心邮件主题（催办 / 同步）：信息更完整、针对性更强。
+
+    旧版仅：单任务「催办：{title}」、多任务「催办：{first_title} 等 N 项任务」，
+    信息单薄，看不出给谁、有多少超期。新版：
+
+    · 单任务：「【任务催办】{title}（已超期）」——直接点出任务 + 超期标记；
+    · 多任务：「【任务催办】{recipient}，您有 N 项待办任务需跟进（含 X 项已超期）」
+      ——点出收件人 + 任务总数 + 超期数，一眼看清轻重缓急。
+
+    通知场景前缀改为「【任务同步】」。当 subject 由前端显式传入（用户已编辑或
+    由 /task-center/draft 预填）时，本函数不会被调用，保证用户编辑不丢失。
+    """
+    if not isinstance(tasks, list) or not tasks:
+        return ""
+    is_urge = "urge" in (scene or "")
+    prefix = "【任务催办】" if is_urge else "【任务同步】"
+    n = len(tasks)
+    overdue = sum(1 for t in tasks if t.get("is_overdue"))
+    if n == 1:
+        t = tasks[0]
+        title = (t.get("title") or "").strip()
+        badge = "（已超期）" if t.get("is_overdue") else ""
+        return f"{prefix}{title}{badge}".strip()
+    who = (recipient_name or "").strip()
+    who_part = f"{who}，" if who else ""
+    overdue_part = f"（含 {overdue} 项已超期）" if overdue else ""
+    return f"{prefix}{who_part}您有 {n} 项待办任务需跟进{overdue_part}"
+
+
 def _resolve_signature(sc: MailScene) -> str:
     key = sc.signature_key or "default"
     return settings.EMAIL_SIGNATURE_MAP.get(key) or settings.EMAIL_SIGNATURE
@@ -334,8 +366,10 @@ def _render_mail(
     # 由场景默认主题 + 字段值格式化生成
     if "{" in final_subject:
         ctx = {**(variables or {}), **(fields or {})}
-        # task_center_* 主题格式化（2026-09-07）：
-        # 单任务 → 催办：{title}；多任务 → 催办：{first_title[:30]} 等 {N} 项任务
+        # task_center_* 主题（2026-09-20 优化）：信息更完整、针对性更强。
+        # 单任务→「【任务催办】{title}（已超期）」；多任务→「【任务催办】{recipient}，您有 N 项待办（含 X 项已超期）」。
+        # 仅当未显式传 subject 时（final_subject 仍是带 { 的场景默认模板）才接管，
+        # 保证用户在前端编辑/预填的主题不被覆盖。
         # 兼容全局 /preview（variables 路径）与 /task-center/send（fields 路径）：
         # 优先 fields.tasks，回退 variables.tasks。
         if scene in ("task_center_notify", "task_center_urge"):
@@ -343,12 +377,7 @@ def _render_mail(
             if not isinstance(tasks_val, list) and variables:
                 tasks_val = (variables or {}).get("tasks")
             if isinstance(tasks_val, list) and tasks_val:
-                ctx["count"] = len(tasks_val)
-                if len(tasks_val) == 1:
-                    ctx["title"] = tasks_val[0].get("title") or ""
-                else:
-                    first_title = (tasks_val[0].get("title") or "")[:30]
-                    ctx["title"] = f"{first_title} 等 {len(tasks_val)} 项任务"
+                final_subject = format_task_center_subject(scene, tasks_val, recipient_name)
         try:
             final_subject = final_subject.format_map(_SafeDict(ctx))
         except Exception:  # noqa: BLE001

@@ -96,6 +96,8 @@ class TaskSendRequest(BaseModel):
     dry_run: bool = Field(False, description="仅预览正文，不发送不落库")
     confirm_send: bool = Field(False, description="显式确认真发；task-center 发送端点需前端带 true 才走真实发信")
     template_data: Optional[Dict[str, Any]] = Field(None, description="模板变量（task_center_notify/urge 模板：tasks/sendType/body）")
+    ref_type: Optional[str] = Field(None, description="关联模块类型(邮件督办记录统一化): task_center")
+    ref_id: Optional[str] = Field(None, description="关联业务主键/编号(source:source_id 复合键)")
 
 
 class TaskSendResponse(BaseModel):
@@ -121,4 +123,7 @@ class TaskDraftRequest(BaseModel):
     send_type: str = Field("urge", description="notify=通知 / urge=催办")
     body: Optional[str] = Field(
         None, description="已存在的 Markdown 正文（前端编辑后再调用时透传）"
+    )
+    recipient_name: Optional[str] = Field(
+        None, description="收件人姓名，用于生成针对性主题（如「X，您有 N 项待办」）"
     )

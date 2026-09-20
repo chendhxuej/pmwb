@@ -10,6 +10,7 @@ from core.response import success
 from db.base import get_db
 from schemas.task_center import TaskDraftRequest, TaskSendRequest
 from services.task_center import task_center_service
+from services.mail_dispatch import format_task_center_subject
 from utils.mail_content import build_mail_body_md
 
 router = APIRouter(prefix="/task-center", tags=["任务中心"])
@@ -106,4 +107,8 @@ def draft_task_email_body(req: TaskDraftRequest):
         fields={"tasks": req.tasks},
         body_md=req.body,
     )
-    return success(data={"body_md": md})
+    # 主题一并预填：与 /task-center/send 走同一条 format_task_center_subject，
+    # 保证「左侧输入框 = 右侧预览 = 实发」三者一致，收件人姓名优先取前端传入。
+    recipient_name = req.recipient_name or task_center_service._aggregate_owners(req.tasks)
+    subject = format_task_center_subject(scene, req.tasks, recipient_name)
+    return success(data={"body_md": md, "subject": subject})

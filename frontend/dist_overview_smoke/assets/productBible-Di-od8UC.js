@@ -1,0 +1,1 @@
+import{r as t}from"./index-Caw_MyXp.js";const i={getCatalog(){return t.get("/product-bible")},getBible(e){return t.get(`/product-bible/${e}`)},updateBible(e,r){return t.put(`/product-bible/${e}`,{markdown:r})},getMainNote(e){return t.get(`/knowledge/main-note/${e}`)},getMediaUrl(e,r){return`/api/v1/product-bible/${e}/media/${encodeURIComponent(r)}`}};export{i as p};

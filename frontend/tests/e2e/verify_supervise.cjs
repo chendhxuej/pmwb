@@ -90,16 +90,29 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         // 左侧正文编辑区（Markdown textarea）
         const ta = cd.querySelector('.compose-body textarea, .compose-edit .el-textarea__inner');
         const bodyVal = ta ? ta.value || '' : '';
+        // 左侧主题输入框（.compose-row 中 label=主题 的那个 el-input）
+        const subjRow = Array.from(cd.querySelectorAll('.compose-row')).find(
+          (r) => (r.querySelector('.compose-label')?.innerText || '').trim() === '主题'
+        );
+        const subjInput = subjRow ? subjRow.querySelector('input.el-input__inner') : null;
+        const subjectVal = subjInput ? subjInput.value || '' : '';
         // 右侧预览 iframe
         const frame = cd.querySelector('.compose-preview-frame');
         const previewHasContent = !!(frame && frame.getAttribute('srcdoc') && frame.getAttribute('srcdoc').length > 50);
+        const previewSubject = (cd.querySelector('.compose-preview-subject')?.innerText || '').trim();
         const title = (cd.querySelector('.el-dialog__title')?.innerText || '').trim();
-        return { title, bodyLen: bodyVal.length, bodyHead: bodyVal.slice(0, 40), previewHasContent };
+        return {
+          title, bodyLen: bodyVal.length, bodyHead: bodyVal.slice(0, 40),
+          previewHasContent, subjectVal, previewSubject,
+        };
       });
       check('撰写弹窗(MailComposeDialog)打开', !!compose, compose ? compose.title : '');
       if (compose) {
         check('左侧 Markdown 编辑框已填充草稿(非空)', compose.bodyLen > 0, `len=${compose.bodyLen} head="${compose.bodyHead}"`);
         check('右侧预览 iframe 已渲染', compose.previewHasContent, `preview=${compose.previewHasContent}`);
+        // 2026-09-20：主题预填 + 左右一致性（修复主题输入框空白/与预览不一致）
+        check('左侧主题输入框已预填(非空)', compose.subjectVal.length > 0, `subject="${compose.subjectVal.slice(0, 40)}"`);
+        check('左侧主题与右侧预览主题一致', compose.subjectVal.length > 0 && compose.subjectVal === compose.previewSubject, `left="${compose.subjectVal.slice(0, 40)}" right="${compose.previewSubject.slice(0, 40)}"`);
         await page.screenshot({ path: require('path').resolve(__dirname, '../../tmp_uishots/supervise_compose.png') });
       }
       // 注意：不点击「发送」，避免真实发信（邮件红线）；正文非空即意味着不会再报“请输入邮件正文”

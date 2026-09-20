@@ -173,16 +173,25 @@ def test_build_mail_body_notify_scene():
 # mail_dispatch 主题格式化（task_center_*）
 # ---------------------------------------------------------------------------
 def test_subject_single_task_uses_title():
-    """单任务主题：催办：{title}。"""
+    """单任务主题：点出任务标题 + 超期标记。"""
     out = mail_dispatch._render_mail(
         scene="task_center_urge",
         fields={"tasks": [_task(title="需求X") for _ in [None]]},
     )
-    assert out["subject"] == "催办：需求X"
+    assert out["subject"] == "【任务催办】需求X"
+
+
+def test_subject_single_task_overdue_badge():
+    """单任务超期：主题带「（已超期）」标记。"""
+    out = mail_dispatch._render_mail(
+        scene="task_center_urge",
+        fields={"tasks": [_task(title="需求X", is_overdue=True) for _ in [None]]},
+    )
+    assert out["subject"] == "【任务催办】需求X（已超期）"
 
 
 def test_subject_multi_task_format():
-    """多任务主题：催办：{first_title} 等 {N} 项任务。"""
+    """多任务主题：点出收件人 + 任务数 + 超期数。"""
     tasks = [
         _task(index=1, title="一网通开户优化"),
         _task(index=2, title="调研反馈"),
@@ -191,17 +200,46 @@ def test_subject_multi_task_format():
     out = mail_dispatch._render_mail(
         scene="task_center_urge",
         fields={"tasks": tasks},
+        recipient_name="张三",
     )
-    assert out["subject"] == "催办：一网通开户优化 等 3 项任务"
+    assert out["subject"] == "【任务催办】张三，您有 3 项待办任务需跟进"
+
+
+def test_subject_multi_task_with_overdue():
+    """多任务含超期：主题带「（含 X 项已超期）」。"""
+    tasks = [
+        _task(index=1, title="一网通开户优化", is_overdue=True),
+        _task(index=2, title="调研反馈", is_overdue=True),
+        _task(index=3, title="专题分析"),
+    ]
+    out = mail_dispatch._render_mail(
+        scene="task_center_urge",
+        fields={"tasks": tasks},
+        recipient_name="张三",
+    )
+    assert out["subject"] == "【任务催办】张三，您有 3 项待办任务需跟进（含 2 项已超期）"
+
+
+def test_subject_multi_task_no_recipient():
+    """多任务无收件人：省略姓名部分。"""
+    tasks = [
+        _task(index=1, title="一网通开户优化"),
+        _task(index=2, title="调研反馈"),
+    ]
+    out = mail_dispatch._render_mail(
+        scene="task_center_urge",
+        fields={"tasks": tasks},
+    )
+    assert out["subject"] == "【任务催办】您有 2 项待办任务需跟进"
 
 
 def test_subject_notify_scene():
-    """通知主题：通知：{title}。"""
+    """通知主题：前缀为「【任务同步】」。"""
     out = mail_dispatch._render_mail(
         scene="task_center_notify",
         fields={"tasks": [_task(title="通知标题") for _ in [None]]},
     )
-    assert out["subject"] == "通知：通知标题"
+    assert out["subject"] == "【任务同步】通知标题"
 
 
 # ---------------------------------------------------------------------------

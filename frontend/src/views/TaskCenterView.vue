@@ -766,8 +766,8 @@ async function openTaskEmail(rows, sendType) {
     recipient_name: aggregateOwners(rows),  // 聚合负责人，后端 render_greeting 据此生成称呼
   }
   mailDialogTitle.value = sendType === 'urge' ? '发送催办邮件' : '发送通知邮件'
-  // 主题交给后端 default_subject + 装配器格式化生成（单任务：催办：{title}；
-  // 多任务：催办：{first_title} 等 {N} 项任务），前端不再硬编码。
+  // 主题由后端 format_task_center_subject 生成（2026-09-20 优化：单任务点出任务 + 超期标记，
+  // 多任务点出收件人 + 任务数 + 超期数），与右侧预览/实发一致，前端不再硬编码。
   mailDialogSubject.value = ''
   // 正文完全由后端装配（品牌带+称呼+引导语+任务卡片+签名），前端留空。
   mailDialogBody.value = ''
@@ -785,7 +785,7 @@ async function openTaskEmail(rows, sendType) {
   ]
   mailDialogTo.value = names
   mailDialogCc.value = []
-  // T-G：拉取后端按场景拼装好的 Markdown 草稿，作为左侧 Markdown 编辑区默认值。
+  // T-G：拉取后端按场景拼装好的 Markdown 草稿 + 主题，作为左侧编辑区默认值。
   // 让用户基于已装配的内容（引导语 + 每条任务 H3+字段表+工单内容）继续编辑调整。
   // 编辑后再点发送，body 走 TaskSendRequest.body 透传，最终由 build_mail_body 再次渲染。
   try {
@@ -793,11 +793,14 @@ async function openTaskEmail(rows, sendType) {
       buildStructuredTasks(rows),
       sendType === 'urge' ? 'urge' : 'notify',
       '',
+      aggregateOwners(rows),
     )
     mailDialogBody.value = (res && res.body_md) || ''
+    mailDialogSubject.value = (res && res.subject) || ''
   } catch (e) {
     // 拉取失败兜底为空（MailComposeDialog 内已有"按字段重置"按钮可重新生成）
     mailDialogBody.value = ''
+    mailDialogSubject.value = ''
     console.warn('[TaskCenter] requestTaskCenterDraft failed:', e && e.message)
   }
   mailDialogVisible.value = true

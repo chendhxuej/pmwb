@@ -122,6 +122,16 @@ export const MODULE_STATUS = {
     done: { label: '已完成', tone: 'success' },
     cancelled: { label: '已取消', tone: 'neutral' },
   },
+
+  // 一线调研（ResearchIssueView）—— 状态机与运营工单同构：pending→processing→verify→resolved→closed，suspended 为挂起旁路
+  research: {
+    pending: { label: '待处理', tone: 'danger', sensitive: true },
+    processing: { label: '处理中', tone: 'warning' },
+    verify: { label: '验证中', tone: 'primary' },
+    resolved: { label: '已解决', tone: 'success' },
+    closed: { label: '已关闭', tone: 'info' },
+    suspended: { label: '已挂起', tone: 'neutral' },
+  },
 }
 
 // 重点工作子状态（里程碑 / 月周计划 / 成员待办）统一五态

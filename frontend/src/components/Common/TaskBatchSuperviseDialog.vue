@@ -71,6 +71,7 @@
       title="撰写催办邮件"
       scene="task_center_urge"
       :default-to="[ownerName]"
+      :default-subject="composeSubject"
       :default-body="composeBody"
       value-key="email"
       :variables="composeVariables"
@@ -109,6 +110,7 @@ const tableRef = ref(null)
 const composeVisible = ref(false)
 const composeVariables = ref({})
 const composeBody = ref('') // 左侧 Markdown 编辑区默认值（后端按场景装配的草稿）
+const composeSubject = ref('') // 左侧主题输入框默认值（后端按场景装配的针对性主题）
 const composeLoading = ref(false)
 
 const allChecked = computed(
@@ -184,12 +186,14 @@ async function toCompose() {
     sendType: 'urge',
     recipient_name: props.ownerName,
   }
-  // 拉取 Markdown 草稿（与 TaskCenterView 单任务催办同链路）
+  // 拉取 Markdown 草稿 + 主题（与 TaskCenterView 单任务催办同链路）
   try {
-    const res = await requestTaskCenterDraft(structured, 'urge', '')
+    const res = await requestTaskCenterDraft(structured, 'urge', '', props.ownerName)
     composeBody.value = (res && res.body_md) || ''
+    composeSubject.value = (res && res.subject) || ''
   } catch (e) {
     composeBody.value = ''
+    composeSubject.value = ''
     console.warn('[TaskBatchSupervise] requestTaskCenterDraft failed:', e && e.message)
   } finally {
     composeLoading.value = false
