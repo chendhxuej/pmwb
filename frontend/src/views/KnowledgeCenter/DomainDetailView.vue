@@ -40,15 +40,15 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import DomainDetailPanel from './DomainDetailPanel.vue'
 
 const route = useRoute()
 const code = computed(() => route.params.code)
 
-// panel ref only via template
-const panelRef = null
+// 面板实例引用：此前误写为 null，导致顶部栏「编辑主笔记/同步/打开 Obsidian」全部失效
+const panelRef = ref(null)
 
 const panelGroupStyle = (g) => {
   const meta = {
@@ -62,15 +62,15 @@ const panelGroupStyle = (g) => {
 }
 
 // 代理至 DomainDetailPanel 暴露的能力
-const panelDetail = computed(() => panelRef?.detail ?? {})
-const panelIsEditing = computed(() => panelRef?.isEditing ?? false)
-const panelSaving = computed(() => panelRef?.saving ?? false)
-const panelSyncing = computed(() => panelRef?.syncing ?? false)
-function panelStartEdit() { panelRef?.startEdit() }
-function panelCancelEdit() { panelRef?.cancelEdit() }
-function panelSaveAll() { panelRef?.saveAllChanges() }
-function panelSync() { panelRef?.syncMainNote() }
-function panelOpenObsidian() { panelRef?.openObsidian() }
+const panelDetail = computed(() => panelRef.value?.detail ?? {})
+const panelIsEditing = computed(() => panelRef.value?.isEditing ?? false)
+const panelSaving = computed(() => panelRef.value?.saving ?? false)
+const panelSyncing = computed(() => panelRef.value?.syncing ?? false)
+function panelStartEdit() { panelRef.value?.startEdit() }
+function panelCancelEdit() { panelRef.value?.cancelEdit() }
+function panelSaveAll() { panelRef.value?.saveAllChanges() }
+function panelSync() { panelRef.value?.syncMainNote() }
+function panelOpenObsidian() { panelRef.value?.openObsidian() }
 </script>
 
 <style scoped>

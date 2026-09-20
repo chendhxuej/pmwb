@@ -1,7 +1,7 @@
 <template>
   <!-- 领域详情主体（可复用）：单列布局。
-       主笔记 tab 以「人工维护区」为主体，自动区/系统维护区降为默认折叠的附录；
-       规则沉淀 tab 承载「自动识别 → 智能归类 → 沉淀到场景规则（自动区）」。
+       主笔记 tab 直接呈现 Obsidian 笔记原文（保留原有结构与文本，不做章节拆分、
+       不做样式重排）；规则沉淀 tab 承载「自动识别 → 智能归类 → 沉淀到场景规则（自动区）」。
        由「领域详情」独立子页与知识中心首页驾驶舱共用，code 变化时自动重载。 -->
   <div class="detail-body" v-loading="loading">
     <div class="detail-right">
@@ -17,7 +17,7 @@
       </div>
 
       <div class="dbody">
-        <!-- ── 主笔记 tab：人工维护区为主体 + 自动/系统区折叠附录 ── -->
+        <!-- ── 主笔记 tab：直接呈现 Obsidian 笔记原文（结构与文本原样保留） ── -->
         <div v-if="activeTab === 'bible'" class="tab-content">
           <template v-if="isEditing">
             <div class="bible-edit">
@@ -36,68 +36,12 @@
 
           <template v-else>
             <div v-if="bibleLoading" class="bible-loading">主笔记加载中...</div>
-
-            <template v-else-if="hasSections">
-              <!-- 人工维护区（主体，手工管理为主） -->
-              <div class="zone-block">
-                <div class="zone-head manual">
-                  <span class="zone-title">人工维护区</span>
-                  <span class="zone-tip">主笔记主体内容，由你手工维护，系统永不覆盖</span>
-                  <span class="zone-fill" :class="manualFillClass">
-                    已填 {{ manualFilled }}/{{ manualSections.length }}
-                  </span>
-                </div>
-                <div
-                  v-for="s in manualSections"
-                  :key="'m-' + s.key"
-                  class="sec-card"
-                  :class="{ empty: isEmptySection(s) }"
-                >
-                  <div class="sec-head">
-                    <span class="sec-title">{{ s.title }}</span>
-                    <span class="sec-badge manual">人工维护</span>
-                  </div>
-                  <div v-if="!isEmptySection(s)" class="sec-body bible-md" v-html="renderMarkdown(s.markdown)"></div>
-                  <div v-else class="sec-empty">待补充 · 点击右上角「编辑主笔记」填写</div>
-                </div>
-                <el-empty v-if="!manualSections.length" description="该模板无人工维护章节" :image-size="50" />
-              </div>
-
-              <!-- 自动区 / 系统维护区（附录，默认折叠） -->
-              <div class="zone-block appendix">
-                <el-collapse v-model="appendixOpen">
-                  <el-collapse-item name="auto">
-                    <template #title>
-                      <span class="appendix-title">
-                        系统自动区 · 系统维护区（附录）
-                        <em>{{ autoSections.length }} 个章节，由系统自动回流</em>
-                      </span>
-                    </template>
-                    <div
-                      v-for="s in autoSections"
-                      :key="'a-' + s.key"
-                      class="sec-card"
-                      :class="{ empty: isEmptySection(s) }"
-                    >
-                      <div class="sec-head">
-                        <span class="sec-title">{{ s.title }}</span>
-                        <span class="sec-badge" :class="s.kind === 'system' ? 'system' : 'auto'">
-                          {{ s.kind_label }}
-                        </span>
-                      </div>
-                      <div v-if="!isEmptySection(s)" class="sec-body bible-md" v-html="renderMarkdown(s.markdown)"></div>
-                      <div v-else class="sec-empty">暂无自动回流内容</div>
-                    </div>
-                    <el-empty v-if="!autoSections.length" description="该模板无自动区章节" :image-size="50" />
-                  </el-collapse-item>
-                </el-collapse>
-                <div class="appendix-note">
-                  附录区由系统维护（规则沉淀、关联索引、时间线等），请勿手工编辑；内容以主笔记源文件为准。
-                </div>
-              </div>
-            </template>
-
-            <div v-else-if="bibleContent" class="bible-full-content bible-md" v-html="renderMarkdown(bibleContent)"></div>
+            <!-- 笔记原文直出：不做章节拆分、不加徽标/统计、不做样式重排 -->
+            <div
+              v-else-if="bibleContent"
+              class="bible-full-content bible-md"
+              v-html="renderMarkdown(bibleContent)"
+            ></div>
             <el-empty v-else description="该领域暂无主笔记内容，点击顶部「同步主笔记」一键创建" />
           </template>
         </div>
@@ -230,13 +174,12 @@ const props = defineProps({
 
 const loading = ref(false)
 const detail = ref({})
-const bibleContent = ref('') // 存储原始完整内容
+const bibleContent = ref('') // 存储原始完整内容（Obsidian 笔记原文，直出展示）
 const bibleLoading = ref(false)
-const sections = ref([])
+const sections = ref([]) // 仍在「自动区状态」tab 复用（章节级元数据）
 const relations = ref([])
 const relFilter = ref('all')
 const activeTab = ref('bible')
-const appendixOpen = ref(['auto']) // 默认展开自动区，规则/关联索引/时间线等沉淀内容一目了然
 
 // 编辑模式状态
 const isEditing = ref(false)
@@ -256,24 +199,14 @@ const filteredRelations = computed(() => {
   return relations.value.filter(r => r.status === map[relFilter.value])
 })
 
-const hasSections = computed(() => sections.value.length > 0)
-// 人工维护区（baseline）= 主笔记主体；其余（auto/system）= 附录
+// 主笔记 tab 已改为原文直出，不再按章节重排；以下统计仅供「自动区状态」tab 展示章节填充度
 const manualSections = computed(() => sections.value.filter((s) => s.kind === 'baseline'))
-const autoSections = computed(() => sections.value.filter((s) => s.kind !== 'baseline'))
 
 const isEmptySection = (s) => {
   const md = (s?.markdown || '').trim()
   return !md || md === '_暂无数据_'
 }
 const manualFilled = computed(() => manualSections.value.filter((s) => !isEmptySection(s)).length)
-const manualFillClass = computed(() => {
-  const total = manualSections.value.length
-  if (!total) return ''
-  const rate = manualFilled.value / total
-  if (rate >= 0.7) return 'ok'
-  if (rate >= 0.3) return 'mid'
-  return 'low'
-})
 
 const rulePending = computed(() => ruleDomain.value?.pending || 0)
 const ruleGrouped = computed(() => {
@@ -448,7 +381,6 @@ watch(() => props.code, async (nc, oc) => {
   isEditing.value = false
   editingContent.value = ''
   activeTab.value = 'bible'
-  appendixOpen.value = []
   await loadDetail()
   await loadBible()
   await loadRules()
@@ -517,94 +449,7 @@ export default { name: 'DomainDetailPanel' }
 .dbody { min-height: 300px; }
 .tab-content { padding: 4px 0; }
 
-/* ── 主笔记：人工区主体 + 附录 ── */
-.zone-block { margin-bottom: 18px; }
-.zone-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #ebeef5;
-}
-.zone-title {
-  font-size: 14.5px;
-  font-weight: 700;
-  color: #1f2d3d;
-  padding-left: 9px;
-  border-left: 3px solid #2f6fed;
-  line-height: 1.2;
-}
-.zone-tip { font-size: 11.5px; color: #909399; flex: 1; }
-.zone-fill {
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: #fdecec;
-  color: #e47470;
-}
-.zone-fill.mid { background: #fdf2e8; color: #f0a64a; }
-.zone-fill.ok { background: #eafaf3; color: #10b981; }
-
-.sec-card {
-  border: 1px solid #ebeef5;
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 10px;
-  background: #fff;
-  transition: .15s;
-}
-.sec-card:hover { border-color: #c7d9fb; }
-.sec-card.empty { background: #fcfcfd; border-style: dashed; }
-.sec-head {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 8px;
-}
-.sec-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1e3a8a;
-  flex: 1;
-}
-.sec-badge {
-  font-size: 10.5px;
-  padding: 1px 8px;
-  border-radius: 6px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.sec-badge.manual { background: #eef4ff; color: #2f6fed; }
-.sec-badge.auto { background: #eafaf3; color: #10b981; }
-.sec-badge.system { background: #f5f7fa; color: #64748b; }
-.sec-body { font-size: 13px; }
-.sec-empty { font-size: 12px; color: #b6bfcc; }
-
-.appendix .appendix-title {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.appendix .appendix-title em {
-  font-style: normal;
-  font-size: 11.5px;
-  font-weight: 400;
-  color: #909399;
-}
-.appendix-note {
-  margin-top: 9px;
-  font-size: 11.5px;
-  color: #909399;
-  line-height: 1.6;
-  background: #f8fafc;
-  border-radius: 8px;
-  padding: 8px 11px;
-}
+/* ── 主笔记：原文直出，无章节卡片/无附录折叠（样式重排逻辑已移除） ── */
 
 /* ── 规则沉淀 ── */
 .rule-head {
@@ -754,119 +599,103 @@ export default { name: 'DomainDetailPanel' }
   box-shadow: 0 1px 3px rgba(31, 45, 61, 0.04);
 }
 
-/* ===== Markdown 正文排版强化（v-html 内容须用 :deep 命中） ===== */
+/* ===== Markdown 正文排版：朴素呈现（贴近 Obsidian 阅读视图）=====
+   仅保留标题层级/间距/表格边框等必要可读性，去掉渐变底色、彩色左边框、
+   卡片化底色等页面级重排修饰。v-html 内容须用 :deep 命中。 */
 .bible-md {
-  font-size: 13.5px;
-  line-height: 1.75;
-  color: #1f2d3d;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #24292f;
   word-break: break-word;
 }
 .bible-md :deep(h1) {
-  font-size: 21px;
+  font-size: 1.7em;
   font-weight: 700;
-  color: #0f172a;
-  margin: 4px 0 18px;
-  padding-bottom: 10px;
-  border-bottom: 2px solid #e8eefb;
-  letter-spacing: 0.5px;
+  color: #1f2328;
+  margin: 0.9em 0 0.5em;
 }
 .bible-md :deep(h2) {
-  font-size: 17px;
+  font-size: 1.38em;
   font-weight: 700;
-  color: #1e3a8a;
-  margin: 26px 0 12px;
-  padding: 6px 12px;
-  background: linear-gradient(90deg, #eff5ff 0%, #ffffff 85%);
-  border-left: 4px solid #2f6fed;
-  border-radius: 0 6px 6px 0;
+  color: #1f2328;
+  margin: 1.5em 0 0.6em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e6e8eb;
 }
-.bible-md :deep(h2:first-child) { margin-top: 4px; }
 .bible-md :deep(h3) {
-  font-size: 14.5px;
+  font-size: 1.15em;
   font-weight: 600;
-  color: #1f2d3d;
-  margin: 18px 0 8px;
-  padding-left: 10px;
-  border-left: 3px solid #93c5fd;
+  color: #1f2328;
+  margin: 1.2em 0 0.5em;
 }
 .bible-md :deep(h4) {
-  font-size: 13.5px;
+  font-size: 1.02em;
   font-weight: 600;
-  color: #374151;
-  margin: 14px 0 6px;
+  color: #1f2328;
+  margin: 1em 0 0.4em;
 }
-.bible-md :deep(p) { margin: 8px 0; }
-.bible-md :deep(strong) { color: #0f172a; font-weight: 600; }
+.bible-md :deep(h1:first-child),
+.bible-md :deep(h2:first-child),
+.bible-md :deep(h3:first-child) { margin-top: 0; }
+.bible-md :deep(p) { margin: 0.7em 0; }
+.bible-md :deep(strong) { font-weight: 600; }
 .bible-md :deep(a) { color: #2f6fed; text-decoration: none; }
 .bible-md :deep(a:hover) { text-decoration: underline; }
-.bible-md :deep(ul), .bible-md :deep(ol) { padding-left: 22px; margin: 8px 0; }
-.bible-md :deep(li) { margin: 4px 0; }
-.bible-md :deep(li)::marker { color: #2f6fed; }
+.bible-md :deep(ul), .bible-md :deep(ol) { padding-left: 1.6em; margin: 0.7em 0; }
+.bible-md :deep(li) { margin: 0.25em 0; }
 .bible-md :deep(blockquote) {
-  margin: 10px 0;
-  padding: 8px 14px;
-  background: #f8fafc;
-  border-left: 3px solid #cbd5e1;
-  border-radius: 0 6px 6px 0;
-  color: #475569;
+  margin: 0.8em 0;
+  padding: 0.1em 0.9em;
+  border-left: 3px solid #dfe3e8;
+  color: #57606a;
 }
-.bible-md :deep(blockquote p) { margin: 4px 0; }
+.bible-md :deep(blockquote p) { margin: 0.4em 0; }
 .bible-md :deep(code) {
   font-family: 'JetBrains Mono', 'Consolas', monospace;
-  font-size: 12px;
-  background: #f1f5f9;
-  color: #b91c1c;
-  padding: 1px 6px;
+  font-size: 0.88em;
+  background: #f2f3f5;
+  padding: 1px 5px;
   border-radius: 4px;
 }
 .bible-md :deep(pre) {
-  background: #0f172a;
-  color: #e2e8f0;
+  background: #f6f8fa;
+  color: #24292f;
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow-x: auto;
-  margin: 10px 0;
+  margin: 0.8em 0;
 }
-.bible-md :deep(pre code) {
-  background: transparent;
-  color: inherit;
-  padding: 0;
-  font-size: 12px;
-}
+.bible-md :deep(pre code) { background: transparent; padding: 0; font-size: 0.88em; }
 .bible-md :deep(hr) {
   border: none;
-  border-top: 1px dashed #e4e7ed;
-  margin: 18px 0;
+  border-top: 1px solid #e6e8eb;
+  margin: 1.4em 0;
 }
 .bible-md :deep(table) {
   width: 100%;
   max-width: 100%;
   border-collapse: collapse;
-  margin: 12px 0;
-  font-size: 12.5px;
-  border-radius: 8px;
-  overflow: hidden;
+  margin: 0.9em 0;
+  font-size: 0.95em;
   table-layout: fixed;
   word-break: break-word;
 }
 .bible-md :deep(th) {
-  background: #eef4ff;
-  color: #1e3a8a;
+  background: #f6f8fa;
   font-weight: 600;
   text-align: left;
-  padding: 8px 12px;
-  border: 1px solid #dbe6f8;
+  padding: 7px 10px;
+  border: 1px solid #dfe3e8;
   word-break: break-word;
   overflow-wrap: break-word;
 }
 .bible-md :deep(td) {
-  padding: 7px 12px;
-  border: 1px solid #e8eef5;
-  color: #374151;
+  padding: 7px 10px;
+  border: 1px solid #dfe3e8;
   word-break: break-word;
   overflow-wrap: break-word;
 }
-.bible-md :deep(tr:nth-child(even) td) { background: #fafcff; }
+.bible-md :deep(img) { max-width: 100%; height: auto; }
 
 /* ===== 编辑模式 ===== */
 .bible-edit {
