@@ -4,10 +4,10 @@
 1. 近期已上线：权威上线日期（delivered_date 优先，回退开发工单 go_live_date）落在分析周期内；
 2. 计划上线：尚未上线，且进入「启动开发」(stage=dev) 环节已超 overdue_days 天（默认 15 天）。
 
-输出格式（LLM 与规则降级一致）：
-- 已上线【需求名称】需求，实现了【能力】。
-- 计划上线【需求名称】需求，实现了【能力】。
-「能力」依据需求澄清内容高度概括。
+输出格式（LLM 与规则降级一致，2026-09-20 老大定稿：无中括号，「需求」→「生产开发部署」，能力概述适当丰富）：
+- 已上线 需求名称 生产开发部署，实现了 能力概述。
+- 计划上线 需求名称 生产开发部署，实现了 能力概述。
+「能力」依据需求澄清内容高度概括，30~70 字，可结合业务场景/受益对象/业务价值。
 """
 from __future__ import annotations
 
@@ -122,11 +122,13 @@ def collect(db, start: date, end: date, overdue_days: int = OVERDUE_DAYS_DEFAULT
 SYSTEM_PROMPT = (
     "你是资深电信行业产品经理助理，负责输出「需求分析」专题总结。"
     "要求：1) 只依据给出的需求数据输出，不得编造不存在的需求；"
-    "2) 每条需求一句话，格式必须严格为：已上线【需求名称】需求，实现了【能力】。"
-    "或：计划上线【需求名称】需求，实现了【能力】。"
-    "3)【能力】依据需求澄清内容高度概括，简要说明该需求实现的业务能力，"
-    "用简洁的业务语言（不超过 35 字），不要罗列技术细节，不要照抄澄清原文；"
-    "4) 澄清内容为空时，可依据背景/描述概括，概括不了就写『相关业务能力』；"
+    "2) 每条需求一句话，格式必须严格为（无任何中括号/书名号等符号包裹）："
+    "已上线 需求名称 生产开发部署，实现了 能力概述。"
+    "或：计划上线 需求名称 生产开发部署，实现了 能力概述。"
+    "3) 能力概述依据需求澄清内容高度概括，说明该需求实现的业务能力，"
+    "文字表达适当丰富：可结合业务场景、受益对象（如营业员/客户经理/企业客户）与业务价值展开，"
+    "一般 30~70 字，控制在两句话以内；不罗列技术细节，不照抄澄清原文，不得编造澄清内容中没有的信息；"
+    "4) 澄清内容为空时，可依据背景/描述概括，概括不了就写「相关业务能力」；"
     "5) 输出为 Markdown，仅包含指定章节，不要输出其他解释。"
 )
 
@@ -166,10 +168,10 @@ def build_prompt(data: Dict[str, Any], start: date, end: date, overdue_days: int
         "# 需求分析（统计区间：%s ~ %s）" % (start.isoformat(), end.isoformat()),
         "",
         "## 近期已上线需求",
-        "- （每条格式：已上线【需求名称】需求，实现了【能力】。）",
+        "- （每条格式：已上线 需求名称 生产开发部署，实现了 能力概述。不加中括号。）",
         "",
         "## 计划上线需求",
-        "- （每条格式：计划上线【需求名称】需求，实现了【能力】。）",
+        "- （每条格式：计划上线 需求名称 生产开发部署，实现了 能力概述。不加中括号。）",
         "无数据的章节写「本期暂无」。每条一行，保持给定顺序。",
     ]
     return SYSTEM_PROMPT, "\n".join(lines)
@@ -189,14 +191,14 @@ def render_rule(data: Dict[str, Any], start: date, end: date, overdue_days: int 
     if delivered:
         for it in delivered:
             cap = _first_sentence(it.get("clarification")) or "相关业务能力"
-            lines.append(f"- 已上线【{it['req_name']}】需求，实现了【{cap}】。")
+            lines.append(f"- 已上线 {it['req_name']} 生产开发部署，实现了 {cap}。")
     else:
         lines.append("本期暂无。")
     lines += ["", f"## 计划上线需求（进入启动开发环节已超 {overdue_days} 天，{len(planned)} 条）"]
     if planned:
         for it in planned:
             cap = _first_sentence(it.get("clarification")) or "相关业务能力"
-            lines.append(f"- 计划上线【{it['req_name']}】需求，实现了【{cap}】。")
+            lines.append(f"- 计划上线 {it['req_name']} 生产开发部署，实现了 {cap}。")
     else:
         lines.append("本期暂无。")
     return "\n".join(lines) + "\n"
