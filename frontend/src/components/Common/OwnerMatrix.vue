@@ -265,10 +265,11 @@ const cellOf = (h, category, status) => {
   return row[status] || 0
 }
 
+// 格子/ chip 悬浮提示：中文术语统一加引号与空格，禁止把状态 key 原文拼进文案
 const cellTip = (h, category, status) =>
   h.unassigned
     ? L.value.unassignedTip
-    : `查看 ${h.name} 的${catLabel(category)} · ${statusLabel(status)}${L.value.itemLabel}`
+    : `查看 ${h.name} 的「${catLabel(category)}」· ${statusLabel(status)}${L.value.itemLabel}`
 
 // 摘要 chips：状态优先（未闭环类在前），同一状态内按类别顺序
 const chipsOf = (h) => {
@@ -343,7 +344,7 @@ const openCategory = (h, category, status) => {
 .hm-lg-note {
   padding: 1px 8px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 8%, #fff);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   color: var(--accent);
   font-size: 11.5px;
 }
@@ -419,7 +420,7 @@ const openCategory = (h, category, status) => {
   line-height: 1;
   padding: 3px 6px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--danger) 12%, #fff);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   color: var(--danger);
   font-weight: 600;
 }
@@ -428,7 +429,7 @@ const openCategory = (h, category, status) => {
   line-height: 1;
   padding: 3px 6px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--text-muted) 12%, #fff);
+  background: color-mix(in srgb, var(--text-muted) 12%, var(--surface));
   color: var(--text-secondary);
 }
 .hm-head-row2 {
@@ -449,7 +450,7 @@ const openCategory = (h, category, status) => {
   width: 64px;
   height: 5px;
   border-radius: 3px;
-  background: #eef2f7;
+  background: var(--border-subtle);
   overflow: hidden;
 }
 .hm-rate-bar b {
@@ -542,8 +543,8 @@ const openCategory = (h, category, status) => {
   --st: var(--text-muted);
 }
 .hm-chip {
-  background: color-mix(in srgb, var(--st) 12%, #fff);
-  color: color-mix(in srgb, var(--st) 80%, #000);
+  background: color-mix(in srgb, var(--st) 12%, var(--surface));
+  color: color-mix(in srgb, var(--st) 80%, var(--text-primary));
   border: 1px solid color-mix(in srgb, var(--st) 26%, transparent);
 }
 .hm-chip:hover {
@@ -628,22 +629,22 @@ const openCategory = (h, category, status) => {
 .hm-cell.st-done { --st: var(--success); }
 .hm-cell.st-blocked { --st: var(--text-muted); }
 .hm-cell.lv-1 {
-  background: color-mix(in srgb, var(--st) 10%, #fff);
-  color: color-mix(in srgb, var(--st) 72%, #000);
+  background: color-mix(in srgb, var(--st) 10%, var(--surface));
+  color: color-mix(in srgb, var(--st) 72%, var(--text-primary));
 }
 .hm-cell.lv-2 {
-  background: color-mix(in srgb, var(--st) 20%, #fff);
-  color: color-mix(in srgb, var(--st) 82%, #000);
+  background: color-mix(in srgb, var(--st) 20%, var(--surface));
+  color: color-mix(in srgb, var(--st) 82%, var(--text-primary));
 }
 .hm-cell.lv-3 {
-  background: color-mix(in srgb, var(--st) 34%, #fff);
-  color: color-mix(in srgb, var(--st) 90%, #000);
+  background: color-mix(in srgb, var(--st) 34%, var(--surface));
+  color: color-mix(in srgb, var(--st) 90%, var(--text-primary));
 }
 .hm-cell:hover {
   filter: brightness(0.94);
 }
 .hm-cell-empty {
-  color: color-mix(in srgb, var(--text-muted) 45%, #fff);
+  color: color-mix(in srgb, var(--text-muted) 45%, var(--surface));
   font-weight: 400;
   cursor: default;
 }

@@ -23,8 +23,11 @@
 ## 4. 运营监控
 - 总览单一数据源 GET /operation/stats/by-handler（summary+category_matrix+handlers[].matrix），禁另拉列表算数。
 - 热力矩阵唯一实现 components/Common/OwnerMatrix.vue（运营+任务中心共用，差异走 props）；热力色 color-mix 派生 token 禁硬编码。
+- **状态文案纪律**：中文标签唯一源 = `constants/operation.js::ISSUE_STATUS_LABELS`（6 态，与后端 STATUS_ORDER 对齐）。调用 OwnerMatrix **必须显式传 `:status-labels`**——组件内 `props.statusLabels[k] || k` 会静默降级成英文 key 原文（2026-09-20 事故：运营总览图例/表头/title 全渲染 pending/processing 等原文）。
+- **OwnerMatrix DOM 契约**（两份回归脚本的断言依赖，改造只许动样式与文案）：`.hm-block`(is-open/is-risk) `.hm-head` `.hm-name` `.hm-tools`（按钮文案「全部展开/全部收起」）`.hm-chip`(st-*/chip-disabled) `.hm-table` `.hm-th-cat` `.hm-th-sum` `.hm-td-sum` `.hm-row-sum` `.hm-cell`(lv-*/hm-cell-empty) `.hm-legend .hm-lg` `tbody tr`。
+- 总览页视觉基线 = 任务总览 `TaskOverviewView`（同构：页头 + 甜甜圈总览卡 + 类别磁贴 + 责任人矩阵）；`.cat-tile` 必须恒为 6 个，`.ops-table/.ops-side-col/.ops-list-col/.research-quick-card` 类名不得复活。
 - 深链：格子→/operation/{category}?handler=&status=。
-- 回归 verify_ops_handler_matrix.cjs（33 项）；改总览/工单子页/OwnerMatrix 必跑。
+- 回归 verify_ops_handler_matrix.cjs（39 项，含状态文案中文硬断言）；改总览/工单子页/OwnerMatrix 必跑。
 - 删除契约：DELETE issues/{id} 不存在返 deleted=False；batch-delete；删 prod 主单级联清分析明细+关联任务+知识链接。
 
 ## 5. 任务中心
@@ -48,13 +51,15 @@
 
 ## 9. UI 设计系统
 - 令牌单一源 styles/design.css，禁硬编码十六进制；PageHeader / StatusBadge+statusConfig / CommandPalette。
+- 令牌补充（2026-09-20）：`--transition-fast/.normal`（此前 -normal 缺失致 TaskOverviewView/HomeView 过渡静默失效）、`--violet/--violet-soft`（第 5 分类色，承载原硬编码紫）。**`color-mix(..., #fff/#000)` 同属硬编码**，混色基色用 `var(--surface)` / `var(--text-primary)`。
+- 分类色语义走 `constants/operation.js::CATEGORY_TONE`（danger/accent/warning/violet/success），页面禁自造调色板。
 - 首页看板 2.0 基准 prototype/home-dashboard-v2-r3-unified.html，回归 verify_home_v2.cjs（25）必跑。
 
 ## 10. 验证纪律
 - 运行态≠代码态；前端必真实 DOM 断言；vite build 过≠页面能渲染。
 - 回归工具集：frontend/tests/e2e（route-smoke / verify_home_v2 / verify_ops_handler_matrix / verify_task_overview / verify_supervise 等）；截图读图被沙箱过滤，只信文本日志。
 - Windows 取数：PowerShell 中文 JSON 乱码用 python urllib；netstat GBK 需 decode('gbk')；**PowerShell 工具 stdout 常被吞 → python 直写 utf-8 文件再 Read**。
-- 沙箱：Edit 回执≠落盘须 grep 复核；删目录用 [System.IO.Directory]::Delete。
+- 沙箱：Edit 回执≠落盘须 grep 复核；删目录用 [System.IO.Directory]::Delete。**git push/commit 涉 .ssh 会被沙箱拦（表现 SIGTERM/exit1 无输出）→ 必须「前台 + dangerouslyDisableSandbox 升级批准」执行；后台任务即使声明无沙箱仍被拦。** git-bash PATH 损坏时用 PortableGit 全路径 + export PATH 修复；git bash 无 head/tail → 重定向日志文件再 Read；无 cd → managed node 绝对路径 + `vite.js build <root>` 位置参数构建。
 
 ## 11. 模块纪要
 - AI 总结归档 15-工作总结/{类型}/{日期}.md；周报三端 900s 对齐；章节编号四处同步。

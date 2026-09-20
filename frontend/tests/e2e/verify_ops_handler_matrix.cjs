@@ -55,6 +55,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       rootFound: !!root,
       rootText: root ? root.innerText : '',
       catTiles: document.querySelectorAll('.cat-tile').length,
+      legend: Array.from(document.querySelectorAll('.hm-legend .hm-lg')).map((e) => e.innerText.trim()),
+      tips: Array.from(document.querySelectorAll('.operation-overview [title]')).map((e) => e.getAttribute('title') || ''),
       legacyCount: document.querySelectorAll('.ops-list-col, .research-quick-card, .ops-side-col, .ops-table').length,
       blocks: blocks.map((b) => ({
         name: (b.querySelector('.hm-name')?.innerText || '').trim(),
@@ -78,6 +80,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('旧区域已删除(一线调研卡/工单列表/侧栏)', dom.legacyCount === 0, `legacyEls=${dom.legacyCount}`);
   check('页面内不再出现一线调研', !dom.rootText.includes('一线调研'));
   check('6 个分类磁贴保留', dom.catTiles === 6, `tiles=${dom.catTiles}`);
+
+  // ---- 文案本地化：状态一律渲染中文标签，严禁把状态 key 原文当成文案 ----
+  // 历史缺陷：总览页漏传 statusLabels，组件 statusLabels[k] || k 兜底成原始 key，
+  // 页面出现 pending / processing 等英文原文；旧断言未覆盖文案，故从回归中溜过。
+  const KEY_RE = (k) => new RegExp(`\\b${k}\\b`);
+  check('状态图例为 6 项中文标签且顺序正确',
+    dom.legend.length === STATUS_KEYS.length && STATUS_KEYS.every((k, i) => dom.legend[i] === STATUS_LABELS[i]),
+    dom.legend.join(','));
+  check('状态图例不含状态 key 英文原文',
+    !dom.legend.some((t) => STATUS_KEYS.includes(t)),
+    dom.legend.join(','));
+  const rootKeyHits = STATUS_KEYS.filter((k) => KEY_RE(k).test(dom.rootText));
+  check('页面可见文本不含状态 key 英文原文', rootKeyHits.length === 0, rootKeyHits.join(',') || 'none');
+  const badTips = dom.tips.filter((t) => STATUS_KEYS.some((k) => KEY_RE(k).test(t)));
+  check('格子/chip 悬浮提示不含状态 key 英文原文', badTips.length === 0, badTips.slice(0, 3).join(' | ') || 'none');
+  check('悬浮提示中文术语有分隔（「类别」· 状态）',
+    dom.tips.some((t) => /「.+」·\s?\S/.test(t)), dom.tips.slice(0, 2).join(' | '));
 
   if (data) {
     const expectHandlers = data.handlers;
@@ -192,6 +211,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         ),
       }));
     });
+
+    // 矩阵列头文案：中文状态标签 + 类别表头 + 合计，且不得出现状态 key 原文
+    const matHead = await page.evaluate(() => {
+      const t = document.querySelector('.hm-block .hm-table');
+      return t ? Array.from(t.querySelectorAll('thead th')).map((x) => x.innerText.trim()) : [];
+    });
+    check('矩阵列头为中文状态标签+类别+合计',
+      matHead.includes('工单类别') && matHead.includes('合计') &&
+      STATUS_LABELS.every((l) => matHead.includes(l)) &&
+      !STATUS_KEYS.some((k) => matHead.includes(k)),
+      matHead.join(','));
 
     // 逐块逐格比对：DOM 数字 vs 接口数字（0 显示为 –）
     let cellTotal = 0;

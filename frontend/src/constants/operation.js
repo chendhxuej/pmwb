@@ -43,6 +43,28 @@ export const CATEGORY_LABEL = Object.fromEntries(
 // 工单大类 key -> 摘要 chips 用简称（控制宽度，避免卡片被长名撑开）
 export const CATEGORY_SHORT = { bug: 'BUG', data: '数据', prod: '运营', task: '交办', complaint: '投诉' }
 
+// 工单大类 key -> 色调语义（组件内禁硬编码十六进制，色值一律由 design.css 令牌承载）
+export const CATEGORY_TONE = {
+  bug: 'danger',
+  data: 'accent',
+  prod: 'warning',
+  task: 'violet',
+  complaint: 'success',
+}
+
+// 工单状态 key -> 中文标签（单一源）
+// 与后端 OperationIssueService.STATUS_ORDER 一一对应，顺序即展示顺序。
+// 用途：总览责任人矩阵的图例 / 表头 / 悬浮提示；严禁在页面里再写第二份映射，
+// 也严禁把 key 直接当文案展示（历史缺陷：漏传 statusLabels 导致页面出现 pending 等英文原文）。
+export const ISSUE_STATUS_LABELS = {
+  pending: '待处理',
+  processing: '处理中',
+  verify: '验证中',
+  resolved: '已解决',
+  closed: '已关闭',
+  suspended: '已挂起',
+}
+
 // 工单大类 key -> color
 export const CATEGORY_COLOR = Object.fromEntries(
   WORK_ORDER_CATEGORIES.map((c) => [c.key, c.color])
