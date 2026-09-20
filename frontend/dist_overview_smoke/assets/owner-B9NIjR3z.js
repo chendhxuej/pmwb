@@ -1,1 +1,0 @@
-function e(n){if(Array.isArray(n))return[...new Set(n.map(t=>String(t).trim()).filter(Boolean))];const r=String(n??"");return r.trim()?[...new Set(r.split(/[,，;；、]+/).map(t=>t.trim()).filter(Boolean))]:[]}function i(n){return e(n).join(",")}function o(n){return e(n).join("、")}export{i as a,o as b,e as o};

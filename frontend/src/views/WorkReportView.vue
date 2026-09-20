@@ -69,7 +69,12 @@
             <el-option label="周报" value="weekly" />
             <el-option label="月报" value="monthly" />
             <el-option label="自定义" value="custom" />
+            <el-option label="需求分析" value="requirement" />
           </el-select>
+        </el-form-item>
+        <el-form-item v-if="genForm.report_type === 'requirement'" label="超期天数">
+          <el-input-number v-model="genForm.overdue_days" :min="1" :max="365" style="width: 100%" />
+          <div class="form-tip">计划上线需求口径：尚未上线且进入「启动开发」环节已超该天数（默认 15 天）</div>
         </el-form-item>
         <el-form-item label="起始日期">
           <el-date-picker v-model="genForm.date_start" type="date" value-format="YYYY-MM-DD" placeholder="缺省自动推算" style="width: 100%" />
@@ -176,7 +181,7 @@ const loading = ref(false)
 // 左侧栏分类（含数量徽标）
 const activeCategory = ref('all')
 const categoryList = computed(() => {
-  const counts = { all: list.value.length, daily: 0, weekly: 0, monthly: 0, custom: 0 }
+  const counts = { all: list.value.length, daily: 0, weekly: 0, monthly: 0, custom: 0, requirement: 0 }
   for (const r of list.value) counts[r.report_type] = (counts[r.report_type] || 0) + 1
   return [
     { label: '全部', value: 'all', count: counts.all },
@@ -184,6 +189,7 @@ const categoryList = computed(() => {
     { label: '周报', value: 'weekly', count: counts.weekly },
     { label: '月报', value: 'monthly', count: counts.monthly },
     { label: '自定义', value: 'custom', count: counts.custom },
+    { label: '需求分析', value: 'requirement', count: counts.requirement },
   ]
 })
 const filteredList = computed(() =>
@@ -202,7 +208,7 @@ function _startGenTimer() {
 function _stopGenTimer() {
   if (_genTimer) { clearInterval(_genTimer); _genTimer = null }
 }
-const genForm = reactive({ report_type: 'daily', date_start: '', date_end: '' })
+const genForm = reactive({ report_type: 'daily', date_start: '', date_end: '', overdue_days: 15 })
 
 function todayStr() {
   const d = new Date()

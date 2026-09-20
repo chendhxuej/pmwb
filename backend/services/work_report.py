@@ -20,7 +20,10 @@ from utils.validators import validate_email_strict
 
 logger = logging.getLogger(__name__)
 
-REPORT_TYPE_LABELS = {"daily": "日报", "weekly": "周报", "monthly": "月报", "custom": "自定义"}
+REPORT_TYPE_LABELS = {
+    "daily": "日报", "weekly": "周报", "monthly": "月报", "custom": "自定义",
+    "requirement": "需求分析",
+}
 STATUS_LABELS = {"draft": "草稿", "finalized": "已定稿", "sent": "已发送"}
 OBSIDIAN_ROOT = "15-工作总结"
 
@@ -68,6 +71,9 @@ def _date_range(report_type: str, ds: Optional[date], de: Optional[date]):
         start = end - timedelta(days=weekday)
     elif report_type == "monthly":
         start = end.replace(day=1)
+    elif report_type == "requirement":
+        # 需求分析专题：默认近 7 天（含今天）
+        start = end - timedelta(days=6)
     else:  # daily / custom
         start = end
     return start, end
@@ -232,6 +238,8 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     ds = params.get("date_start")
     de = params.get("date_end")
     start, end = _date_range(report_type, ds, de)
+    if report_type == "requirement":
+        return _generate_requirement_analysis(db, start, end, params)
     # 阶段耗时埋点：此前「生成慢」无法定位到底是数据采集还是 LLM 调用，只能靠猜
     _t0 = time.time()
     data = ReportDataCollector(db).collect(start, end)
@@ -256,6 +264,51 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     title = f"{_type_label(report_type)}（{start.isoformat()}~{end.isoformat()}）"
     r = PmwbWorkReport(
         report_type=report_type, title=title, content=md,
+        date_start=start, date_end=end, status="draft",
+    )
+    r.gen_used_llm = 1 if used_llm else 0
+    r.gen_model = provider_name or ""
+    r.gen_notice = notice or ""
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return {**to_out(r), "used_llm": bool(used_llm), "provider_name": provider_name, "llm_notice": notice}
+
+
+def _generate_requirement_analysis(db: Session, start: date, end: date, params: Dict[str, Any]) -> Dict[str, Any]:
+    """「需求分析」专题生成：已上线/计划上线两类需求 + 能力高度概括。
+
+    与日常报告不同：不走 ReportDataCollector 七章管线、不做 _ensure_sections/
+    下期计划拼接，输出为固定两节的轻量结构。
+    """
+    from services import requirement_analysis as ra
+
+    try:
+        overdue_days = int(params.get("overdue_days") or ra.OVERDUE_DAYS_DEFAULT)
+    except (TypeError, ValueError):
+        overdue_days = ra.OVERDUE_DAYS_DEFAULT
+
+    _t0 = time.time()
+    data = ra.collect(db, start, end, overdue_days)
+    system, user = ra.build_prompt(data, start, end, overdue_days)
+    _t_collect = time.time() - _t0
+    logger.info(
+        "[需求分析] 数据筛选 %.1fs：已上线 %d 条 / 计划上线(开发超%d天) %d 条，user_message %d 字符",
+        _t_collect, len(data.get("delivered") or []), overdue_days,
+        len(data.get("planned") or []), len(user),
+    )
+    md, used_llm, provider_name, notice = generate_report_markdown(db, system, user)
+    _t_llm = time.time() - _t0 - _t_collect
+    logger.info(
+        "[需求分析] LLM 调用 %.1fs，used_llm=%s，provider=%s，notice=%s",
+        _t_llm, used_llm, provider_name, (notice or "")[:200],
+    )
+    if not md:
+        md = ra.render_rule(data, start, end, overdue_days)
+        notice = notice or "所有已启用的大模型均不可用，已按规则模板生成（能力为澄清内容首句截取，非 AI 高度概括）。"
+    title = f"{_type_label('requirement')}（{start.isoformat()}~{end.isoformat()}）"
+    r = PmwbWorkReport(
+        report_type="requirement", title=title, content=md,
         date_start=start, date_end=end, status="draft",
     )
     r.gen_used_llm = 1 if used_llm else 0

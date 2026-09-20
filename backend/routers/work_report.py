@@ -21,6 +21,7 @@ class GenerateRequest(BaseModel):
     report_type: str = "daily"
     date_start: Optional[str] = None
     date_end: Optional[str] = None
+    overdue_days: Optional[int] = None  # 需求分析专题：进入启动开发超期天数阈值（默认15）
 
 
 class UpdateRequest(BaseModel):
@@ -53,6 +54,7 @@ def generate(req: GenerateRequest, db: Session = Depends(get_db)):
         "report_type": req.report_type,
         "date_start": _parse_date(req.date_start),
         "date_end": _parse_date(req.date_end),
+        "overdue_days": req.overdue_days,
     }
     return success(data=svc.generate_report(db, params))
 

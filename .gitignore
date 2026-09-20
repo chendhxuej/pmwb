@@ -83,6 +83,7 @@ frontend/dist_verify*/
 frontend/dist-tmp/
 frontend/dist-*/
 frontend/.build_check/
+frontend/dist_overview_smoke/
 !.workbuddy/integrator/
 
 # 微服务配置（含本地密码，禁止入库）
