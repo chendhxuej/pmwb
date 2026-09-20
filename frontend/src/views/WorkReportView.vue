@@ -281,6 +281,7 @@ async function load() {
 
 function openGenerate() {
   genForm.report_type = 'daily'
+  genForm.overdue_days = 15
   applyDefaultDates('daily')
   generateVisible.value = true
 }
@@ -435,6 +436,7 @@ onMounted(load)
 .gen-loading-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 20px; gap: 10px; color: var(--el-text-color-secondary); }
 .gen-loading-overlay p { margin: 0; }
 .gen-elapsed { font-size: 13px; color: var(--el-color-primary); font-weight: 600; }
+.form-tip { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.5; margin-top: 4px; }
 
 /* ---- AI总结报告专属排版层（仅作用于报告 markdown，不影响共用 MarkdownRender 其他场景）---- */
 .wr-report { --wr-accent: var(--el-color-primary, #409eff); }

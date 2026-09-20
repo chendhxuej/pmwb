@@ -103,11 +103,9 @@ def collect(db, start: date, end: date, overdue_days: int = OVERDUE_DAYS_DEFAULT
             delivered.append({**base, "go_live": go_live.isoformat()})
             continue
         # 尚未上线 + 进入启动开发环节超期
+        # 注：closed 但从未填报上线日期的需求，同样视为未上线，按超期规则正常参与判断
         if go_live:
             continue  # 已上线（周期外）不计入计划上线
-        if (r.status or "") == "closed" and r.delivered_date is None and req_id not in ticket_go_live:
-            # closed 但从未填报上线日期：视为未上线，仍按超期规则判断
-            pass
         entered = dev_entered.get(req_id)
         if entered and entered.date() <= dev_overdue_before:
             planned.append({
