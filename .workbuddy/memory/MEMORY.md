@@ -29,6 +29,9 @@
 - 深链：格子→/operation/{category}?handler=&status=。
 - 回归 verify_ops_handler_matrix.cjs（39 项，含状态文案中文硬断言）；改总览/工单子页/OwnerMatrix 必跑。
 - 删除契约：DELETE issues/{id} 不存在返 deleted=False；batch-delete；删 prod 主单级联清分析明细+关联任务+知识链接。
+- **全库责任人字段仅 3 处**（2026-09-21 扫库结论）：`pmwb_operation_issue.handler`、`pmwb_meeting_action.owner`、`pmwb_key_work_member_task.assignee`。邮件正文/周报正文/附件名/参会人名里的姓名是历史留痕，任何批量改写禁碰。
+- **在途口径**：运营工单 = status IN (pending,processing,verify,suspended)（非 resolved/closed）；会议行动项 = status NOT IN (done,cancelled)（该列 String(32) 无枚举，必须用黑名单）。挂起单算在途。
+- 人员调整批量交接流程与坑见 skill `pmwb-owner-handover`。
 
 ## 5. 任务中心
 - services/task_center.py 8 collector 实时采集；路由 /task-center：stats/by-owner / tasks / send / draft 等。
@@ -57,6 +60,8 @@
 
 ## 10. 验证纪律
 - 运行态≠代码态；前端必真实 DOM 断言；vite build 过≠页面能渲染。
+- **MySQL REPEATABLE READ 校验假阴性**（2026-09-21 踩坑）：同一连接在 UPDATE 前执行过 SELECT 后，后续 SELECT 仍读旧快照 → 复核显示「没改成功」而实际已改。**改库后复核必须开新连接并设 `isolation_level="READ COMMITTED"`**，否则会误判并重复执行。校验查询勿与写入复用同一 connection。
+- 脚本连库若报 1045 Access denied：**OS 级 DB_PASSWORD 覆盖了 .env**（与 SECRET_KEY 同源），用 `dotenv_values('.env')` 显式取值绕过。
 - 回归工具集：frontend/tests/e2e（route-smoke / verify_home_v2 / verify_ops_handler_matrix / verify_task_overview / verify_supervise 等）；截图读图被沙箱过滤，只信文本日志。
 - Windows 取数：PowerShell 中文 JSON 乱码用 python urllib；netstat GBK 需 decode('gbk')；**PowerShell 工具 stdout 常被吞 → python 直写 utf-8 文件再 Read**。
 - 沙箱：Edit 回执≠落盘须 grep 复核；删目录用 [System.IO.Directory]::Delete。**git push/commit 涉 .ssh 会被沙箱拦（表现 SIGTERM/exit1 无输出）→ 必须「前台 + dangerouslyDisableSandbox 升级批准」执行；后台任务即使声明无沙箱仍被拦。** git-bash PATH 损坏时用 PortableGit 全路径 + export PATH 修复；git bash 无 head/tail → 重定向日志文件再 Read；无 cd → managed node 绝对路径 + `vite.js build <root>` 位置参数构建。
