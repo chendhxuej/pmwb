@@ -173,6 +173,7 @@ async function toCompose() {
     source: t.source,
     source_id: t.source_id,
     owner: t.owner || '未分配',
+    created_at: t.created_at ? String(t.created_at).slice(0, 10) : '',
     due_date: t.due_date || '',
     status_label: t.status_label || t.status,
     priority: t.priority || '',

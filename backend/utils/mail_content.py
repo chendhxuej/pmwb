@@ -22,11 +22,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from html import escape
 from typing import Any, Optional
 
 import markdown as markdown_lib
 
+from db.models import now_cn
+from utils.dateflags import (
+    DEFAULT_ELAPSED_ALERT_DAYS,
+    DEFAULT_ELAPSED_WARN_DAYS,
+    parse_loose_date,
+)
 from utils.markdown_mail import (
     _MD_EXTENSIONS,
     _apply_inline_styles,
@@ -320,7 +327,30 @@ def default_body_md(scene: str, values: dict) -> str:
 # ---------------------------------------------------------------------------
 # 任务中心专用装配（2026-09-07）
 # ---------------------------------------------------------------------------
-def render_task_center_section(tasks: list[dict], send_type: str = "urge") -> str:
+def _render_created_cell(created_raw: Any, today: date) -> str:
+    """创建时间单元格：`2026-07-12（已 72 天）`，已历时按阈值着色。
+
+    催办邮件的说服力在于"这一单挂了多久"，故把已历时天数直接放进格子。
+    日期本体保持中性色，只有「已 N 天」按 30/60 天双阈值标橙/标红，
+    避免与标题上的【超期】/【临期】标记抢视觉。
+    """
+    d = parse_loose_date(created_raw)
+    if d is None:
+        return "—"
+    elapsed = max(0, (today - d).days)
+    tail = f"（已 {elapsed} 天）"
+    if elapsed >= DEFAULT_ELAPSED_ALERT_DAYS:
+        tail = f'<span style="color:#f53f3f;font-weight:600;">{tail}</span>'
+    elif elapsed >= DEFAULT_ELAPSED_WARN_DAYS:
+        tail = f'<span style="color:#ff7d00;font-weight:600;">{tail}</span>'
+    return f"{d.isoformat()}{tail}"
+
+
+def render_task_center_section(
+    tasks: list[dict],
+    send_type: str = "urge",
+    today: Optional[date] = None,
+) -> str:
     """结构化任务列表 → Markdown 段（每条 = H3 标题 + 字段表 + 工单内容）。
 
     任务中心邮件的硬伤（不连贯 / 详情缺失 / 批量不完整）由本函数根治：
@@ -332,13 +362,17 @@ def render_task_center_section(tasks: list[dict], send_type: str = "urge") -> st
     输入每个 task dict 的字段：
         title, source_label, owner, due_date, status_label,
         priority, description (str, \n 保留), is_overdue, is_due_soon,
+        created_at (YYYY-MM-DD，缺省渲染为「—」，2026-09-22 新增),
         source_url (预留字段字段可暂未使用), index (1-based)
+
+    today 仅用于「已历时」天数计算与测试注入，缺省取 now_cn() 当日。
 
     返回 Markdown 字符串，由 build_mail_body 经 markdown_fragment 渲染为 HTML。
     """
     if not tasks:
         return ""
 
+    base_today = today or now_cn().date()
     blocks: list[str] = []
     for t in tasks:
         idx = t.get("index") or (len(blocks) + 1)
@@ -355,14 +389,15 @@ def render_task_center_section(tasks: list[dict], send_type: str = "urge") -> st
         cells = [
             str(t.get("source_label") or "—"),
             str(t.get("owner") or "未分配"),
+            _render_created_cell(t.get("created_at"), base_today),
             str(t.get("due_date") or "未设定"),
             str(t.get("status_label") or "—"),
             str(t.get("priority") or "—"),
         ]
         field_table = (
-            "| 来源 | 负责人 | 截止 | 状态 | 优先级 |\n"
-            "| --- | --- | --- | --- | --- |\n"
-            f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} | {cells[4]} |"
+            "| 来源 | 负责人 | 创建 | 截止 | 状态 | 优先级 |\n"
+            "| --- | --- | --- | --- | --- | --- |\n"
+            f"| {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} | {cells[4]} | {cells[5]} |"
         )
 
         parts = [heading, "", field_table]

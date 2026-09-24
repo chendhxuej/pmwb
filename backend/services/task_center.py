@@ -40,7 +40,7 @@ from schemas.task_center import (
     TaskStats,
 )
 from services.mail_dispatch import _render_mail, dispatch_email
-from utils.dateflags import flag_due_date
+from utils.dateflags import flag_due_date, parse_loose_date
 from utils.email import EmailCenterClient
 from utils.owners import owner_set, split_owners
 from utils.master_service import master_service_client
@@ -471,6 +471,8 @@ class TaskCenterService:
                 PmwbRequirementEvaluation.proposer,
                 PmwbRequirementEvaluation.sa_name,
                 PmwbRequirementEvaluation.system_name,
+                PmwbRequirementEvaluation.send_datetime,
+                PmwbRequirementEvaluation.created_at,
             )
             .filter(
                 func.coalesce(PmwbRequirementEvaluation.workload, 0) == 0,
@@ -541,7 +543,10 @@ class TaskCenterService:
                 owner=owner,
                 priority=None,
                 due_date=None,
-                created_at=None,
+                # 需求催办派生自 PmwbRequirementEvaluation（无 propose_time）：
+                # 优先「邮件发送时间」send_datetime（需求提出溯源），回退评估记录播种时间 created_at，
+                # 供邮件展示创建时间/已历时。
+                created_at=parse_loose_date(r.send_datetime) or parse_loose_date(r.created_at),
                 source_url=f"/requirement-delivery?req={r.req_id}&sa={r.sa_name}",
                 detail={
                     "需求编号": r.req_id,
@@ -907,6 +912,7 @@ class TaskCenterService:
                     "source_id": item.source_id,
                     "owner": (item.owner or "未分配").replace(",", "、"),
                     "due_date": item.due_date.isoformat() if item.due_date else "",
+                    "created_at": item.created_at.isoformat() if item.created_at else "",
                     "status_label": item.status_label,
                     "priority": item.priority or "",
                     "description": str(desc).strip(),

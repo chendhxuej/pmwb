@@ -3,6 +3,7 @@
 ## 0. 铁律
 - 邮件：AI 自测一律 dry_run（不带 confirm_send），真发仅限老大页面显式点击。
 - git：禁 checkout -b/branch/worktree；一律走 `~/.workbuddy/bin/git-safe-commit.sh`；远端真态用 `git ls-remote` 判定（本地 rev-parse/status 不可信）。
+- **写材料取材边界（2026-09-23 老大明确）**：PMWB 建设本身（工具/模块/代码）不是老大工作内容；各模块记录的信息（需求台账/重点工作专题/运营工单等）才是其真实工作。发言稿/总结/周报等必须基于库内**业务内容**提炼（可查 `yxtyg_db.pmwb_requirement_evaluation.req_name`、`pmwb_key_work.title`），禁止把「做了个系统/模块」当工作内容。
 
 ## 1. 拓扑
 - FastAPI+Vue3+Element Plus+MySQL；GitHub chendhxuej/pmwb (main)。
@@ -38,7 +39,12 @@
 - 二级仅 overview+all 两页（2026-09-20 删 8 来源子路由）；来源筛选走 ?source=，深链 /task-center/all?source=&owner=&status=。
 - 口径（老大拍板）：未完结=pending+in_progress（排除 done/blocked）；主指标=整体超期率；include_done=true 看全量。
 - 批量督办：OwnerMatrix superviseLabel 注入按钮→TaskBatchSuperviseDialog→POST /task-center/send 逐任务落 email_records。
-- 回归 verify_task_overview.cjs（50）+ verify_supervise.cjs（9）必跑。状态统一 4 态 pending/in_progress/done/blocked。
+- 回归 verify_task_overview.cjs（50）+ verify_supervise.cjs（11）必跑。状态统一 4 态 pending/in_progress/done/blocked。
+- **督办邮件卡片字段表恒为 6 列**：来源/负责人/**创建**/截止/状态/优先级；创建格 = `YYYY-MM-DD（已 N 天）`，已历时 ≥30 天橙 `#ff7d00`、≥60 天红 `#f53f3f`（阈值常量在 `utils/dateflags.py`）。渲染入口 `render_task_center_section(..., today=None)`，today 仅测试注入。
+- **created_at 三处 map 必须同改**（2026-09-22 事故根因）：`TaskCenterView.buildStructuredTasks`、`TaskBatchSuperviseDialog.toCompose`、`task_center._build_structured_tasks`。`send_notification` 优先取前端 `template_data.tasks`，只改后端会让编辑区草稿与实发正文分叉。
+- 8 类来源中 `requirement_urge` 派生自 `PmwbRequirementEvaluation`（无 propose_time——它在 SentEmail 上，勿张冠李戴），created_at = `send_datetime`（需求邮件发出时间）兜底 `created_at`（评估记录播种时间），经 `parse_loose_date`。
+- `_collect` 对各 collector 异常静默吞（logger.warning）：来源筛选拉空时先查 backend/logs 里「任务中心来源 xx 采集失败」。
+- verify_supervise.cjs 已改轮询等待（原固定 sleep(2500) 在 20 任务场景误报「右侧预览 iframe 已渲染」）。
 
 ## 6. 需求与交付
 - dev_ticket_no 从 SentEmail 回填；AI 故事 .env 优先、超时 900s 三方对齐、失败必降级红色告警。

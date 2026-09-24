@@ -1,11 +1,12 @@
 """任务中心邮件正文单测（2026-09-07 改造）。
 
-覆盖：单任务/多任务/超期/临期/无描述/多负责人称呼/主题格式化/
-兼容旧 HTML/空任务 等 14 个用例。
+覆盖：单任务/多任务/超期/临期/创建时间与已历时着色/无描述/多负责人称呼/
+主题格式化/兼容旧 HTML/空任务 等 30 个用例。
 
 安全：dispatch_email 一律 dry_run（不带 confirm_send），绝不真发。
 """
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -44,8 +45,8 @@ def test_section_single_basic():
     """单任务：H3 标题 + 字段表 + 工单内容。"""
     md = mail_content.render_task_center_section([_task()], "urge")
     assert "### 1. [REQ-001] 一网通开户流程优化" in md
-    assert "| 来源 | 负责人 | 截止 | 状态 | 优先级 |" in md
-    assert "| 需求催办 | 张三 | 2026-09-10 | 待处理 | P1 |" in md
+    assert "| 来源 | 负责人 | 创建 | 截止 | 状态 | 优先级 |" in md
+    assert "| 需求催办 | 张三 | — | 2026-09-10 | 待处理 | P1 |" in md
     assert "**工单内容**" in md
     assert "针对一网通宽带开户流程的优化建议" in md
 
@@ -103,6 +104,58 @@ def test_section_empty_tasks_returns_empty():
     """空任务列表：返回空串，不报错。"""
     assert mail_content.render_task_center_section([], "urge") == ""
     assert mail_content.render_task_center_section(None, "urge") == ""
+
+
+# ---------------------------------------------------------------------------
+# 创建时间 + 已历时（2026-09-22）
+# ---------------------------------------------------------------------------
+def test_section_created_at_with_elapsed():
+    """创建时间：单元格含日期 + 已历时天数；未达阈值不加色。"""
+    md = mail_content.render_task_center_section(
+        [_task(created_at="2026-09-20")], "urge", today=date(2026, 9, 22)
+    )
+    assert "2026-09-20（已 2 天）" in md
+    assert "<span" not in md
+
+
+def test_section_created_elapsed_warn_color():
+    """已历时 30 天：橙色告警（#ff7d00）。"""
+    md = mail_content.render_task_center_section(
+        [_task(created_at="2026-08-15")], "urge", today=date(2026, 9, 14)
+    )
+    assert "2026-08-15" in md and "（已 30 天）" in md
+    assert "#ff7d00" in md
+
+
+def test_section_created_elapsed_alert_color():
+    """已历时 60 天：红色告警（#f53f3f）。"""
+    md = mail_content.render_task_center_section(
+        [_task(created_at="2026-07-01")], "urge", today=date(2026, 8, 30)
+    )
+    assert "（已 60 天）" in md
+    assert "#f53f3f" in md
+
+
+def test_section_created_accepts_datetime_and_slash_format():
+    """创建时间容错：带时间的字符串 / 斜杠分隔 均可解析。"""
+    md = mail_content.render_task_center_section(
+        [_task(created_at="2026-09-20 10:30:00")], "urge", today=date(2026, 9, 22)
+    )
+    assert "2026-09-20（已 2 天）" in md
+    md2 = mail_content.render_task_center_section(
+        [_task(created_at="2026/9/20")], "urge", today=date(2026, 9, 22)
+    )
+    assert "2026-09-20（已 2 天）" in md2
+
+
+def test_created_elapsed_span_survives_markdown_render():
+    """表格单元格内的着色 span 经 Markdown 渲染后保留（不被转义）。"""
+    md = mail_content.render_task_center_section(
+        [_task(created_at="2026-07-01")], "urge", today=date(2026, 8, 30)
+    )
+    html = mail_content.markdown_fragment(md)
+    assert "<table" in html
+    assert "#f53f3f" in html and "（已 60 天）" in html
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +320,7 @@ def test_build_mail_body_md_single_task():
         fields={"tasks": [_task()]},
     )
     assert "### 1. [REQ-001] 一网通开户流程优化" in md
-    assert "| 来源 | 负责人 | 截止 | 状态 | 优先级 |" in md
+    assert "| 来源 | 负责人 | 创建 | 截止 | 状态 | 优先级 |" in md
     assert "**工单内容**" in md
     assert "针对一网通宽带开户流程的优化建议" in md
     # 草稿不含 HTML 标签（让用户能在 textarea 里编辑）

@@ -82,7 +82,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const b = btns.find((x) => x.innerText.includes('撰写催办邮件'));
         if (b) b.click();
       });
-      await sleep(2500); // 等草稿拉取 + 预览渲染
+      // 轮询等「草稿已填充 + 预览 iframe 就绪」代替固定 sleep：
+      // 2026-09-22 实测 20 条任务的预览在 dev server 下常 >2.5s，固定等待会误报 FAIL。
+      for (let i = 0; i < 24; i++) {
+        const ok = await page.evaluate(() => {
+          const cd = document.querySelector('.mail-compose-dialog');
+          if (!cd) return false;
+          const ta = cd.querySelector('.compose-body textarea, .compose-edit .el-textarea__inner');
+          const bodyOk = !!(ta && (ta.value || '').trim().length > 0);
+          const f = cd.querySelector('.compose-preview-frame');
+          const prevOk = !!(f && f.getAttribute('srcdoc') && f.getAttribute('srcdoc').length > 50);
+          return bodyOk && prevOk;
+        });
+        if (ok) break;
+        await sleep(500);
+      }
 
       const compose = await page.evaluate(() => {
         const cd = document.querySelector('.mail-compose-dialog');
