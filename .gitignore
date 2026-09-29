@@ -102,3 +102,67 @@ frontend/dist_t6check/
 frontend/dist-verify/
 frontend/dist-verify3/
 frontend/dist-build-test/
+
+# ============================================================
+# 仓库最小化护栏（2026-09-29 老大要求，长期有效）
+# 原则：仓库只允许"程序文件"——源码 / 工程配置 / 依赖锁 / 程序运行必需的资源。
+#       业务数据、测试数据、各类报告、办公文档、个人档案、设计预览一律不入库。
+# 新增文件前先自问：这是程序跑起来需要的东西吗？不是 → 别 add。
+# ============================================================
+
+# 办公文档与数据文件（业务数据/测试数据/报告/表格，一律不入库）
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.pdf
+*.vsd
+*.vsdx
+
+# 程序运行必需的资源白名单（后端生成说明书用的模板）
+!backend/templates/*.docx
+!extension/icons/*.png
+
+# 文档 / 报告 / 设计预览目录（本地保留即可，不含可运行代码）
+/docs/
+/prototype/
+
+# 个人档案与工作区身份文件（含个人联系方式等隐私，严禁入库）
+/USER.md
+/SOUL.md
+/IDENTITY.md
+/BOOTSTRAP.md
+
+# 根目录工作材料（业务模板、申报材料、邮件样张等）
+/*.xlsx
+/督办*.html
+/UI设计审查报告.md
+
+# 工作日志与业务台账（.workbuddy/* 已整目录忽略，勿解除）
+.workbuddy/memory/
+
+# 一次性调试 / 诊断 / 复现脚本与截图
+frontend/tests/e2e/_*.png
+frontend/tests/e2e/debug_*.cjs
+frontend/tests/e2e/diag_*.cjs
+frontend/tests/e2e/repro_*.cjs
+frontend/tests/e2e/inspect_*.cjs
+frontend/tests/e2e/probe_*.js
+frontend/tests/e2e/shot_*.cjs
+frontend/tests/e2e/ui_shots.cjs
+frontend/tests/e2e/kc_*.cjs
+
+# 只放行"必跑回归集"，其余 verify_* 一次性脚本一律不入库
+frontend/tests/e2e/verify_*.cjs
+!frontend/tests/e2e/verify_home_v2.cjs
+!frontend/tests/e2e/verify_ops_handler_matrix.cjs
+!frontend/tests/e2e/verify_task_overview.cjs
+!frontend/tests/e2e/verify_supervise.cjs
+!frontend/tests/e2e/verify_multi_owner.cjs
+
+# 误放在业务目录下的测试文件（测试统一放 backend/tests/）
+backend/services/test_*.py
