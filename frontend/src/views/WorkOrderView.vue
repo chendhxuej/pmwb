@@ -1396,19 +1396,9 @@ const planFinishDate = (row) => {
 }
 
 function buildSuperviseBody(row, scene = 'urge') {
-  const typeLabel = issueTypeLabel(row.category, row.issue_type)
+  // 信息单一来源：标题带/称呼/导语/字段表由后端装配器渲染（renderer=True），
+  // 正文只保留描述段与结尾句，禁止再写「## 催办通知」标题和字段表（2026-09-29 重复事故）
   return [
-    scene === 'urge' ? '## 催办通知' : '## 工单进展同步',
-    '',
-    '| 字段 | 内容 |',
-    '|------|------|',
-    `| 工单编号 | ${row.issue_no || row.id || ''} |`,
-    `| 标题 | ${row.title || ''} |`,
-    `| 类型 | ${typeLabel || ''} |`,
-    `| 处理人 | ${row.handler || ''} |`,
-    `| 计划完成日期 | ${planFinishDate(row)} |`,
-    `| 当前状态 | ${statusBadgeOptions[row.status]?.label || row.status || ''} |`,
-    '',
     '### 问题描述',
     row.situation_desc || row.description || '（无）',
     '',

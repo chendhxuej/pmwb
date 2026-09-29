@@ -1354,19 +1354,9 @@ const planFinishDate = (row) => {
 }
 
 function buildReqSuperviseBody(row, scene = 'urge') {
+  // 信息单一来源：标题带/称呼/导语/字段表由后端装配器渲染（renderer=True），
+  // 正文只保留描述段与结尾句，禁止再写「## 需求催办通知」标题和字段表（2026-09-29 重复事故）
   return [
-    scene === 'urge' ? '## 需求催办通知' : '## 需求进展同步',
-    '',
-    '| 字段 | 内容 |',
-    '|------|------|',
-    `| 需求编号 | ${row.req_id || ''} |`,
-    `| 需求名称 | ${row.req_name || row.title || ''} |`,
-    `| SA | ${row.sa_name || ''} |`,
-    `| 负责人 | ${row.owner || ''} |`,
-    `| 优先级 | ${row.ext?.priority || 'P2'} |`,
-    `| 当前状态 | ${statusLabel(row.ext?.status || row.status) || (row.ext?.status || row.status || '')} |`,
-    `| 期望上线月份 | ${planFinishDate(row)} |`,
-    '',
     '### 需求描述',
     row.description || row.background || '（无）',
     '',

@@ -998,22 +998,9 @@ const planFinishDate = (row) => {
 }
 
 const buildResearchSuperviseBody = (row, scene = 'urge') => {
-  const natureLabel = row.issue_nature ? (NATURE_LABELS[row.issue_nature] || row.issue_nature) : ''
-  const cityLabel = row.city ? (CITY_LABELS[row.city] || row.city) : ''
+  // 信息单一来源：标题带/称呼/导语/字段表由后端装配器渲染（renderer=True），
+  // 正文只保留描述段与结尾句，禁止再写「## 催办通知」标题和字段表（2026-09-29 重复事故）
   return [
-    scene === 'urge' ? '## 催办通知' : '## 工单进展同步',
-    '',
-    '| 字段 | 内容 |',
-    '|------|------|',
-    `| 工单编号 | ${row.issue_no || row.id || ''} |`,
-    `| 标题 | ${row.title || ''} |`,
-    `| 地市 | ${cityLabel || ''} |`,
-    `| 子类 | ${SUB_TYPE_LABELS[row.sub_type] || row.sub_type || ''} |`,
-    `| 问题性质 | ${natureLabel || ''} |`,
-    `| 厂家责任人 | ${row.vendor_handlers || ''} |`,
-    `| 计划完成日期 | ${planFinishDate(row)} |`,
-    `| 当前状态 | ${getStatusMeta('research', row.status).label} |`,
-    '',
     '### 情况说明',
     row.situation_desc || '（无）',
     '',

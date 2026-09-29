@@ -499,6 +499,8 @@ def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
             continue
         if sval in md:  # 正文已包含该内容，跳过避免重复
             continue
+        if f"### {f.label}" in md:  # 正文已有同名小节（用户已接管该段），跳过避免重复
+            continue
         auto_parts.append(f"### {f.label}\n\n{sval}")
     if auto_parts:
         md = (md + "\n\n" if md else "") + "\n\n".join(auto_parts)
