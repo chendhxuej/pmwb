@@ -263,8 +263,9 @@ class MeetingService(BaseService[PmwbMeeting]):
 
     def _build_dispatch_mail(self, action, meeting) -> str:
         due = action.due_date or "待定"
+        # 正文为单一信息源：不再重复装配器主标题（会议行动项派发）；
+        # 会议标题原先与已屏蔽的字段表重复，现保留此行作为唯一展示位。
         return (
-            f"### 任务派发通知\n\n"
             f"**{action.content or '(未填写内容)'}**\n\n"
             f"- **所属会议**：{meeting.title}\n"
             f"- **负责人**：{owners_display(action.owner)}\n"
@@ -311,6 +312,12 @@ class MeetingService(BaseService[PmwbMeeting]):
         # 走统一邮件治理门面：HTML 转换 + 统一签名 + 落库 + 统一降级
         scene = mail_type or "meeting_notice"
         variables = self._build_meeting_variables(db, scene, meeting, body)
+        # 称呼个性化：装配器统一出称呼（正文不再自带），多人自动降级「各位同事」
+        recipient_name = (
+            "、".join(n.strip() for n in recipient_names if n and n.strip())
+            if recipient_names
+            else None
+        )
         result = dispatch_email(
             db=db,
             to=resolved_to,
@@ -322,6 +329,7 @@ class MeetingService(BaseService[PmwbMeeting]):
             req_id=meeting.meeting_id,
             req_name=meeting.title,
             source="pmwb_meeting",
+            recipient_name=recipient_name or None,
             confirm_send=confirm_send,
         )
         return {

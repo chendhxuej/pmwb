@@ -22,6 +22,25 @@ class MeetingStatus(str, Enum):
     not_attended = "not_attended"
 
 
+# 会议标题清洗：登记时从邮件主题粘贴会把「【会议通知】」等投递标签带进标题，
+# 导致通知邮件主题/主题表格/正文三处重复渲染前缀（2026-09-29 事故）。剥掉纯投递标签，保留【内部】等业务标签。
+_MEETING_TITLE_DELIVERY_TAGS = ("【会议通知】", "【会议纪要】", "【会议提醒】")
+
+
+def strip_meeting_title(v: Optional[str]) -> Optional[str]:
+    if not isinstance(v, str):
+        return v
+    s = v.strip()
+    changed = True
+    while changed:
+        changed = False
+        for tag in _MEETING_TITLE_DELIVERY_TAGS:
+            if s.startswith(tag):
+                s = s[len(tag):].strip()
+                changed = True
+    return s
+
+
 class MeetingActionStatus(str, Enum):
     pending = "pending"
     in_progress = "in_progress"
@@ -116,6 +135,11 @@ class MeetingBase(BaseModel):
     related_ticket_no: Optional[str] = Field(None, max_length=64, description="关联开发工单编号")
     status: MeetingStatus = Field(MeetingStatus.planned, description="状态")
 
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_delivery_tags(cls, v):
+        return strip_meeting_title(v)
+
 
 class MeetingCreate(MeetingBase):
     attendees: List[MeetingAttendeeCreate] = Field([], description="参会人列表")
@@ -149,6 +173,11 @@ class MeetingUpdate(BaseModel):
     attendees: Optional[List[MeetingAttendeeCreate]] = None
     agendas: Optional[List[MeetingAgendaCreate]] = None
     actions: Optional[List[MeetingActionCreate]] = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _strip_delivery_tags(cls, v):
+        return strip_meeting_title(v)
 
     @field_validator("start_time", "end_time", mode="before")
     @classmethod

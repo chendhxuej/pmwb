@@ -76,7 +76,9 @@ def test_dispatch_meeting_html_and_signature(monkeypatch):
             "attendees": "陈大海",
             "content": "<ul><li>项1</li></ul>",
             "actionItems": "<ul><li>行动项A</li></ul>",
-            "body": "# 纪要\n- 项",
+            # 2026-09-29 方案A：会议类场景正文为单一信息源（字段表已屏蔽），
+            # 正文需自带完整信息（与前端 buildMinutesBody 真实输出对齐）
+            "body": "「需求评审会」已于 2026-08-17 14:00 召开，纪要如下。\n\n- 项1",
         },
         confirm_send=True,
     )

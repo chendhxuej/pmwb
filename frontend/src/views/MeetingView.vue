@@ -1300,10 +1300,10 @@ const fmtEndTimeHM = (v) => {
   return d && !isNaN(d.getTime()) ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : '—'
 }
 
-/* 会议通知邮件模板（Markdown，后端统一转 HTML + 签名） */
+/* 会议通知邮件模板（Markdown，后端统一转 HTML + 签名）
+   称呼由后端装配器统一渲染（recipient_name），正文不再自带，避免双称呼 */
 const buildNoticeBody = (m) => {
   const names = (m.attendees || []).map((a) => a.name).filter(Boolean)
-  const greeting = names.length ? names.join('、') + '好：' : '各位好：'
   const agendaList = (m.agendas || []).length
     ? (m.agendas || [])
         .map((a, i) => {
@@ -1315,8 +1315,6 @@ const buildNoticeBody = (m) => {
         .join('\n\n')
     : '（待补充）'
   return [
-    greeting,
-    '',
     `兹定于 **${fmtFullDateTime(m.start_time)}** 召开「**${m.title}**」会议，敬请拨冗参加。`,
     '',
     '## 会议信息',
@@ -1339,10 +1337,10 @@ const buildNoticeBody = (m) => {
     .join('\n')
 }
 
-/* 会议纪要邮件模板（Markdown，后端统一转 HTML + 签名） */
+/* 会议纪要邮件模板（Markdown，后端统一转 HTML + 签名）
+   称呼由后端装配器统一渲染，正文不再自带，避免双称呼 */
 const buildMinutesBody = (m) => {
   const names = (m.attendees || []).map((a) => a.name).filter(Boolean)
-  const greeting = names.length ? names.join('、') + '好：' : '各位好：'
   const agendaBlock = (m.agendas || []).length
     ? (m.agendas || [])
         .map((a, i) => {
@@ -1364,8 +1362,6 @@ const buildMinutesBody = (m) => {
         .join('\n')
     : '（无）'
   const lines = [
-    greeting,
-    '',
     `「**${m.title}**」已于 ${fmtFullDateTime(m.start_time)} 召开，现将会商结论与待办事项同步如下，请按分工推进。`,
     '',
     '## 一、会议信息',
@@ -1446,13 +1442,17 @@ const onComposeSend = async (payload) => {
   const body = (payload.body || '').trim()
   if (!to.length) throw new Error('请选择收件人')
   if (!body) throw new Error('请输入邮件正文')
+  // 称呼个性化：收件人里的姓名（非邮箱）透传后端装配器出「X 您好」，纯邮箱降级「各位同事」
+  const nameOnly = to
+    .map((s) => (/@/.test(s) ? '' : String(s).trim()))
+    .filter(Boolean)
   return meetingApi.sendMeetingMail(m.id, {
     to,
     cc: cc.length ? cc : null,
     subject: payload.subject || '',
     body,
     mail_type: mailType.value === 'notice' ? 'meeting_notice' : 'meeting_minutes',
-    recipient_names: null,
+    recipient_names: nameOnly.length ? nameOnly : null,
   })
 }
 

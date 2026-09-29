@@ -236,6 +236,17 @@ SCENE_FIELDS: dict[str, list[MailField]] = {
     "research_sync": list(_RESEARCH_FIELDS),
 }
 
+# 字段表屏蔽场景（2026-09-29 方案A：正文为单一信息源）。
+# 这些场景的正文是前端/后端自建的完整成文，装配器的结构化字段表会与正文重复
+# （主题/时间/参会人各出现两遍，称呼也两遍——2026-09-29 老大截图事故）。
+# 屏蔽后不再渲染字段表；字段仍用于表单编辑与 default_subject 格式化。
+FIELDS_TABLE_HIDDEN_SCENES = {
+    "meeting_notice",
+    "meeting_minutes",
+    "action_dispatch",
+    "keywork_feedback",
+}
+
 
 def get_scene_fields(scene: str) -> list[MailField]:
     return SCENE_FIELDS.get(scene, [])
@@ -468,9 +479,12 @@ def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
             # list 路径：跳过通用 auto_parts，避免重复拼出 "### 任务清单"
             tc_skip_keys.add("tasks")
 
+    # 字段表屏蔽场景（方案A：正文为单一信息源）：正文已有内容时不再追加字段段落
+    # （避免与正文重复）；正文为空时兜底渲染全部非空字段，防止关键信息静默丢失。
+    include_all = scene in FIELDS_TABLE_HIDDEN_SCENES and not md
     auto_parts: list[str] = []
     for f in get_scene_fields(scene):
-        if not f.in_body:
+        if not f.in_body and not include_all:
             continue
         if f.key in tc_skip_keys:
             continue
@@ -565,9 +579,10 @@ def build_mail_body(
         blocks.append(
             f'<p style="margin:0 0 4px;font-size:14px;color:#4e5969;">{escape(lead)}</p>'
         )
-    fields_table = _render_fields_table(scene, values)
-    if fields_table:
-        blocks.append(fields_table)
+    if scene not in FIELDS_TABLE_HIDDEN_SCENES:
+        fields_table = _render_fields_table(scene, values)
+        if fields_table:
+            blocks.append(fields_table)
     if body_html:
         blocks.append(f'<div style="font-size:14px;color:#1d2129;">{body_html}</div>')
     if extra_html:
