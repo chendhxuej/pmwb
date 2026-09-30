@@ -585,6 +585,7 @@ import { operationApi } from '@/api/operation'
 import { knowledgeApi } from '@/api/knowledge'
 import { basicDataApi } from '@/api/basicData'
 import { formatDateTime } from '@/utils/format'
+import { ownerList } from '@/utils/owner.js'
 import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
@@ -1413,7 +1414,7 @@ const openSupervise = (row, scene = 'urge') => {
   if (!row) return
   _superviseIssue.value = row
   mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
-  mailDialogTo.value = (row.handler || '').split(',').filter(Boolean)
+  mailDialogTo.value = ownerList(row.handler)
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.issue_no || '')
   // T-D：模板变量——催办/同步主题词由 scene 决定，正文由 3210 模板渲染
   mailDialogVariables.value = {

@@ -525,3 +525,53 @@ def test_markdown_to_email_html_has_max_width():
     assert 'max-width:680px' in html
     assert 'margin:0 auto' in html
     assert 'padding:0 16px' in html
+
+
+def test_resolve_contact_emails_fallback_to_master(monkeypatch):
+    """通讯录未命中的姓名 → 回退人员主数据精确匹配补查（2026-09-30 修复）。
+
+    场景：自动带出的收件人是纯姓名，3210 通讯录（人工维护稀疏库）查不到，
+    此前解析失败原样保留姓名 → 邮箱格式校验报错；重选（valueKey=email 直出
+    邮箱）才能发。现回退 master_service（选人组件同源）按姓名补查。
+    """
+    from utils.email import EmailCenterClient
+
+    client = EmailCenterClient()
+    monkeypatch.setattr(client, "search_contacts", lambda kw: [])  # 通讯录恒空
+
+    def fake_list_staffs(org_id=None, keyword=None):
+        if keyword == "吴胜捷":
+            return [{"name": "吴胜捷", "email": "wushengjie@mail01.huawei.com"}]
+        if keyword == "张三":
+            return [{"name": "张三丰", "email": "zsf@x.com"}]  # 精确匹配不命中
+        return []
+
+    import utils.master_service as ms
+
+    monkeypatch.setattr(ms.master_service_client, "list_staffs", fake_list_staffs)
+
+    resolved = client.resolve_contact_emails(["吴胜捷", "张三", "陈大海"])
+    assert resolved["吴胜捷"] == "wushengjie@mail01.huawei.com"  # 回退命中
+    assert resolved["张三"] is None  # 仅前缀命中不算，需精确相等
+    assert resolved["陈大海"] is None  # 主数据也没有 → 保持 None
+
+
+def test_resolve_contact_emails_contacts_priority(monkeypatch):
+    """通讯录命中优先，不走主数据回退。"""
+    from utils.email import EmailCenterClient
+
+    client = EmailCenterClient()
+    monkeypatch.setattr(
+        client,
+        "search_contacts",
+        lambda kw: [{"name": "吴胜捷", "email": "from-contacts@x.com"}],
+    )
+
+    import utils.master_service as ms
+
+    def _boom(*a, **kw):
+        raise AssertionError("通讯录命中时不应查询主数据")
+
+    monkeypatch.setattr(ms.master_service_client, "list_staffs", _boom)
+    resolved = client.resolve_contact_emails(["吴胜捷"])
+    assert resolved["吴胜捷"] == "from-contacts@x.com"

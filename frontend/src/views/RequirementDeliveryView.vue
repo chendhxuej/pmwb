@@ -1247,6 +1247,7 @@ import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
+import { ownerList } from '@/utils/owner.js'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
@@ -1370,7 +1371,7 @@ function buildReqSuperviseBody(row, scene = 'urge') {
 function openSupervise(row, scene = 'urge') {
   if (!row) return
   mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
-  mailDialogTo.value = String(row.sa_name || row.owner || row.proposer || '').split(',').filter(Boolean)
+  mailDialogTo.value = ownerList(String(row.sa_name || row.owner || row.proposer || ''))
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.req_name || row.req_id || '')
   // T-E：模板变量——正文由 3210 supervise_urge/sync 模板渲染，字段按需求语义映射
   mailDialogVariables.value = {
@@ -2459,7 +2460,7 @@ async function removeActiveOpt(row) {
 function openActiveOptMail(row, scene) {
   if (!row) return
   mailDialogTitle.value = scene === 'urge' ? '催办：主动优化建议' : '同步：主动优化建议'
-  mailDialogTo.value = String(row.admin_name || '').split(',').filter(Boolean)
+  mailDialogTo.value = ownerList(String(row.admin_name || ''))
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.req_id || '主动优化建议')
   mailDialogVariables.value = {
     title: row.title || '',

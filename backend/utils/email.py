@@ -95,7 +95,11 @@ class EmailCenterClient:
     def resolve_contact_emails(self, names: list) -> dict:
         """按 SA 姓名列表解析真实邮箱，返回 {姓名: 邮箱|None}。
 
-        通过邮件中心通讯录按姓名精确匹配；查不到或通讯录不可用时返回 None。
+        优先通过邮件中心通讯录按姓名精确匹配；查不到或通讯录不可用时返回 None，
+        并回退到人员主数据（master_service，选人组件 StaffSelect 同一数据源）按
+        姓名精确匹配补查——通讯录是人工维护的稀疏库，人员主数据才是全站统一口径
+        （2026-09-30 修复：自动带出的收件人姓名解析失败致发送报错，重选（直出
+        邮箱）才能发）。
         """
         result: dict = {}
         for name in names or []:
@@ -109,6 +113,22 @@ class EmailCenterClient:
                 email = (item.get("email") or "").strip()
                 if item_name and item_name == target and email:
                     result[target] = email
+                    break
+        # 通讯录未命中的姓名 → 人员主数据回退（keyword 搜索后精确比对姓名）
+        unresolved = [k for k, v in result.items() if not v]
+        for name in unresolved:
+            try:
+                from utils.master_service import master_service_client
+
+                staffs = master_service_client.list_staffs(keyword=name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("人员主数据回退查询失败（%s）: %s", name, exc)
+                continue
+            for s in staffs or []:
+                s_name = (s.get("name") or "").strip()
+                s_email = (s.get("email") or "").strip()
+                if s_name == name and s_email:
+                    result[name] = s_email
                     break
         return result
 

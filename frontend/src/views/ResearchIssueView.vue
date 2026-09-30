@@ -538,6 +538,7 @@ import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import { researchApi } from '@/api/research'
 import { formatDateTime } from '@/utils/format'
+import { ownerList } from '@/utils/owner.js'
 import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
@@ -1015,7 +1016,7 @@ const openSupervise = (row, scene = 'urge') => {
   if (!row) return
   _researchIssue.value = row
   mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
-  mailDialogTo.value = (row.vendor_handlers || '').split(',').filter(Boolean)
+  mailDialogTo.value = ownerList(row.vendor_handlers)
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.issue_no || '')
   mailDialogVariables.value = {
     no: row.issue_no || String(row.id || ''),
