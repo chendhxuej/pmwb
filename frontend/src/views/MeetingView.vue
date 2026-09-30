@@ -1361,8 +1361,10 @@ const buildMinutesBody = (m) => {
         })
         .join('\n')
     : '（无）'
+  // 首句不再重复导语已表达的「现将…同步如下」（2026-09-30：导语「现将本次会议纪要同步如下」
+  // 与本句「现将会商结论与待办事项同步如下」语义重叠，读起来啰嗦）。
   const lines = [
-    `「**${m.title}**」已于 ${fmtFullDateTime(m.start_time)} 召开，现将会商结论与待办事项同步如下，请按分工推进。`,
+    `「**${m.title}**」已于 ${fmtFullDateTime(m.start_time)} 召开，会议结论与待办事项如下，请按分工推进。`,
     '',
     '## 一、会议信息',
     `- **时间**：${fmtFullDateTime(m.start_time)} ~ ${fmtEndTimeHM(m.end_time)}`,
@@ -1377,10 +1379,9 @@ const buildMinutesBody = (m) => {
     '',
     '## 三、待办事项',
     actionBlock,
-    '',
-    '## 四、纪要摘要',
-    m.summary || '（见各议题结论）',
   ]
+  // 纪要摘要为空时整章不输出（原先固定渲染「## 四、纪要摘要 / （见各议题结论）」，无信息量）
+  if (String(m.summary || '').trim()) lines.push('', '## 四、纪要摘要', String(m.summary).trim())
   if (m.obsidian_path) lines.push('', `> 完整纪要已归档至 Obsidian：${m.obsidian_path}`)
   return lines.filter(Boolean).join('\n')
 }

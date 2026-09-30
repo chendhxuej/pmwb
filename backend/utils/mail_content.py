@@ -479,29 +479,33 @@ def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
             # list 路径：跳过通用 auto_parts，避免重复拼出 "### 任务清单"
             tc_skip_keys.add("tasks")
 
-    # 字段表屏蔽场景（方案A：正文为单一信息源）：正文已有内容时不再追加字段段落
-    # （避免与正文重复）；正文为空时兜底渲染全部非空字段，防止关键信息静默丢失。
+    # 字段表屏蔽场景（方案A：正文为单一信息源）：正文已有内容时不再追加**任何**字段段落
+    # （避免与正文重复——2026-09-30 会议纪要事故：正文「三、待办事项」已列出行动项，
+    # 装配器又把 actionItems 字段整段追加成「### 行动项」，同一批内容出现两次）；
+    # 正文为空时兜底渲染全部非空字段，防止关键信息静默丢失。
+    body_is_source = scene in FIELDS_TABLE_HIDDEN_SCENES and bool(md)
     include_all = scene in FIELDS_TABLE_HIDDEN_SCENES and not md
     auto_parts: list[str] = []
-    for f in get_scene_fields(scene):
-        if not f.in_body and not include_all:
-            continue
-        if f.key in tc_skip_keys:
-            continue
-        val = (values or {}).get(f.key)
-        if val is None:
-            continue
-        # 空 list / 空 dict 也跳过（避免拼出 `### 任务清单\n\n[]` 之类的占位文本）
-        if isinstance(val, (list, dict)) and not val:
-            continue
-        sval = str(val).strip()
-        if not sval:
-            continue
-        if sval in md:  # 正文已包含该内容，跳过避免重复
-            continue
-        if f"### {f.label}" in md:  # 正文已有同名小节（用户已接管该段），跳过避免重复
-            continue
-        auto_parts.append(f"### {f.label}\n\n{sval}")
+    if not body_is_source:
+        for f in get_scene_fields(scene):
+            if not f.in_body and not include_all:
+                continue
+            if f.key in tc_skip_keys:
+                continue
+            val = (values or {}).get(f.key)
+            if val is None:
+                continue
+            # 空 list / 空 dict 也跳过（避免拼出 `### 任务清单\n\n[]` 之类的占位文本）
+            if isinstance(val, (list, dict)) and not val:
+                continue
+            sval = str(val).strip()
+            if not sval:
+                continue
+            if sval in md:  # 正文已包含该内容，跳过避免重复
+                continue
+            if f"### {f.label}" in md:  # 正文已有同名小节（用户已接管该段），跳过避免重复
+                continue
+            auto_parts.append(f"### {f.label}\n\n{sval}")
     if auto_parts:
         md = (md + "\n\n" if md else "") + "\n\n".join(auto_parts)
     return md

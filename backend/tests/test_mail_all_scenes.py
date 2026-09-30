@@ -105,13 +105,16 @@ SAMPLES = {
             "meetingDate": "2026-09-08",
             "attendees": "陈大海、王五",
             "content": "本周确认智能报价方案。",
+            # 真实调用方（MeetingService._build_meeting_variables）仍会传 actionItems；
+            # 2026-09-30 起正文为单一信息源，装配器不再把它整段追加出来。
             "actionItems": "<ul><li>行动项B</li></ul>",
             # 2026-09-29 方案A：正文为单一信息源（与前端 buildMinutesBody 对齐）
             "body": (
-                "「商客专区运营周会」已于 2026-09-08 14:00 召开，现将会商结论同步如下。\n\n"
+                "「商客专区运营周会」已于 2026-09-08 14:00 召开，会议结论与待办事项如下，请按分工推进。\n\n"
                 "## 一、会议信息\n\n"
                 "- **参会人**：陈大海、王五\n\n"
-                "## 二、议题与结论\n\n本周确认智能报价方案。"
+                "## 二、议题与结论\n\n本周确认智能报价方案。\n\n"
+                "## 三、待办事项\n\n- [ ] **王五**：行动项B（截止 2026-09-10）"
             ),
         },
         ["商客专区运营周会", "2026-09-08", "陈大海、王五", "本周确认智能报价方案", "行动项B"],
@@ -193,3 +196,51 @@ def test_body_md_appends_missing_inbody_field():
     )
     assert "以下任务已到跟进节点" in html
     assert "商客专区运营方案" in html
+
+
+def test_meeting_minutes_body_wins_over_action_items():
+    """会议纪要：正文已含待办事项时，装配器不得再追加 actionItems 段落。
+
+    2026-09-30 事故：正文「三、待办事项」已列出行动项，装配器又把 actionItems
+    字段整段追加成「### 行动项」，同一批内容在邮件里出现两次。
+    字段表屏蔽场景（正文为单一信息源）必须做到"正文接管即不再补字段"。
+    """
+    body = (
+        "「商客专区运营周会」已于 2026-09-08 14:00 召开，会议结论与待办事项如下，请按分工推进。\n\n"
+        "## 三、待办事项\n\n- [ ] **王五**：行动项B（截止 2026-09-10）"
+    )
+    md = mail_content._compose_body_md(
+        "meeting_minutes",
+        {"meetingTitle": "商客专区运营周会", "actionItems": "<ul><li>行动项B</li></ul>"},
+        body,
+    )
+    assert "### 行动项" not in md, "正文已接管时不应再追加「### 行动项」段落"
+    assert md.count("行动项B") == 1
+
+
+def test_action_dispatch_body_wins_over_actions():
+    """行动项派发：正文已含派发内容时不再追加 actions 字段段落（同上）。"""
+    body = (
+        "**输出监控体系建设计划**\n\n"
+        "- **所属会议**：商客业务生产运营策略对接会\n"
+        "- **负责人**：王五\n"
+        "- **截止日期**：2026-10-14"
+    )
+    md = mail_content._compose_body_md(
+        "action_dispatch",
+        {"meetingTitle": "商客业务生产运营策略对接会", "actions": "<ul><li>输出监控体系建设计划</li></ul>"},
+        body,
+    )
+    assert "### 行动项清单" not in md
+    assert md.count("输出监控体系建设计划") == 1
+
+
+def test_hidden_scene_empty_body_still_renders_fields():
+    """回归护栏：字段表屏蔽场景正文为空时，字段仍须兜底补齐（防信息静默丢失）。"""
+    md = mail_content._compose_body_md(
+        "meeting_minutes",
+        {"meetingTitle": "商客专区运营周会", "actionItems": "<ul><li>行动项B</li></ul>"},
+        "",
+    )
+    assert "行动项B" in md
+    assert "商客专区运营周会" in md
