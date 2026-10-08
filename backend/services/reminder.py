@@ -110,7 +110,9 @@ class ReminderService:
             "reqName": obj_in.req_name or tdata.get("reqName") or "",
             "saName": tdata.get("saName") or "",
             "proposeTime": tdata.get("proposeTime") or "",
-            "items": tdata.get("items") or obj_in.body or "",
+            # 正文优先（2026-10-08）：可编辑正文才是信息主体；items 仅作正文为空时的兜底清单
+            # （requirement_reminder 已入 FIELDS_TABLE_HIDDEN_SCENES，正文非空时不再追加字段段落）
+            "items": obj_in.body or tdata.get("items") or "",
             "body": obj_in.body or tdata.get("body") or "",
         }
         result = dispatch_email(

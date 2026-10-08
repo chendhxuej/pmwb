@@ -52,8 +52,18 @@ SAMPLES = {
             "dueDate": "2026-09-12",
             "status": "进行中",
             "sceneLabel": "催办",
+            # 2026-10-08 方案A：正文为单一信息源（与前端 MeetingActionsView.buildSuperviseBody 对齐）。
+            # 字段表已屏蔽，行动项明细改由正文承载。
+            "body": (
+                "- 行动项内容：补充商客专区用例\n"
+                "- 负责人：张三\n"
+                "- 截止日期：2026-09-12\n"
+                "- 当前状态：进行中\n\n"
+                "---\n"
+                "请尽快推进并及时反馈进展，辛苦了！"
+            ),
         },
-        ["补充商客专区用例", "张三", "2026-09-12", "进行中", "催办"],
+        ["补充商客专区用例", "张三", "2026-09-12", "进行中"],
     ),
     "action_dispatch": (
         {"meetingTitle": "需求评审会", "actions": "<ul><li>行动项A</li></ul>"},
@@ -70,8 +80,20 @@ SAMPLES = {
             "saName": "赵六",
             "proposeTime": "2026-09-01",
             "items": "<ul><li>需求项1</li></ul>",
+            # 2026-10-08 方案A：正文为单一信息源（与前端 TaskCenterView / RequirementView 对齐）。
+            # 字段表已屏蔽；items 变量整段文本与正文不同，此前会被整段追加成「### 需求清单」→ 描述重复。
+            "body": (
+                "你负责的需求现在到前期评估环节了，麻烦尽快把下面两件事搞定，然后反馈给我：\n"
+                "1. 需求前期评估（可行性、范围、依赖这些）；\n"
+                "2. 工作量初评（大概要多少人天）和预计完成时间。\n\n"
+                "需求信息：\n"
+                "需求编号：REQ-2026-001\n"
+                "需求名称：商客专区智能报价\n"
+                "提出人：赵六\n\n"
+                "收到后尽快回我评估结果哈，辛苦了！"
+            ),
         },
-        ["REQ-2026-001", "商客专区智能报价", "赵六", "2026-09-01", "需求项1"],
+        ["REQ-2026-001", "商客专区智能报价", "赵六"],
     ),
     "task_center_notify": (
         {"tasks": TASKS_HTML},
@@ -134,6 +156,50 @@ SAMPLES = {
         },
         ["KW-2026-01", "商客交付一次成功率提升", "2026-W37", "请反馈本周进展"],
     ),
+    # 2026-10-08 新增：主动优化建议（由 raw 场景注册进装配器；方案A 正文为单一信息源）
+    "active_optimization_urge": (
+        {
+            "title": "商客专区批量导出优化",
+            "priority": "P1",
+            "status": "pending",
+            "admin_name": "吴胜捷",
+            "req_id": "REQ-2026-777",
+            # 与前端 RequirementDeliveryView.buildActiveOptMailBody 对齐（已去掉自带「## 标题」）
+            "body": (
+                "| 字段 | 内容 |\n|------|------|\n"
+                "| 工单标题 | 商客专区批量导出优化 |\n"
+                "| 优先级 | P1 |\n"
+                "| 评估状态 | 待评估 |\n"
+                "| 业务管理员 | 吴胜捷 |\n"
+                "| 关联需求 | REQ-2026-777 |\n\n"
+                "### 现状描述\n\n导出功能缺失，只能逐单操作。\n\n"
+                "### 优化建议\n\n增加批量导出能力。\n\n"
+                "请尽快评估并反馈处理意见，谢谢。"
+            ),
+        },
+        ["商客专区批量导出优化", "P1", "吴胜捷", "REQ-2026-777", "增加批量导出能力"],
+    ),
+    "active_optimization_sync": (
+        {
+            "title": "商客专区批量导出优化",
+            "priority": "P1",
+            "status": "adopted",
+            "admin_name": "吴胜捷",
+            "req_id": "REQ-2026-777",
+            "body": (
+                "| 字段 | 内容 |\n|------|------|\n"
+                "| 工单标题 | 商客专区批量导出优化 |\n"
+                "| 优先级 | P1 |\n"
+                "| 评估状态 | 已采纳 |\n"
+                "| 业务管理员 | 吴胜捷 |\n"
+                "| 关联需求 | REQ-2026-777 |\n\n"
+                "### 现状描述\n\n导出功能缺失，只能逐单操作。\n\n"
+                "### 优化建议\n\n增加批量导出能力。\n\n"
+                "请知悉以上优化建议的最新状态。"
+            ),
+        },
+        ["商客专区批量导出优化", "P1", "吴胜捷", "REQ-2026-777", "增加批量导出能力"],
+    ),
 }
 
 
@@ -167,7 +233,12 @@ def test_scene_render(scene):
     assert out["subject"], f"{scene} 主题为空"
 
 
-@pytest.mark.parametrize("scene", sorted(SAMPLES))
+# 无字段 schema 的场景（active_optimization_*，纯正文驱动）没有可兜底的字段：
+# 正文留空即空正文（前端也不提供「按字段重置」入口），故不纳入兜底断言。
+SAMPLES_WITH_FIELDS = [k for k in sorted(SAMPLES) if mail_content.get_scene_fields(k)]
+
+
+@pytest.mark.parametrize("scene", SAMPLES_WITH_FIELDS)
 def test_scene_body_empty_falls_back_to_fields(scene):
     """正文留空时应由 in_body 字段自动补齐，不能发出空邮件。"""
     fields, expects = SAMPLES[scene]
@@ -244,3 +315,78 @@ def test_hidden_scene_empty_body_still_renders_fields():
     )
     assert "行动项B" in md
     assert "商客专区运营周会" in md
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-08 督办场景统一（方案A 扩面）：去重 / 单一称呼 / 归一化护栏
+# ---------------------------------------------------------------------------
+def test_requirement_reminder_body_is_source_no_items_append():
+    """需求催办（A 类）：正文已含需求信息时，items 不得被追加成「### 需求清单」。
+
+    事故：前端同时给 body 与 items（两段文本不同）→ `sval in md` 去重不命中 →
+    同一段需求描述在邮件里出现两次（老大截图）。
+    """
+    body = (
+        "需求信息：\n需求编号：REQ-1\n需求名称：商客专区智能报价\n"
+        "需求描述：支持按客户画像推荐套餐。"
+    )
+    md = mail_content._compose_body_md(
+        "requirement_reminder",
+        {
+            "reqId": "REQ-1",
+            "reqName": "商客专区智能报价",
+            "items": "需求描述：支持按客户画像推荐套餐。",
+        },
+        body,
+    )
+    assert "### 需求清单" not in md, "A 类场景正文已接管，不应再追加「### 需求清单」"
+    assert md.count("支持按客户画像推荐套餐") == 1
+
+
+def test_action_supervise_body_is_source_no_content_append():
+    """会议行动项督办（A 类）：正文已含行动项内容，装配器不得再追加字段段落。"""
+    body = (
+        "- 行动项内容：补充用例\n- 负责人：张三\n"
+        "- 截止日期：2026-09-12\n- 当前状态：进行中"
+    )
+    md = mail_content._compose_body_md(
+        "action_supervise",
+        {"content": "补充用例", "owner": "张三", "dueDate": "2026-09-12",
+         "status": "进行中", "sceneLabel": "催办"},
+        body,
+    )
+    assert "### 行动项内容" not in md
+    assert md.count("补充用例") == 1
+
+
+def test_norm_dedupe_across_whitespace():
+    """归一化去重护栏：跨换行/空格的同义段落判定为重复，避免同一描述出现两次。"""
+    body = "问题描述内容为订单校验规则异常导致业务员退回。"
+    md = mail_content._compose_body_md(
+        "supervise_urge",
+        {"description": "问题描述内容为订单校验\n规则异常导致业务员退回。"},
+        body,
+    )
+    assert md.count("订单校验") == 1, "跨换行同义段未被归一化去重"
+
+
+def test_norm_dedupe_short_text_not_killed():
+    """边界：短文本（<8 字符）不做归一化去重，防止「（无）」等占位被误杀。"""
+    md = mail_content._compose_body_md("supervise_urge", {"description": "（无）"}, "正文其它内容")
+    assert "（无）" in md
+
+
+@pytest.mark.parametrize(
+    "scene",
+    ["requirement_reminder", "action_supervise", "active_optimization_urge", "active_optimization_sync"],
+)
+def test_hidden_scene_single_greeting(scene):
+    """A 类场景：称呼只由装配器出，正文不得再自带称呼行（否则「王五 您好」出现两次）。"""
+    fields, _ = SAMPLES[scene]
+    out = mail_dispatch._render_mail(
+        scene=scene,
+        fields=fields,
+        raw_content=fields.get("body") or "",
+        recipient_name="王五",
+    )
+    assert out["html"].count("王五 您好，") == 1

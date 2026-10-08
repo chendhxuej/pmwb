@@ -2464,6 +2464,7 @@ function openActiveOptMail(row, scene) {
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.req_id || '主动优化建议')
   mailDialogVariables.value = {
     title: row.title || '',
+    priority: row.priority || 'P2',
     status: row.status || 'pending',
     status_label: activeOptStatusLabel(row.status),
     admin_name: row.admin_name || '',
@@ -2479,9 +2480,9 @@ function openActiveOptMail(row, scene) {
   mailDialogVisible.value = true
 }
 function buildActiveOptMailBody(row, scene) {
+  // 信息单一来源（2026-10-08）：active_optimization_* 已开 renderer，
+  // 场景标题带/称呼/导语由装配器统一出；正文仅保留字段表 + 现状/建议/备注 + 结尾。
   const lines = [
-    scene === 'urge' ? '## 主动优化建议催办' : '## 主动优化建议同步',
-    '',
     '| 字段 | 内容 |',
     '|------|------|',
     `| 工单标题 | ${row.title || ''} |`,

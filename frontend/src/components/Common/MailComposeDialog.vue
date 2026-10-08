@@ -184,7 +184,7 @@
             正文
             <em class="compose-hint">
               支持 Markdown，右侧实时预览
-              <el-button link type="primary" size="small" @click="resetBodyFromFields">
+              <el-button v-if="fieldList.length" link type="primary" size="small" @click="resetBodyFromFields">
                 按字段重置
               </el-button>
             </em>
@@ -547,6 +547,28 @@ function recipientNameText() {
     .join('、')
 }
 
+/**
+ * 统一变量载荷（2026-10-08 修复「批量督办丢字段」）。
+ *
+ * 历史缺陷：有字段 schema 的场景走 fields 路径时不返回 variables，而各视图的
+ * customSend 只读 `payload.variables` 透传后端 template_data → 变 null →
+ * 需求名称/SA 等字段整块丢失（email_records 384/385 只剩「需求编号」）。
+ *
+ * 现口径：**两条路径恒带 variables**。字段表单值并入其中，保证 variables 自包含。
+ */
+function buildVariables() {
+  const variables = { ...(props.variables || {}) }
+  if (fieldList.value.length) {
+    Object.assign(variables, fieldVals.value || {})
+  }
+  if (props.editableBody) {
+    // 可编辑正文时，把当前编辑内容作为正文变量透给后端；
+    // 若父组件已在 variables 里传了 body/content，会被当前编辑内容覆盖，保证预览=实发
+    variables.body = body.value
+  }
+  return variables
+}
+
 function buildPreviewPayload() {
   const base = {
     recipientName: recipientNameText(),
@@ -556,23 +578,13 @@ function buildPreviewPayload() {
   if (isRawMode.value) {
     return { ...base, body: body.value, body_format: props.bodyFormat }
   }
-  // 装配器场景（有字段 schema）：字段 + 正文直传，不再走 3210 模板变量
+  const payload = { ...base, scene: props.scene, subject: subject.value, variables: buildVariables() }
   if (fieldList.value.length) {
-    return {
-      ...base,
-      scene: props.scene,
-      subject: subject.value,
-      fields: { ...fieldVals.value },
-      body_md: body.value,
-    }
+    // 装配器场景：额外直传 fields + body_md（后端装配器优先消费 fields）
+    payload.fields = { ...fieldVals.value }
+    payload.body_md = body.value
   }
-  const variables = { ...props.variables }
-  if (props.editableBody) {
-    // 可编辑正文时，把当前编辑内容作为正文变量透给后端；
-    // 若父组件已在 variables 里传了 body/content，会被当前编辑内容覆盖，保证预览=实发
-    variables.body = body.value
-  }
-  return { ...base, scene: props.scene, subject: subject.value, variables }
+  return payload
 }
 
 function buildSendPayload() {
@@ -589,14 +601,12 @@ function buildSendPayload() {
   if (isRawMode.value) {
     return { ...base, body_format: props.bodyFormat }
   }
+  const payload = { ...base, scene: props.scene, variables: buildVariables() }
   if (fieldList.value.length) {
-    return { ...base, scene: props.scene, fields: { ...fieldVals.value }, body_md: body.value }
+    payload.fields = { ...fieldVals.value }
+    payload.body_md = body.value
   }
-  const variables = { ...props.variables }
-  if (props.editableBody) {
-    variables.body = body.value
-  }
-  return { ...base, scene: props.scene, variables }
+  return payload
 }
 
 function normalizeRecipients(list) {

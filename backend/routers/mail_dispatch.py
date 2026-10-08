@@ -18,7 +18,7 @@ from db.models import EmailRecord
 from sqlalchemy.orm import Session
 from services.mail_dispatch import SCENES, dispatch_email, _render_mail
 from utils.email import EmailCenterClient
-from utils.mail_content import get_scene_meta, scene_schema
+from utils.mail_content import FIELDS_TABLE_HIDDEN_SCENES, get_scene_meta, scene_schema
 from utils.markdown_mail import inject_signature_inline, markdown_to_email_html
 from utils.validators import split_and_validate_emails
 
@@ -79,6 +79,8 @@ def list_mail_scenes():
             "intro": meta.get("intro", ""),
             "renderer": sc.renderer,
             "addSignature": sc.add_signature,
+            # 字段表屏蔽场景（方案A：正文为单一信息源）：前端纯正文驱动，不渲染字段表单
+            "fieldsTableHidden": key in FIELDS_TABLE_HIDDEN_SCENES,
             "fields": scene_schema(key),
         })
     return success(data={"items": items})

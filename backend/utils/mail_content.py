@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from html import escape
@@ -152,6 +153,17 @@ SCENE_META: dict[str, dict[str, str]] = {
         "brand_color": "#165dff",
         "intro": "以下调研工单最新进展同步如下，请知悉。",
     },
+    # 主动优化建议（2026-10-08 注册进装配器；方案A「正文为单一信息源」，故导语不带「详情如下：」）
+    "active_optimization_urge": {
+        "title": "主动优化建议催办",
+        "brand_color": "#f53f3f",
+        "intro": "以下主动优化建议请尽快评估并反馈处理意见。",
+    },
+    "active_optimization_sync": {
+        "title": "主动优化建议同步",
+        "brand_color": "#165dff",
+        "intro": "以下主动优化建议的最新状态同步如下，请知悉。",
+    },
 }
 
 _TICKET_FIELDS = [
@@ -245,6 +257,15 @@ FIELDS_TABLE_HIDDEN_SCENES = {
     "meeting_minutes",
     "action_dispatch",
     "keywork_feedback",
+    # 2026-10-08 督办场景统一到「正文为单一信息源」（老大指认：需求督办正文重复 + 批量丢信息）：
+    # - requirement_reminder：正文已含「需求信息/描述/清单」，而 items 变量整段文本与之不同，
+    #   `sval in md` 去重不命中 → 追加「### 需求清单」→ 描述重复两遍。
+    # - action_supervise：正文已含行动项内容/负责人/截止/状态，字段表整段重复。
+    # - active_optimization_urge/sync：正文自带「## 标题」+ Markdown 字段表。
+    "requirement_reminder",
+    "action_supervise",
+    "active_optimization_urge",
+    "active_optimization_sync",
 }
 
 
@@ -450,6 +471,11 @@ def _render_fields_table(scene: str, values: dict) -> str:
 # ---------------------------------------------------------------------------
 # 主装配入口
 # ---------------------------------------------------------------------------
+def _norm_text(s: Any) -> str:
+    """归一化文本：去除空白/全角空格/零宽字符，用于跨换行与空格的子串去重判断。"""
+    return re.sub(r"[\s\u3000\u200b\ufeff]+", "", str(s or ""))
+
+
 def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
     """拼装正文 Markdown 源：用户编辑的 body_md + 结构化字段段落（去重）。
 
@@ -486,6 +512,7 @@ def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
     body_is_source = scene in FIELDS_TABLE_HIDDEN_SCENES and bool(md)
     include_all = scene in FIELDS_TABLE_HIDDEN_SCENES and not md
     auto_parts: list[str] = []
+    md_norm = _norm_text(md)
     if not body_is_source:
         for f in get_scene_fields(scene):
             if not f.in_body and not include_all:
@@ -502,6 +529,11 @@ def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
             if not sval:
                 continue
             if sval in md:  # 正文已包含该内容，跳过避免重复
+                continue
+            # 归一化去重（2026-10-08）：跨换行/空格/全角空格的同义段落也视为重复；
+            # 阈值 ≥8 字符，防止短标签（如「无」「—」「（无）」）误杀。
+            sval_norm = _norm_text(sval)
+            if len(sval_norm) >= 8 and sval_norm in md_norm:
                 continue
             if f"### {f.label}" in md:  # 正文已有同名小节（用户已接管该段），跳过避免重复
                 continue

@@ -95,78 +95,56 @@ def test_send_reminder_stores_recipient_name(client: TestClient, db: Session, mo
 
 
 def test_send_reminder_with_template_data(client: TestClient, db: Session, monkeypatch):
-    """T-C：前端 template_data 全量透传——saName/proposeTime/items 进入模板变量，items 优先于 body。"""
-    rendered: dict = {}
+    """T-C：前端 template_data 全量透传（2026-10-08 改为装配器口径断言）。
 
-    def fake_list(self, template_type):
-        return [{"id": "tpl-r", "type": template_type, "isDefault": True}]
-
-    def fake_render(self, template_id, data):
-        rendered.update(data.get("variables", {}))
-        v = data.get("variables", {})
-        return {
-            "subject": f"【需求催办】{v.get('reqName')} 请尽快处理",
-            "body": (
-                f"需求编码：{v.get('reqId')} 责任人：{v.get('saName')} "
-                f"提出时间：{v.get('proposeTime')} 催办内容：{v.get('items')}"
-            ),
-            "bodyFormat": "text",
-        }
-
-    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.list_templates", fake_list)
-    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.render_template", fake_render)
+    requirement_reminder 自 2026-10-08 起 renderer=True —— 正文由 PMWB 装配器渲染，
+    不再消费 3210 模板（故原 mock render_template 的断言已失效）。改为断言落库 content：
+    - 编辑区正文为单一信息源，完整保留；
+    - 装配器输出的标题带「需求催办通知」在场；
+    - items 不再被追加成「### 需求清单」（A 类场景正文接管），杜绝描述重复。
+    """
     monkeypatch.setattr(
         "services.mail_dispatch.EmailCenterClient.send_email",
         lambda self, **kw: {"ok": True, "data": {"status": "ok"}},
+    )
+    body = (
+        "需求信息：\n需求编号：REQ-TDATA\n需求名称：一网通报价工具优化\n"
+        "需求描述：编辑区自定义正文"
     )
     payload = {
         "req_id": "REQ-TDATA",
         "req_name": "一网通报价工具优化",
         "to": "sa@example.com",
         "subject": "催办：一网通报价工具优化",
-        "body": "编辑区自定义正文",
+        "body": body,
         "template_data": {
             "reqId": "REQ-TDATA",
             "reqName": "一网通报价工具优化",
             "saName": "张三, 李四",
             "proposeTime": "2026-08-10 14:30",
             "items": "该需求已到前期评估环节，请尽快完成以下事项并反馈：\n1. 需求前期评估；\n2. 工作量初评。",
-            "body": "编辑区自定义正文",
+            "body": body,
         },
     }
     response = client.post("/api/v1/reminders/send", json=payload)
     assert response.status_code == 200
     assert response.json()["code"] == 0
     assert response.json()["data"]["success"] is True
-    # 模板变量正确消费 template_data 全量字段
-    assert rendered["saName"] == "张三, 李四"
-    assert rendered["proposeTime"] == "2026-08-10 14:30"
-    assert "需求前期评估" in rendered["items"]
-    # items 优先取 template_data，不被 body（编辑正文）覆盖
-    assert "编辑区自定义正文" not in rendered["items"]
-    # 编辑正文在 body 变量，传给 3210 前已由 Markdown 转 HTML（供 {{{body}}} 原始 HTML 插值）
-    assert "编辑区自定义正文" in rendered["body"]
-    assert rendered["body"].startswith("<div")
+
+    record = db.query(EmailRecord).filter(EmailRecord.req_id == "REQ-TDATA").first()
+    assert record is not None
+    content = record.content or ""
+    assert "需求催办通知" in content, "缺少装配器标题带"
+    assert "编辑区自定义正文" in content, "编辑区正文丢失"
+    assert "需求清单" not in content, "items 被重复追加成「需求清单」"
+    assert "需求前期评估" not in content, "items 内容被重复追加"
 
 
-def test_send_reminder_items_fallback_body(client: TestClient, db: Session, monkeypatch):
-    """T-C 兼容：旧调用无 template_data 时 items 回退 body，行为与模板化前一致。"""
-    rendered: dict = {}
+def test_send_reminder_body_is_content_source(client: TestClient, db: Session, monkeypatch):
+    """旧调用（无 template_data）正文仍完整发出（2026-10-08 装配器口径）。
 
-    def fake_list(self, template_type):
-        return [{"id": "tpl-r", "type": template_type, "isDefault": True}]
-
-    def fake_render(self, template_id, data):
-        rendered.update(data.get("variables", {}))
-        v = data.get("variables", {})
-        return {
-            "subject": f"【需求催办】{v.get('reqName')} 请尽快处理",
-            "body": f"催办内容：{v.get('items')}",
-            "bodyFormat": "text",
-        }
-
-    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.list_templates", fake_list)
-    monkeypatch.setattr("services.mail_dispatch.EmailCenterClient.render_template", fake_render)
+    历史语义「items 回退 body」已被「正文为单一信息源」取代：正文本身就是信息主体。
+    """
     monkeypatch.setattr(
         "services.mail_dispatch.EmailCenterClient.send_email",
         lambda self, **kw: {"ok": True, "data": {"status": "ok"}},
@@ -176,12 +154,15 @@ def test_send_reminder_items_fallback_body(client: TestClient, db: Session, monk
         "req_name": "回退测试",
         "to": "sa@example.com",
         "subject": "催办：回退测试",
-        "body": "旧调用纯正文",
+        "body": "旧调用纯正文：请尽快评估并反馈。",
     }
     response = client.post("/api/v1/reminders/send", json=payload)
     assert response.status_code == 200
     assert response.json()["code"] == 0
-    assert "旧调用纯正文" in rendered["items"]
+
+    record = db.query(EmailRecord).filter(EmailRecord.req_id == "REQ-FB").first()
+    assert record is not None
+    assert "旧调用纯正文" in (record.content or "")
 
 
 def test_send_reminder_failure(client: TestClient, db: Session, monkeypatch):

@@ -124,12 +124,18 @@ SCENES: dict[str, MailScene] = {
         default_subject="催办：{title}",
         fallback_template="## 催办通知\n\n工单详情请查看系统运营监控，请尽快处理。",
     ),
+    # 主动优化建议（2026-10-08）：由 raw 改为 PMWB 装配器渲染（renderer=True），
+    # 与其余督办场景统一「品牌色带 + 标题 + 称呼 + 导语 + 正文」结构；
+    # 3210 侧无对应模板，故不设 template_key；也不注册 SCENE_FIELDS
+    # （纯正文驱动，避免前端弹窗因有 schema 切到 fields 路径而丢变量）。
     "active_optimization_urge": MailScene(
         "active_optimization_urge", email_type="active_optimization_urge", source="pmwb_active_optimization",
+        renderer=True, default_subject="催办：{title}",
         fallback_template="## 主动优化建议催办\n\n请尽快评估以下优化建议。",
     ),
     "active_optimization_sync": MailScene(
         "active_optimization_sync", email_type="active_optimization_sync", source="pmwb_active_optimization",
+        renderer=True, default_subject="同步：{title}",
         fallback_template="## 主动优化建议同步\n\n请知悉以下优化建议的最新状态。",
     ),
     "keywork_feedback": MailScene(
