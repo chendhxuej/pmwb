@@ -714,6 +714,7 @@ import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
+import { domainOptions } from '@/constants/statusConfig.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -757,12 +758,10 @@ const meetingTypeOptions = [
   { value: 'other', label: '其他' },
 ]
 
-const statusOptions = [
-  { value: 'planned', label: '计划中' },
-  { value: 'held', label: '已召开' },
-  { value: 'cancelled', label: '已取消' },
-  { value: 'not_attended', label: '没参会' },
-]
+// 会议状态 —— 唯一源 = 后端注册表 meeting 域。
+// 原本地数组写作「计划中 / 没参会」，与 TodoView 等处 <StatusBadge module="meeting">
+// 展示的注册表文案「已计划 / 未参会」不一致；收敛后全站统一。
+const statusOptions = computed(() => domainOptions('meeting'))
 
 const actionCategoryOptions = [
   { value: 'requirement', label: '需求' },

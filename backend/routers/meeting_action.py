@@ -68,7 +68,7 @@ def update_action_status(
     db: Session = Depends(get_db),
 ):
     """更新会议行动项状态。"""
-    obj = meeting_service.update_action_status(db, meeting_id, action_id, obj_in.status.value)
+    obj = meeting_service.update_action_status(db, meeting_id, action_id, obj_in.status)
     return success(data=obj)
 
 

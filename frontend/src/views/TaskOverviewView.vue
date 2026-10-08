@@ -152,18 +152,18 @@ import {
 import OwnerMatrix from '@/components/Common/OwnerMatrix.vue'
 import TaskBatchSuperviseDialog from '@/components/Common/TaskBatchSuperviseDialog.vue'
 import { getTaskStatsByOwner } from '@/api/taskCenter.js'
+import { unifiedLabels, unifiedStatuses } from '@/constants/statusConfig.js'
 
 const router = useRouter()
 
-const STATUS_LABELS = {
-  pending: '待处理',
-  in_progress: '进行中',
-  done: '已完成',
-  blocked: '阻塞/挂起',
-}
+const STATUS_LABELS = computed(() => unifiedLabels())
 
-// 矩阵状态列：仅展示未完结两态（done/blocked 已排除，恒为 0 不占位）
-const MATRIX_STATUSES = ['pending', 'in_progress']
+// 矩阵状态列：仅展示未完结两态（done/blocked 已排除，恒为 0 不占位）。
+// 从注册表统一态派生 —— 口径与任务中心筛选下拉、徽标完全一致。
+const ACTIVE_UNIFIED = ['pending', 'in_progress']
+const MATRIX_STATUSES = computed(() =>
+  unifiedStatuses().filter((s) => ACTIVE_UNIFIED.includes(s))
+)
 
 // 来源元数据：图标 + 色调（色调走设计令牌，组件内禁硬编码十六进制）+ 二级路由 slug
 const SOURCE_META = [

@@ -94,11 +94,14 @@
       </div>
 
       <div class="filter-bar">
+        <!-- 状态筛选 = 统一态 bus（由状态注册表元数据驱动，新增状态自动兼容） -->
         <el-select v-model="filters.status" placeholder="状态" clearable style="width: 130px">
-          <el-option label="待处理" value="pending" />
-          <el-option label="进行中" value="in_progress" />
-          <el-option label="已完成" value="done" />
-          <el-option label="阻塞/挂起" value="blocked" />
+          <el-option
+            v-for="s in unifiedStatusOptions"
+            :key="s.value"
+            :label="s.label"
+            :value="s.value"
+          />
         </el-select>
         <StaffSelect
           v-model="filters.owners"
@@ -156,9 +159,15 @@
         <el-table-column label="负责人" width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ (row.owner || '').replace(/,/g, '、') || '—' }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="95">
+        <el-table-column label="状态" width="150">
           <template #default="{ row }">
-            <StatusBadge module="task_center" :value="row.status" />
+            <!-- 就地切换：按来源渲染其原生全量状态，无需跳转源模块 -->
+            <StatusTransitionSelect
+              :source="row.source"
+              :source-id="row.source_id"
+              :current="row.raw_status"
+              @updated="(item) => onRowUpdated(row, item)"
+            />
           </template>
         </el-table-column>
         <el-table-column prop="priority" label="优先级" width="75">
@@ -211,7 +220,13 @@
             <el-tag size="small" :type="sourceTagType(detailTask.source)">{{ detailTask.source_label }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="状态">
-            {{ detailTask.status_label }}（原始：{{ detailTask.raw_status || '—' }}）
+            <StatusTransitionSelect
+              :source="detailTask.source"
+              :source-id="detailTask.source_id"
+              :current="detailTask.raw_status"
+              @updated="onDetailUpdated"
+            />
+            <span class="raw-status-hint">原始值：{{ detailTask.raw_status || '—' }}</span>
           </el-descriptions-item>
           <el-descriptions-item label="负责人">{{ detailTask.owner || '—' }}</el-descriptions-item>
           <el-descriptions-item label="优先级">{{ detailTask.priority || '—' }}</el-descriptions-item>
@@ -328,8 +343,9 @@ import { todoApi } from '@/api/todo'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
-import StatusBadge from '@/components/Common/StatusBadge.vue'
+import StatusTransitionSelect from '@/components/Common/StatusTransitionSelect.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
+import { unifiedStatuses, unifiedLabels, domainOptions } from '@/constants/statusConfig.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -351,12 +367,8 @@ const categoryOptions = [
   { value: 'study', label: '学习' },
   { value: 'other', label: '其他' },
 ]
-const statusOptions = [
-  { value: 'todo', label: '未开始' },
-  { value: 'in_progress', label: '进行中' },
-  { value: 'done', label: '已完成' },
-  { value: 'cancelled', label: '已取消' },
-]
+// 新建待办的状态候选 —— 唯一源 = 后端注册表 todo 域（原本地数组已移除）
+const statusOptions = computed(() => domainOptions('todo'))
 const priorityOptions = [
   { value: 'P0', label: 'P0' },
   { value: 'P1', label: 'P1' },
@@ -505,7 +517,8 @@ function refreshAll() {
 }
 
 // ---- 深链筛选：任务总览「责任人分布」矩阵 → /task-center/{来源}?owner=xx&status=yy ----
-const VALID_STATUS_KEYS = ['pending', 'in_progress', 'done', 'blocked']
+// 合法统一态集合（源自注册表元数据，勿硬编码）
+const validStatusKeys = () => unifiedStatuses()
 
 // 当前筛选是否与地址栏一致（用于识别 filters 变更是否由路由同步引起，避免重复拉取）
 function filtersMatchQuery() {
@@ -526,7 +539,7 @@ function applyRouteFilters() {
   const nextOwners = q.owner
     ? String(q.owner).split(',').map((s) => s.trim()).filter(Boolean)
     : []
-  const st = q.status && VALID_STATUS_KEYS.includes(String(q.status)) ? String(q.status) : ''
+  const st = q.status && validStatusKeys().includes(String(q.status)) ? String(q.status) : ''
   const it = q.issue_type ? String(q.issue_type) : ''
   const kw = q.keyword ? String(q.keyword) : ''
   const changed =
@@ -604,6 +617,45 @@ watch(
   }
 )
 
+// 统一态筛选选项（源自状态注册表元数据；新增状态后自动兼容）
+const unifiedStatusOptions = computed(() => {
+  const labels = unifiedLabels()
+  return unifiedStatuses().map((v) => ({ value: v, label: labels[v] || v }))
+})
+
+// ------- 就地改状态：局部刷新（不整页重载） -------
+function onRowUpdated(row, item) {
+  loadStats()
+  if (!item) return
+  const idx = tasks.value.findIndex(
+    (t) => t.source === row.source && String(t.source_id) === String(row.source_id)
+  )
+  if (idx !== -1) {
+    // 已不满足当前口径（在办口径 / 状态筛选）→ 移出列表，否则就位替换
+    const outOfScope = !filters.includeDone && ['done', 'blocked'].includes(item.status)
+    const mismatch = filters.status && item.status !== filters.status
+    if (outOfScope || mismatch) {
+      tasks.value.splice(idx, 1)
+      pager.total = Math.max(0, pager.total - 1)
+    } else {
+      tasks.value.splice(idx, 1, item)
+    }
+  }
+  if (
+    detailTask.value &&
+    detailTask.value.source === row.source &&
+    String(detailTask.value.source_id) === String(row.source_id)
+  ) {
+    detailTask.value = item
+  }
+}
+
+function onDetailUpdated(item) {
+  const cur = detailTask.value
+  if (cur) onRowUpdated(cur, item)
+  detailTask.value = item || cur
+}
+
 function sourceTagType(source) {
   return {
     todo: 'primary',
@@ -615,10 +667,6 @@ function sourceTagType(source) {
     requirement_urge: 'warning',
     active_optimization: 'success',
   }[source] || 'info'
-}
-
-function statusTagType(status) {
-  return { pending: 'info', in_progress: 'primary', done: 'success', blocked: 'danger' }[status] || 'info'
 }
 
 // ------- 详情抽屉 -------
@@ -822,10 +870,10 @@ async function loadUrgeGroups() {
   }
 }
 
-function buildUrgeBatchBody(saName, items) {
+function buildUrgeBatchBody(items) {
+  // 信息单一来源（2026-10-08）：标题带/称呼/导语/落款由装配器统一出，
+  // 正文只保留「诉求 + 需求清单（编号/名称/系统/提出人/描述）」，杜绝与字段/items 重复。
   const lines = [
-    `${saName}（相关团队）：`,
-    ``,
     `你们负责的以下 ${items.length} 个需求现在到前期评估环节了，麻烦尽快把每个需求的①前期评估（可行性、范围、依赖）②工作量初评（大概多少人天）和预计完成时间反馈给我：`,
     ``,
   ]
@@ -836,14 +884,13 @@ function buildUrgeBatchBody(saName, items) {
       lines.push(`   需求描述：${it.description}`)
     }
   })
-  lines.push(``, `收到后尽快回我哈，辛苦了！`, ``, `——产品经理工作台（PMWB）`)
+  lines.push(``, `收到后尽快回我哈，辛苦了！`)
   return lines.join('\n')
 }
 
 function buildUrgeSingleBody(item) {
+  // 信息单一来源（2026-10-08）：称呼行/落款行由装配器出，正文承载完整需求信息。
   return [
-    `${item.sa_name || '相关团队'}（${item.system_name || '相关'}团队）：`,
-    ``,
     `你负责的需求现在到前期评估环节了，麻烦尽快把下面两件事搞定，然后反馈给我：`,
     `1. 需求前期评估（可行性、范围、依赖这些）；`,
     `2. 工作量初评（大概要多少人天）和预计完成时间。`,
@@ -852,12 +899,11 @@ function buildUrgeSingleBody(item) {
     `需求编号：${item.req_id || ''}`,
     `需求名称：${item.req_name || ''}`,
     `提出人：${item.proposer || ''}`,
+    ...(item.propose_time ? [`提出时间：${item.propose_time}`] : []),
     ...(item.system_name ? [`负责系统：${item.system_name}`] : []),
     ...(item.description ? [`需求描述：${item.description}`] : []),
     ``,
     `收到后尽快回我评估结果哈，辛苦了！`,
-    ``,
-    `——产品经理工作台（PMWB）`,
   ].join('\n')
 }
 
@@ -902,7 +948,7 @@ function openUrgeBatch(group) {
   }
   mailDialogTitle.value = '发送催办邮件'
   mailDialogSubject.value = `催办：${group.sa_name} 负责的 ${group.count} 个需求评估`
-  mailDialogBody.value = buildUrgeBatchBody(group.sa_name, group.items)
+  mailDialogBody.value = buildUrgeBatchBody(group.items)
   mailDialogContext.value = {
     req_id: group.items.map((i) => i.req_id).join('; '),
     req_name: '',
@@ -1027,6 +1073,11 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   gap: 8px;
+}
+.raw-status-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-tertiary, #909399);
 }
 .table-hint {
   font-size: 13px;

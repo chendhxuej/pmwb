@@ -15,6 +15,9 @@ class TodoCategory(str, Enum):
 
 
 class TodoStatus(str, Enum):
+    """⚠️ 仅作取值提示。唯一真相源 = constants/status_registry.py（domain=todo）；
+    字段类型已放宽为 str，支持新增状态零数据库迁移，新增状态后此处无需同步。"""
+
     todo = "todo"
     in_progress = "in_progress"
     done = "done"
@@ -40,7 +43,7 @@ class TodoBase(BaseModel):
     content: Optional[str] = Field(None, description="待办内容")
     category: TodoCategory = Field(TodoCategory.other, description="分类")
     priority: TodoPriority = Field(TodoPriority.P2, description="优先级")
-    status: TodoStatus = Field(TodoStatus.todo, description="状态")
+    status: str = Field("todo", description="状态（取值见 constants/status_registry: todo）")
     due_date: Optional[date] = Field(None, description="截止日期")
     due_time: Optional[str] = Field(None, max_length=8, description="截止时间")
     remind_at: Optional[datetime] = Field(None, description="提醒时间")
@@ -66,7 +69,7 @@ class TodoUpdate(BaseModel):
     content: Optional[str] = None
     category: Optional[TodoCategory] = None
     priority: Optional[TodoPriority] = None
-    status: Optional[TodoStatus] = None
+    status: Optional[str] = None
     due_date: Optional[date] = None
     due_time: Optional[str] = Field(None, max_length=8)
     remind_at: Optional[datetime] = None
@@ -83,7 +86,7 @@ class TodoUpdate(BaseModel):
 
 
 class TodoStatusUpdate(BaseModel):
-    status: TodoStatus = Field(..., description="待办状态")
+    status: str = Field(..., description="待办状态（取值见 constants/status_registry: todo）")
 
 
 class TodoOut(TodoBase):

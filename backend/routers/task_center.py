@@ -8,7 +8,12 @@ from pydantic import BaseModel
 from core.exceptions import ValidationException
 from core.response import success
 from db.base import get_db
-from schemas.task_center import TaskDraftRequest, TaskSendRequest
+from schemas.task_center import (
+    TaskDraftRequest,
+    TaskSendRequest,
+    TaskStatusBatchRequest,
+    TaskStatusUpdateRequest,
+)
 from services.task_center import task_center_service
 from services.mail_dispatch import format_task_center_subject
 from utils.mail_content import build_mail_body_md
@@ -76,6 +81,26 @@ def get_task_detail(source: str, source_id: str, db=Depends(get_db)):
     if item is None:
         raise ValidationException("任务不存在或已被删除")
     return success(data=item)
+
+
+@router.patch("/tasks/{source}/{source_id}/status")
+def update_task_status(source: str, source_id: str, obj_in: TaskStatusUpdateRequest, db=Depends(get_db)):
+    """就地切换任务状态（无需跳转源模块）。
+
+    - status 为**该来源原生态状态值**（见 /meta/status-domains 或 constants/status_registry.py）
+    - 服务端做：合法性校验 → 流转限制 + 终态锁定 → 字段级校验
+    - 分派到源模块 update_status，保留进度/日期/变更日志等副作用
+    - 派生只读来源（需求催办）将显式拒绝
+    """
+    item = task_center_service.update_task_status(db, source, source_id, obj_in)
+    return success(data=item, message="状态已更新")
+
+
+@router.post("/tasks/status/batch")
+def batch_update_task_status(obj_in: TaskStatusBatchRequest, db=Depends(get_db)):
+    """批量就地切换任务状态：逐条执行，单项失败不阻断其余。"""
+    data = task_center_service.batch_update_status(db, obj_in)
+    return success(data=data, message=f"成功 {data['updated']} 条，失败 {len(data['errors'])} 条")
 
 
 @router.post("/resolve-contacts")

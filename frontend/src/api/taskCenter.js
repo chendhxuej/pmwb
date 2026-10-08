@@ -21,6 +21,24 @@ export function getTaskDetail(source, sourceId) {
   return request.get(`/task-center/tasks/${source}/${encodeURIComponent(sourceId)}`)
 }
 
+// 就地切换任务状态（2026-10）：status 为该来源的原生态状态值（见 /meta/status-domains）
+export function updateTaskStatus(source, sourceId, status, extra = {}) {
+  return request.patch(
+    `/task-center/tasks/${source}/${encodeURIComponent(sourceId)}/status`,
+    { status, ...extra }
+  )
+}
+
+// 批量就地切换任务状态：items = [{source, source_id, status, note?, operator?}]
+export function updateTaskStatusBatch(items) {
+  return request.post('/task-center/tasks/status/batch', { items })
+}
+
+// 状态域元数据（状态注册表；一般由启动预加载 + 缓存提供，此处供手动刷新）
+export function getStatusDomains() {
+  return request.get('/meta/status-domains')
+}
+
 // 按姓名解析邮箱（统一邮件中心通讯录）
 export function resolveTaskContacts(names) {
   return request.post('/task-center/resolve-contacts', { names })

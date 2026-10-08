@@ -1,9 +1,12 @@
 """任务中心 Schema：全系统待办类任务统一聚合模型。"""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+# 统一态口径唯一真相源 = constants/status_registry.py（此处仅再导出，勿另写一份）
+from constants.status_registry import UNIFIED_LABELS, UNIFIED_STATUSES  # noqa: F401
 
 # 任务来源枚举（八大来源）
 TASK_SOURCES = [
@@ -28,15 +31,8 @@ SOURCE_LABELS = {
     "active_optimization": "主动优化",
 }
 
-# 统一状态枚举
-UNIFIED_STATUSES = ["pending", "in_progress", "done", "blocked"]
-
-STATUS_LABELS = {
-    "pending": "待处理",
-    "in_progress": "进行中",
-    "done": "已完成",
-    "blocked": "阻塞/挂起",
-}
+# 统一状态标签（统一态 bus 的中文名，源自注册表 UNIFIED_LABELS）
+STATUS_LABELS = dict(UNIFIED_LABELS)
 
 
 class TaskItem(BaseModel):
@@ -127,3 +123,45 @@ class TaskDraftRequest(BaseModel):
     recipient_name: Optional[str] = Field(
         None, description="收件人姓名，用于生成针对性主题（如「X，您有 N 项待办」）"
     )
+
+
+# ---------------------------------------------------------------------------
+# 就地切换状态（2026-10）
+# ---------------------------------------------------------------------------
+class TaskStatusUpdateRequest(BaseModel):
+    """任务中心就地改状态请求。
+
+    status 为**该来源的原生态状态值**（取值见 constants/status_registry.py），
+    例如运营工单的 verify / suspended、开发工单的 live / archived。
+    服务端按注册表做：合法性校验 → 流转限制 + 终态锁定 → 字段级校验 →
+    分派到源模块 update_status（保留进度/日期/日志等副作用）。
+    """
+
+    status: str = Field(..., description="目标任务域原生状态值（见 status_registry）")
+    note: Optional[str] = Field(None, description="变更备注（开发工单写入变更日志）")
+    operator: Optional[str] = Field(None, description="操作人（开发工单变更日志）")
+    resolve_date: Optional[datetime] = Field(None, description="解决时间（运营/调研工单可选）")
+
+
+class TaskStatusBatchItem(BaseModel):
+    """批量改状态单项。"""
+
+    source: str = Field(..., description="任务来源")
+    source_id: str = Field(..., description="源表主键/编号（复合 source_id）")
+    status: str = Field(..., description="目标任务域原生状态值")
+    note: Optional[str] = None
+    operator: Optional[str] = None
+
+
+class TaskStatusBatchRequest(BaseModel):
+    """批量改状态请求（对齐任务中心「批量催办」的交互范式）。"""
+
+    items: List[TaskStatusBatchItem] = Field(default_factory=list, description="待变更项")
+
+
+class TaskStatusBatchResult(BaseModel):
+    """批量改状态结果。"""
+
+    requested: int = 0
+    updated: int = 0
+    errors: List[Dict[str, Any]] = Field(default_factory=list, description="失败项 [{source,source_id,reason}]")

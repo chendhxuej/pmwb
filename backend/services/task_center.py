@@ -29,6 +29,7 @@ from db.models import (
     SentEmail,
     now_cn,
 )
+from constants import status_registry
 from schemas.task_center import (
     SOURCE_LABELS,
     STATUS_LABELS,
@@ -38,6 +39,8 @@ from schemas.task_center import (
     TaskRef,
     TaskSendRequest,
     TaskStats,
+    TaskStatusBatchRequest,
+    TaskStatusUpdateRequest,
 )
 from services.mail_dispatch import _render_mail, dispatch_email
 from utils.dateflags import flag_due_date, parse_loose_date
@@ -70,66 +73,9 @@ _CATEGORY_LABEL = {
     "complaint": "热点投诉",
 }
 
-# 各来源原始状态 → 统一状态映射
-_STATUS_MAP: Dict[str, Dict[str, str]] = {
-    "todo": {
-        "todo": "pending",
-        "in_progress": "in_progress",
-        "done": "done",
-        "cancelled": "blocked",
-    },
-    "operation_issue": {
-        "pending": "pending",
-        "processing": "in_progress",
-        "verify": "in_progress",
-        "resolved": "done",   # 已解决视为完成，不再在默认待办列表中显示
-        "closed": "done",
-        "suspended": "blocked",
-    },
-    "dev_ticket": {
-        "created": "pending",
-        "design_reviewed": "in_progress",
-        "dev_completed": "in_progress",
-        "test_completed": "in_progress",
-        "live": "done",
-        "archived": "done",
-    },
-    "key_work_task": {
-        "not_started": "pending",
-        "in_progress": "in_progress",
-        "completed": "done",
-        "cancelled": "blocked",
-        "delayed": "blocked",
-    },
-    "key_work_milestone": {
-        "not_started": "pending",
-        "in_progress": "in_progress",
-        "completed": "done",
-        "cancelled": "blocked",
-        "delayed": "blocked",
-    },
-    "key_work_main": {
-        "planning": "pending",
-        "in_progress": "in_progress",
-        "completed": "done",
-        "paused": "blocked",
-        "cancelled": "blocked",
-    },
-}
-
-
-def _map_meeting_action_status(raw: str) -> str:
-    """会议行动项状态为自由串，做容错映射。"""
-    s = (raw or "").strip().lower()
-    if not s or s == "pending" or "待" in s:
-        return "pending"
-    if s in ("done", "completed", "closed") or "完成" in s or "关闭" in s:
-        return "done"
-    if s == "in_progress" or "进行" in s or "处理" in s:
-        return "in_progress"
-    if "取消" in s or "挂起" in s or "暂停" in s:
-        return "blocked"
-    return "pending"
+# 原始状态 → 统一状态 的映射已收敛到 constants/status_registry.py::to_unified
+# （唯一真相源）。历史实现此处曾有 3 份 dict 副本 + 1 个自由串容错函数，
+# 新增状态时会静默兜底成 pending，故整体删除，改由注册表派生。
 
 
 def _flag_dates(due: Optional[date], status: str) -> Dict[str, bool]:
@@ -154,7 +100,7 @@ class TaskCenterService:
         # 历史遗留：此处曾硬编码 "我"，导致按人汇总时本人被拆成「我」「陈大海」两个桶。
         self_name = getattr(settings, "SELF_NAME", "") or ""
         for r in rows:
-            status = _STATUS_MAP["todo"].get(r.status or "todo", "pending")
+            status = status_registry.to_unified("todo", r.status)
             flags = _flag_dates(r.due_date, status)
             items.append(TaskItem(
                 task_id=f"todo:{r.id}",
@@ -184,7 +130,7 @@ class TaskCenterService:
         rows = db.query(PmwbOperationIssue).all()
         items: List[TaskItem] = []
         for r in rows:
-            status = _STATUS_MAP["operation_issue"].get(r.status or "pending", "pending")
+            status = status_registry.to_unified("operation", r.status)
             # 计划完成时间优先取 go_live_date；为空时回退发现时间
             due = r.go_live_date
             if not due and r.discovery_date:
@@ -220,14 +166,6 @@ class TaskCenterService:
         """一线调研工单采集器。"""
         rows = db.query(PmwbResearchIssue).all()
         items: List[TaskItem] = []
-        status_map = {
-            "pending": "pending",
-            "processing": "in_progress",
-            "verify": "in_progress",
-            "resolved": "done",
-            "closed": "done",
-            "suspended": "blocked",
-        }
         SUB_TYPE_LABEL = {
             "leader_research": "领导调研",
             "frontline_station": "一线驻点",
@@ -240,7 +178,7 @@ class TaskCenterService:
             "lianyungang": "连云港",
         }
         for r in rows:
-            status = status_map.get(r.status or "pending", "pending")
+            status = status_registry.to_unified("research", r.status)
             due = r.go_live_date or r.feedback_deadline
             flags = _flag_dates(due, status)
             items.append(TaskItem(
@@ -274,7 +212,7 @@ class TaskCenterService:
         rows = db.query(PmwbDevTicket).all()
         items: List[TaskItem] = []
         for r in rows:
-            status = _STATUS_MAP["dev_ticket"].get(r.status or "created", "pending")
+            status = status_registry.to_unified("ticket", r.status)
             flags = {
                 "is_overdue": bool(r.is_overdue) and status != "done",
                 "is_due_soon": False,
@@ -314,7 +252,7 @@ class TaskCenterService:
         )
         items: List[TaskItem] = []
         for r, meeting_title in rows:
-            status = _map_meeting_action_status(r.status)
+            status = status_registry.to_unified("meeting_action", r.status)
             flags = _flag_dates(r.due_date, status)
             items.append(TaskItem(
                 task_id=f"meeting_action:{r.id}",
@@ -349,7 +287,7 @@ class TaskCenterService:
             .all()
         )
         for r, kw_title in tasks:
-            status = _STATUS_MAP["key_work_task"].get(r.status or "todo", "pending")
+            status = status_registry.to_unified("keywork_task", r.status)
             flags = _flag_dates(r.due_date, status)
             items.append(TaskItem(
                 task_id=f"key_work:task-{r.id}",
@@ -379,7 +317,7 @@ class TaskCenterService:
             .all()
         )
         for r, kw_title, kw_owner in milestones:
-            status = _STATUS_MAP["key_work_milestone"].get(r.status or "pending", "pending")
+            status = status_registry.to_unified("keywork_ms", r.status)
             flags = _flag_dates(r.due_date, status)
             items.append(TaskItem(
                 task_id=f"key_work:milestone-{r.id}",
@@ -408,9 +346,8 @@ class TaskCenterService:
         """主动优化建议：待评估视为待处理，已采纳视为完成，不采纳视为阻塞/挂起。"""
         rows = db.query(PmwbActiveOptimization).all()
         items: List[TaskItem] = []
-        status_map = {"pending": "pending", "adopted": "done", "rejected": "blocked"}
         for r in rows:
-            status = status_map.get(r.status or "pending", "pending")
+            status = status_registry.to_unified("active_optimization", r.status)
             items.append(TaskItem(
                 task_id=f"active_optimization:{r.id}",
                 source="active_optimization",
@@ -807,6 +744,225 @@ class TaskCenterService:
             if t.task_id == task_id:
                 return t
         return None
+
+    # ------------------------------------------------------------------
+    # 就地切换状态（2026-10：任务中心统一入口，无需跳转源模块）
+    # ------------------------------------------------------------------
+
+    # 必填列的中文名（用于错误提示）
+    _FIELD_LABELS = {
+        "handler": "处理人",
+        "vendor_handlers": "厂家责任人",
+        "assignee": "负责人",
+    }
+
+    @staticmethod
+    def _split_sid(source_id: str) -> str:
+        """key_work 的 source_id 形如 task-12 / milestone-3；其余为纯 id。"""
+        return source_id.split("-", 1)[1] if "-" in source_id else source_id
+
+    def _source_row(self, db: Session, source: str, source_id: str):
+        """按 source(+source_id) 取回源表 ORM 行（用于读原值 / 字段校验）。"""
+        from db.models import (
+            PmwbActiveOptimization,
+            PmwbDevTicket,
+            PmwbKeyWorkMemberTask,
+            PmwbKeyWorkMilestone,
+            PmwbMeetingAction,
+            PmwbOperationIssue,
+            PmwbResearchIssue,
+            PmwbTodo,
+        )
+
+        rid = self._split_sid(source_id)
+        try:
+            rid_i = int(rid)
+        except (TypeError, ValueError):
+            return None
+
+        if source == "todo":
+            return db.query(PmwbTodo).filter(PmwbTodo.id == rid_i).first()
+        if source == "operation_issue":
+            return db.query(PmwbOperationIssue).filter(PmwbOperationIssue.id == rid_i).first()
+        if source == "research_issue":
+            return db.query(PmwbResearchIssue).filter(PmwbResearchIssue.id == rid_i).first()
+        if source == "dev_ticket":
+            return db.query(PmwbDevTicket).filter(PmwbDevTicket.id == rid_i).first()
+        if source == "meeting_action":
+            return db.query(PmwbMeetingAction).filter(PmwbMeetingAction.id == rid_i).first()
+        if source == "active_optimization":
+            return db.query(PmwbActiveOptimization).filter(PmwbActiveOptimization.id == rid_i).first()
+        if source == "key_work":
+            prefix = (source_id or "").split("-", 1)[0]
+            if prefix == "task":
+                return db.query(PmwbKeyWorkMemberTask).filter(PmwbKeyWorkMemberTask.id == rid_i).first()
+            if prefix == "milestone":
+                return db.query(PmwbKeyWorkMilestone).filter(PmwbKeyWorkMilestone.id == rid_i).first()
+        return None
+
+    def _validate_required(self, db: Session, source: str, source_id: str, domain: str, target: str) -> None:
+        """进入目标态前的字段级校验（如处理中/已完成需先有责任人）。"""
+        fields = status_registry.required_fields(domain, target)
+        if not fields:
+            return
+        row = self._source_row(db, source, source_id)
+        if row is None:
+            return
+        missing = []
+        for f in fields:
+            v = getattr(row, f, None)
+            if v is None or (isinstance(v, str) and not v.strip()):
+                missing.append(f)
+        if missing:
+            tgt = status_registry.get_status(domain, target)
+            tgt_label = tgt.label if tgt else target
+            names = "、".join(self._FIELD_LABELS.get(f, f) for f in missing)
+            raise ValidationException(f"置为「{tgt_label}」前需先在源工单填写：{names}")
+
+    def _apply_status(
+        self, db: Session, domain: str, raw_id: str, target: str, payload: TaskStatusUpdateRequest
+    ) -> None:
+        """分派到各源模块的 update（保留各自副作用：进度/日期/变更日志/完成时间等）。"""
+        if domain == "todo":
+            from services.todo import todo_service
+
+            todo_service.update_status(db, int(raw_id), target)
+            return
+        if domain == "operation":
+            from services.operation import operation_issue_service
+
+            operation_issue_service.update_status(db, int(raw_id), target, payload.resolve_date)
+            return
+        if domain == "research":
+            from services.research import research_issue_service
+
+            research_issue_service.update_status(db, int(raw_id), target, payload.resolve_date)
+            return
+        if domain == "ticket":
+            from services.dev_ticket import dev_ticket_service
+
+            dev_ticket_service.update_status(
+                db, int(raw_id), target, payload.operator or "", payload.note or ""
+            )
+            return
+        if domain == "active_optimization":
+            from services.active_optimization import active_optimization_service
+
+            active_optimization_service.update(db, int(raw_id), {"status": target})
+            return
+        if domain == "meeting_action":
+            from services.meeting import meeting_service
+
+            row = self._source_row(db, "meeting_action", raw_id)
+            if row is None:
+                raise ValidationException("会议行动项不存在")
+            meeting_service.update_action_status(db, row.meeting_id, int(raw_id), target)
+            return
+        if domain == "keywork_task":
+            self._simple_set(db, "pmwb_key_work_member_task", raw_id, target)
+            return
+        if domain == "keywork_ms":
+            self._simple_set(db, "pmwb_key_work_milestone", raw_id, target)
+            return
+        if domain == "keywork_plan":
+            # 月/周计划（当前任务中心未聚合，保留能力以防后续扩展）
+            from db.models import PmwbKeyWorkMonthlyPlan, PmwbKeyWorkWeeklyPlan
+
+            model = PmwbKeyWorkWeeklyPlan
+            row = db.query(model).filter(model.id == int(raw_id)).first()
+            if row is None:
+                model = PmwbKeyWorkMonthlyPlan
+                row = db.query(model).filter(model.id == int(raw_id)).first()
+            if row is None:
+                raise ValidationException("重点工作计划不存在")
+            row.status = target
+            db.commit()
+            return
+        if domain == "keywork":
+            from db.models import PmwbKeyWork
+
+            row = db.query(PmwbKeyWork).filter(PmwbKeyWork.id == int(raw_id)).first()
+            if row is None:
+                raise ValidationException("重点工作不存在")
+            row.status = target
+            db.commit()
+            return
+        raise ValidationException(f"该来源暂不支持就地改状态：{domain}")
+
+    def _simple_set(self, db: Session, table: str, raw_id: str, target: str) -> None:
+        """重点工作子表（成员待办/里程碑）就地改状态：按 id 单查后写回。
+
+        与 routers/keywork.py 内的写入语义保持一致（仅动 status 字段）。
+        """
+        from db.models import PmwbKeyWorkMemberTask, PmwbKeyWorkMilestone
+
+        model = PmwbKeyWorkMemberTask if table.endswith("member_task") else PmwbKeyWorkMilestone
+        row = db.query(model).filter(model.id == int(raw_id)).first()
+        if row is None:
+            raise ValidationException("重点工作子项不存在")
+        row.status = target
+        db.commit()
+
+    def update_task_status(
+        self, db: Session, source: str, source_id: str, obj_in: TaskStatusUpdateRequest
+    ) -> TaskItem:
+        """任务中心就地改状态：校验 → 分派 → 回读统一 DTO。"""
+        if source not in TASK_SOURCES:
+            raise ValidationException(f"未知任务来源：{source}")
+        domain = status_registry.resolve_domain(source, source_id)
+        if not status_registry.is_writable(domain):
+            raise ValidationException("该任务为派生/只读数据，不支持就地修改状态")
+
+        target = (obj_in.status or "").strip()
+        target_def = status_registry.get_status(domain, target)
+        if target_def is None:
+            raise ValidationException(f"非法状态值：{obj_in.status}（域 {domain}）")
+
+        row = self._source_row(db, source, source_id)
+        if row is None:
+            raise ValidationException("任务不存在或已被删除")
+        current = getattr(row, "status", "") or ""
+
+        if current != target:
+            cur_def = status_registry.get_status(domain, current)
+            cur_label = cur_def.label if cur_def else (current or "—")
+            allowed = status_registry.allowed_next(domain, current)
+            if status_registry.is_terminal(domain, current) and not allowed:
+                raise ValidationException(f"当前状态「{cur_label}」为终态，不可直接变更")
+            if allowed and target not in allowed:
+                labels = status_registry.labels_for(domain)
+                names = "、".join(labels.get(a, a) for a in allowed)
+                raise ValidationException(
+                    f"不允许从「{cur_label}」直接流转到「{target_def.label}」；可选：{names}"
+                )
+            self._validate_required(db, source, source_id, domain, target)
+            self._apply_status(db, domain, self._split_sid(source_id), target, obj_in)
+
+        item = self.get_detail(db, f"{source}:{source_id}")
+        if item is None:
+            raise ValidationException("状态已更新，但该任务已不在任务中心当前采集口径内")
+        return item
+
+    def batch_update_status(self, db: Session, obj_in: TaskStatusBatchRequest) -> Dict[str, Any]:
+        """批量改状态：逐条执行，单项失败不阻断其余（对齐批量操作范式）。"""
+        items = obj_in.items or []
+        updated = 0
+        errors: List[Dict[str, Any]] = []
+        for it in items:
+            try:
+                self.update_task_status(
+                    db,
+                    it.source,
+                    it.source_id,
+                    TaskStatusUpdateRequest(
+                        status=it.status, note=it.note, operator=it.operator
+                    ),
+                )
+                updated += 1
+            except Exception as exc:  # noqa: BLE001
+                reason = getattr(exc, "message", None) or str(exc)
+                errors.append({"source": it.source, "source_id": it.source_id, "reason": reason})
+        return {"requested": len(items), "updated": updated, "errors": errors}
 
     # ------------------------------------------------------------------
     # 邮件通知 / 催办

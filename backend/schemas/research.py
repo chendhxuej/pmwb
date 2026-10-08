@@ -13,7 +13,8 @@ class ResearchSubType(str, Enum):
 
 
 class ResearchStatus(str, Enum):
-    """调研工单状态。"""
+    """调研工单状态（⚠️ 仅作取值提示；唯一真相源 = constants/status_registry.py domain=research）。
+    字段类型已放宽为 str，支持新增状态零数据库迁移。"""
 
     pending = "pending"  # 待处理
     processing = "processing"  # 处理中
@@ -93,7 +94,7 @@ class ResearchIssueBase(BaseModel):
     issue_no: str = Field(..., max_length=64, description="调研工单编号")
     title: str = Field(..., max_length=255, description="工单标题")
     sub_type: ResearchSubType = Field(ResearchSubType.leader_research, description="子类")
-    status: ResearchStatus = Field(ResearchStatus.pending, description="状态")
+    status: str = Field("pending", description="状态（取值见 constants/status_registry: research）")
     city: Optional[CityCode] = Field(None, description="地市")
     basic_info: Optional[str] = Field(None, description="基本信息")
     situation_desc: Optional[str] = Field(None, description="情况说明")
@@ -137,7 +138,7 @@ class ResearchIssueCreate(ResearchIssueBase):
 class ResearchIssueUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
     sub_type: Optional[ResearchSubType] = None
-    status: Optional[ResearchStatus] = None
+    status: Optional[str] = None
     city: Optional[CityCode] = None
     basic_info: Optional[str] = None
     situation_desc: Optional[str] = None

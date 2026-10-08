@@ -98,7 +98,7 @@
         :handlers="handlers"
         :summary="summary"
         :statuses="statuses"
-        :status-labels="ISSUE_STATUS_LABELS"
+        :status-labels="statusLabels"
         :categories="WORK_ORDER_CATEGORIES"
         :cat-short="CATEGORY_SHORT"
         :loading="loading"
@@ -118,7 +118,8 @@
  * 单一数据源：GET /operation/stats/by-handler —— 四块内容取同一次聚合，
  * 避免总览数字与矩阵求和互相打架。
  *
- * 文案纪律：状态中文标签唯一来源 = constants/operation.js 的 ISSUE_STATUS_LABELS，
+ * 文案纪律：状态中文标签唯一来源 = 后端状态注册表 operation 域
+ * （constants/operation.js::issueStatusLabels 转发，statusConfig.js hydrate），
  * 必须显式传给 OwnerMatrix（漏传会让组件把状态 key 原文 pending 等直接当成文案渲染）。
  */
 import { computed, onMounted, ref } from 'vue'
@@ -131,11 +132,14 @@ import {
   WORK_ORDER_CATEGORIES,
   CATEGORY_SHORT,
   CATEGORY_TONE,
-  ISSUE_STATUS_LABELS,
+  issueStatusLabels,
 } from '@/constants/operation.js'
 import { operationApi } from '@/api/operation'
 
 const router = useRouter()
+
+// 状态中文标签（注册表驱动，必须在 computed 中取值才能响应 hydrate）
+const statusLabels = computed(() => issueStatusLabels())
 
 // 类别 → 图标（标签与色调分别取自 constants 单一源，此处只补 UI 层图标）
 const CATEGORY_ICONS = {

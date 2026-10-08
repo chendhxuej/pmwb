@@ -432,6 +432,7 @@ import StatusBadge from '@/components/Common/StatusBadge.vue'
 import EnlargeInput from '@/components/Common/EnlargeInput.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import { todoApi } from '@/api/todo'
+import { domainOptions } from '@/constants/statusConfig.js'
 import { operationApi } from '@/api/operation'
 import { meetingApi } from '@/api/meeting'
 
@@ -467,12 +468,8 @@ const categoryOptions = [
   { value: 'other', label: '其他' },
 ]
 
-const statusOptions = [
-  { value: 'todo', label: '未开始' },
-  { value: 'in_progress', label: '进行中' },
-  { value: 'done', label: '已完成' },
-  { value: 'cancelled', label: '已取消' },
-]
+// 待办状态 —— 唯一源 = 后端注册表 todo 域（原本地数组已移除，新增状态自动兼容）
+const statusOptions = computed(() => domainOptions('todo'))
 
 const priorityOptions = [
   { value: 'P0', label: 'P0' },

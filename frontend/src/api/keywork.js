@@ -8,6 +8,13 @@ export const CATEGORY_MAP = {
 }
 
 // 状态映射
+// ⚠️ TODO(状态注册表收敛)：本文件下列 4 份状态映射（STATUS_MAP / PLAN_STATUS_MAP /
+//    MS_STATUS_MAP / TASK_STATUS_MAP）尚未收敛到后端状态注册表
+//    （backend/constants/status_registry.py 的 keywork / keywork_ms / keywork_plan / keywork_task 域）。
+//    未收敛原因：这里的 `tag` 是 KeyWorkView `.pm-tag` 的**色类词汇**（blue/green/amber/gray/red），
+//    与注册表 tone（danger/warning/primary/success/info/neutral）非一一对应，且被 KeyWorkView
+//    20+ 处 `(MAP[k]||{}).tag` 直接消费，改造面大。
+//    影响：新增重点工作状态时，任务中心侧自动兼容（走注册表），但本页自己的下拉不会出现该状态。
 export const STATUS_MAP = {
   planning: { label: '规划中', tag: 'gray' },
   in_progress: { label: '进行中', tag: 'blue' },

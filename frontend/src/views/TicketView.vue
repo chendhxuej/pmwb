@@ -190,15 +190,11 @@ import {
   deleteDevTicket,
   getDevTicketStats,
 } from '@/api/dev_ticket.js'
+import { domainOptions, getStatusMeta } from '@/constants/statusConfig.js'
 
-const statusOptions = {
-  created: { label: '已创建', type: 'info' },
-  design_reviewed: { label: '设计已评审', type: 'primary' },
-  dev_completed: { label: '开发完成', type: 'warning' },
-  test_completed: { label: '测试完成', type: 'warning' },
-  live: { label: '已上线', type: 'success' },
-  archived: { label: '已归档', type: 'success' },
-}
+// 开发工单状态 —— 唯一源 = 后端注册表 ticket 域（原 statusOptions 硬编码已移除）。
+// 新增状态只改后端注册表，此处筛选下拉 / 流转下拉 / 日志文案自动兼容。
+const statusSelectOptions = computed(() => domainOptions('ticket'))
 
 const priorityOptions = {
   P0: { label: 'P0', type: 'danger' },
@@ -207,10 +203,10 @@ const priorityOptions = {
   P3: { label: 'P3', type: 'info' },
 }
 
-const statusSelectOptions = Object.entries(statusOptions).map(([value, item]) => ({ value, label: item.label }))
 const prioritySelectOptions = Object.entries(priorityOptions).map(([value, item]) => ({ value, label: item.label }))
 
-const statusLabel = (s) => (statusOptions[s] || { label: s || '-' }).label
+// 状态中文标签（注册表驱动）
+const statusLabel = (s) => (s == null || s === '' ? '-' : getStatusMeta('ticket', s).label)
 
 const deliverableTypeMap = {
   operation_manual: '操作手册',
@@ -221,11 +217,11 @@ const deliverableTypeMap = {
 }
 const deliverableTypeLabel = (t) => deliverableTypeMap[t] || t || '-'
 
-const searchFields = [
+const searchFields = computed(() => [
   { name: 'keyword', label: '关键字', type: 'input', placeholder: '编号/系统/负责人' },
-  { name: 'status', label: '状态', type: 'select', options: [{ label: '全部', value: '' }, ...statusSelectOptions] },
+  { name: 'status', label: '状态', type: 'select', options: [{ label: '全部', value: '' }, ...statusSelectOptions.value] },
   { name: 'priority', label: '优先级', type: 'select', options: [{ label: '全部', value: '' }, ...prioritySelectOptions] },
-]
+])
 
 const columns = [
   { prop: 'title', label: '标题', minWidth: 200 },

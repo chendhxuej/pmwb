@@ -162,12 +162,13 @@
 </template>
 
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { meetingApi } from '@/api/meeting'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
+import { domainOptions, getStatusMeta, statusMetaWithType } from '@/constants/statusConfig.js'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
@@ -190,27 +191,18 @@ const pagination = reactive({
   total: 0,
 })
 
-const statusOptions = [
-  { label: '待处理', value: 'pending' },
-  { label: '进行中', value: 'in_progress' },
-  { label: '已完成', value: 'done' },
-  { label: '未参加', value: 'not_attended' },
-]
-
-const statusMap = Object.fromEntries(statusOptions.map(i => [i.value, i]))
+// 会议行动项状态 —— 唯一源 = 后端注册表 meeting_action 域。
+// 此前本地数组写作「待处理 / 未参加」，与同页 <StatusBadge module="meeting_action">
+// 显示的注册表文案「未开始 / 未参会」不一致；收敛后筛选、徽标、邮件正文三处统一。
+const statusOptions = computed(() => domainOptions('meeting_action'))
 
 function statusLabel(status) {
-  return statusMap[status]?.label || status
+  if (status == null || status === '') return ''
+  return getStatusMeta('meeting_action', status).label
 }
 
 function statusType(status) {
-  const map = {
-    pending: 'info',
-    in_progress: 'warning',
-    done: 'success',
-    not_attended: 'danger',
-  }
-  return map[status] || 'info'
+  return statusMetaWithType('meeting_action', status).type
 }
 
 function buildParams() {
@@ -298,20 +290,18 @@ const mailDialogVariables = ref({})
 const mailDialogRefId = ref('')
 
 function buildSuperviseBody(row, scene) {
-  const owners = ownerLabel(row.owner) || '相关同事'
+  // 信息单一来源（2026-10-08）：标题带/称呼/导语/落款由装配器统一出（renderer=True），
+  // 正文只承载行动项明细与结尾句，禁止再写称呼行/导语同义句/PMWB 落款。
   const lines = [
-    `${owners}：`,
-    ``,
-    `以下会议行动项需要${scene === 'urge' ? '尽快推进' : '同步知悉'}，详情如下：`,
-    ``,
     `- 行动项内容：${row.content || ''}`,
     `- 负责人：${ownerLabel(row.owner) || '未分配'}`,
     `- 截止日期：${row.due_date || '未设置'}`,
-    `- 当前状态：${statusLabel(row.status) || row.status || '待处理'}`,
+    `- 当前状态：${statusLabel(row.status) || row.status || '-'}`,
     ``,
-    `请及时处理并反馈进展，辛苦了！`,
-    ``,
-    `——产品经理工作台（PMWB）`,
+    `---`,
+    scene === 'urge'
+      ? '请尽快推进并及时反馈进展，辛苦了！'
+      : '请知悉以上行动项最新进展，如有疑问请及时沟通。',
   ]
   return lines.join('\n')
 }

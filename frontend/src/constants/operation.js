@@ -1,6 +1,8 @@
 // 运营工单 共享常量（与后端 WorkOrderCategory / IssueType 对齐）
 // 抽取自 OperationView 与 WorkOrderView，消除重复定义，保证前后端类别一致。
 
+import { domainStatuses, getDomainLabels } from './statusConfig.js'
+
 // 工单大类（key / 标签 / 颜色语义）
 export const WORK_ORDER_CATEGORIES = [
   { key: 'bug', label: 'BUG 管理', color: 'danger' },
@@ -52,18 +54,18 @@ export const CATEGORY_TONE = {
   complaint: 'success',
 }
 
-// 工单状态 key -> 中文标签（单一源）
-// 与后端 OperationIssueService.STATUS_ORDER 一一对应，顺序即展示顺序。
-// 用途：总览责任人矩阵的图例 / 表头 / 悬浮提示；严禁在页面里再写第二份映射，
-// 也严禁把 key 直接当文案展示（历史缺陷：漏传 statusLabels 导致页面出现 pending 等英文原文）。
-export const ISSUE_STATUS_LABELS = {
-  pending: '待处理',
-  processing: '处理中',
-  verify: '验证中',
-  resolved: '已解决',
-  closed: '已关闭',
-  suspended: '已挂起',
-}
+// 工单状态 —— 中文标签唯一源 = 后端状态注册表 `constants/status_registry.py` 的 operation 域
+// （经 GET /api/v1/meta/status-domains 下发，statusConfig.js hydrate）。
+// ⚠️ 严禁在本文件再维护第二份「状态 key → 中文」映射；新增状态只改后端注册表即自动生效
+//    （历史缺陷：两份硬编码不同步，导致 OwnerMatrix 漏传 statusLabels 时渲染出 pending 等英文原文）。
+//
+// 注意：这里导出的是**取值函数**而非静态对象——注册表是应用启动后异步 hydrate 的，
+// 静态对象会锁死在首帧 seed 上，新增状态无法反映到页面。调用方需在 computed 中使用。
+export const issueStatusLabels = () => getDomainLabels('operation')
+
+// 运营工单状态选项（key/label；顺序 = 注册表声明顺序 = pending/processing/verify/resolved/closed/suspended）
+export const issueStatusOptions = () =>
+  domainStatuses('operation').map((s) => ({ key: s.value, value: s.value, label: s.label }))
 
 // 工单大类 key -> color
 export const CATEGORY_COLOR = Object.fromEntries(

@@ -592,6 +592,7 @@ import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import AnalysisImportPreview from '@/components/Operation/AnalysisImportPreview.vue'
 import { WORK_ORDER_CATEGORIES, TYPE_BY_CAT, issueTypeLabel } from '@/constants/operation.js'
+import { domainStatuses, getStatusMeta, toneToTagType } from '@/constants/statusConfig.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -608,25 +609,24 @@ const PRIORITY_OPTIONS = [
   { value: 'P3', label: '低' },
 ]
 
-const STATUS_FLOW = [
-  { key: 'pending', label: '待处理' },
-  { key: 'processing', label: '处理中' },
-  { key: 'verify', label: '验证中' },
-  { key: 'resolved', label: '已解决' },
-  { key: 'closed', label: '已关闭' },
-]
-const STATUS_OPTIONS = [
-  ...STATUS_FLOW,
-  { key: 'suspended', label: '已挂起' },
-]
-const statusBadgeOptions = {
-  pending: { label: '待处理', type: 'danger' },
-  processing: { label: '处理中', type: 'warning' },
-  verify: { label: '验证中', type: 'primary' },
-  resolved: { label: '已解决', type: 'success' },
-  closed: { label: '已关闭', type: 'info' },
-  suspended: { label: '已挂起', type: 'info' },
-}
+// ── 运营工单状态：唯一源 = 后端注册表 operation 域 ──
+// 此前本文件有 4 份状态硬编码（STATUS_FLOW / STATUS_OPTIONS / statusBadgeOptions /
+// VALID_STATUS_KEYS），新增状态时必须四处同改，漏一处即出现「筛选不到 / 文案英文原文」。
+// 现全部由注册表派生，新增状态只改后端 constants/status_registry.py 即自动兼容。
+const OP_STEPPER_EXCLUDE = ['suspended'] // 挂起为旁路态，不进线性步骤条
+const STATUS_FLOW = computed(() =>
+  domainStatuses('operation')
+    .filter((s) => !OP_STEPPER_EXCLUDE.includes(s.value))
+    .map((s) => ({ key: s.value, label: s.label }))
+)
+const STATUS_OPTIONS = computed(() =>
+  domainStatuses('operation').map((s) => ({ key: s.value, label: s.label }))
+)
+const statusBadgeOptions = computed(() =>
+  Object.fromEntries(
+    domainStatuses('operation').map((s) => [s.value, { label: s.label, type: toneToTagType(s.tone) }])
+  )
+)
 
 const issueTypeTag = (type) => {
   if (type === 'bug') return 'danger'
@@ -662,7 +662,7 @@ const loadAllCounts = async () => {
   } catch (e) { /* 非关键 */ }
 }
 
-const statusFilterOptions = [{ key: 'all', label: '全部' }, ...STATUS_FLOW, { key: 'suspended', label: '已挂起' }]
+const statusFilterOptions = computed(() => [{ key: 'all', label: '全部' }, ...STATUS_OPTIONS.value])
 
 const stats = reactive({
   total: 0, pending: 0, processing: 0, verify: 0, resolved: 0, closed: 0,
@@ -708,14 +708,15 @@ const loadStats = async () => {
 const handleSearch = () => { pagination.page = 1; loadData() }
 
 // ---- 深链筛选：总览「责任人分布」矩阵 → /operation/{类别}?handler=xx&status=yy ----
-const VALID_STATUS_KEYS = ['pending', 'processing', 'verify', 'resolved', 'closed', 'suspended']
-const statusLabel = (k) => statusFilterOptions.find((s) => s.key === k)?.label || k
+const VALID_STATUS_KEYS = computed(() => STATUS_OPTIONS.value.map((s) => s.key))
+const statusLabel = (k) =>
+  statusFilterOptions.value.find((s) => s.key === k)?.label || getStatusMeta('operation', k).label || k
 
 // 路由 query → 筛选状态（返回是否发生变化，供调用方决定要不要重新拉数据）
 const applyRouteFilters = () => {
   const q = route.query
   const h = q.handler ? String(q.handler) : ''
-  const s = q.status && VALID_STATUS_KEYS.includes(String(q.status)) ? String(q.status) : 'all'
+  const s = q.status && VALID_STATUS_KEYS.value.includes(String(q.status)) ? String(q.status) : 'all'
   const changed = h !== handlerFilter.value || s !== statusFilter.value
   handlerFilter.value = h
   statusFilter.value = s
@@ -822,7 +823,7 @@ const detailLoading = ref(false)
 const advanceLoading = ref(false)
 const nextStatus = ref('')
 
-const currentIdx = computed(() => STATUS_FLOW.findIndex((s) => s.key === detailRow.value?.status))
+const currentIdx = computed(() => STATUS_FLOW.value.findIndex((s) => s.key === detailRow.value?.status))
 const stepClass = (idx) => (idx < currentIdx.value ? 'done' : idx === currentIdx.value ? 'active' : '')
 
 const emailLogKey = ref(0)
@@ -1423,7 +1424,7 @@ const openSupervise = (row, scene = 'urge') => {
     category: issueTypeLabel(row.category, row.issue_type) || '',
     handler: row.handler || '',
     resolveDate: planFinishDate(row),
-    status: statusBadgeOptions[row.status]?.label || row.status || '',
+    status: statusBadgeOptions.value[row.status]?.label || row.status || '',
     description: row.situation_desc || row.description || '（无）',
   }
   mailDialogBody.value = buildSuperviseBody(row, scene)

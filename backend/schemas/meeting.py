@@ -42,6 +42,9 @@ def strip_meeting_title(v: Optional[str]) -> Optional[str]:
 
 
 class MeetingActionStatus(str, Enum):
+    """⚠️ 仅作取值提示。唯一真相源 = constants/status_registry.py（domain=meeting_action）；
+    字段类型已放宽为 str，支持新增状态零数据库迁移（该表 status 本就是 VARCHAR）。"""
+
     pending = "pending"
     in_progress = "in_progress"
     done = "done"
@@ -73,7 +76,7 @@ class MeetingActionBase(BaseModel):
     title: Optional[str] = Field(None, max_length=256, description="行动项标题（独立标题）")
     owner: Optional[str] = Field(None, max_length=512, description="负责人(可多选,逗号分隔)")
     due_date: Optional[str] = Field(None, description="截止日期")
-    status: MeetingActionStatus = Field(MeetingActionStatus.pending, description="状态")
+    status: str = Field("pending", description="状态（取值见 constants/status_registry: meeting_action）")
     category: Optional[str] = Field(None, description="待办分类（对应 pmwb_todo.category）")
     template: Optional[str] = Field(None, max_length=128, description="Obsidian 待办模板名（仅元数据标签）")
     related_todo_id: Optional[int] = Field(None, description="关联待办ID")
@@ -133,7 +136,7 @@ class MeetingBase(BaseModel):
     obsidian_path: Optional[str] = Field(None, max_length=512, description="Obsidian 纪要路径")
     related_req_id: Optional[str] = Field(None, max_length=64, description="关联需求编号")
     related_ticket_no: Optional[str] = Field(None, max_length=64, description="关联开发工单编号")
-    status: MeetingStatus = Field(MeetingStatus.planned, description="状态")
+    status: str = Field("planned", description="状态（取值见 constants/status_registry: meeting）")
 
     @field_validator("title", mode="before")
     @classmethod
@@ -168,7 +171,7 @@ class MeetingUpdate(BaseModel):
     obsidian_path: Optional[str] = Field(None, max_length=512)
     related_req_id: Optional[str] = Field(None, max_length=64)
     related_ticket_no: Optional[str] = Field(None, max_length=64)
-    status: Optional[MeetingStatus] = None
+    status: Optional[str] = None
     minutes_required: Optional[bool] = None
     attendees: Optional[List[MeetingAttendeeCreate]] = None
     agendas: Optional[List[MeetingAgendaCreate]] = None
@@ -233,7 +236,7 @@ class MeetingActionQuery(BaseModel):
 
     meeting_id: Optional[int] = Field(None, description="关联会议ID")
     owner: Optional[str] = Field(None, description="负责人姓名模糊匹配")
-    status: Optional[MeetingActionStatus] = Field(None, description="行动项状态")
+    status: Optional[str] = Field(None, description="行动项状态")
     keyword: Optional[str] = Field(None, description="内容关键字")
     due_start: Optional[str] = Field(None, description="截止日期起（YYYY-MM-DD）")
     due_end: Optional[str] = Field(None, description="截止日期止（YYYY-MM-DD）")
@@ -253,7 +256,7 @@ class MeetingActionUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=256, description="行动项标题")
     owner: Optional[str] = Field(None, max_length=512, description="负责人(可多选,逗号分隔)")
     due_date: Optional[str] = Field(None, description="截止日期")
-    status: Optional[MeetingActionStatus] = Field(None, description="状态")
+    status: Optional[str] = Field(None, description="状态")
     category: Optional[str] = Field(None, description="待办分类")
     template: Optional[str] = Field(None, max_length=128, description="Obsidian 待办模板名")
 
@@ -266,7 +269,7 @@ class MeetingActionUpdate(BaseModel):
 class MeetingActionStatusUpdateRequest(BaseModel):
     """行动项状态更新请求。"""
 
-    status: MeetingActionStatus = Field(..., description="新状态")
+    status: str = Field(..., description="新状态（取值见 constants/status_registry: meeting_action）")
 
 
 class MeetingActionSuperviseRequest(BaseModel):
@@ -288,7 +291,7 @@ class MeetingActionItemOut(BaseModel):
     title: Optional[str] = None
     owner: Optional[str]
     due_date: Optional[str]
-    status: MeetingActionStatus
+    status: str
     category: Optional[str]
     template: Optional[str]
     related_todo_id: Optional[int]

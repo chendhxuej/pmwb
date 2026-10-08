@@ -62,7 +62,7 @@ def update_todo(todo_id: int, obj_in: TodoUpdate, db: Session = Depends(get_db))
 @router.put("/{todo_id}/status")
 def update_todo_status(todo_id: int, obj_in: TodoStatusUpdate, db: Session = Depends(get_db)):
     """更新待办状态。"""
-    obj = todo_service.update_status(db, todo_id, obj_in.status.value)
+    obj = todo_service.update_status(db, todo_id, obj_in.status)
     return success(data=obj)
 
 

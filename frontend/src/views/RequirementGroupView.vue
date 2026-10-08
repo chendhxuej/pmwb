@@ -63,6 +63,10 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 
+// ⚠️ TODO(状态注册表收敛)：本映射的取值域（proposed/accepted/dev/closed/paused）与同页
+//    <StatusBadge module="requirement_group"> 声明的域（on_track/closed/paused）**不一致**，
+//    疑似历史复制自 RequirementView。收敛前需先确认 r.ext.status 的真实取值域，
+//    否则会把导出的「个人状态」列改错。此处暂保持原样并标记。
 const statusMap = {
   proposed: { label: '已提出', type: 'info' },
   accepted: { label: '已受理', type: 'primary' },

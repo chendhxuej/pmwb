@@ -543,7 +543,7 @@ import request from '@/api/request'
 import { useDrawerDraft } from '@/composables/useDrawerDraft'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import PageHeader from '@/components/Common/PageHeader.vue'
-import { getStatusMeta } from '@/constants/statusConfig.js'
+import { domainStatuses, getStatusMeta } from '@/constants/statusConfig.js'
 
 // ---- 常量定义 ----
 const CITY_OPTIONS = [
@@ -583,17 +583,15 @@ const PRIORITY_OPTIONS = [
   { value: 'P3', label: '低' },
 ]
 
-const STATUS_FLOW = [
-  { key: 'pending', label: '待处理' },
-  { key: 'processing', label: '处理中' },
-  { key: 'verify', label: '验证中' },
-  { key: 'resolved', label: '已解决' },
-  { key: 'closed', label: '已关闭' },
-]
-const STATUS_OPTIONS = [
-  ...STATUS_FLOW,
-  { key: 'suspended', label: '已挂起' },
-]
+// 状态流 —— 唯一源 = 后端注册表 research 域（挂起为旁路态，不占步骤位，仅出现在筛选/改状态下拉）
+const STATUS_FLOW = computed(() =>
+  domainStatuses('research')
+    .filter((s) => s.value !== 'suspended')
+    .map((s) => ({ key: s.value, label: s.label }))
+)
+const STATUS_OPTIONS = computed(() =>
+  domainStatuses('research').map((s) => ({ key: s.value, label: s.label }))
+)
 
 const subTypeTag = (val) => val === 'leader_research' ? 'primary' : 'success'
 const natureTag = (val) => {
@@ -663,7 +661,7 @@ const detailRow = ref(null)
 const detailLoading = ref(false)
 const advanceLoading = ref(false)
 const nextStatus = ref('')
-const currentIdx = computed(() => STATUS_FLOW.findIndex((s) => s.key === detailRow.value?.status))
+const currentIdx = computed(() => STATUS_FLOW.value.findIndex((s) => s.key === detailRow.value?.status))
 const stepClass = (idx) => (idx < currentIdx.value ? 'done' : idx === currentIdx.value ? 'active' : '')
 
 const emailLogKey = ref(0)

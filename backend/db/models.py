@@ -262,18 +262,9 @@ class PmwbDevTicket(Base):
     go_live_date = Column(Date, comment="实际上线日期")
     archived_date = Column(Date, comment="归档日期")
     planned_finish_date = Column(Date, comment="计划完成时间")
-    status = Column(
-        Enum(
-            "created",
-            "design_reviewed",
-            "dev_completed",
-            "test_completed",
-            "live",
-            "archived",
-        ),
-        default="created",
-        comment="当前状态",
-    )
+    # 状态值定义唯一源：constants/status_registry.py（domain=ticket）。
+    # 2026-10 由 MySQL ENUM 改为 String(32)：新增状态零迁移，校验下沉注册表。
+    status = Column(String(32), default="created", comment="当前状态（见 status_registry: ticket）")
     progress = Column(Integer, default=0, comment="进度百分比 0-100")
     description = Column(Text, comment="工单描述/开发内容")
     risk_note = Column(Text, comment="风险/延期原因")
@@ -358,11 +349,8 @@ class PmwbActiveOptimization(Base):
     current_situation = Column(Text, comment="现状描述")
     suggestion = Column(Text, comment="优化建议")
     admin_name = Column(String(64), comment="业务管理员")
-    status = Column(
-        Enum("pending", "adopted", "rejected"),
-        default="pending",
-        comment="评估状态：pending(待评估)/adopted(已采纳)/rejected(不采纳)",
-    )
+    # 见 status_registry: active_optimization（String(32)，新增状态零迁移）
+    status = Column(String(32), default="pending", comment="评估状态（见 status_registry: active_optimization）")
     priority = Column(String(16), default="P2", comment="优先级：P0/P1/P2/P3")
     req_id = Column(String(64), comment="关联需求文号")
     note = Column(Text, comment="备注说明")
@@ -397,11 +385,8 @@ class PmwbTodo(Base):
         comment="分类：requirement/ticket/operation/meeting/study/other",
     )
     priority = Column(Enum("P0", "P1", "P2", "P3"), default="P2", comment="优先级")
-    status = Column(
-        Enum("todo", "in_progress", "done", "cancelled"),
-        default="todo",
-        comment="状态",
-    )
+    # 见 status_registry: todo（String(32)，新增状态零迁移）
+    status = Column(String(32), default="todo", comment="状态（见 status_registry: todo）")
     due_date = Column(Date, comment="截止日期")
     due_time = Column(String(8), comment="截止时间")
     remind_at = Column(DateTime, comment="提醒时间")
@@ -453,11 +438,8 @@ class PmwbOperationIssue(Base):
         default="other",
         comment="问题子类(细分类型): BUG/数据异常/专题分析/投点事件/临时任务/其他",
     )
-    status = Column(
-        Enum("pending", "processing", "verify", "resolved", "closed", "suspended"),
-        default="pending",
-        comment="状态",
-    )
+    # 见 status_registry: operation（String(32)，新增状态零迁移）
+    status = Column(String(32), default="pending", comment="状态（见 status_registry: operation）")
     source = Column(String(64), default="manual", comment="来源")
     discovery_date = Column(DateTime, comment="发现时间")
     resolve_date = Column(DateTime, comment="解决时间")
@@ -508,11 +490,8 @@ class PmwbResearchIssue(Base):
         default="leader_research",
         comment="子类：领导调研/一线驻点",
     )
-    status = Column(
-        Enum("pending", "processing", "verify", "resolved", "closed", "suspended"),
-        default="pending",
-        comment="状态：待处理/处理中/验证中/已解决/已关闭/已挂起",
-    )
+    # 见 status_registry: research（String(32)，新增状态零迁移）
+    status = Column(String(32), default="pending", comment="状态（见 status_registry: research）")
     city = Column(String(64), comment="地市")
     basic_info = Column(Text, comment="基本信息")
     situation_desc = Column(Text, comment="情况说明")
@@ -633,7 +612,8 @@ class PmwbMeeting(Base):
     obsidian_path = Column(String(512), comment="Obsidian 纪要路径")
     related_req_id = Column(String(64), comment="关联需求编号")
     related_ticket_no = Column(String(64), comment="关联开发工单编号")
-    status = Column(Enum("planned", "held", "cancelled", "not_attended"), default="planned", comment="状态")
+    # 见 status_registry: meeting（String(32)，新增状态零迁移）
+    status = Column(String(32), default="planned", comment="状态（见 status_registry: meeting）")
     minutes_required = Column(Boolean, default=True, comment="是否需要纪要（开完会无需记录纪要时置为 False，从待归档列表移除）")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
@@ -996,11 +976,8 @@ class PmwbKeyWork(Base):
         default="P2",
         comment="优先级",
     )
-    status = Column(
-        Enum("planning", "in_progress", "completed", "paused", "cancelled", name="kw_status"),
-        default="planning",
-        comment="生命周期状态",
-    )
+    # 见 status_registry: keywork（String(32)，新增状态零迁移）
+    status = Column(String(32), default="planning", comment="生命周期状态（见 status_registry: keywork）")
     planned_finish_date = Column(Date, comment="计划完成时间")
     progress = Column(Integer, default=0, comment="进度百分比 0-100")
     acceptance_criteria = Column(Text, comment="验收标准(JSON数组)")
@@ -1110,11 +1087,8 @@ class PmwbKeyWorkMilestone(Base):
     seq = Column(Integer, default=1, comment="序号")
     name = Column(String(255), nullable=False, comment="里程碑名称")
     due_date = Column(Date, comment="计划完成日期")
-    status = Column(
-        Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_milestone_status"),
-        default="not_started",
-        comment="状态",
-    )
+    # 见 status_registry: keywork_ms（String(32)，新增状态零迁移）
+    status = Column(String(32), default="not_started", comment="状态（见 status_registry: keywork_ms）")
     note = Column(Text, comment="说明")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
@@ -1167,11 +1141,8 @@ class PmwbKeyWorkMonthlyPlan(Base):
     content = Column(Text, comment="任务描述")
     assignee = Column(String(64), comment="责任人")
     due_date = Column(Date, comment="计划完成日期")
-    status = Column(
-        Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_plan_status"),
-        default="not_started",
-        comment="状态",
-    )
+    # 见 status_registry: keywork_plan（String(32)，新增状态零迁移）
+    status = Column(String(32), default="not_started", comment="状态（见 status_registry: keywork_plan）")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
@@ -1200,11 +1171,8 @@ class PmwbKeyWorkWeeklyPlan(Base):
     content = Column(Text, comment="任务描述")
     assignee = Column(String(64), comment="责任人")
     due_date = Column(Date, comment="计划完成日期")
-    status = Column(
-        Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_plan_status"),
-        default="not_started",
-        comment="状态",
-    )
+    # 见 status_registry: keywork_plan（String(32)，新增状态零迁移）
+    status = Column(String(32), default="not_started", comment="状态（见 status_registry: keywork_plan）")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
@@ -1254,11 +1222,8 @@ class PmwbKeyWorkMemberTask(Base):
     title = Column(String(500), nullable=False, comment="待办标题")
     assignee = Column(String(512), comment="负责人(成员姓名,多选,逗号分隔)")
     due_date = Column(Date, comment="截止日期")
-    status = Column(
-        Enum("not_started", "in_progress", "completed", "cancelled", "delayed", name="kw_task_status"),
-        default="not_started",
-        comment="状态",
-    )
+    # 见 status_registry: keywork_task（String(32)，新增状态零迁移）
+    status = Column(String(32), default="not_started", comment="状态（见 status_registry: keywork_task）")
     link_type = Column(
         Enum("none", "milestone", "monthly_plan", "weekly_plan", name="kw_task_link"),
         default="none",

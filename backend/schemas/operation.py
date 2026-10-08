@@ -26,6 +26,9 @@ class WorkOrderCategory(str, Enum):
 
 
 class IssueStatus(str, Enum):
+    """⚠️ 仅作取值提示。唯一真相源 = constants/status_registry.py（domain=operation）；
+    字段类型已放宽为 str，支持新增状态零数据库迁移。"""
+
     pending = "pending"
     processing = "processing"
     verify = "verify"
@@ -47,7 +50,7 @@ class OperationIssueBase(BaseModel):
     category: WorkOrderCategory = Field(WorkOrderCategory.prod, description="工单大类")
     domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     issue_type: IssueType = Field(IssueType.other, description="问题子类(细分类型)")
-    status: IssueStatus = Field(IssueStatus.pending, description="状态")
+    status: str = Field("pending", description="状态（取值见 constants/status_registry: operation）")
     source: str = Field("manual", max_length=64, description="来源")
     discovery_date: Optional[datetime] = Field(None, description="发现时间")
     resolve_date: Optional[datetime] = Field(None, description="解决时间")
@@ -86,7 +89,7 @@ class OperationIssueUpdate(BaseModel):
     category: Optional[WorkOrderCategory] = None
     domain_code: Optional[str] = Field(None, max_length=64)
     issue_type: Optional[IssueType] = None
-    status: Optional[IssueStatus] = None
+    status: Optional[str] = None
     discovery_date: Optional[datetime] = None
     resolve_date: Optional[datetime] = None
     handler: Optional[str] = Field(None, max_length=512)

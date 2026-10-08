@@ -16,6 +16,9 @@ class KeyWorkCategory(str, Enum):
 
 
 class KeyWorkStatus(str, Enum):
+    """⚠️ 仅作取值提示。唯一真相源 = constants/status_registry.py（domain=keywork）；
+    字段类型已放宽为 str，支持新增状态零数据库迁移。"""
+
     planning = "planning"
     in_progress = "in_progress"
     completed = "completed"
@@ -31,6 +34,8 @@ class KeyWorkPriority(str, Enum):
 
 
 class MilestoneStatus(str, Enum):
+    """⚠️ 仅作取值提示。唯一真相源 = constants/status_registry.py（domain=keywork_ms）。"""
+
     not_started = "not_started"
     in_progress = "in_progress"
     completed = "completed"
@@ -39,6 +44,8 @@ class MilestoneStatus(str, Enum):
 
 
 class PlanStatus(str, Enum):
+    """⚠️ 仅作取值提示。唯一真相源 = constants/status_registry.py（domain=keywork_plan）。"""
+
     not_started = "not_started"
     in_progress = "in_progress"
     completed = "completed"
@@ -47,6 +54,8 @@ class PlanStatus(str, Enum):
 
 
 class MemberTaskStatus(str, Enum):
+    """⚠️ 仅作取值提示。唯一真相源 = constants/status_registry.py（domain=keywork_task）。"""
+
     not_started = "not_started"
     in_progress = "in_progress"
     completed = "completed"
@@ -99,7 +108,7 @@ class KeyWorkMilestoneBase(BaseModel):
     seq: int = Field(1, description="序号")
     name: str = Field(..., max_length=255, description="里程碑名称")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: MilestoneStatus = Field(MilestoneStatus.not_started, description="状态")
+    status: str = Field("not_started", description="状态（取值见 constants/status_registry: keywork_ms）")
     note: Optional[str] = Field(None, description="说明")
 
     @field_validator("due_date", mode="before")
@@ -128,7 +137,7 @@ class KeyWorkMilestoneUpdate(BaseModel):
     seq: Optional[int] = None
     name: Optional[str] = Field(None, max_length=255, description="里程碑名称")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: Optional[MilestoneStatus] = None
+    status: Optional[str] = None
     note: Optional[str] = None
 
     @field_validator("due_date", mode="before")
@@ -164,7 +173,7 @@ class KeyWorkMonthlyPlanBase(BaseModel):
     content: Optional[str] = Field(None, description="任务描述")
     assignee: Optional[str] = Field(None, max_length=64, description="责任人")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: PlanStatus = Field(PlanStatus.not_started, description="状态")
+    status: str = Field("not_started", description="状态（取值见 constants/status_registry: keywork_plan）")
 
     @field_validator("task_date", "due_date", mode="before")
     @classmethod
@@ -195,7 +204,7 @@ class KeyWorkWeeklyPlanBase(BaseModel):
     content: Optional[str] = Field(None, description="任务描述")
     assignee: Optional[str] = Field(None, max_length=64, description="责任人")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: PlanStatus = Field(PlanStatus.not_started, description="状态")
+    status: str = Field("not_started", description="状态（取值见 constants/status_registry: keywork_plan）")
 
     @field_validator("task_date", "due_date", mode="before")
     @classmethod
@@ -226,7 +235,7 @@ class KeyWorkMonthlyPlanUpdate(BaseModel):
     content: Optional[str] = Field(None, description="任务描述")
     assignee: Optional[str] = Field(None, max_length=64, description="责任人")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: Optional[PlanStatus] = None
+    status: Optional[str] = None
 
     @field_validator("task_date", "due_date", mode="before")
     @classmethod
@@ -243,7 +252,7 @@ class KeyWorkWeeklyPlanUpdate(BaseModel):
     content: Optional[str] = Field(None, description="任务描述")
     assignee: Optional[str] = Field(None, max_length=64, description="责任人")
     due_date: Optional[date] = Field(None, description="计划完成日期")
-    status: Optional[PlanStatus] = None
+    status: Optional[str] = None
 
     @field_validator("task_date", "due_date", mode="before")
     @classmethod
@@ -280,7 +289,7 @@ class KeyWorkMemberTaskBase(BaseModel):
     title: str = Field(..., max_length=500, description="待办标题")
     assignee: Optional[str] = Field(None, max_length=512, description="负责人(成员姓名,可多选,逗号分隔)")
     due_date: Optional[date] = Field(None, description="截止日期")
-    status: MemberTaskStatus = Field(MemberTaskStatus.not_started, description="状态")
+    status: str = Field("not_started", description="状态（取值见 constants/status_registry: keywork_task）")
     link_type: MemberTaskLink = Field(MemberTaskLink.none, description="关联对象类型")
     link_id: Optional[int] = Field(None, description="关联对象ID")
     note: Optional[str] = Field(None, description="备注")
@@ -311,7 +320,7 @@ class KeyWorkMemberTaskUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=500, description="待办标题")
     assignee: Optional[str] = Field(None, max_length=512, description="负责人(成员姓名,可多选,逗号分隔)")
     due_date: Optional[date] = Field(None, description="截止日期")
-    status: Optional[MemberTaskStatus] = None
+    status: Optional[str] = None
     link_type: Optional[MemberTaskLink] = None
     link_id: Optional[int] = None
     note: Optional[str] = None
@@ -354,7 +363,7 @@ class KeyWorkCreate(BaseModel):
     domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     owner: Optional[str] = Field(None, max_length=128, description="牵头人/负责人")
     priority: KeyWorkPriority = Field(KeyWorkPriority.P2, description="优先级")
-    status: KeyWorkStatus = Field(KeyWorkStatus.planning, description="生命周期状态")
+    status: str = Field("planning", description="生命周期状态（取值见 constants/status_registry: keywork）")
     progress: int = Field(0, ge=0, le=100, description="进度百分比 0-100")
     planned_finish_date: Optional[date] = Field(None, description="计划完成时间")
     background: Optional[str] = Field(None, description="工作背景")
@@ -382,7 +391,7 @@ class KeyWorkUpdate(BaseModel):
     domain_code: Optional[str] = Field(None, max_length=64)
     owner: Optional[str] = Field(None, max_length=128)
     priority: Optional[KeyWorkPriority] = None
-    status: Optional[KeyWorkStatus] = None
+    status: Optional[str] = None
     planned_finish_date: Optional[date] = None
     progress: Optional[int] = Field(None, ge=0, le=100, description="进度百分比 0-100")
     background: Optional[str] = None
@@ -415,7 +424,7 @@ class KeyWorkOut(BaseModel):
     work_value: Optional[str] = None
     owner: Optional[str] = None
     priority: KeyWorkPriority
-    status: KeyWorkStatus
+    status: str
     progress: int = 0
     planned_finish_date: Optional[date] = None
     acceptance_criteria: Optional[List[str]] = []
@@ -463,7 +472,7 @@ class KeyWorkListItemOut(BaseModel):
     title: str
     owner: Optional[str] = None
     priority: KeyWorkPriority
-    status: KeyWorkStatus
+    status: str
     progress: int = 0
     planned_finish_date: Optional[date] = None
     created_at: datetime

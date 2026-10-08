@@ -318,7 +318,7 @@
         cc: (payload.cc || []).length ? (payload.cc || []).join(', ') : null,
         recipient_name: reminderRecipientName,
         subject: payload.subject,
-        body: payload.variables?.body || payload.body || '',
+        body: payload.body || payload.variables?.body || '',
         template_data: payload.variables || null,
         operator: 'pmwb',
       })"
@@ -371,16 +371,13 @@ import {
   createEvaluation, deleteEvaluation
 } from '@/api/requirement.js'
 import { sendReminder, getReminderRecords } from '@/api/reminder.js'
+import { domainOptions } from '@/constants/statusConfig.js'
 
-const searchFields = [
+const searchFields = computed(() => [
   { name: 'keyword', label: '关键字', type: 'input', placeholder: '编号/名称/提出人' },
   { name: 'status', label: '状态', type: 'select', options: [
     { label: '全部', value: '' },
-    { label: '已提出', value: 'proposed' },
-    { label: '已受理', value: 'accepted' },
-    { label: '开发中', value: 'dev' },
-    { label: '已上线', value: 'closed' },
-    { label: '已暂停', value: 'paused' },
+    ...statusSelectOptions.value.map((o) => ({ label: o.label, value: o.value })),
   ]},
   { name: 'priority', label: '优先级', type: 'select', options: [
     { label: '全部', value: '' },
@@ -391,17 +388,14 @@ const searchFields = [
     { label: '集团需求', value: '集团需求' },
     { label: '紧急需求', value: '紧急需求' },
   ]},
-]
+])
 
 const columns = [] // 不再使用 DataTable，直接用 el-table
 
-const statusOptions = {
-  proposed: { label: '已提出', type: 'info' },
-  accepted: { label: '已受理', type: 'primary' },
-  dev: { label: '开发中', type: 'warning' },
-  closed: { label: '已上线', type: 'success' },
-  paused: { label: '已暂停', type: 'danger' },
-}
+// 需求状态 —— 唯一源 = 后端注册表 requirement 域（原本地 statusOptions 硬编码已移除）。
+// 说明：本页状态徽标走 <StatusBadge module="requirement">，此前标签为注册表值（建议中），
+// 而筛选下拉/编辑下拉是本地副本（已提出），同页两处文案不一致；收敛后统一由注册表出。
+const statusSelectOptions = computed(() => domainOptions('requirement'))
 
 const priorityOptions = {
   P0: { label: 'P0', type: 'danger' },
@@ -412,7 +406,6 @@ const priorityOptions = {
   '紧急需求': { label: '紧急需求', type: 'danger' },
 }
 
-const statusSelectOptions = Object.entries(statusOptions).map(([value, item]) => ({ value, label: item.label }))
 const prioritySelectOptions = Object.entries(priorityOptions).map(([value, item]) => ({ value, label: item.label }))
 
 // 跟踪状态（版本要求 vs 关联开发工单进度）
@@ -812,13 +805,9 @@ function buildUrgeItems(req, systemName) {
 
 // 编辑区默认正文（可编辑；3210 模板正常渲染时仅作为 fallback 兜底内容）
 function buildDefaultReminderBody(req, systemName, saName) {
-  const salutation = saName
-    ? `${saName}（${systemName || '相关'}团队）：`
-    : '各相关评估团队：'
+  // 信息单一来源（2026-10-08）：称呼行/落款由装配器统一出，正文承载完整需求信息。
   const target = saName ? '你' : '你们'
   const lines = [
-    salutation,
-    ``,
     `${target}负责的需求现在到前期评估环节了，麻烦尽快把下面两件事搞定，然后反馈给我：`,
     `1. 需求前期评估（可行性、范围、依赖这些）；`,
     `2. 工作量初评（大概要多少人天）和预计完成时间。`,
@@ -828,14 +817,15 @@ function buildDefaultReminderBody(req, systemName, saName) {
     `需求名称：${req.req_name || ''}`,
     `提出人：${req.proposer || ''}`,
   ]
+  if (req.propose_time) {
+    lines.push(`提出时间：${req.propose_time}`)
+  }
   if (systemName) {
     lines.push(`负责系统：${systemName}`)
   }
   lines.push(
     ``,
     `收到后尽快回我评估结果哈，辛苦了！`,
-    ``,
-    `——产品经理工作台（PMWB）`,
   )
   return lines.join('\n')
 }
