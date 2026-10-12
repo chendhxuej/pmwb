@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from core.response import success
@@ -8,6 +8,7 @@ from db.base import get_db
 from schemas.requirement import (
     EvaluationCreate,
     EvaluationUpdate,
+    RequirementCreate,
     RequirementDeliverableCreate,
     RequirementExtUpdate,
 )
@@ -48,6 +49,21 @@ def list_requirements(
         page_size=page_size,
     )
     return success(data=data)
+
+
+@router.post("")
+def create_requirement(obj_in: RequirementCreate, db: Session = Depends(get_db)):
+    """手工新建需求（插件未抓到的需求在工作台直接录入）。
+
+    - 需求文号留空 → 自动生成「手工需求（2026）第（MMDDNNN）号」
+    - 需求文号已存在 → 400 拒绝（避免误覆盖历史需求）
+    - 新建记录 origin='manual'，需求宇宙口径不变（列表/统计/任务中心自动纳入）
+    """
+    try:
+        data = requirement_service.create_requirement(db, obj_in.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data, message=f"需求「{data.get('req_id')}」已创建")
 
 
 @router.get("/stats")
@@ -106,9 +122,13 @@ def update_requirement(req_id: str, obj_in: RequirementExtUpdate, db: Session = 
 
 @router.delete("/{req_id}")
 def delete_requirement(req_id: str, db: Session = Depends(get_db)):
-    """从我的工作台移除需求（删除扩展、团队评估、用户故事；保留只读 sent_emails）。"""
-    ok = requirement_service.delete_requirement(db, req_id)
-    return success(data={"deleted": ok})
+    """删除需求：删除扩展、团队评估、用户故事。
+
+    手工新建（origin='manual'）的需求连同 sent_emails 源行一并删除（避免复活）；
+    插件抓取的邮件源行保持只读保留。
+    """
+    data = requirement_service.delete_requirement(db, req_id)
+    return success(data=data)
 
 
 # ---------------------------------------------------------------------------

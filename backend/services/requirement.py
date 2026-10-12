@@ -2,6 +2,7 @@ from datetime import date
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, PmwbUserStory, PmwbDevTicket, SentEmail
@@ -66,6 +67,7 @@ class RequirementService:
             "is_involved": item.is_involved,
             "dev_ticket_no": item.dev_ticket_no,
             "involve_dev": item.involve_dev,
+            "origin": item.origin or "plugin",  # plugin=插件抓取 / manual=工作台手工新建
             "created_at": item.created_at,
             "eval_count": eval_count,  # 团队评估记录数
             "ext": None,
@@ -386,15 +388,109 @@ class RequirementService:
         db.refresh(ext)
         return self._merge_ext(item, ext)
 
-    def delete_requirement(self, db: Session, req_id: str) -> bool:
-        """删除需求的个人工作台数据（扩展、团队评估、用户故事），保留只读 sent_emails 源。"""
+    def delete_requirement(self, db: Session, req_id: str) -> Dict[str, Any]:
+        """删除需求的工作台数据。
+
+        - origin='plugin'（插件抓取的邮件源）：保持只读语义，仅删扩展/评估/用户故事，
+          源行保留（既有行为不变）。
+        - origin='manual'（工作台手工新建）：连同 sent_emails 源行一并真删，
+          否则删除后该 req_id 会立刻从「需求宇宙」复活。
+        """
+        origins = {
+            row[0] or "plugin"
+            for row in db.query(SentEmail.origin).filter(SentEmail.req_id == req_id).all()
+        }
         ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
         if ext:
             db.delete(ext)
         db.query(PmwbRequirementEvaluation).filter(PmwbRequirementEvaluation.req_id == req_id).delete()
         db.query(PmwbUserStory).filter(PmwbUserStory.req_id == req_id).delete()
+        # 纯手工记录 → 源行一并删除；只要含插件行就保留（只读源）
+        removed_source = bool(origins) and origins <= {"manual"}
+        if removed_source:
+            db.query(SentEmail).filter(SentEmail.req_id == req_id).delete()
         db.commit()
-        return True
+        return {"deleted": True, "removed_source": removed_source}
+
+    # ---- 手工新建需求（工作台录入，插件未抓到的需求）----
+
+    MANUAL_ID_PREFIX = "手工需求"
+
+    def _gen_manual_req_id(self, db: Session) -> str:
+        """生成手工需求编号：`手工需求（2026）第（1012001）号`。
+
+        规则与省公司「敏捷需求（2026）第（100800341）号」同风格，但前缀改为
+        「手工需求」以便一眼辨认来源；后 6 位 = MMDD + 当日三位序号（001 起）。
+        """
+        today = date.today()
+        base = f"{self.MANUAL_ID_PREFIX}（{today.year}）第（{today.strftime('%m%d')}"
+        rows = db.query(SentEmail.req_id).filter(SentEmail.req_id.like(f"{base}%")).all()
+        max_seq = 0
+        for (rid,) in rows:
+            inner = (rid or "").split("（")[-1].rstrip("）号")
+            if inner.isdigit() and len(inner) >= 3:
+                max_seq = max(max_seq, int(inner[-3:]))
+        return f"{base}{max_seq + 1:03d}）号"
+
+    def create_requirement(self, db: Session, obj_in: Dict[str, Any]) -> Dict[str, Any]:
+        """手工新建需求（写入 sent_emails，origin='manual'）。
+
+        - 需求文号留空 → 自动生成手工编号；填写 → 校验唯一（已存在则拒绝，
+          避免误把历史需求当新需求"覆盖"）。
+        - 同一事务内建 pmwb_requirement_ext（跟踪状态/优先级等个人字段）。
+        """
+        req_name = (obj_in.get("req_name") or "").strip()
+        if not req_name:
+            raise ValueError("需求名称不能为空")
+        req_id = (obj_in.get("req_id") or "").strip()
+        if req_id:
+            dup = db.query(SentEmail.id).filter(SentEmail.req_id == req_id).first()
+            if dup:
+                raise ValueError(
+                    f"需求文号「{req_id}」已存在，请直接编辑该需求；如需新录入请修改文号或留空自动生成"
+                )
+        else:
+            req_id = self._gen_manual_req_id(db)
+
+        row = SentEmail(
+            req_id=req_id,
+            req_name=req_name,
+            proposer=(obj_in.get("proposer") or "").strip(),
+            propose_time=(obj_in.get("propose_time") or "").strip(),
+            background=obj_in.get("background") or "",
+            description=obj_in.get("description") or "",
+            clarification=obj_in.get("clarification") or "",
+            system_name=(obj_in.get("system_name") or "").strip(),
+            sa_name=(obj_in.get("sa_name") or "").strip(),
+            # 手工需求没有邮件发送动作，send_datetime 留空，不伪装成已发邮件
+            send_datetime=None,
+            workload=obj_in.get("workload"),
+            is_involved=1,
+            involve_dev="是",
+            origin="manual",
+        )
+        db.add(row)
+        db.flush()
+
+        ext = PmwbRequirementExt(
+            req_id=req_id,
+            status=obj_in.get("status") or self.DEFAULT_STATUS,
+            priority=obj_in.get("priority") or "P2",
+            tags=obj_in.get("tags"),
+            personal_note=obj_in.get("personal_note"),
+            owner_note=obj_in.get("owner_note"),
+            version_required_date=obj_in.get("version_required_date") or None,
+            delivered_date=obj_in.get("delivered_date") or None,
+        )
+        db.add(ext)
+        try:
+            db.commit()
+        except IntegrityError as e:  # 极低概率：同日并发创建撞号 / ext.req_id 唯一约束
+            db.rollback()
+            raise ValueError(f"需求编号「{req_id}」冲突，请重试") from e
+        db.refresh(row)
+        db.refresh(ext)
+        return self._merge_ext(row, ext, 0)
 
     def get_stats(self, db: Session) -> Dict[str, int]:
         # 需求宇宙 = sent_emails 去重后的 req_id（统一口径，排除孤儿 ext 脏数据）

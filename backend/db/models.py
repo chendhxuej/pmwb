@@ -875,7 +875,14 @@ class PmwbRequirementEvaluation(Base):
 
 
 class SentEmail(Base):
-    """已发送需求邮件记录表（只读/关联）。"""
+    """需求来源表（插件抓取的邮件记录 + 工作台手工新建的记录）。
+
+    历史语义：只由 Chrome 插件写邮件行，是需求宇宙的唯一数据源。
+    2026-10-12 起新增手工新建能力：`origin='manual'` 的行为老大在工作台
+    「需求与交付」页手工录入（插件未抓到的漏采需求 / 会议口头交办类需求），
+    与插件行共用同一张表，从而沿用「需求宇宙 = sent_emails 去重 req_id」
+    这一全局唯一口径（列表/统计/任务中心/看板/AI问答/知识沉淀自动生效）。
+    """
 
     __tablename__ = "sent_emails"
 
@@ -895,10 +902,17 @@ class SentEmail(Base):
     is_involved = Column(Integer, default=1, comment="是否涉及开发(0:否,1:是)")
     dev_ticket_no = Column(String(255), comment="开发单号")
     involve_dev = Column(String(10), default="是", comment="涉及开发")
+    origin = Column(
+        String(16),
+        nullable=False,
+        default="plugin",
+        server_default="plugin",
+        comment="来源：plugin(浏览器插件抓取的邮件) / manual(工作台手工新建)",
+    )
 
     __table_args__ = (
         Index("ix_sent_emails_req_id", "req_id"),
-        {"comment": "已发送邮件记录"},
+        {"comment": "需求来源记录（插件邮件 + 手工新建）"},
     )
 
 

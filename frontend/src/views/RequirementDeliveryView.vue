@@ -5,7 +5,10 @@
       subtitle="需求采集 → 团队评估 → 用户故事 → 分析说明书 → 启动开发 → 生产部署，全流程闭环"
     >
       <template #actions>
-        <el-button type="primary" @click="openActiveOptDialog()">
+        <el-button type="primary" @click="openCreateReqDialog()">
+          <el-icon><Plus /></el-icon> 新建需求
+        </el-button>
+        <el-button @click="openActiveOptDialog()">
           <el-icon><Plus /></el-icon> 新增主动优化
         </el-button>
       </template>
@@ -92,7 +95,12 @@
             scrollbar-always-on
             @row-click="openWorkflow"
           >
-            <el-table-column prop="req_id" label="需求编号" width="150" show-overflow-tooltip />
+            <el-table-column prop="req_id" label="需求编号" width="150" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span>{{ row.req_id }}</span>
+                <span v-if="row.origin === 'manual'" class="origin-tag" title="工作台手工新建">手工</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="req_name" label="需求名称" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="link-text">{{ row.req_name || '（未命名）' }}</span>
@@ -1106,10 +1114,26 @@
       </template>
     </el-dialog>
 
-    <!-- 需求编辑弹层 -->
-    <el-dialog v-model="reqDialog" title="编辑需求跟踪信息" width="560px">
+    <!-- 需求编辑/新建弹层 -->
+    <el-dialog
+      v-model="reqDialog"
+      :title="reqDialogMode === 'create' ? '新建需求' : '编辑需求跟踪信息'"
+      width="560px"
+      top="5vh"
+    >
       <el-form :model="reqForm" label-width="110px">
-        <el-form-item label="需求名称"><EnlargeInput v-model="reqForm.req_name" placeholder="覆盖 sent_emails 原始名称" /></el-form-item>
+        <el-form-item v-if="reqDialogMode === 'create'" label="需求文号">
+          <EnlargeInput v-model="reqForm.req_id" placeholder="留空自动生成「手工需求（2026）第（MMDDNNN）号」" />
+        </el-form-item>
+        <el-form-item label="需求名称">
+          <EnlargeInput
+            v-model="reqForm.req_name"
+            :placeholder="reqDialogMode === 'create' ? '必填，一句话说明需求' : '覆盖 sent_emails 原始名称'"
+          />
+        </el-form-item>
+        <el-form-item v-if="reqDialogMode === 'create'" label="提出人">
+          <EnlargeInput v-model="reqForm.proposer" placeholder="需求提出人" />
+        </el-form-item>
         <el-form-item label="涉及系统"><EnlargeInput v-model="reqForm.system_name" placeholder="覆盖原始系统" /></el-form-item>
         <el-form-item label="SA"><StaffSelect v-model="reqForm.sa_name" /></el-form-item>
         <el-form-item label="优先级">
@@ -1136,7 +1160,7 @@
       </el-form>
       <template #footer>
         <el-button @click="reqDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveReq">保存</el-button>
+        <el-button type="primary" @click="saveReq">{{ reqDialogMode === 'create' ? '创建' : '保存' }}</el-button>
       </template>
     </el-dialog>
 
@@ -1244,7 +1268,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
 import { ownerList } from '@/utils/owner.js'
@@ -1259,7 +1283,7 @@ import { knowledgeApi } from '@/api/knowledge.js'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import {
-  getRequirements, getRequirement, updateRequirement, deleteRequirement,
+  getRequirements, getRequirement, createRequirement, updateRequirement, deleteRequirement,
   getRequirementStats,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
@@ -1315,11 +1339,13 @@ function handleReqSearch() {
   loadRequirements()
 }
 
-/* 需求编辑/删除 */
+/* 需求编辑/新建 */
 const reqDialog = ref(false)
+const reqDialogMode = ref('edit') // edit=编辑跟踪信息 / create=手工新建需求
 const reqForm = reactive({
   req_id: '',
   req_name: '',
+  proposer: '',
   system_name: '',
   sa_name: '',
   priority: 'P2',
@@ -1391,9 +1417,11 @@ function openSupervise(row, scene = 'urge') {
 }
 
 function openReqDialog(row) {
+  reqDialogMode.value = 'edit'
   Object.assign(reqForm, {
     req_id: row.req_id,
     req_name: row.req_name || '',
+    proposer: row.proposer || '',
     system_name: row.system_name || '',
     sa_name: row.sa_name || '',
     priority: row.ext?.priority || 'P2',
@@ -1410,7 +1438,48 @@ function openReqDialog(row) {
   })
   reqDialog.value = true
 }
+/* 手工新建需求：插件未抓到的需求（漏采/会议口头交办）在工作台直接录入。
+   数据落 sent_emails（origin='manual'），沿用「需求宇宙 = sent_emails 去重 req_id」唯一口径，
+   列表/统计/任务中心/看板自动纳入。 */
+function openCreateReqDialog() {
+  reqDialogMode.value = 'create'
+  Object.assign(reqForm, {
+    req_id: '',
+    req_name: '',
+    proposer: '',
+    system_name: '',
+    sa_name: '',
+    priority: 'P2',
+    status: 'proposed',
+    version_required_date: '',
+    delivered_date: '',
+    dev_ticket_no: '',
+    background: '',
+    description: '',
+    clarification: '',
+    owner_note: '',
+    tags: '',
+    personal_note: '',
+  })
+  reqDialog.value = true
+}
+
 async function saveReq() {
+  if (!reqForm.req_name || !reqForm.req_name.trim()) {
+    ElMessage.warning('请填写需求名称')
+    return
+  }
+  if (reqDialogMode.value === 'create') {
+    const payload = { ...reqForm }
+    delete payload.dev_ticket_no // 开发单号在需求详情/编辑中维护，新建不带
+    if (payload.req_id !== undefined) payload.req_id = payload.req_id.trim()
+    const res = await createRequirement(payload)
+    ElMessage.success(`需求「${res?.req_id || ''}」已创建`)
+    reqDialog.value = false
+    reqPage.value = 1
+    await loadRequirements()
+    return
+  }
   const payload = { ...reqForm }
   await updateRequirement(reqForm.req_id, payload)
   ElMessage.success('需求信息已保存')
@@ -1422,7 +1491,11 @@ async function saveReq() {
   }
 }
 async function removeReq(row) {
-  await ElMessageBox.confirm(`确认删除需求 ${row.req_id} 的工作台数据？（只读源数据保留）`, '提示', { type: 'warning' })
+  const isManual = row.origin === 'manual'
+  const msg = isManual
+    ? `确认删除手工新建的需求「${row.req_id}」？该需求由工作台录入，删除后录入记录一并清除、不可恢复。`
+    : `确认删除需求 ${row.req_id} 的工作台数据？（只读邮件源数据保留）`
+  await ElMessageBox.confirm(msg, '提示', { type: 'warning' })
   await deleteRequirement(row.req_id)
   ElMessage.success('已删除')
   await loadRequirements()
@@ -2524,11 +2597,16 @@ function priorityType(p) {
   return { P0: 'danger', P1: 'warning', P2: '', P3: 'info' }[p] || ''
 }
 const route = useRoute()
+const router = useRouter()
 
 /* 深链定位 */
 function applyDeepLink() {
   const q = route.query
-  if (q.req) {
+  if (q.new) {
+    // 首页「＋ 新增需求·工单」直连：打开新建弹窗后立即清掉 query，避免刷新重复弹出
+    openCreateReqDialog()
+    router.replace({ path: route.path, query: {} })
+  } else if (q.req) {
     const row = requirements.value.find((t) => t.req_id === q.req)
     if (row) { openReqDialog(row); }
   } else if (q.activeOpt) {
@@ -2567,6 +2645,8 @@ onBeforeUnmount(() => {
 .table-toolbar { display: flex; gap: 10px; align-items: center; padding: 16px 20px; flex-wrap: wrap }
 .table-footer { padding: 12px 20px; border-top: 1px solid var(--border-subtle) }
 .link-text { color: var(--accent); cursor: pointer; font-weight: 500 }
+/* 手工新建需求标识（与插件抓取的邮件行区分，见 sent_emails.origin） */
+.origin-tag { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 16px; color: var(--text-secondary, #64748b); background: var(--bg-app, #f2f4f7); border: 1px solid var(--border-subtle, #e5e7eb); vertical-align: middle }
 .req-table :deep(.el-table__row) { cursor: pointer }
 
 .wf-head { display: flex; align-items: center; justify-content: space-between; width: 100% }

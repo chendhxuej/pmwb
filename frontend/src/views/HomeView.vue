@@ -107,7 +107,7 @@
 
       <!-- 快捷操作（紧凑行）-->
       <div class="action-row" style="grid-column:1/-1">
-        <button class="pm-btn primary" @click="goTo('/requirement-delivery')">＋ 新增需求·工单</button>
+        <button class="pm-btn primary" @click="goTo('/requirement-delivery?new=1')">＋ 新增需求·工单</button>
         <button class="pm-btn primary" @click="goTo('/meeting')">＋ 新增会议</button>
         <button class="pm-btn primary" @click="goTo('/operation')">＋ 新增运营问题</button>
         <button class="pm-btn" @click="goTo('/ai-center/qa')">✦ AI 问答</button>

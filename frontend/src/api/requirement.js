@@ -4,6 +4,11 @@ export function getRequirements(params) {
   return request.get('/requirements', { params })
 }
 
+// 手工新建需求（插件未抓到的需求在工作台直接录入；req_id 留空由后端自动生成手工编号）
+export function createRequirement(data) {
+  return request.post('/requirements', data)
+}
+
 export function getRequirement(reqId) {
   return request.get(`/requirements/${reqId}`)
 }

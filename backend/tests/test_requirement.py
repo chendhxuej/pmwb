@@ -127,8 +127,9 @@ def test_update_evaluation(client: TestClient, db):
     assert data["workload"] == 8.5
     assert data["review_workload"] == 9.0
     assert data["opinion"] == "需评审后确认"
-    # 开发单号统一从需求级 SentEmail 回填，评估记录自身不再存储
-    assert data["dev_ticket_no"] == ""
+    # 开发单号统一从需求级 SentEmail 回填（本用例源行值为 TICKET-001），
+    # 请求里传的 DEV-2026-001 不再写入评估记录自身
+    assert data["dev_ticket_no"] == "TICKET-001"
 
     # 回读确认持久化
     resp2 = client.get("/api/v1/requirements/REQ-UE-001/evaluations")
@@ -136,7 +137,7 @@ def test_update_evaluation(client: TestClient, db):
     assert row["workload"] == 8.5
     assert row["review_workload"] == 9.0
     assert row["opinion"] == "需评审后确认"
-    assert row["dev_ticket_no"] == ""
+    assert row["dev_ticket_no"] == "TICKET-001"
 
 
 def test_update_evaluation_not_found(client: TestClient, db):
@@ -262,3 +263,95 @@ def test_stats_dev_ticket_missing(client: TestClient, db):
     response = client.get("/api/v1/requirements/stats")
     assert response.status_code == 200
     assert response.json()["data"]["dev_ticket_missing"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 手工新建需求（2026-10-12）：工作台录入插件未抓到的需求
+# ---------------------------------------------------------------------------
+
+
+def test_create_manual_requirement_auto_id(client: TestClient, db):
+    """不带文号创建：自动生成「手工需求（年）第（MMDDNNN）号」，落 origin='manual'。"""
+    resp = client.post(
+        "/api/v1/requirements",
+        json={
+            "req_name": "关于商客专区报价能力优化的需求",
+            "proposer": "陈大海",
+            "system_name": "商客专区",
+            "sa_name": "吴胜捷",
+            "priority": "P0",
+            "description": "手工录入的需求描述",
+            "version_required_date": "2026-11-30",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    rid = data["req_id"]
+    assert rid.startswith("手工需求（")
+    assert rid.endswith("）号")
+    assert data["origin"] == "manual"
+    assert data["req_name"] == "关于商客专区报价能力优化的需求"
+    assert data["ext"]["priority"] == "P0"
+    assert data["ext"]["status"] == "proposed"
+    assert data["ext"]["version_required_date"] == "2026-11-30"
+    # 源行落库且可被需求宇宙（唯一口径）看到
+    row = db.query(SentEmail).filter(SentEmail.req_id == rid).first()
+    assert row is not None and row.origin == "manual"
+    assert row.send_datetime is None  # 手工需求不伪装已发邮件
+
+    listed = client.get("/api/v1/requirements", params={"req_id": rid}).json()["data"]
+    assert listed["total"] == 1
+    assert listed["items"][0]["origin"] == "manual"
+
+
+def test_create_manual_requirement_seq_increment(client: TestClient, db):
+    """同日连续创建，文号序号递增（001 → 002）。"""
+    r1 = client.post("/api/v1/requirements", json={"req_name": "手工需求A"}).json()["data"]["req_id"]
+    r2 = client.post("/api/v1/requirements", json={"req_name": "手工需求B"}).json()["data"]["req_id"]
+    assert r1 != r2
+    assert r1[-5:-2] == "001"
+    assert r2[-5:-2] == "002"
+
+
+def test_create_manual_requirement_custom_id_and_duplicate(client: TestClient, db):
+    """自带文号可创建；同文号重复创建被拒绝（避免误覆盖历史需求）。"""
+    custom = "敏捷需求（2026）第（101299999）号"
+    r1 = client.post("/api/v1/requirements", json={"req_name": "漏采补录需求", "req_id": custom})
+    assert r1.status_code == 200
+    assert r1.json()["data"]["req_id"] == custom
+
+    r2 = client.post("/api/v1/requirements", json={"req_name": "重复文号", "req_id": custom})
+    assert r2.status_code == 400
+    assert "已存在" in r2.json()["detail"]
+
+
+def test_create_manual_requirement_duplicate_plugin_id(client: TestClient, db):
+    """插件已抓取过的文号，手工新建同样拒绝（防止双份记录）。"""
+    _create_sent_email(db, req_id="REQ-PLUGIN-001", req_name="插件需求")
+    resp = client.post("/api/v1/requirements", json={"req_name": "手工重复", "req_id": "REQ-PLUGIN-001"})
+    assert resp.status_code == 400
+
+
+def test_create_manual_requirement_requires_name(client: TestClient, db):
+    """需求名称为空 → 422 参数校验失败。"""
+    resp = client.post("/api/v1/requirements", json={"req_name": ""})
+    assert resp.status_code == 422
+
+
+def test_delete_manual_requirement_removes_source(client: TestClient, db):
+    """手工需求删除 → 源行一并真删（不会从需求宇宙复活）；插件需求保持只读保留。"""
+    rid = client.post("/api/v1/requirements", json={"req_name": "待删除手工需求"}).json()["data"]["req_id"]
+    client.put(f"/api/v1/requirements/{rid}", json={"status": "accepted"})
+
+    resp = client.delete(f"/api/v1/requirements/{rid}")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["removed_source"] is True
+    assert db.query(SentEmail).filter(SentEmail.req_id == rid).first() is None
+    assert client.get("/api/v1/requirements", params={"req_id": rid}).json()["data"]["total"] == 0
+
+    # 插件来源需求：源行保留
+    _create_sent_email(db, req_id="REQ-KEEP-001")
+    resp2 = client.delete("/api/v1/requirements/REQ-KEEP-001")
+    assert resp2.json()["data"]["removed_source"] is False
+    assert db.query(SentEmail).filter(SentEmail.req_id == "REQ-KEEP-001").first() is not None
+
