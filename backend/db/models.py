@@ -485,10 +485,11 @@ class PmwbResearchIssue(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     issue_no = Column(String(64), nullable=False, unique=True, comment="调研工单编号")
     title = Column(String(255), nullable=False, comment="工单标题")
+    # 见 schemas/research.py::ResearchSubType（String(32)，新增子类零迁移）
     sub_type = Column(
-        Enum("leader_research", "frontline_station"),
+        String(32),
         default="leader_research",
-        comment="子类：领导调研/一线驻点",
+        comment="子类：领导调研/一线驻点/淮安订单中心调研",
     )
     # 见 status_registry: research（String(32)，新增状态零迁移）
     status = Column(String(32), default="pending", comment="状态（见 status_registry: research）")

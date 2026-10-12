@@ -123,6 +123,7 @@ KW_PRIORITY: Dict[str, str] = {
 RESEARCH_ISSUE_SUB_TYPE: Dict[str, str] = {
     "leader_research": "领导调研",
     "frontline_station": "一线驻点",
+    "huaian_order_center": "淮安订单中心调研",
 }
 
 RESEARCH_ISSUE_STATUS: Dict[str, str] = {

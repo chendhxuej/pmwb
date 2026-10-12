@@ -6,10 +6,11 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ResearchSubType(str, Enum):
-    """调研工单子类。"""
+    """调研工单子类（⚠️ 仅作取值提示；列已是 String(32)，新增子类零数据库迁移）。"""
 
     leader_research = "leader_research"  # 领导调研
     frontline_station = "frontline_station"  # 一线驻点
+    huaian_order_center = "huaian_order_center"  # 淮安订单中心调研
 
 
 class ResearchStatus(str, Enum):
@@ -70,6 +71,7 @@ CITY_LABELS = {
 SUB_TYPE_LABELS = {
     "leader_research": "领导调研",
     "frontline_station": "一线驻点",
+    "huaian_order_center": "淮安订单中心调研",
 }
 
 

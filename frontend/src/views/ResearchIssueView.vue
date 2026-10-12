@@ -205,6 +205,12 @@
           </el-descriptions>
         </div>
 
+        <!-- 基本情况（表单已有该字段，此处补展示） -->
+        <div class="dt-sec" v-if="detailRow?.basic_info">
+          <div class="dt-sec-title">基本情况</div>
+          <div class="dt-desc dt-desc-pre">{{ detailRow.basic_info }}</div>
+        </div>
+
         <!-- 情况说明 -->
         <div class="dt-sec">
           <div class="dt-sec-title">情况说明</div>
@@ -566,6 +572,7 @@ const CITY_LABELS = Object.fromEntries(CITY_OPTIONS.map((c) => [c.value, c.label
 const SUB_TYPE_OPTIONS = [
   { value: 'leader_research', label: '领导调研' },
   { value: 'frontline_station', label: '一线驻点' },
+  { value: 'huaian_order_center', label: '淮安订单中心调研' },
 ]
 const SUB_TYPE_LABELS = Object.fromEntries(SUB_TYPE_OPTIONS.map((t) => [t.value, t.label]))
 
@@ -593,7 +600,12 @@ const STATUS_OPTIONS = computed(() =>
   domainStatuses('research').map((s) => ({ key: s.value, label: s.label }))
 )
 
-const subTypeTag = (val) => val === 'leader_research' ? 'primary' : 'success'
+const SUB_TYPE_TAG = {
+  leader_research: 'primary',
+  frontline_station: 'success',
+  huaian_order_center: 'warning',
+}
+const subTypeTag = (val) => SUB_TYPE_TAG[val] || 'info'
 const natureTag = (val) => {
   if (val === 'bug') return 'danger'
   if (val === 'optimization') return 'warning'
@@ -1099,6 +1111,7 @@ onMounted(async () => {
 .dt-sec { border-top: 1px solid var(--border-subtle); padding: 18px 4px; }
 .dt-sec-title { font-size: 13px; font-weight: 700; color: var(--text-secondary); margin-bottom: 14px; }
 .dt-desc { font-size: 13.5px; line-height: 1.75; color: var(--text-secondary); background: var(--border-subtle); border-radius: 11px; padding: 14px 16px; }
+.dt-desc-pre { white-space: pre-line; }
 .dt-link-row { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid var(--border-subtle); border-radius: 9px; margin-bottom: 8px; }
 .lk-ico { width: 30px; height: 30px; border-radius: 8px; background: var(--warning-soft); color: var(--warning); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .dt-link-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }

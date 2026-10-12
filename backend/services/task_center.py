@@ -169,6 +169,7 @@ class TaskCenterService:
         SUB_TYPE_LABEL = {
             "leader_research": "领导调研",
             "frontline_station": "一线驻点",
+            "huaian_order_center": "淮安订单中心调研",
         }
         CITY_LABEL = {
             "nanjing": "南京", "suzhou": "苏州", "wuxi": "无锡",
