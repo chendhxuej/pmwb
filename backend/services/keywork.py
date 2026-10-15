@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from core.exceptions import NotFoundException
+from core.exceptions import NotFoundException, ValidationException
 from db.models import (
     PmwbKeyWork,
     PmwbKeyWorkDeliverable,

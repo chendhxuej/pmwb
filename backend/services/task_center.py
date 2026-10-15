@@ -515,9 +515,19 @@ class TaskCenterService:
         "active_optimization": "collect_active_optimization",
     }
 
-    def _collect(self, db: Session, sources: Optional[List[str]] = None) -> List[TaskItem]:
+    def collect_with_report(
+        self, db: Session, sources: Optional[List[str]] = None
+    ) -> tuple[List[TaskItem], List[str]]:
+        """采集全部来源，返回 (items, 失败来源列表)。
+
+        与 _collect 的唯一区别：**显式回报失败来源**。高级别工单同步依赖该信息，
+        避免「某来源采集抖动 → 其余来源照常刷新 → 该来源工单被误判为源消失」。
+
+        注意：本方法只读不写；是否把失败来源纳入后续判定由调用方决定。
+        """
         targets = sources or TASK_SOURCES
         all_items: List[TaskItem] = []
+        failed: List[str] = []
         for src in targets:
             method = self._COLLECTORS.get(src)
             if not method:
@@ -526,7 +536,12 @@ class TaskCenterService:
                 all_items.extend(getattr(self, method)(db))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("任务中心来源 %s 采集失败: %s", src, exc)
-        return all_items
+                failed.append(src)
+        return all_items, failed
+
+    def _collect(self, db: Session, sources: Optional[List[str]] = None) -> List[TaskItem]:
+        items, _ = self.collect_with_report(db, sources)
+        return items
 
     def get_tasks(
         self,
@@ -538,10 +553,15 @@ class TaskCenterService:
         keyword: Optional[str] = None,
         issue_type: Optional[str] = None,
         owners: Optional[List[str]] = None,
+        priorities: Optional[List[str]] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
-        """统一任务列表（筛选 + 分页）。"""
+        """统一任务列表（筛选 + 分页）。
+
+        priorities（2026-10-15 新增）：按源表级别原值过滤（大小写不敏感，
+        "P0"/"p0" 等价），供「高级别工单」等按级别筛选场景复用。
+        """
         sources = [source] if source else None
         items = self._collect(db, sources)
         if not include_done:
@@ -558,6 +578,13 @@ class TaskCenterService:
             if wanted:
                 # 多负责人：一条任务挂多人时，按人筛选应对每个人都命中
                 items = [t for t in items if owner_set(t.owner) & wanted]
+        if priorities:
+            wanted_p = {str(p).strip().upper() for p in priorities if str(p).strip()}
+            if wanted_p:
+                items = [
+                    t for t in items
+                    if str(t.priority or "").strip().upper() in wanted_p
+                ]
         if only_overdue:
             items = [t for t in items if t.is_overdue]
         if keyword:

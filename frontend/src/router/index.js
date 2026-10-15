@@ -35,6 +35,14 @@ const routes = [
             component: () => import('@/views/TaskCenterView.vue'),
             meta: { title: '全部任务', icon: 'Tickets' },
           },
+          {
+            // 2026-10-15：高级别工单（自动汇总 P0/P1、超期升格、母项继承、人工提级 →
+            // 汇聚跟踪 + 批量邮件督办）。数据来自 /api/v1/high-level/*。
+            path: 'highlevel',
+            name: 'TaskHighLevel',
+            component: () => import('@/views/TaskHighLevelView.vue'),
+            meta: { title: '高级别工单', icon: 'Warning' },
+          },
         ],
       },
       {

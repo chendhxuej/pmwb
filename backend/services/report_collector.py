@@ -49,6 +49,8 @@ from services.report_dict import (
     RESEARCH_ISSUE_IMPACT,
     CITY,
 )
+# 级别口径唯一源（2026-10-15 起收敛，替代此前的 "致命(P0)"/"严重(P1)" 中文硬编码）
+from constants import levels
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +191,7 @@ class ReportDataCollector:
             by_status[st] += 1
             if it.get("city"):
                 by_city[it.get("city")] += 1
-            if imp in ("致命(P0)", "严重(P1)") and st not in CLOSED:
+            if levels.is_high_level(imp) and st not in CLOSED:
                 high.append(it)
         ri = dict(ri)
         ri["items"] = deduped

@@ -289,6 +289,35 @@ _REQUIREMENT_URGE = DomainDef(
     },
 )
 
+# 高级别工单的**本地跟踪态**（2026-10-15 新增，任务中心「高级别工单」子模块）。
+# 注意：这不是源工单状态，而是跟踪表 pmwb_high_level_track.track_status 的取值集合；
+# 源工单状态仍由各来源域（operation/ticket/...）负责。
+# 刻意 **不加入 SOURCE_DOMAIN**：它不对应任何 TASK_SOURCES 来源，
+# 加入会污染任务中心「来源→状态域」映射与统一态统计。
+_HIGH_LEVEL_TRACK = DomainDef(
+    key="high_level_track",
+    label="高级别工单·跟踪",
+    writable=True,
+    statuses=(
+        StatusDef("open", "待跟进", "info", "pending",
+                  allowed_next=("tracking", "escalated", "resolved", "dropped"),
+                  description="首次纳入、尚未开始跟踪"),
+        StatusDef("tracking", "跟踪中", "primary", "in_progress",
+                  allowed_next=("escalated", "resolved", "dropped", "open"),
+                  description="已开始跟踪推进"),
+        StatusDef("escalated", "已升级", "warning", "in_progress", sensitive=True,
+                  allowed_next=("resolved", "dropped", "tracking"),
+                  description="已升级/已督办，需重点关注"),
+        StatusDef("resolved", "已闭环", "success", "done", is_terminal=True,
+                  allowed_next=("tracking",),
+                  description="源工单已达终态或人工确认闭环"),
+        StatusDef("dropped", "已移除", "neutral", "blocked", is_terminal=True,
+                  allowed_next=("open",),
+                  description="源工单消失或人工移出跟踪范围"),
+    ),
+    description="高级别工单本地跟踪态（非源工单状态；源状态见各来源域）",
+)
+
 
 # ─────────────────────────────────────────────────────────────
 # 注册表本体
@@ -313,6 +342,7 @@ REGISTRY: Dict[str, DomainDef] = {
         _REQUIREMENT_VERSION,
         _TASK_CENTER,
         _REQUIREMENT_URGE,
+        _HIGH_LEVEL_TRACK,
     )
 }
 

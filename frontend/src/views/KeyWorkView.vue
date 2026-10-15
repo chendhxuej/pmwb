@@ -512,9 +512,10 @@
 
                     <!-- B. 月计划 -->
                     <el-collapse-item title="B. 月计划" name="monthly">
-                      <div v-if="g.monthly_items.length" class="feedback-items">
+                      <!-- 仅在途子项（已完成/已作废不展示），与邮件正文口径一致 -->
+                      <div v-if="inFlightItems(g.monthly_items).length" class="feedback-items">
                         <el-checkbox
-                          v-for="it in g.monthly_items"
+                          v-for="it in inFlightItems(g.monthly_items)"
                           :key="'m-' + it.id"
                           :model-value="isItemChecked(g, it)"
                           @change="(v) => toggleItemChecked(g, it, v)"
@@ -523,7 +524,7 @@
                           <span class="pm-tag" :class="(PLAN_STATUS_MAP[it.status] || {}).tag">{{ (PLAN_STATUS_MAP[it.status] || { label: it.status }).label }}</span>
                         </el-checkbox>
                       </div>
-                      <div v-else class="text-muted">暂无关联网月计划</div>
+                      <div v-else class="text-muted">暂无在途月计划</div>
                       <template v-if="isMonthEnd">
                         <el-form-item label="本月月总结" class="feedback-textarea-item">
                           <el-input v-model="g._form.monthly_summary" type="textarea" :rows="3" placeholder="汇总本月完成情况、关键成果、偏差说明" />
@@ -536,9 +537,10 @@
 
                     <!-- C. 周计划 -->
                     <el-collapse-item title="C. 周计划" name="weekly">
-                      <div v-if="g.weekly_items.length" class="feedback-items">
+                      <!-- 仅在途子项（已完成/已作废不展示），与邮件正文口径一致 -->
+                      <div v-if="inFlightItems(g.weekly_items).length" class="feedback-items">
                         <el-checkbox
-                          v-for="it in g.weekly_items"
+                          v-for="it in inFlightItems(g.weekly_items)"
                           :key="'w-' + it.id"
                           :model-value="isItemChecked(g, it)"
                           @change="(v) => toggleItemChecked(g, it, v)"
@@ -547,7 +549,7 @@
                           <span class="pm-tag" :class="(PLAN_STATUS_MAP[it.status] || {}).tag">{{ (PLAN_STATUS_MAP[it.status] || { label: it.status }).label }}</span>
                         </el-checkbox>
                       </div>
-                      <div v-else class="text-muted">暂无关联周计划</div>
+                      <div v-else class="text-muted">暂无在途周计划</div>
                       <el-form-item label="下周新的工作计划" class="feedback-textarea-item">
                         <el-input v-model="g._form.next_summary" type="textarea" :rows="3" placeholder="反馈下周计划开展的重点工作" />
                       </el-form-item>
@@ -555,7 +557,7 @@
 
                     <!-- D. 成员待办 -->
                     <el-collapse-item title="D. 成员待办（进展 + 新增）" name="memberTask">
-                      <el-table v-if="g.task_items.length" :data="g.task_items" border stripe size="small" class="feedback-task-table">
+                      <el-table v-if="inFlightItems(g.task_items).length" :data="inFlightItems(g.task_items)" border stripe size="small" class="feedback-task-table">
                         <el-table-column prop="label" label="任务" min-width="140" show-overflow-tooltip />
                         <el-table-column label="负责人" width="110">
                           <template #default="{ row }">{{ ownerLabel(row.assignee) || '未指派' }}</template>
@@ -573,7 +575,7 @@
                           </template>
                         </el-table-column>
                       </el-table>
-                      <div v-else class="text-muted">当前无未完成的成员待办</div>
+                      <div v-else class="text-muted">当前无在途成员待办</div>
 
                       <div class="feedback-new-task">
                         <div class="feedback-section-subtitle">新增成员任务</div>
@@ -868,6 +870,10 @@ import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
 import {
   CATEGORY_MAP, STATUS_MAP, PRIORITY_MAP, MS_STATUS_MAP, TASK_STATUS_MAP, PLAN_STATUS_MAP,
 } from '@/api/keywork.js'
+// 周反馈「在途子项过滤 + 状态中文转译 + 邮件正文构建」单一实现（页面模板与邮件正文共用同一口径）
+import {
+  buildFeedbackMailBody, inFlightItems, itemLabel, isItemChecked,
+} from '@/utils/keyworkFeedbackMail.js'
 
 const route = useRoute()
 
@@ -1004,122 +1010,14 @@ const mailDialogRefType = ref('')
 const mailDialogRefId = ref('')
 const mailLogKey = ref(0)
 
-/** 用 feedbackGroups 真实数据构建周反馈邮件正文（Markdown） */
-function buildFeedbackMailBody(g) {
-  const week = feedbackWeek.value
-  const kw = detail.value
-  const title = kw?.title || ''
-  const workNo = kw?.work_no || ''
-  const lines = []
-
-  // 头部
-  lines.push(`【重点工作周反馈】${title}（${workNo}）- ${week} 周`)
-  lines.push('')
-  lines.push(`负责人：${g.assignee}`)
-  lines.push('')
-
-  // 一、本周工作进展反馈
-  lines.push('## 一、本周工作进展反馈')
-  lines.push('')
-
-  // 1、月计划完成情况（仅月底显示）
-  if (isMonthEnd.value) {
-    lines.push('### 1、月计划完成情况（月底反馈）')
-    if (g.monthly_items.length) {
-      for (const it of g.monthly_items) {
-        const checked = isItemChecked(g, it)
-        lines.push(`- ${checked ? '✅' : '⬜'} ${itemLabel(it)}（${it.status || '—'}）`)
-      }
-    } else {
-      lines.push('- （无关联月计划）')
-    }
-    lines.push('')
-  }
-
-  // 2、周计划完成情况反馈
-  lines.push('### 2、周计划完成情况反馈')
-  if (g.weekly_items.length) {
-    for (const it of g.weekly_items) {
-      const checked = isItemChecked(g, it)
-      lines.push(`- ${checked ? '✅' : '⬜'} ${itemLabel(it)}（${it.status || '—'}）`)
-    }
-  } else {
-    lines.push('- （暂无关联周计划）')
-  }
-  lines.push('')
-
-  // 二、下周工作计划
-  lines.push('## 二、下周工作计划')
-  lines.push('')
-
-  // 下月计划（仅月底显示）
-  if (isMonthEnd.value) {
-    lines.push('### 下月计划（月底反馈）')
-    if (g._form.next_month_summary) {
-      lines.push(g._form.next_month_summary)
-    } else {
-      lines.push('- （待填写）')
-    }
-    lines.push('')
-  }
-
-  // 下周计划
-  lines.push('### 下周计划')
-  if (g._form.next_summary) {
-    lines.push(g._form.next_summary)
-  } else {
-    lines.push('- （待填写）')
-  }
-  lines.push('')
-
-  // 三、成员待办管理
-  lines.push('## 三、成员待办管理')
-  lines.push('')
-  const hasTasks = g.task_items.length || g._form.new_tasks.length
-  if (hasTasks) {
-    if (g.task_items.length) {
-      for (const t of g.task_items) {
-        const note = taskNote(g, t)
-        const assignee = ownerLabel(t.assignee) || '未指派'
-        const statusLabel = note.status ? (TASK_STATUS_MAP[note.status]?.label || note.status) : (t.status ? (TASK_STATUS_MAP[t.status]?.label || t.status) : '—')
-        const noteText = note.note || t.note || ''
-        lines.push(`- **${t.label || t.title || '（未命名）'}** — ${assignee} | ${statusLabel} | ${noteText || '（无进展说明）'}`)
-      }
-    }
-    if (g._form.new_tasks.length) {
-      lines.push('')
-      lines.push('#### 新增成员任务')
-      for (const t of g._form.new_tasks) {
-        lines.push(`- ${t.title} — ${ownerLabel(t.assignee) || '未指派'} ${t.due_date ? '· ' + t.due_date : ''}`)
-      }
-    }
-  } else {
-    lines.push('- （暂无在途成员待办）')
-  }
-  lines.push('')
-
-  // 四、风险 / 求助事件
-  lines.push('## 四、风险 / 求助事件')
-  if (g._form.risk_note) {
-    lines.push(g._form.risk_note)
-  } else {
-    lines.push('- （无）')
-  }
-  lines.push('')
-
-  // 整体进度
-  lines.push(`**每人一件事整体进度：${g._form.progress || 0}%**`)
-  lines.push('')
-
-  // 底部提示
-  lines.push('反馈方式：直接回复本邮件，或线下同步给管理员在 PMWB「重点工作」详情页周反馈页签录入归档。')
-
-  return lines.join('\n')
-}
-
 /** 打开周反馈邮件预览弹窗 */
 function openFeedbackMailDialog(g, owner, week, title, workNo) {
-  const body = buildFeedbackMailBody(g)
+  // 正文构建统一走 utils/keyworkFeedbackMail.js（与页面 B/C/D 清单共用同一套在途过滤 + 注册表状态转译）
+  const body = buildFeedbackMailBody(
+    g,
+    { week, title, workNo, isMonthEnd: isMonthEnd.value },
+    { taskNote },
+  )
   mailDialogTo.value = [owner]
   mailDialogCc.value = []
   mailDialogSubject.value = `【周反馈请求】${title} - ${week} 周`
@@ -1210,10 +1108,6 @@ async function loadWeeklyFeedback() {
   }
 }
 
-function isItemChecked(g, it) {
-  return (g._form.item_updates || []).some((u) => u.type === it.type && u.id === it.id)
-}
-
 function toggleItemChecked(g, it, checked) {
   const updates = g._form.item_updates || []
   const i = updates.findIndex((u) => u.type === it.type && u.id === it.id)
@@ -1222,13 +1116,6 @@ function toggleItemChecked(g, it, checked) {
   } else if (i >= 0) {
     updates.splice(i, 1)
   }
-}
-
-function itemLabel(it) {
-  const title = it.label || it.title || it.content || ''
-  const typeName = { monthly: '月计划', weekly: '周计划', task: '成员待办' }[it.type] || it.type
-  const suffix = it.assignee ? `（${it.assignee}）` : ''
-  return `【${typeName}】${(title || '').slice(0, 40)}${suffix}`
 }
 
 function _findCurrentItem(u) {

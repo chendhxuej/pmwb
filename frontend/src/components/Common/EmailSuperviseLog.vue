@@ -54,6 +54,8 @@ const TYPE_LABELS = {
   keywork_feedback: '重点工作反馈',
   active_optimization_urge: '主动优化催办',
   active_optimization_sync: '主动优化同步',
+  pmwb_high_level_urge: '高级别督办',
+  pmwb_high_level_notify: '高级别同步',
   plugin: '插件',
 }
 

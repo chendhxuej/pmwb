@@ -142,6 +142,15 @@ export const MODULE_STATUS = {
     closed: { label: '已关闭', tone: 'info' },
     suspended: { label: '已挂起', tone: 'neutral' },
   },
+
+  // 高级别工单·跟踪态（TaskHighLevelView）—— 本地跟踪态，非源工单状态（2026-10-15）
+  high_level_track: {
+    open: { label: '待跟进', tone: 'info' },
+    tracking: { label: '跟踪中', tone: 'primary' },
+    escalated: { label: '已升级', tone: 'warning', sensitive: true },
+    resolved: { label: '已闭环', tone: 'success' },
+    dropped: { label: '已移除', tone: 'neutral' },
+  },
 }
 
 // 重点工作子状态（里程碑 / 月周计划 / 成员待办）统一五态

@@ -24,7 +24,7 @@ from core.config import settings
 from db.models import EmailRecord
 from utils.attachment_compress import compress_attachments_for_mail_center
 from utils.email import EmailCenterClient
-from utils.mail_content import build_mail_body
+from utils.mail_content import TASK_LIST_SCENES, build_mail_body
 from utils.markdown_mail import (
     _sanitize,
     inject_signature_inline,
@@ -106,6 +106,21 @@ SCENES: dict[str, MailScene] = {
         template_key="task_center_urge", raw=False, renderer=True,
         default_subject="催办：{title}",
         fallback_template="## 任务催办提醒\n\n请查看系统任务中心，尽快处理并反馈进展。",
+    ),
+    # 高级别工单（任务中心子模块，2026-10-15）：独立场景以便邮件中心单独归类统计；
+    # 正文复用任务中心装配器（render_task_center_section，见 utils/mail_content.TASK_LIST_SCENES）。
+    # 不设 template_key：3210 无对应模板，与 research_urge / active_optimization_* 同口径。
+    "high_level_urge": MailScene(
+        "high_level_urge", email_type="pmwb_high_level_urge", source="high-level",
+        raw=False, renderer=True,
+        default_subject="【高级别工单督办】{recipient_name}",
+        fallback_template="## 高级别工单督办\n\n请尽快处理以下高级别工单并反馈进展。",
+    ),
+    "high_level_notify": MailScene(
+        "high_level_notify", email_type="pmwb_high_level_notify", source="high-level",
+        raw=False, renderer=True,
+        default_subject="【高级别工单同步】{recipient_name}",
+        fallback_template="## 高级别工单同步\n\n以下高级别工单最新情况，请知悉。",
     ),
     "plugin": MailScene("plugin", email_type="xqemail_plugin", source="plugin"),
     # supervise 场景：3210 模板已由 T-A 建设（supervise_urge/supervise_sync type）
@@ -196,7 +211,13 @@ def format_task_center_subject(
     if not isinstance(tasks, list) or not tasks:
         return ""
     is_urge = "urge" in (scene or "")
-    prefix = "【任务催办】" if is_urge else "【任务同步】"
+    is_high_level = (scene or "").startswith("high_level")
+    if is_high_level:
+        prefix = "【高级别工单督办】" if is_urge else "【高级别工单同步】"
+        noun = "项高级别工单需跟进"
+    else:
+        prefix = "【任务催办】" if is_urge else "【任务同步】"
+        noun = "项待办任务需跟进"
     n = len(tasks)
     overdue = sum(1 for t in tasks if t.get("is_overdue"))
     if n == 1:
@@ -207,7 +228,7 @@ def format_task_center_subject(
     who = (recipient_name or "").strip()
     who_part = f"{who}，" if who else ""
     overdue_part = f"（含 {overdue} 项已超期）" if overdue else ""
-    return f"{prefix}{who_part}您有 {n} 项待办任务需跟进{overdue_part}"
+    return f"{prefix}{who_part}您有 {n} {noun}{overdue_part}"
 
 
 def _resolve_signature(sc: MailScene) -> str:
@@ -372,13 +393,14 @@ def _render_mail(
     # 由场景默认主题 + 字段值格式化生成
     if "{" in final_subject:
         ctx = {**(variables or {}), **(fields or {})}
-        # task_center_* 主题（2026-09-20 优化）：信息更完整、针对性更强。
-        # 单任务→「【任务催办】{title}（已超期）」；多任务→「【任务催办】{recipient}，您有 N 项待办（含 X 项已超期）」。
+        # 清单类场景主题（task_center_* / high_level_*，见 mail_content.TASK_LIST_SCENES）：
+        # 信息更完整、针对性更强。单任务→「【…督办】{title}（已超期）」；
+        # 多任务→「【…督办】{recipient}，您有 N 项…（含 X 项已超期）」。
         # 仅当未显式传 subject 时（final_subject 仍是带 { 的场景默认模板）才接管，
         # 保证用户在前端编辑/预填的主题不被覆盖。
         # 兼容全局 /preview（variables 路径）与 /task-center/send（fields 路径）：
         # 优先 fields.tasks，回退 variables.tasks。
-        if scene in ("task_center_notify", "task_center_urge"):
+        if scene in TASK_LIST_SCENES:
             tasks_val = (fields or {}).get("tasks")
             if not isinstance(tasks_val, list) and variables:
                 tasks_val = (variables or {}).get("tasks")

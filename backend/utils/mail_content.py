@@ -164,6 +164,18 @@ SCENE_META: dict[str, dict[str, str]] = {
         "brand_color": "#165dff",
         "intro": "以下主动优化建议的最新状态同步如下，请知悉。",
     },
+    # 高级别工单（2026-10-15 注册）：复用任务中心清单装配器（TASK_LIST_SCENES），
+    # 导语不带「详情如下：」，与清单段落自然衔接。
+    "high_level_urge": {
+        "title": "高级别工单督办",
+        "brand_color": "#f53f3f",
+        "intro": "以下高级别工单（P0/P1，或已超期升格）请优先处理并反馈进展：",
+    },
+    "high_level_notify": {
+        "title": "高级别工单同步",
+        "brand_color": "#165dff",
+        "intro": "以下高级别工单最新情况同步如下，请知悉。",
+    },
 }
 
 _TICKET_FIELDS = [
@@ -246,6 +258,14 @@ SCENE_FIELDS: dict[str, list[MailField]] = {
     # 变量名与前端 ResearchIssueView.buildResearchSuperviseBody 传入的 variables 严格对齐
     "research_urge": list(_RESEARCH_FIELDS),
     "research_sync": list(_RESEARCH_FIELDS),
+    # 高级别工单：与 task_center_* 同构（tasks 为 in_body 清单，字段表实际为空，
+    # 正文由 render_task_center_section 输出）
+    "high_level_urge": [
+        _f("tasks", "工单清单", type="task_list", in_body=True),
+    ],
+    "high_level_notify": [
+        _f("tasks", "工单清单", type="task_list", in_body=True),
+    ],
 }
 
 # 字段表屏蔽场景（2026-09-29 方案A：正文为单一信息源）。
@@ -266,6 +286,17 @@ FIELDS_TABLE_HIDDEN_SCENES = {
     "action_supervise",
     "active_optimization_urge",
     "active_optimization_sync",
+}
+
+# 任务清单类场景：正文由 render_task_center_section 承载（H3 + 6 列字段表 + 工单内容）。
+# 2026-10-15 收敛为常量：此前该判断在 mail_content._compose_body_md 与
+# mail_dispatch._render_mail 两处各写一份硬编码元组，新增场景（高级别工单）
+# 极易漏改其中一处，导致正文/主题走空。此后**新增清单类场景只加这里**。
+TASK_LIST_SCENES = {
+    "task_center_notify",
+    "task_center_urge",
+    "high_level_urge",
+    "high_level_notify",
 }
 
 
@@ -489,7 +520,7 @@ def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
     # 兼容旧调用方：tasks 是 str（HTML）时保持原 auto_parts 拼接。
     # 2026-09-07 增强：用户编辑 body_md 后若保留任意一条任务的 title，认为用户已接管正文，跳过追加避免重复。
     tc_skip_keys: set[str] = set()
-    if scene in ("task_center_notify", "task_center_urge"):
+    if scene in TASK_LIST_SCENES:
         tasks_val = (values or {}).get("tasks")
         if isinstance(tasks_val, list) and tasks_val:
             send_type = "urge" if "urge" in scene else "notify"

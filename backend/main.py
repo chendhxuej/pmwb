@@ -17,6 +17,7 @@ from routers import (
     dashboard,
     dev_ticket,
     health,
+    high_level,
     keywork,
     knowledge,
     llm_provider,
@@ -136,6 +137,7 @@ app.include_router(llm_provider.router, prefix="/api/v1", tags=["大模型管理
 app.include_router(ai_qa.router, prefix="/api/v1", tags=["AI问答"])
 app.include_router(material.router, prefix="/api/v1", tags=["业务资料库-材料"])
 app.include_router(material.cat_router, prefix="/api/v1", tags=["业务资料库-分类"])
+app.include_router(high_level.router, prefix="/api/v1", tags=["高级别工单"])
 
 
 @app.on_event("startup")

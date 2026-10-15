@@ -1599,3 +1599,56 @@ class PmwbMaterial(Base):
         UniqueConstraint("source_type", "source_id", "rel_path_hash", name="uk_mat_dedup"),
         {"comment": "业务资料库统一材料索引表"},
     )
+
+
+class PmwbHighLevelTrack(Base):
+    """高级别工单跟踪表（任务中心「高级别工单」子模块，2026-10-15）。
+
+    设计铁律：**只存跟踪态，不复制工单本体**。
+    标题/负责人/截止/状态等一律实时回读各来源表（services/task_center.py 的 collector），
+    本表仅承载「本地跟踪语义」：是否高级别、判定来源、人工锁定/提级/移除、
+    跟踪态流转、督办次数、首次/最近命中时间。
+
+    唯一锚点 (source, source_id)，与任务中心 task_id（`source:source_id`）同构：
+    key_work 子项 source_id 形如 `task-12` / `milestone-3`。
+
+    track_status 取值见 constants/status_registry.py::_HIGH_LEVEL_TRACK（域 key=high_level_track）。
+    """
+
+    __tablename__ = "pmwb_high_level_track"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    source = Column(String(32), nullable=False, comment="任务来源（schemas/task_center.TASK_SOURCES）")
+    source_id = Column(String(64), nullable=False, comment="源表主键/复合键（key_work 形如 task-12）")
+
+    is_high = Column(Integer, nullable=False, default=0, comment="当前是否高级别（规则+人工合成）")
+    judge_reason = Column(String(255), comment="判定来源：R1:P0 / R2:overdue:P2:12d / R3:inherit:.. / R4:lock")
+    level_code = Column(String(8), comment="命中级别码 P0/P1/P2")
+
+    manual_override = Column(String(16), comment="人工覆盖：lock 锁定 / escalate 提级 / dismiss 移出 / NULL 无")
+    track_status = Column(
+        String(32), nullable=False, default="open",
+        comment="跟踪态（见 status_registry: high_level_track）",
+    )
+
+    urge_count = Column(Integer, nullable=False, default=0, comment="累计督办次数")
+    last_urged_at = Column(DateTime, comment="最近一次督办时间")
+
+    first_seen_at = Column(DateTime, nullable=False, default=now_cn, comment="首次纳入时间")
+    last_seen_at = Column(DateTime, nullable=False, default=now_cn, comment="最近一次采集命中时间")
+    first_overdue_at = Column(Date, comment="首次超期日期（用于超期天数展示）")
+    resolved_at = Column(DateTime, comment="自动/人工闭环时间")
+    removed_at = Column(DateTime, comment="源工单消失/人工移出时间")
+
+    operator = Column(String(64), comment="最近操作人（留痕）")
+    created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        UniqueConstraint("source", "source_id", name="uk_hl_source"),
+        Index("idx_hl_pool", "is_high", "track_status"),
+        Index("idx_hl_status", "track_status"),
+        Index("idx_hl_seen", "last_seen_at"),
+        Index("idx_hl_override", "manual_override"),
+        {"comment": "高级别工单跟踪表（仅存跟踪态，不复制工单本体）"},
+    )

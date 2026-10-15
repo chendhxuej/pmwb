@@ -53,12 +53,17 @@ def list_tasks(
     keyword: Optional[str] = None,
     issue_type: Optional[str] = None,
     owners: Optional[str] = None,
+    priorities: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
     db=Depends(get_db),
 ):
-    """统一任务列表（来源/状态/超期/关键字/运营问题类型/负责人筛选 + 分页）。"""
+    """统一任务列表（来源/状态/超期/关键字/运营问题类型/负责人/级别筛选 + 分页）。
+
+    priorities：级别原值，多个逗号分隔（如 "P0,P1"），大小写不敏感。
+    """
     owner_list = [o.strip() for o in owners.split(",") if o.strip()] if owners else None
+    priority_list = [p.strip() for p in priorities.split(",") if p.strip()] if priorities else None
     data = task_center_service.get_tasks(
         db,
         source=source,
@@ -68,6 +73,7 @@ def list_tasks(
         keyword=keyword,
         issue_type=issue_type,
         owners=owner_list,
+        priorities=priority_list,
         page=page,
         page_size=page_size,
     )
