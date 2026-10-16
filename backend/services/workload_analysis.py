@@ -14,6 +14,9 @@
 5. workload=0 **不剔除**（与 vendor_dev 的"活跃厂家"口径刻意区分）：
    统计场景里 0 是合法评估值（"已评估，确认无需投入"），剔除会让需求凭空消失。
    需要按 vendor_dev 口径对比时用 `include_zero=false`。
+6. 默认区间：**未传 month_from/month_to 时锚定 `data_range`**（全库有 dev 记录的起止月，
+   不受 sa/system/keyword 筛选影响）；全库无 dev 记录才回退"近 12 个月"。
+   目的：避免默认"近 12 个月"而数据只有近 3 个月导致趋势图大面积空月。
 
 实现约束：
 - **月份分桶一律在 Python 侧做**（`entered_at.strftime('%Y-%m')`）。
@@ -88,8 +91,27 @@ def month_sequence(m_from: str, m_to: str) -> List[str]:
     return out
 
 
-def _default_range() -> tuple:
-    """默认近 12 个月（含当月）。"""
+def _data_range_from(months: List[Optional[str]]) -> Dict[str, Any]:
+    """由已有 dev 月份集合派生「数据区间」（前端首屏锚定用）。
+
+    ⚠ 月份字符串一律 Python 侧 strftime 产出，禁 func.date_format（测试库是 SQLite）。
+    """
+    ms = sorted({m for m in months if m})
+    if not ms:
+        return {"month_from": None, "month_to": None, "month_count": 0, "has_data": False}
+    return {
+        "month_from": ms[0],
+        "month_to": ms[-1],
+        "month_count": len(month_sequence(ms[0], ms[-1])),  # 跨度月数（含中间空月）
+        "has_data": True,
+    }
+
+
+def _default_range(months: List[Optional[str]] = None) -> tuple:
+    """默认区间：优先锚定 data_range（有 dev 记录的起止月）；无数据回退近 12 个月。"""
+    dr = _data_range_from(months or [])
+    if dr["has_data"]:
+        return dr["month_from"], dr["month_to"]
     today = now_cn().date()
     y, m = today.year, today.month - 11
     while m <= 0:
@@ -186,22 +208,28 @@ class WorkloadAnalysisService:
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
-        # 1) 月份区间校验 + 兜底
+        # 1) 月份区间校验（兜底推迟到 dev_map 就绪后，见 2.6）
         mf = _validate_month(month_from, "month_from")
         mt = _validate_month(month_to, "month_to")
         if mf and mt and mf > mt:
             raise ValidationException(f"month_from 不能晚于 month_to（{mf} > {mt}）")
-        if not mf and not mt:
-            mf, mt = _default_range()
-        elif not mf:
-            mf = mt
-        elif not mt:
-            mt = mf
 
         # 2) 数据源
         name_map = self._req_universe(db)
         dev_map = self._dev_months(db)
         eval_map = self._eval_buckets(db)
+
+        # 2.5) 数据区间：有 dev 记录的起止月（**全局**，不受 sa/system/keyword 筛选影响）
+        dev_months = [v.get("month") for v in dev_map.values()]
+        data_range = _data_range_from(dev_months)
+
+        # 2.6) 区间兜底：未传 → 锚定 data_range；只传一端 → 补成单月区间
+        if not mf and not mt:
+            mf, mt = _default_range(dev_months)
+        elif not mf:
+            mf = mt
+        elif not mt:
+            mt = mf
 
         kw = (req_keyword or "").strip().lower()
         sa_kw = (sa or "").strip()
@@ -355,6 +383,7 @@ class WorkloadAnalysisService:
 
         return {
             "generated_at": now_cn().isoformat(),
+            "data_range": data_range,
             "range": {"month_from": mf, "month_to": mt, "months": months_seq},
             "summary": {
                 "req_count": total_rows,

@@ -16,6 +16,9 @@ const props = defineProps({
   series: { type: Array, default: () => [] },
   stacked: { type: Boolean, default: false },
   height: { type: String, default: '300px' },
+  // ↓ 2026-10-16 新增，默认值 = 改造前行为（不影响既有调用方）
+  showLabel: { type: Boolean, default: false },
+  unit: { type: String, default: '' },
 })
 
 const chartOption = computed(() => {
@@ -28,6 +31,8 @@ const chartOption = computed(() => {
       axisPointer: { type: 'shadow' },
       backgroundColor: 'rgba(255,255,255,0.9)',
       borderColor: '#e4e7ed',
+      // unit 为空时保持 undefined（= 原行为）
+      valueFormatter: props.unit ? (v) => `${v}${props.unit}` : undefined,
     },
     legend: hasMultiSeries ? { data: props.series.map(s => s.name), bottom: 0 } : undefined,
     grid: { left: 40, right: 20, top: 20, bottom: hasMultiSeries ? 40 : 30 },
@@ -55,6 +60,14 @@ const chartOption = computed(() => {
           type: 'bar',
           data: props.data.map(d => d.value),
           barMaxWidth: 32,
+          // showLabel 为 false 时 label = undefined（= 原行为）
+          label: props.showLabel ? {
+            show: true,
+            position: 'top',
+            color: '#64748b',
+            fontSize: 11,
+            formatter: (p) => (p.value === null || p.value === undefined ? '' : `${p.value}${props.unit}`),
+          } : undefined,
           itemStyle: {
             borderRadius: [3, 3, 0, 0],
             color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#2f6fed' }, { offset: 1, color: '#6b9aff' }] },

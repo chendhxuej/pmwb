@@ -168,12 +168,23 @@ async function jfetch(url, opts) {
     }
 
     // 4. 邮件同步弹窗主题取首个关联文号
+    //    2026-10-16 UI 整改：表格「催办 / 同步」两个按钮合并进「督办 ▾」下拉菜单
     await page.evaluate(() => {
       const rows = [...document.querySelectorAll('.el-table__body-wrapper tbody tr')]
       const row = rows.find((r) => r.innerText.includes('E2E关联测试工单'))
-      const btn = [...row.querySelectorAll('.el-button')].find((b) => b.innerText.trim() === '同步')
+      const btn = [...row.querySelectorAll('.el-button')].find((b) => b.innerText.trim().startsWith('督办'))
       if (btn) btn.click()
     })
+    await sleep(700)
+    const openedSync = await page.evaluate(() => {
+      const items = [...document.querySelectorAll('.el-dropdown-menu__item')].filter(
+        (x) => x.offsetParent !== null,
+      )
+      const it = items.find((x) => x.innerText.trim() === '同步')
+      if (it) it.click()
+      return !!it
+    })
+    check('行内「督办」下拉含「同步」项', openedSync)
     await sleep(1500)
     const mailTitle = await page.evaluate(() => {
       const dlg = [...document.querySelectorAll('.el-dialog')].find((x) => x.offsetParent !== null)

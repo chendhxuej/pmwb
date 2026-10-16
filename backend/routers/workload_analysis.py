@@ -33,6 +33,9 @@ def get_workload_stats(
     """工作量统计（按月 / 按 SA / 按系统）。
 
     统计的**单一数据源**：汇总卡、趋势图、分桶表全部取本接口，前端禁止自己算。
+
+    未传 month_from/month_to 时，区间锚定 `data_range`（全库有 dev 记录的起止月），
+    避免默认"近 12 个月"而数据稀疏导致趋势图大面积空月。
     """
     data = workload_analysis_service.get_workload_stats(
         db=db,

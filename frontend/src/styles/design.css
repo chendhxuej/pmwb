@@ -75,7 +75,9 @@ body {
   box-shadow: var(--shadow-card) !important;
 }
 
-/* ── BENTO GRID ── */
+/* ── BENTO GRID ──
+   ★ 全局 12 栅格容器，消费方：HomeView.vue / WorkloadAnalysisPanel.vue。
+     改 gap / 列数需同时回归这两处。 */
 .bento-grid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
@@ -226,6 +228,205 @@ body {
 
 .kpi-trend.down {
   color: var(--danger);
+}
+
+/* ── PM 全局规范类（2026-10-16 新增 · 只新增不改旧） ──
+   前缀 pm-：与既有 .card / .kpi-* / .stat-* / .cat-* 互不干扰。
+   ★ 本轮仅 WorkloadAnalysisPanel 与「主动优化」tab 消费；
+     存量页面（首页/运营/待办/任务中心/需求tab/用户故事tab）不受影响。
+   ★ @media 块必须排在所有 .pm-stat-grid--* 之后；禁止用 inline style 设
+     --pm-stat-cols（inline 会压过 @media）。 */
+
+/* ── Bento 列宽类（用 class 而非 inline style，才能被 @media 降级） ── */
+.pm-span-full { grid-column: 1 / -1 }
+.pm-col-3  { grid-column: span 3 }
+.pm-col-4  { grid-column: span 4 }
+.pm-col-5  { grid-column: span 5 }
+.pm-col-6  { grid-column: span 6 }
+.pm-col-7  { grid-column: span 7 }
+.pm-col-8  { grid-column: span 8 }
+.pm-col-12 { grid-column: span 12 }
+
+/* ── 指标卡栅格容器 ── */
+.pm-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--pm-stat-cols, 4), minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+.pm-stat-grid--3 { --pm-stat-cols: 3 }
+.pm-stat-grid--4 { --pm-stat-cols: 4 }
+.pm-stat-grid--5 { --pm-stat-cols: 5 }
+.pm-stat-grid--6 { --pm-stat-cols: 6 }
+
+/* ── 指标卡本体（蓝本：TodoView .stat-tile / OperationView .cat-tile） ── */
+.pm-stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform var(--transition-fast),
+              box-shadow var(--transition-fast),
+              border-color var(--transition-fast);
+}
+.pm-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elevated);
+  border-color: var(--accent);
+}
+.pm-stat.is-clickable { cursor: pointer }
+.pm-stat.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.pm-stat__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pm-stat__label {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pm-stat__ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.pm-stat__val {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 28px;          /* = TodoView .stat-count，页面级指标卡尺度 */
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -.5px;
+  color: var(--text-primary);
+}
+.pm-stat__val.is-sm { font-size: 24px }
+.pm-stat__unit {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+.pm-stat__sub {
+  margin-top: -2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* tone 只驱动图标 chip；数字默认 text-primary，需强调时显式加 is-* */
+.pm-stat.tone-accent  .pm-stat__ico { background: var(--accent-soft);   color: var(--accent) }
+.pm-stat.tone-success .pm-stat__ico { background: var(--success-soft);  color: var(--success) }
+.pm-stat.tone-warning .pm-stat__ico { background: var(--warning-soft);  color: var(--warning) }
+.pm-stat.tone-danger  .pm-stat__ico { background: var(--danger-soft);   color: var(--danger) }
+.pm-stat.tone-violet  .pm-stat__ico { background: var(--violet-soft);   color: var(--violet) }
+.pm-stat.tone-muted   .pm-stat__ico { background: var(--border-subtle); color: var(--text-secondary) }
+.pm-stat__val.is-accent  { color: var(--accent) }
+.pm-stat__val.is-success { color: var(--success) }
+.pm-stat__val.is-warning { color: var(--warning) }
+.pm-stat__val.is-danger  { color: var(--danger) }
+.pm-stat__val.is-muted   { color: var(--text-muted) }
+
+/* ── 区块卡补充修饰（.card 本体不动） ── */
+.card.is-static:hover { transform: none; box-shadow: var(--shadow-card) }
+.card.is-flash { animation: pmFlash 1.2s ease }
+@keyframes pmFlash {
+  0%, 100% { box-shadow: var(--shadow-card) }
+  30%      { box-shadow: 0 0 0 3px var(--accent-soft) }
+}
+.pm-card-sub { margin-top: 4px; font-size: 11.5px; color: var(--text-muted) }
+
+/* ── 数据质量提示条（替代 el-alert：内嵌可点击 chip 与 Bento 节奏一致） ── */
+.pm-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.pm-notice.is-ok   { border-left-color: var(--success); background: var(--success-soft) }
+.pm-notice.is-info { border-left-color: var(--accent);  background: var(--accent-soft) }
+.pm-notice__ico { flex-shrink: 0; font-size: 15px; color: var(--warning) }
+.pm-notice.is-ok   .pm-notice__ico { color: var(--success) }
+.pm-notice.is-info .pm-notice__ico { color: var(--accent) }
+.pm-notice__text { min-width: 0 }
+.pm-notice__line { display: block }
+.pm-notice__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pm-notice__chip.is-link { color: var(--accent); border-color: var(--accent); cursor: pointer }
+.pm-notice__chip.is-link:hover { background: var(--accent-soft) }
+
+/* ── 统一表格（表头走 design token，替掉 EP 默认 #fafafa/12px） ──
+   注意：本文件是全局 CSS（非 SFC scoped），**禁用 :deep()**（浏览器会整条丢弃）。 */
+.pm-table .el-table__header th.el-table__cell {
+  background: var(--bg-app);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ── 响应式：1400 / 1100 / 960 三档（必须排在所有 .pm-stat-grid--* 之后） ── */
+@media (max-width: 1400px) {
+  .pm-stat-grid { gap: 12px }
+  .pm-stat { padding: 14px 16px }
+  .pm-stat__val { font-size: 26px }
+  .pm-stat__val.is-sm { font-size: 22px }
+}
+@media (max-width: 1100px) {
+  .pm-stat-grid,
+  .pm-stat-grid--3,
+  .pm-stat-grid--4,
+  .pm-stat-grid--5,
+  .pm-stat-grid--6 { --pm-stat-cols: 2 }
+  .pm-col-4, .pm-col-5, .pm-col-7, .pm-col-8 { grid-column: span 12 }
+}
+@media (max-width: 960px) {
+  .pm-stat-grid,
+  .pm-stat-grid--3,
+  .pm-stat-grid--4,
+  .pm-stat-grid--5,
+  .pm-stat-grid--6 { --pm-stat-cols: 1 }
+  .pm-col-3, .pm-col-6 { grid-column: span 12 }
 }
 
 /* ── STEP PERCH (步骤条) ── */

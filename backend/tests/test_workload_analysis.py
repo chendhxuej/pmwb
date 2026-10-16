@@ -244,3 +244,88 @@ def test_month_bucket_python_side(client, db):
     assert d["range"]["months"] == ["2026-08"]
     assert d["summary"]["workload_total"] == 10.0
     assert d["generated_at"].startswith("20")  # now_cn，禁 utcnow
+
+
+# ────────────────────────── 7. 数据区间 data_range（2026-10-16 新增） ──────────────────────────
+def test_data_range_anchors_default_range(client, db):
+    """不传区间时，默认区间锚定 data_range（全库有 dev 记录的起止月）。"""
+    for rid, when in (("A", datetime(2025, 3, 2, 9, 0)), ("B", datetime(2026, 10, 8, 9, 0))):
+        add_req(db, rid)
+        add_dev(db, rid, when)
+        add_eval(db, rid, sa_name="张三", workload=5)
+
+    d = stats(client)  # 刻意不传 month_from / month_to
+    assert d["data_range"]["has_data"] is True
+    assert d["data_range"]["month_from"] == "2025-03"
+    assert d["data_range"]["month_to"] == "2026-10"
+    assert d["data_range"]["month_count"] == 20  # 2025-03 ~ 2026-10 跨度（含空月）
+    assert d["range"]["month_from"] == "2025-03"  # 默认区间 = data_range
+    assert d["range"]["month_to"] == "2026-10"
+    assert d["summary"]["req_count"] == 2  # 两端需求都落在区间内
+
+
+def test_data_range_empty_db_fallback(client, db):
+    """全库无 dev 记录时 data_range.has_data=False，区间回退近 12 个月，且不 500。"""
+    add_req(db, "R1")  # 只有需求，无 dev 环节
+    add_eval(db, "R1", sa_name="张三", workload=10)
+
+    d = stats(client)
+    assert d["data_range"]["has_data"] is False
+    assert d["data_range"]["month_from"] is None
+    assert d["data_range"]["month_to"] is None
+    assert d["data_range"]["month_count"] == 0
+    assert len(d["range"]["months"]) == 12  # 回退近 12 个月
+    assert d["summary"]["req_count"] == 0
+    assert len(d["unmonth"]) == 1
+
+
+def test_data_range_ignores_filters(client, db):
+    """data_range 是数据集全局范围，不随 sa / system_name / req_keyword 筛选变化。"""
+    add_req(db, "A")
+    add_dev(db, "A", datetime(2025, 3, 2, 9, 0))
+    add_eval(db, "A", sa_name="张三", workload=5)
+    add_req(db, "B")
+    add_dev(db, "B", datetime(2026, 10, 8, 9, 0))
+    add_eval(db, "B", sa_name="李四", workload=7)
+
+    full = stats(client)
+    filtered = stats(client, sa="张三", req_keyword="A")
+
+    assert filtered["data_range"] == full["data_range"]  # 全局，不随筛选变
+    assert filtered["data_range"]["month_from"] == "2025-03"
+    assert filtered["summary"]["req_count"] == 1  # 但统计结果确实被筛掉一条
+
+
+def test_explicit_range_overrides_data_range(client, db):
+    """显式区间优先于 data_range；两者并存不互相覆盖。"""
+    add_req(db, "A")
+    add_dev(db, "A", datetime(2025, 3, 2, 9, 0))
+    add_eval(db, "A", sa_name="张三", workload=5)
+    add_req(db, "B")
+    add_dev(db, "B", datetime(2026, 10, 8, 9, 0))
+    add_eval(db, "B", sa_name="张三", workload=7)
+
+    d = stats(client, month_from="2026-01", month_to="2026-12")
+
+    assert d["range"]["month_from"] == "2026-01"  # 用显式值
+    assert d["range"]["month_to"] == "2026-12"
+    assert d["data_range"]["month_from"] == "2025-03"  # data_range 仍是全局值
+    assert d["data_range"]["month_to"] == "2026-10"
+    assert d["summary"]["req_count"] == 1  # 只剩 2026-10 那条
+
+
+def test_data_range_month_bucket_python_side(client, db):
+    """锁定实现约束：data_range 的月份必须 Python 侧 strftime 产出。
+
+    若有人改成 MySQL 专有的 func.date_format，SQLite 下会抛
+    OperationalError: no such function: date_format，本用例直接红。
+    """
+    add_req(db, "R1")
+    add_dev(db, "R1", datetime(2026, 8, 5, 10, 0))
+    add_eval(db, "R1", sa_name="张三", workload=10)
+
+    d = workload_analysis_service.get_workload_stats(db)  # 直接调 service，不传区间
+    assert d["data_range"]["month_from"] == "2026-08"
+    assert d["data_range"]["month_to"] == "2026-08"
+    assert d["data_range"]["month_count"] == 1
+    assert d["range"]["months"] == ["2026-08"]

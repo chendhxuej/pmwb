@@ -132,7 +132,7 @@
             <el-table-column label="操作" width="170" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openReqDialog(row)">编辑</el-button>
-                <el-dropdown @command="(cmd) => openSupervise(row, cmd)">
+                <el-dropdown trigger="click" @command="(cmd) => openSupervise(row, cmd)">
                   <el-button link type="warning" size="small">督办<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
@@ -364,7 +364,7 @@
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openActiveOptDetail(row)">详情</el-button>
                 <el-button link type="primary" size="small" @click.stop="openActiveOptDialog(row)">编辑</el-button>
-                <el-dropdown @command="(cmd) => openActiveOptMail(row, cmd)">
+                <el-dropdown trigger="click" @command="(cmd) => openActiveOptMail(row, cmd)">
                   <el-button link type="warning" size="small">督办<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
