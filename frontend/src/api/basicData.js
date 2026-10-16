@@ -47,6 +47,14 @@ export const basicDataApi = {
     return request.get('basic-data/role-options')
   },
 
+  // ── 系统别名映射（2026-10-16 新增）────────────────────────
+  // 三个 getter 全部走主后端 `/meta/*`：前端只有一条 /api 代理（指向 8000），
+  // 映射数据的最终真相源在人员中台，由 8000 侧转发。
+  // 实现见文件末尾的具名导出，这里只是对象风格入口（避免两份实现）。
+  getOrgTypeOptions: () => getOrgTypeOptions(),
+  getTargetSystemOptions: () => getTargetSystemOptions(),
+  getOrgMappingIndex: () => getOrgMappingIndex(),
+
   // 组织 CRUD
   listOrgs() {
     return request.get('basic-data/orgs')
@@ -97,6 +105,32 @@ export const basicDataApi = {
   batchSetDomain(data) {
     return request.post('basic-data/business-domains/batch-set-domain', data)
   },
+}
+
+// ---------------------------------------------------------------------------
+// 系统别名映射 · 具名导出
+//
+// 映射的**唯一真相源**在人员中台 pmwb_org（org_type / target_system_name / aliases），
+// 前端不落第二份。这里把实现放一份，basicDataApi 上的同名方法只是转发，
+// 保证 `import { getXxx }` 与 `basicDataApi.getXxx()` 两种写法行为一致。
+//
+// 三个端点统一走主后端 /meta/*（前端只有一条 /api 代理指向 8000）。
+// ---------------------------------------------------------------------------
+
+/** 组织类型合法值：system / department / branch */
+export function getOrgTypeOptions() {
+  return request.get('meta/org-type-options')
+}
+
+/** 「目标系统名」完整候选集 = 中台候选 ∪ 评估表历史 distinct ∪ sent_emails distinct。
+ *  后端返回 { options, degraded, master_count }，这里统一解包成 v-for 可直接用的数组。 */
+export function getTargetSystemOptions() {
+  return request.get('meta/target-system-options').then((d) => (Array.isArray(d) ? d : d?.options || []))
+}
+
+/** 全量映射索引（只读总览用），按 (sort, id) 升序 */
+export function getOrgMappingIndex() {
+  return request.get('meta/org-mapping-index').then((d) => (Array.isArray(d) ? d : d?.items || []))
 }
 
 // ---------------------------------------------------------------------------

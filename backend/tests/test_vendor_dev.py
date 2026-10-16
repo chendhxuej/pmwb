@@ -15,7 +15,6 @@ from db.models import (
     PmwbReqVendorDev,
     PmwbRequirementEvaluation,
     PmwbRequirementExt,
-    PmwbVendorTeam,
     SentEmail,
     now_cn,
 )
@@ -26,6 +25,25 @@ from services.vendor_dev import (
     update_vendor_dev,
     week_thursday,
 )
+from utils.master_service import master_service_client as _MC
+
+
+def _seed_org(name, **kw):
+    """播种一个人员中台组织（走被 patch 的 _request → 落到内存实现，不打 DB）。
+
+    ⚠ 播种后必须清缓存：主后端对映射索引有 60s TTL 缓存，否则本用例及后续用例
+      会读到播种前的空索引，导致「别名不生效」的假故障。
+    """
+    out = _MC.create_org({"name": name, **kw})
+    _MC.clear_cache()
+    return out
+
+
+def _org_id_by_name(name):
+    for o in _MC.list_orgs():
+        if o.get("name") == name:
+            return o["id"]
+    return None
 
 REQ = "REQ-VD-001"
 
@@ -146,17 +164,60 @@ def test_sync_unknown_vendor_not_matched(db):
 
 
 def test_resolve_vendor_system_alias_and_fuzzy(db):
-    """别名映射 + 系统名不统一兜底（如「电子协议系统」→「电子协议」）。"""
+    """别名映射 + 系统名不统一兜底（如「电子协议系统」→「电子协议」）。
+
+    映射来源已从本地字典 pmwb_vendor_team 换到**人员中台组织表**：
+      · 组织名精确命中   → matched_by = team
+      · aliases 精确命中 → matched_by = alias
+      · 都落空           → 退回第 4 级唯一包含匹配 contains
+    """
     _seed(db)
     _eval(db, "电子协议", 14.0)
     _eval(db, "CRM", 17.0)
-    db.add(PmwbVendorTeam(team_name="卓望", system_name="CRM", aliases="卓望团队,zw"))
-    db.commit()
+    # 中台组织：卓望（target=CRM，别名 卓望团队/zw）
+    _seed_org("卓望", org_type="system", target_system_name="CRM", aliases="卓望团队,zw")
 
     assert sync_from_plugin(db, {"code": REQ, "vendor": "卓望团队"})["matched_by"] == "alias"
     assert sync_from_plugin(db, {"code": REQ, "vendor": "卓望"})["matched_by"] == "team"
-    # 系统名不统一：唯一包含匹配
-    assert sync_from_plugin(db, {"code": REQ, "vendor": "电子协议系统"})["matched_by"] == "contains"
+    # 清理，避免影响其它用例（fake 是会话级内存态）
+    oid = _org_id_by_name("卓望")
+    if oid:
+        _MC.delete_org(oid, force=True)
+
+
+# ---------------------------------------------------------------------------
+# 二·B、降级演练：人员中台不可达
+# ---------------------------------------------------------------------------
+def test_master_unreachable_skips_team_and_alias_levels(db, monkeypatch):
+    """中台不可达 → 跳过 2/3 级（team/alias），只用 1/4 级。
+
+    降级纪律（铁律）：宁可少匹配让人工指定，**绝不**把「拿不到映射」当成
+    「空映射」静默放过 —— 那会把本该标黄的工单错误地算成已匹配。
+    """
+    _seed(db)
+    _eval(db, "电子协议", 14.0)
+    _eval(db, "CRM", 17.0)
+    _seed_org("卓望", org_type="system", target_system_name="CRM", aliases="卓望团队,zw")
+
+    monkeypatch.setattr(_MC, "org_mapping_index", lambda *a, **k: (None, True))
+    _MC.clear_cache()
+
+    from services.vendor_dev import _org_mapping, resolve_vendor_system
+
+    assert _org_mapping() == ([], True), "中台不可达时映射必须为空且显式标 degraded"
+
+    # 第 1 级（精确命中评估系统名）不受影响
+    assert resolve_vendor_system(db, REQ, "电子协议") == ("电子协议", "system")
+    # 第 2/3 级被跳过 → 必须落到 unmatched，绝不能静默命中
+    assert resolve_vendor_system(db, REQ, "卓望团队") == (None, "unmatched")
+    assert resolve_vendor_system(db, REQ, "卓望") == (None, "unmatched")
+    # 第 4 级（唯一包含兜底）仍可用
+    assert resolve_vendor_system(db, REQ, "电子协议系统") == ("电子协议", "contains")
+
+    oid = _org_id_by_name("卓望")
+    if oid:
+        _MC.delete_org(oid, force=True)
+    _MC.clear_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -318,18 +379,25 @@ def test_http_vendor_dev_endpoints(client: TestClient, db):
     assert r.json()["data"]["deleted"] is False   # 既有删除契约：不存在返 False
 
 
-def test_http_meta_vendor_teams(client: TestClient, db):
-    r = client.post("/api/v1/meta/vendor-teams",
-                    json={"team_name": "卓望", "system_name": "CRM", "aliases": "zw"})
+def test_http_meta_target_system_options(client: TestClient, db):
+    """配置下拉的唯一数据源：中台候选 ∪ 评估表历史 distinct ∪ sent_emails distinct。"""
+    _seed(db)
+    _eval(db, "CRM", 17.0)
+    r = client.get("/api/v1/meta/target-system-options")
     assert r.status_code == 200
-    tid = r.json()["data"]["id"]
+    body = r.json()
+    assert body["code"] == 0
+    data = body["data"]
+    assert isinstance(data["options"], list)
+    assert "CRM" in data["options"], f"候选集应含评估表历史值，实际 {data['options']}"
+    assert isinstance(data["degraded"], bool)
+    assert isinstance(data["master_count"], int)
 
-    r = client.post("/api/v1/meta/vendor-teams", json={"team_name": "卓望", "system_name": "CRM"})
-    assert r.status_code == 400, "team_name 唯一，重复应拒绝"
 
-    assert client.get("/api/v1/meta/vendor-teams").status_code == 200
-    assert client.put(f"/api/v1/meta/vendor-teams/{tid}", json={"aliases": "zw,卓望团队"}).status_code == 200
-    assert client.delete(f"/api/v1/meta/vendor-teams/{tid}").json()["data"]["deleted"] is True
+def test_http_vendor_team_dict_endpoints_removed(client: TestClient):
+    """旧本地字典端点已下线（映射改由人员中台维护）。"""
+    assert client.get("/api/v1/meta/vendor-teams").status_code == 404
+    assert client.get("/api/v1/plugins/vendor-teams").status_code == 404
 
 
 def test_http_plugin_workorder_sync(client: TestClient, db):
@@ -341,6 +409,45 @@ def test_http_plugin_workorder_sync(client: TestClient, db):
     assert body["success"] is True and body["dev_status"] == "live"
     # 扁平协议：插件直连，不套 code/data
     assert "code" not in body
+
+
+def test_http_meta_org_mapping_index(client: TestClient, db):
+    """只读映射总览（需求页弹窗用）：返回中台 system 类组织的三元组。"""
+    _seed_org("索引组织", org_type="system", target_system_name="CRM", aliases="idx,索")
+    r = client.get("/api/v1/meta/org-mapping-index")
+    assert r.status_code == 200
+    rows = r.json()["data"]
+    assert isinstance(rows, list)
+    hit = [x for x in rows if x.get("org_name") == "索引组织"]
+    assert hit, f"新播种组织未出现在映射索引，实际 {[x.get('org_name') for x in rows]}"
+    assert hit[0]["target_system_name"] == "CRM"
+    assert hit[0]["aliases"] == "idx,索"
+    assert hit[0]["org_type"] == "system"
+    oid = _org_id_by_name("索引组织")
+    if oid:
+        _MC.delete_org(oid, force=True)
+    _MC.clear_cache()
+
+
+def test_http_plugin_sync_survives_master_outage(client: TestClient, db, monkeypatch):
+    """中台挂掉时插件同步不得 500（插件侧零改动的前提），且不得伪造成已匹配。"""
+    _seed(db)
+    _eval(db, "CRM", 17.0)
+    monkeypatch.setattr(_MC, "org_mapping_index", lambda *a, **k: (None, True))
+    _MC.clear_cache()
+
+    r = client.post("/api/v1/plugins/workorder-sync", json={"code": REQ, "vendor": "CRM"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # 第 1 级仍命中，链路没被打断
+    assert body["success"] is True and body["matched_by"] == "system"
+
+    r2 = client.post("/api/v1/plugins/workorder-sync", json={"code": REQ, "vendor": "某个未知团队"})
+    assert r2.status_code == 200, r2.text
+    body2 = r2.json()
+    assert body2["success"] is False
+    assert body2["reason"] == "vendor_not_matched"
+    assert "matched_by" not in body2 or body2.get("matched_by") != "team"
 
 
 def test_http_status_domains_contains_vendor_dev(client: TestClient, db):

@@ -212,38 +212,9 @@ class PmwbReqManual(Base):
     )
 
 
-class PmwbVendorTeam(Base):
-    """厂家团队「别名映射」字典（2026-10-16 新增）。
-
-    注意：本表**不是**厂家团队的清单源头，只是归一化用的映射字典。
-    厂家清单的唯一真相源是「团队评估」中 workload > 0 的系统，见
-    ``services/vendor_dev.py::active_team_systems``。
-
-    team_name 是厂家团队名（如「卓望」），system_name 是其在团队评估中
-    对应的系统名（如「CRM」），aliases 收录工单标题里可能出现的其它写法，
-    用于把插件解析出的厂家名归一到 system_name。
-    """
-
-    __tablename__ = "pmwb_vendor_team"
-
-    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
-    team_name = Column(String(128), nullable=False, unique=True, comment="厂家团队名，如「卓望」")
-    system_name = Column(String(128), nullable=False, comment="对应团队评估中的系统名（关联键），如「CRM」")
-    aliases = Column(String(512), comment="工单标题中可能出现的别名，逗号分隔")
-    sort = Column(Integer, default=0, comment="排序")
-    enabled = Column(Integer, default=1, comment="是否启用 1/0")
-    created_at = Column(DateTime, default=now_cn, comment="创建时间")
-    updated_at = Column(
-        DateTime,
-        default=now_cn,
-        onupdate=now_cn,
-        comment="更新时间",
-    )
-
-    __table_args__ = (
-        Index("idx_vendor_team_system", "system_name"),
-        {"comment": "厂家团队别名映射字典"},
-    )
+# 注：PmwbVendorTeam（本地「厂家别名映射」字典）已于 2026-10-16 下线。
+#     映射改由**人员中台 pmwb_org** 的 org_type / target_system_name / aliases
+#     三列承载，维护入口：人员中台 → 组织管理。本地不再保留第二份字典。
 
 
 class PmwbReqVendorDev(Base):

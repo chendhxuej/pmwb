@@ -257,29 +257,51 @@
 
       <!-- ════════ 主动优化标签 ════════ -->
       <el-tab-pane label="主动优化" name="active_opt">
-        <div class="pm-table-wrap">
-          <div class="stat-cards">
-            <div class="stat-card">
-              <div class="stat-label">工单总数</div>
-              <div class="stat-num">{{ activeOptStats.total || 0 }}</div>
+        <!-- 统计卡：全局 .pm-stat 指标卡；提到 .pm-table-wrap 之外（消除"卡中卡"层级） -->
+        <div class="pm-stat-grid pm-stat-grid--5">
+          <div class="pm-stat tone-accent">
+            <div class="pm-stat__top">
+              <span class="pm-stat__label">工单总数</span>
+              <span class="pm-stat__ico"><el-icon><Tickets /></el-icon></span>
             </div>
-            <div class="stat-card">
-              <div class="stat-label">待评估</div>
-              <div class="stat-num" :class="{ warn: (activeOptStats.pending || 0) > 0 }">{{ activeOptStats.pending || 0 }}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">已采纳</div>
-              <div class="stat-num success">{{ activeOptStats.adopted || 0 }}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">不采纳</div>
-              <div class="stat-num muted">{{ activeOptStats.rejected || 0 }}</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">高优先级(P0/P1)</div>
-              <div class="stat-num danger">{{ (activeOptStats.p0 || 0) + (activeOptStats.p1 || 0) }}</div>
-            </div>
+            <div class="pm-stat__val">{{ activeOptStats.total || 0 }}<span class="pm-stat__unit">个</span></div>
+            <div class="pm-stat__sub">全部主动优化工单</div>
           </div>
+          <div class="pm-stat tone-warning">
+            <div class="pm-stat__top">
+              <span class="pm-stat__label">待评估</span>
+              <span class="pm-stat__ico"><el-icon><Clock /></el-icon></span>
+            </div>
+            <div class="pm-stat__val is-warning">{{ activeOptStats.pending || 0 }}<span class="pm-stat__unit">个</span></div>
+            <div class="pm-stat__sub">待业务管理员确认</div>
+          </div>
+          <div class="pm-stat tone-success">
+            <div class="pm-stat__top">
+              <span class="pm-stat__label">已采纳</span>
+              <span class="pm-stat__ico"><el-icon><CircleCheck /></el-icon></span>
+            </div>
+            <div class="pm-stat__val is-success">{{ activeOptStats.adopted || 0 }}<span class="pm-stat__unit">个</span></div>
+            <div class="pm-stat__sub">已转入需求流程</div>
+          </div>
+          <div class="pm-stat tone-muted">
+            <div class="pm-stat__top">
+              <span class="pm-stat__label">不采纳</span>
+              <span class="pm-stat__ico"><el-icon><CircleClose /></el-icon></span>
+            </div>
+            <div class="pm-stat__val is-muted">{{ activeOptStats.rejected || 0 }}<span class="pm-stat__unit">个</span></div>
+            <div class="pm-stat__sub">已评估并关闭</div>
+          </div>
+          <div class="pm-stat tone-danger">
+            <div class="pm-stat__top">
+              <span class="pm-stat__label">高优先级 (P0/P1)</span>
+              <span class="pm-stat__ico"><el-icon><WarningFilled /></el-icon></span>
+            </div>
+            <div class="pm-stat__val is-danger">{{ (activeOptStats.p0 || 0) + (activeOptStats.p1 || 0) }}<span class="pm-stat__unit">个</span></div>
+            <div class="pm-stat__sub">需优先排期</div>
+          </div>
+        </div>
+
+        <div class="pm-table-wrap" style="margin-top: 14px">
           <div class="table-toolbar">
             <EnlargeInput v-model="activeOptKeyword" placeholder="搜索标题 / 现状 / 建议 / 管理员 / 需求文号" style="width: 320px" clearable @keyup.enter="handleActiveOptSearch" @clear="handleActiveOptSearch">
               <template #prefix><el-icon><Search /></el-icon></template>
@@ -297,32 +319,32 @@
             </el-select>
             <el-button @click="loadActiveOpts"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
-          <el-table v-loading="activeOptLoading" :data="activeOpts" stripe scrollbar-always-on row-class-name="req-table" @row-click="openActiveOptDetail">
-            <el-table-column label="优先级" width="70" align="center">
+          <el-table v-loading="activeOptLoading" :data="activeOpts" class="req-table pm-table" stripe scrollbar-always-on @row-click="openActiveOptDetail">
+            <el-table-column label="优先级" width="72" align="center">
               <template #default="{ row }">
                 <el-tag size="small" :type="priorityType(row.priority)" effect="dark">{{ row.priority || 'P2' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="工单标题" min-width="150" show-overflow-tooltip>
+            <el-table-column label="工单标题" min-width="220" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="link-text" @click.stop="openActiveOptDetail(row)">{{ row.title || '（未命名）' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="现状描述" width="200" show-overflow-tooltip>
+            <el-table-column label="现状描述" width="170" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="text-muted" style="font-size: 12.5px">{{ row.current_situation || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="优化建议" width="200" show-overflow-tooltip>
+            <el-table-column label="优化建议" width="170" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="text-muted" style="font-size: 12.5px">{{ row.suggestion || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="admin_name" label="业务管理员" width="90" align="center" />
-            <el-table-column label="评估状态" width="88" align="center">
+            <el-table-column prop="admin_name" label="业务管理员" width="100" align="center" />
+            <el-table-column label="评估状态" width="96" align="center">
               <template #default="{ row }"><StatusBadge module="active_optimization" :value="row.status" /></template>
             </el-table-column>
-            <el-table-column label="关联需求" width="190" align="center">
+            <el-table-column label="关联需求" width="200" align="center">
               <template #default="{ row }">
                 <ReqLinkTags
                   v-if="optReqIds(row).length"
@@ -333,17 +355,24 @@
                 <span v-else class="text-muted">—</span>
               </template>
             </el-table-column>
-            <el-table-column label="创建时间" width="100" align="center">
+            <el-table-column label="创建时间" width="112" align="center">
               <template #default="{ row }">
-                <span class="text-muted">{{ formatDate(row.created_at) }}</span>
+                <span class="text-muted" style="white-space: nowrap">{{ formatDate(row.created_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="230" align="center" fixed="right">
+            <el-table-column label="操作" width="190" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openActiveOptDetail(row)">详情</el-button>
                 <el-button link type="primary" size="small" @click.stop="openActiveOptDialog(row)">编辑</el-button>
-                <el-button link type="warning" size="small" @click.stop="openActiveOptMail(row, 'urge')">催办</el-button>
-                <el-button link type="info" size="small" @click.stop="openActiveOptMail(row, 'sync')">同步</el-button>
+                <el-dropdown @command="(cmd) => openActiveOptMail(row, cmd)">
+                  <el-button link type="warning" size="small">督办<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="urge">催办</el-dropdown-item>
+                      <el-dropdown-item command="sync">同步</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
                 <el-button link type="danger" size="small" @click.stop="removeActiveOpt(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -991,7 +1020,9 @@
               <div class="card-header flex-between">
                 <span class="card-label">厂家开发状态（按团队评估 · 工作量 &gt; 0 人天）</span>
                 <div class="flex gap-8">
-                  <el-button size="small" @click="openVendorTeamDlg">厂家别名映射</el-button>
+                  <el-button size="small" @click="openVendorMappingDlg">
+                    系统别名映射（去人员中台维护）
+                  </el-button>
                 </div>
               </div>
               <div class="card-body">
@@ -1048,32 +1079,55 @@
           </div>
         </div>
 
-        <!-- ───── 厂家团队别名映射字典 ───── -->
-        <el-dialog v-model="vendorTeamDlg" title="厂家团队「别名映射」字典" width="720px">
+        <!-- ───── 系统别名映射 · 只读总览 ─────
+             维护入口已迁至「人员中台 → 组织管理」，本弹窗只做只读展示，
+             避免同一份配置出现两个可写入口（双写漂移）。 -->
+        <el-dialog v-model="vendorMappingDlg" title="系统别名映射（只读）" width="780px">
           <div class="hint-text mb-12">
-            用于把工单标题里的厂家名 / 系统别名归一到团队评估的系统名。
-            <b>本字典不是厂家清单的源头</b>，厂家清单始终由「团队评估工作量 &gt; 0 人天」实时派生。
+            展示人员中台里各组织（团队）与公司工单列表「系统名称」的对应关系。
+            <b>本映射不是厂家清单的源头</b>，厂家清单始终由「团队评估工作量 &gt; 0 人天」实时派生。
           </div>
-          <el-table :data="vendorTeams" v-loading="vendorTeamLoading" size="small" border max-height="260">
-            <el-table-column prop="team_name" label="厂家团队名" width="150" />
-            <el-table-column prop="system_name" label="对应系统名" width="150" />
-            <el-table-column prop="aliases" label="别名（逗号分隔）" min-width="180" />
-            <el-table-column label="操作" width="120">
+          <el-alert
+            v-if="vendorMappingDegraded"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="人员中台不可达，当前无法读取映射配置（已降级为只按团队评估匹配）"
+            class="mb-12"
+          />
+          <el-table :data="vendorMapping" v-loading="vendorMappingLoading" size="small" border max-height="300">
+            <el-table-column prop="org_name" label="组织 / 团队" width="150" />
+            <el-table-column label="类型" width="90">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="editVendorTeam(row)">编辑</el-button>
-                <el-button link type="danger" size="small" @click="removeVendorTeam(row)">删除</el-button>
+                <el-tag
+                  size="small"
+                  :type="row.org_type === 'system' ? 'success' : 'info'"
+                >
+                  {{ ORG_TYPE_LABELS[row.org_type] || row.org_type }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="目标系统名" width="160">
+              <template #default="{ row }">
+                <b>{{ row.target_system_name || row.org_name }}</b>
+                <el-tag v-if="!row.target_system_name" size="small" type="info" style="margin-left:6px">
+                  映射到自身
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="aliases" label="别名（逗号分隔）" min-width="180">
+              <template #default="{ row }">
+                {{ row.aliases || '—' }}
               </template>
             </el-table-column>
           </el-table>
-          <div class="flex gap-8 mt-12">
-            <el-input v-model="vendorTeamForm.team_name" placeholder="厂家团队名，如 卓望" size="small" style="width:180px" />
-            <el-input v-model="vendorTeamForm.system_name" placeholder="对应系统名，如 CRM" size="small" style="width:180px" />
-            <el-input v-model="vendorTeamForm.aliases" placeholder="别名，逗号分隔" size="small" style="flex:1" />
-            <el-button size="small" type="primary" @click="saveVendorTeam">
-              {{ vendorTeamForm.id ? '保存修改' : '新增' }}
-            </el-button>
-            <el-button size="small" @click="resetVendorTeamForm">清空</el-button>
+          <div class="hint-text mt-12">
+            维护请前往「人员中台 → 组织管理」，在组织行上配置「目标系统名 / 别名」。
           </div>
+          <template #footer>
+            <el-button @click="vendorMappingDlg = false">关闭</el-button>
+            <el-button type="primary" @click="gotoOrgManage">去人员中台维护</el-button>
+          </template>
         </el-dialog>
 
         <!-- ───── 知识沉淀 ───── -->
@@ -1401,8 +1455,9 @@ import {
 } from '@/api/requirement'
 import {
   listVendorDevs, createVendorDev, updateVendorDev, deleteVendorDev,
-  listVendorTeams, createVendorTeam, updateVendorTeam, deleteVendorTeam,
 } from '@/api/vendorDev.js'
+// 系统别名映射的只读数据源（维护入口在人员中台）
+import { getOrgMappingIndex, getTargetSystemOptions } from '@/api/basicData.js'
 import { domainStatuses, getStatusMeta } from '@/constants/statusConfig.js'
 import {
   getActiveOptimizations, getActiveOptimizationStats, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
@@ -1965,7 +2020,6 @@ const VENDOR_DEV_DOMAIN = 'vendor_dev'
 const vendorDevs = ref([])
 const vendorDevMeta = ref({ active_count: 0, total: 0, hint: '' })
 const vendorDevLoading = ref(false)
-const vendorTeams = ref([])
 
 function vendorStatusLabel(v) {
   return getStatusMeta(VENDOR_DEV_DOMAIN, v == null ? '' : String(v)).label
@@ -2039,68 +2093,41 @@ async function onDeleteVendorDev(vd) {
   await loadVendorDevs(current.value.req_id)
 }
 
-/* ── 厂家团队「别名映射」字典维护 ── */
-const vendorTeamDlg = ref(false)
-const vendorTeamForm = ref({ id: null, team_name: '', system_name: '', aliases: '' })
-const vendorTeamLoading = ref(false)
+/* ── 系统别名映射 · 只读总览 ──
+   映射的**维护入口**在人员中台（/basic-data → 组织管理），此处仅只读展示，
+   原因是避免同一份配置出现两个可写入口（双写漂移）。 */
+const vendorMappingDlg = ref(false)
+const vendorMapping = ref([])
+const vendorMappingDegraded = ref(false)
+const vendorMappingLoading = ref(false)
 
-async function openVendorTeamDlg() {
-  vendorTeamLoading.value = true
-  vendorTeamDlg.value = true
+/** 组织类型 → 中文标签（展示用；取值域真相源在人员中台 org-type-options） */
+const ORG_TYPE_LABELS = {
+  system: '系统',
+  department: '部门',
+  branch: '分公司',
+}
+
+async function openVendorMappingDlg() {
+  vendorMappingLoading.value = true
+  vendorMappingDlg.value = true
   try {
-    vendorTeams.value = (await listVendorTeams()) || []
+    const res = await getOrgMappingIndex()
+    vendorMapping.value = Array.isArray(res) ? res : res?.items || []
+    vendorMappingDegraded.value = false
+  } catch (e) {
+    // 人员中台不可达：降级为空列表，避免弹窗一直转圈，前端另有告警提示
+    vendorMapping.value = []
+    vendorMappingDegraded.value = true
   } finally {
-    vendorTeamLoading.value = false
+    vendorMappingLoading.value = false
   }
 }
 
-function resetVendorTeamForm() {
-  vendorTeamForm.value = { id: null, team_name: '', system_name: '', aliases: '' }
-}
-
-async function saveVendorTeam() {
-  const f = vendorTeamForm.value
-  if (!f.team_name || !f.system_name) {
-    ElMessage.warning('厂家团队名与对应系统名均为必填')
-    return
-  }
-  try {
-    const payload = {
-      team_name: f.team_name,
-      system_name: f.system_name,
-      aliases: f.aliases,
-    }
-    if (f.id) await updateVendorTeam(f.id, payload)
-    else await createVendorTeam(payload)
-    ElMessage.success(f.id ? '已更新' : '已新增')
-    resetVendorTeamForm()
-    vendorTeams.value = (await listVendorTeams()) || []
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || e?.message || '保存失败')
-  }
-}
-
-function editVendorTeam(t) {
-  vendorTeamForm.value = {
-    id: t.id,
-    team_name: t.team_name,
-    system_name: t.system_name,
-    aliases: t.aliases || '',
-  }
-}
-
-async function removeVendorTeam(t) {
-  try {
-    await ElMessageBox.confirm(`删除映射「${t.team_name} → ${t.system_name}」？`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-    })
-  } catch (e) {
-    return
-  }
-  await deleteVendorTeam(t.id)
-  vendorTeams.value = (await listVendorTeams()) || []
+/** 跳转到人员中台 → 组织管理 Tab（映射的唯一维护入口） */
+function gotoOrgManage() {
+  vendorMappingDlg.value = false
+  router.push({ path: '/basic-data', query: { tab: 'org' } })
 }
 
 /* ── 接口规范文档（按系统） ── */

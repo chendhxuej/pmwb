@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
 from core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# 组织映射类数据的进程内缓存时长（秒）。
+# 理由：插件厂商同步是高频路径，每次都打 8001 会拖慢；而这类配置变更极少且不要求秒级生效。
+ORG_MAP_CACHE_TTL = 60.0
 
 
 class MasterServiceClient:
@@ -20,6 +25,34 @@ class MasterServiceClient:
     def __init__(self, base_url: str = ""):
         self.base_url = base_url or settings.MASTER_SERVICE_URL.rstrip("/")
         self._client: Optional[httpx.Client] = None
+        self._cache: Dict[str, Tuple[float, Any]] = {}
+
+    def clear_cache(self) -> None:
+        """清空进程内缓存（测试与「改完立刻生效」场景用）。"""
+        self._cache.clear()
+
+    def _cached(self, key: str, loader) -> Tuple[Any, bool]:
+        """带 TTL 的进程内缓存。
+
+        约定：loader 成功返回非 None 值，失败返回 None。
+        返回 (值, degraded)：
+          · (值, False)  —— 新鲜值
+          · (值, True)   —— 陈旧值兜底（中台不可达）
+          · (None, True) —— 彻底取不到，调用方按「中台不可达」降级
+        **只有成功才写缓存**，避免把失败态固化住。
+        """
+        now = time.time()
+        hit = self._cache.get(key)
+        if hit and hit[0] > now:
+            return hit[1], False
+        value = loader()
+        if value is not None:
+            self._cache[key] = (now + ORG_MAP_CACHE_TTL, value)
+            return value, False
+        if hit:
+            logger.warning("Master 取 %s 失败，回退陈旧缓存（degraded）", key)
+            return hit[1], True
+        return None, True
 
     @property
     def client(self) -> httpx.Client:
@@ -75,9 +108,49 @@ class MasterServiceClient:
         r = self._request("PUT", f"/api/v1/basic-data/orgs/{org_id}", json=data)
         return r["data"] if r["ok"] else None
 
-    def delete_org(self, org_id: int) -> bool:
-        r = self._request("DELETE", f"/api/v1/basic-data/orgs/{org_id}")
+    def delete_org(self, org_id: int, force: bool = False) -> bool:
+        path = f"/api/v1/basic-data/orgs/{org_id}"
+        if force:
+            path += "?force=true"
+        r = self._request("DELETE", path)
         return r["ok"]
+
+    # ------------------------------------------------------------------
+    # 系统别名映射（组织 → 外部工单系统名）
+    #
+    # 口径铁律（与人员中台一致，主后端**不做第二份判定**）：
+    #   · 映射的唯一真相源在人员中台 pmwb_org（org_type / target_system_name / aliases）
+    #   · target_system_name 为空 = 映射到自身组织名
+    #   · 多个组织填同一个 target = 多对一；主组织 = 按 (sort, id) 升序第一条
+    # ------------------------------------------------------------------
+    def org_type_options(self) -> List[str]:
+        """组织类型合法值。**取值域唯一真相源在中台**，禁止本地硬编码。"""
+        r = self._request("GET", "/api/v1/basic-data/org-type-options")
+        return r["data"] if r["ok"] else []
+
+    def target_system_options(self) -> Tuple[List[str], bool]:
+        """中台侧「目标系统名」候选集。返回 (候选集, degraded)。"""
+        def load():
+            r = self._request("GET", "/api/v1/basic-data/target-system-options")
+            return r["data"] if r["ok"] else None
+
+        data, degraded = self._cached("target_system_options", load)
+        return data or [], degraded
+
+    def org_mapping_index(self) -> Tuple[Optional[List[dict]], bool]:
+        """全量映射索引，按 (sort, id) 升序。返回 (索引, degraded)。
+
+        None 表示「中台不可达」，调用方必须按降级处理（跳过依赖索引的匹配层级），
+        **绝不静默当成空映射**（那会把本该匹配的工单判成 unmatched）。
+        """
+        def load():
+            r = self._request("GET", "/api/v1/basic-data/org-mapping-index")
+            return r["data"] if r["ok"] else None
+
+        data, degraded = self._cached("org_mapping_index", load)
+        if data is None:
+            return None, True
+        return data, degraded
 
     # ------------------------------------------------------------------
     # 人员

@@ -39,8 +39,40 @@
             row-key="id"
             :empty-text="'暂无组织'"
           >
-            <el-table-column prop="name" label="组织名称" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="name" label="组织名称" min-width="170">
+              <template #default="{ row }">
+                <div class="pc-org-cell">
+                  <span class="pc-org-title">{{ row.name }}</span>
+                  <el-button link type="primary" size="small" class="pc-org-maplink" @click="openOrgMapping(row)">
+                    <el-icon><Connection /></el-icon><span>配置映射管理</span>
+                  </el-button>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="org_type" label="组织类型" width="92" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain" :type="orgTypeTone(row.org_type)">
+                  {{ orgTypeLabel(row.org_type) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="目标系统名" width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                <el-tag v-if="row.target_system_name" size="small" type="success" effect="light">
+                  {{ row.target_system_name }}
+                </el-tag>
+                <span v-else class="pc-muted" :title="`未配置，映射到自身：${row.name}`">自身</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="系统别名" min-width="150">
+              <template #default="{ row }">
+                <div v-if="orgAliasList(row).length" class="pc-alias-wrap">
+                  <el-tag v-for="a in orgAliasList(row)" :key="a" size="small" type="info" effect="plain">{{ a }}</el-tag>
+                </div>
+                <span v-else class="pc-muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="description" label="描述" min-width="140" show-overflow-tooltip />
             <el-table-column prop="source_trace" label="数据来源" width="100" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.source_trace" size="small" type="info" effect="plain">{{ row.source_trace }}</el-tag>
@@ -210,13 +242,49 @@
     </el-tabs>
 
     <!-- 组织编辑弹窗 -->
-    <el-dialog v-model="orgDialogVisible" :title="orgForm.id ? '编辑组织' : '新增组织'" width="480px" append-to-body>
-      <el-form :model="orgForm" label-width="72px">
+    <el-dialog v-model="orgDialogVisible" :title="orgForm.id ? '编辑组织' : '新增组织'" width="560px" append-to-body>
+      <el-form :model="orgForm" label-width="88px">
         <el-form-item label="名称" required>
           <el-input v-model="orgForm.name" placeholder="如：政企业务部" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="orgForm.description" type="textarea" :rows="2" placeholder="选填，组织用途说明" />
+        </el-form-item>
+        <el-divider content-position="left" class="pc-divider">
+          <span class="pc-divider-text">配置映射管理（工单识别用）</span>
+        </el-divider>
+        <el-form-item label="组织类型">
+          <el-select v-model="orgForm.org_type" style="width: 100%">
+            <el-option v-for="t in orgTypeOptions" :key="t" :label="orgTypeLabel(t)" :value="t" />
+          </el-select>
+          <div class="pc-hint">
+            system=按系统名识别厂家；department/branch=普通组织，不参与工单归一
+          </div>
+        </el-form-item>
+        <el-form-item label="目标系统名">
+          <el-select
+            v-model="orgForm.target_system_name"
+            placeholder="不配置＝映射到自身名称"
+            filterable
+            clearable
+            style="width: 100%"
+          >
+            <el-option v-for="s in targetSystemOptions" :key="s" :label="s" :value="s" />
+          </el-select>
+          <div class="pc-hint">
+            多个组织填同一个系统名＝多对一归一（如 政企工作台/电子协议 → 订单中心）
+          </div>
+        </el-form-item>
+        <el-form-item label="系统别名">
+          <el-input
+            v-model="orgForm.aliases"
+            type="textarea"
+            :rows="2"
+            placeholder="半角逗号分隔，如：电子协议系统,电子协议"
+          />
+          <div class="pc-hint">
+            工单标题里可能出现的写法；精确比对，不按子串模糊匹配
+          </div>
         </el-form-item>
         <el-form-item label="排序号">
           <el-input-number v-model="orgForm.sort" :min="0" :step="1" style="width: 100%" />
@@ -306,12 +374,52 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Download, Upload, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Upload, Edit, Delete, Connection } from '@element-plus/icons-vue'
 import { basicDataApi, refreshStaffOptions } from '@/api/basicData.js'
 
+const route = useRoute()
 const activeTab = ref('org')
 const fileInput = ref(null)
+
+// ── 映射配置候选项 ────────────────────────────────────────────
+// org_type 取值域的唯一真相源在人员中台 GET /basic-data/org-type-options；
+// 目标系统名候选集走主后端 GET /meta/target-system-options（含历史表 distinct，
+// 历史表在 yxtyg_db，中台读不到）。两处失败都静默降级，不阻塞页面。
+const orgTypeOptions = ref(['system', 'department', 'branch'])
+const targetSystemOptions = ref([])
+
+const ORG_TYPE_LABELS = { system: '系统', department: '部门', branch: '分公司' }
+const ORG_TYPE_TONES = { system: 'primary', department: 'info', branch: 'warning' }
+
+function orgTypeLabel(type) {
+  return ORG_TYPE_LABELS[type] || ORG_TYPE_LABELS.department
+}
+function orgTypeTone(type) {
+  return ORG_TYPE_TONES[type] || 'info'
+}
+function orgAliasList(org) {
+  return String(org?.aliases || '')
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+async function loadMappingOptions() {
+  try {
+    const types = await basicDataApi.getOrgTypeOptions()
+    if (Array.isArray(types) && types.length) orgTypeOptions.value = types
+  } catch {
+    /* 中台不可达：沿用内置兜底取值，不阻塞页面 */
+  }
+  try {
+    const systems = await basicDataApi.getTargetSystemOptions()
+    if (Array.isArray(systems)) targetSystemOptions.value = systems
+  } catch {
+    /* 同上：下拉为空时仍可清空/不配置 */
+  }
+}
 
 // ── 通用工具 ──
 function _fmtTime(ts) {
@@ -331,7 +439,16 @@ const orgs = ref([])
 const orgLoading = ref(false)
 const orgKeyword = ref('')
 const orgDialogVisible = ref(false)
-const orgForm = reactive({ id: null, name: '', description: '', sort: 0, enabled: true })
+const orgForm = reactive({
+  id: null,
+  name: '',
+  description: '',
+  sort: 0,
+  enabled: true,
+  org_type: 'department',
+  target_system_name: '',
+  aliases: '',
+})
 
 const filteredOrgs = computed(() => {
   const kw = orgKeyword.value.trim().toLowerCase()
@@ -352,7 +469,16 @@ async function loadOrgs() {
 }
 
 function openOrgCreate() {
-  Object.assign(orgForm, { id: null, name: '', description: '', sort: orgs.value.length, enabled: true })
+  Object.assign(orgForm, {
+    id: null,
+    name: '',
+    description: '',
+    sort: orgs.value.length,
+    enabled: true,
+    org_type: 'department',
+    target_system_name: '',
+    aliases: '',
+  })
   orgDialogVisible.value = true
 }
 function openOrgEdit(org) {
@@ -362,8 +488,16 @@ function openOrgEdit(org) {
     description: org.description || '',
     sort: org.sort || 0,
     enabled: org.enabled,
+    org_type: org.org_type || 'department',
+    target_system_name: org.target_system_name || '',
+    aliases: org.aliases || '',
   })
   orgDialogVisible.value = true
+}
+// 「配置映射管理」入口（组织名称后面的链接）：映射三字段与编辑表单同源，
+// 不另起一套弹窗，避免两处维护同一份数据。
+function openOrgMapping(org) {
+  openOrgEdit(org)
 }
 async function submitOrg() {
   if (!orgForm.name.trim()) {
@@ -376,6 +510,10 @@ async function submitOrg() {
       description: orgForm.description || null,
       sort: orgForm.sort,
       enabled: orgForm.enabled,
+      // 映射三字段：空值＝不配置（target 为空则映射到自身 name）
+      org_type: orgForm.org_type || 'department',
+      target_system_name: orgForm.target_system_name || null,
+      aliases: orgForm.aliases || null,
     }
     if (orgForm.id) {
       await basicDataApi.updateOrg(orgForm.id, payload)
@@ -644,7 +782,11 @@ watch(activeTab, (tab) => {
 })
 
 onMounted(() => {
+  // 深链定位：/basic-data?tab=org|role|staff（需求页「系统别名映射」跳到这里）
+  const tab = String(route?.query?.tab || '').trim()
+  if (['org', 'role', 'staff'].includes(tab)) activeTab.value = tab
   loadOrgs()
+  loadMappingOptions()
 })
 </script>
 
@@ -709,5 +851,43 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
   color: #6b7280;
   font-size: 12px;
+}
+/* 组织名称单元格：名称 + 「配置映射管理」入口 */
+.pc-org-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pc-org-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-org-maplink {
+  flex: 0 0 auto;
+  padding: 0;
+  height: auto;
+  font-size: 12px;
+}
+.pc-alias-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pc-divider {
+  margin: 4px 0 18px;
+}
+.pc-divider-text {
+  font-size: 12px;
+  color: #6b7280;
+}
+.pc-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a94a6;
 }
 </style>

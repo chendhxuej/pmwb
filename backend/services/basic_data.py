@@ -42,8 +42,27 @@ class BasicDataService:
     def update_org(self, db: Session, org_id: int, data: dict) -> Optional[dict]:
         return master_service_client.update_org(org_id, data)
 
-    def delete_org(self, db: Session, org_id: int) -> bool:
-        return master_service_client.delete_org(org_id)
+    def delete_org(self, db: Session, org_id: int, force: bool = False) -> bool:
+        return master_service_client.delete_org(org_id, force=force)
+
+    # ------------------------------------------------------------------
+    # 系统别名映射（代理到人员中台 pmwb_org 的同名列）
+    # 口径与人员中台一致：target_system_name 为空 = 映射到自身；多组织同 target = 多对一。
+    # 主后端**不做第二份判定**，只透传。
+    # ------------------------------------------------------------------
+    def org_type_options(self, db: Session = None) -> List[str]:
+        """组织类型合法值（system/department/branch）—— 取值域唯一真相源在中台。"""
+        return master_service_client.org_type_options()
+
+    def target_system_options(self, db: Session = None) -> List[str]:
+        """中台侧目标系统名候选集（不含 PMWB 历史表，完整版见 status_meta 路由）。"""
+        options, _degraded = master_service_client.target_system_options()
+        return options
+
+    def org_mapping_index(self, db: Session = None) -> List[dict]:
+        """全量映射索引，按 (sort, id) 升序；中台不可达时返回空列表。"""
+        index, _degraded = master_service_client.org_mapping_index()
+        return index or []
 
     # ------------------------------------------------------------------
     # 角色/身份定义

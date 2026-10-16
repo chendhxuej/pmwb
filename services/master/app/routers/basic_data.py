@@ -28,7 +28,7 @@ from schemas.basic_data import (
     StaffOut,
     StaffUpdate,
 )
-from services.basic_data import TEMPLATE_COLUMNS, basic_data_service
+from services.basic_data import ORG_TYPES, TEMPLATE_COLUMNS, basic_data_service
 
 router = APIRouter(prefix="/basic-data", tags=["人员主数据"])
 
@@ -58,6 +58,31 @@ def role_options(db: Session = Depends(get_db)):
     """返回启用的身份名称列表（用于选人组件的身份下拉）。"""
     options = basic_data_service.role_options(db)
     return success(data=[RoleOption(**o).model_dump() for o in options])
+
+
+@router.get("/org-type-options")
+def org_type_options():
+    """返回组织类型合法值。**这是 org_type 取值域的唯一真相源**，主后端与前端都从这里取。"""
+    return success(data=list(ORG_TYPES))
+
+
+@router.get("/target-system-options")
+def target_system_options(db: Session = Depends(get_db)):
+    """中台侧「目标系统名」候选集（system 类组织的有效目标名去重）。
+
+    注意这只是**中台那一份**。含 PMWB 历史表 distinct 的完整候选集在主后端
+    GET /api/v1/meta/target-system-options —— 历史表在 yxtyg_db，本服务读不到且不应跨库。
+    """
+    return success(data=basic_data_service.target_system_options(db))
+
+
+@router.get("/org-mapping-index")
+def org_mapping_index(db: Session = Depends(get_db)):
+    """全量映射索引（system 类且启用），按 (sort, id) 升序 —— 第一条命中即「主组织」。
+
+    供主后端一次拉全后在内存里做标题归一匹配，避免 N 次请求。
+    """
+    return success(data=basic_data_service.org_mapping_index(db))
 
 
 # ---------------------------------------------------------------------------
@@ -116,12 +141,22 @@ def update_org(org_id: int, obj_in: OrgUpdate, db: Session = Depends(get_db)):
     obj = basic_data_service.update_org(db, org_id, obj_in.model_dump(exclude_unset=True))
     if not obj:
         raise NotFoundException(f"组织不存在：id={org_id}")
-    return success(data=OrgOut.model_validate(obj).model_dump(), message="组织已更新")
+    # 目标系统更名时，中台级联刷其它组织的 target_system_name，这里告知前端刷了几行
+    cascade = getattr(obj, "cascade_updated", 0) or 0
+    msg = f"组织已更新" + (f"（同步刷新 {cascade} 条映射引用）" if cascade else "")
+    return success(data=OrgOut.model_validate(obj).model_dump(), message=msg)
 
 
 @router.delete("/orgs/{org_id}")
-def delete_org(org_id: int, db: Session = Depends(get_db)):
-    ok = basic_data_service.delete_org(db, org_id)
+def delete_org(
+    org_id: int,
+    force: bool = Query(False, description="true=连同成员强制删除（原行为）"),
+    db: Session = Depends(get_db),
+):
+    """删除组织。默认在下述两种情况下**拒绝**（安全侧）：
+    ① 组织下还有成员；② 该组织正被其它组织映射为目标系统。需两者都不成立才允许删。
+    """
+    ok = basic_data_service.delete_org(db, org_id, force=force)
     if not ok:
         raise NotFoundException(f"组织不存在：id={org_id}")
     return success(data={"deleted": True}, message="组织已删除")

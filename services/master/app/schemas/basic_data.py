@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +39,11 @@ class OrgCreate(BaseModel):
     sort: Optional[int] = 0
     enabled: Optional[bool] = True
     source_trace: Optional[str] = "manual"
+    # ── 系统别名映射（2026-10-16 扩展）────────────────────────
+    # 长度与数据库 String(n) 对齐，让超长在 422 层就被挡住而不是 500
+    org_type: Optional[str] = Field(default=None, max_length=32)
+    target_system_name: Optional[str] = Field(default=None, max_length=128)
+    aliases: Optional[str] = Field(default=None, max_length=512)
 
 
 class OrgUpdate(BaseModel):
@@ -46,6 +51,9 @@ class OrgUpdate(BaseModel):
     description: Optional[str] = None
     sort: Optional[int] = None
     enabled: Optional[bool] = None
+    org_type: Optional[str] = Field(default=None, max_length=32)
+    target_system_name: Optional[str] = Field(default=None, max_length=128)
+    aliases: Optional[str] = Field(default=None, max_length=512)
 
 
 class OrgOut(BaseModel):
@@ -59,6 +67,9 @@ class OrgOut(BaseModel):
     source_trace: Optional[str] = None
     created_at: Optional[datetime] = None
     staff_count: Optional[int] = 0
+    org_type: Optional[str] = None
+    target_system_name: Optional[str] = None
+    aliases: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

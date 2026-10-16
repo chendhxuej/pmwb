@@ -213,14 +213,8 @@ def delete_contact(
         return {"success": False, "error": str(exc)}
 
 
-# ---------------- 厂家团队字典（供插件解析标题时做别名归一）----------------
-@router.get("/vendor-teams")
-def plugin_vendor_teams(db: Session = Depends(get_db)):
-    try:
-        return {"success": True, "teams": vendor_dev_service.list_vendor_teams(db)}
-    except Exception as exc:  # noqa: BLE001
-        return {"success": False, "error": str(exc)}
-
+# 注：原 GET /plugins/vendor-teams（本地别名字典）已于 2026-10-16 下线 ——
+#     该端点零消费方（插件从不调用），映射改由人员中台下发。
 
 # ---------------- 厂家开发单 → 需求厂家开发状态同步 ----------------
 @router.post("/workorder-sync")

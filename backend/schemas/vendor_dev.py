@@ -34,17 +34,5 @@ class VendorManualUpload(BaseModel):
     content_base64: str
 
 
-class VendorTeamCreate(BaseModel):
-    team_name: str
-    system_name: str
-    aliases: Optional[str] = None
-    sort: Optional[int] = 0
-    enabled: Optional[int] = 1
-
-
-class VendorTeamUpdate(BaseModel):
-    team_name: Optional[str] = None
-    system_name: Optional[str] = None
-    aliases: Optional[str] = None
-    sort: Optional[int] = None
-    enabled: Optional[int] = None
+# 注：VendorTeamCreate / VendorTeamUpdate 已随本地字典 pmwb_vendor_team 一并下线
+#     （2026-10-16）。「组织 → 系统名」映射改在人员中台组织管理里维护。

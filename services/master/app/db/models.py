@@ -35,6 +35,23 @@ class PmwbOrg(Base):
     enabled = Column(Boolean, default=True, nullable=False, comment="是否启用")
     source_trace = Column(String(64), comment="数据来源：manual / email_center / sa_info")
     created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    # ── 系统别名映射（2026-10-16 扩展）──────────────────────────────
+    # 口径：target_system_name 为空 = 映射到自身 name，全站统一 COALESCE(NULLIF(col,''), name)
+    # 多个组织填同一个 target_system_name 即「多对一」，取值域见 services/basic_data.py::ORG_TYPES
+    org_type = Column(
+        String(32),
+        nullable=False,
+        server_default="department",
+        comment="组织类型：system/department/branch（禁 ENUM，合法值见 ORG_TYPES）",
+    )
+    target_system_name = Column(
+        String(128),
+        comment="映射到的目标系统名；为空=映射到自身 name；多组织同值=多对一",
+    )
+    aliases = Column(
+        String(512),
+        comment="工单标题中可能出现的别名，半角逗号分隔（精确比对在 Python 侧，禁 LIKE 子串）",
+    )
 
     staffs = relationship(
         "PmwbStaff",
@@ -44,7 +61,11 @@ class PmwbOrg(Base):
         order_by="PmwbStaff.sort",
     )
 
-    __table_args__ = ({"comment": "人员中台-组织表"},)
+    __table_args__ = (
+        Index("idx_org_type", "org_type"),
+        Index("idx_org_target_system", "target_system_name"),
+        {"comment": "人员中台-组织表"},
+    )
 
 
 class PmwbStaff(Base):

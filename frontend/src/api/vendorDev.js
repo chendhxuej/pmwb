@@ -31,19 +31,6 @@ export function uploadVendorManual(reqId, vendorDevId, filename, contentBase64) 
   )
 }
 
-// ── 厂家团队「别名映射」字典 ──
-export function listVendorTeams() {
-  return request.get('/meta/vendor-teams')
-}
-
-export function createVendorTeam(data) {
-  return request.post('/meta/vendor-teams', data)
-}
-
-export function updateVendorTeam(teamId, data) {
-  return request.put(`/meta/vendor-teams/${teamId}`, data)
-}
-
-export function deleteVendorTeam(teamId) {
-  return request.delete(`/meta/vendor-teams/${teamId}`)
-}
+// ⚠ 厂家团队「别名映射」字典的 4 个 API 已于 2026-10-16 下线。
+//    映射不再由本地字典承载，改由**人员中台 → 组织管理**维护，
+//    读取入口见 api/basicData.js 的 getTargetSystemOptions / getOrgMappingIndex。

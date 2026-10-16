@@ -50,6 +50,72 @@ class FakeMasterBackend:
     def _ok(data: Any) -> dict:
         return {"ok": True, "data": data, "error": None}
 
+    # ------------------------------------------------------------------
+    # 系统别名映射 helpers（对齐人员中台 services/basic_data.py 的口径）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _norm(v) -> str:
+        return str(v or "").replace("\u3000", " ").strip()
+
+    def _is_system(self, org: dict) -> bool:
+        return bool(org.get("enabled", True)) and (org.get("org_type") or "department") == "system"
+
+    def _target_of(self, org: dict) -> str:
+        """target_system_name 为空 = 映射到自身 name（全局唯一口径）。"""
+        return self._norm(org.get("target_system_name")) or self._norm(org.get("name"))
+
+    def _clean_aliases(self, raw) -> List[str]:
+        """拆逗号 → 去空项 → 去重（忽略大小写）。"""
+        seen, out = set(), []
+        for part in self._norm(raw).split(","):
+            item = part.strip()
+            if not item or item.lower() in seen:
+                continue
+            seen.add(item.lower())
+            out.append(item)
+        return out
+
+    def _check_mapping_conflict(self, org_id: int, org_type, aliases) -> Optional[str]:
+        """返回冲突说明；无冲突返回 None。对齐中台的 org_type 校验 + 别名唯一性。"""
+        if org_type and org_type not in ("system", "department", "branch"):
+            return f"组织类型非法：{org_type}"
+        for item in self._clean_aliases(aliases):
+            low = item.lower()
+            for other in self.orgs.values():
+                if other["id"] == org_id:
+                    continue
+                if self._norm(other.get("name")).lower() == low:
+                    return f"别名「{item}」与组织「{other['name']}」同名，请更换"
+                for oa in self._clean_aliases(other.get("aliases")):
+                    if oa.lower() == low:
+                        return f"别名「{item}」已被组织「{other['name']}」占用"
+        return None
+
+    def seed_org(
+        self,
+        name: str,
+        org_type: str = "department",
+        target_system_name: Optional[str] = None,
+        aliases: str = "",
+        sort: int = 0,
+        enabled: bool = True,
+    ) -> dict:
+        """测试构造 helper：直接预置一个带映射字段的组织。"""
+        org = {
+            "id": self._next("org"),
+            "name": name,
+            "description": None,
+            "sort": sort,
+            "enabled": enabled,
+            "source_trace": "manual",
+            "created_at": None,
+            "org_type": org_type,
+            "target_system_name": target_system_name,
+            "aliases": aliases,
+        }
+        self.orgs[org["id"]] = org
+        return org
+
     @staticmethod
     def _fail(msg: str) -> dict:
         return {"ok": False, "data": None, "error": msg}
@@ -64,6 +130,35 @@ class FakeMasterBackend:
 
         if path == "/api/v1/health":
             return self._ok({"status": "ok"})
+
+        # 组织类型合法值（取值域唯一真相源在中台，这里必须与 ORG_TYPES 保持一致）
+        if path == "/api/v1/basic-data/org-type-options" and method == "GET":
+            return self._ok(["system", "department", "branch"])
+
+        # 目标系统名候选集（system 类且启用；target 空 = 映射到自身）
+        if path == "/api/v1/basic-data/target-system-options" and method == "GET":
+            names = {
+                self._target_of(o) for o in self.orgs.values() if self._is_system(o)
+            }
+            return self._ok(sorted(n for n in names if n))
+
+        # 全量映射索引（按 sort, id 升序 —— 第一条命中即主组织）
+        if path == "/api/v1/basic-data/org-mapping-index" and method == "GET":
+            rows = sorted(
+                (o for o in self.orgs.values() if self._is_system(o)),
+                key=lambda o: (o.get("sort") or 0, o["id"]),
+            )
+            return self._ok([
+                {
+                    "org_id": o["id"],
+                    "org_name": o["name"],
+                    "org_type": o.get("org_type") or "department",
+                    "target_system_name": o.get("target_system_name"),
+                    "aliases": o.get("aliases") or "",
+                    "sort": o.get("sort") or 0,
+                }
+                for o in rows
+            ])
 
         # ---------------- 组织 ----------------
         if path == "/api/v1/basic-data/orgs":
@@ -84,7 +179,14 @@ class FakeMasterBackend:
                     "enabled": json_body.get("enabled", True),
                     "source_trace": json_body.get("source_trace") or "manual",
                     "created_at": None,
+                    # ── 系统别名映射（2026-10-16）────────────────
+                    "org_type": json_body.get("org_type") or "department",
+                    "target_system_name": json_body.get("target_system_name") or None,
+                    "aliases": json_body.get("aliases") or "",
                 }
+                conflict = self._check_mapping_conflict(org["id"], org["org_type"], org["aliases"])
+                if conflict:
+                    return self._fail(conflict)
                 self.orgs[org["id"]] = org
                 return self._ok(self._org_out(org))
 
@@ -96,8 +198,16 @@ class FakeMasterBackend:
                 if not org:
                     return self._fail(f"组织不存在：id={org_id}")
                 for k, v in json_body.items():
-                    if k in ("name", "description", "sort", "enabled"):
+                    if k in (
+                        "name", "description", "sort", "enabled",
+                        "org_type", "target_system_name", "aliases",
+                    ):
                         org[k] = v
+                conflict = self._check_mapping_conflict(
+                    org_id, org.get("org_type"), org.get("aliases") or ""
+                )
+                if conflict:
+                    return self._fail(conflict)
                 return self._ok(self._org_out(org))
             if method == "DELETE":
                 if not org:

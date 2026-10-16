@@ -30,10 +30,10 @@ from db.models import (
     PmwbReqVendorDev,
     PmwbRequirementEvaluation,
     PmwbRequirementExt,
-    PmwbVendorTeam,
     SentEmail,
     now_cn,
 )
+from utils.master_service import master_service_client
 
 VENDOR_DEV_DOMAIN = "vendor_dev"
 DEFAULT_DEV_STATUS = "developing"
@@ -41,6 +41,9 @@ _PLUGIN_LIVE_STATUS = "live"
 
 # 完成联动：全部活跃厂家置此态时，触发需求级「已上线」
 TERMINAL_DEV_STATUS = "completed"
+
+# 组织可被当作「厂家/系统」参与匹配的类型
+_SYSTEM_ORG_TYPE = "system"
 
 
 # ---------------------------------------------------------------------------
@@ -140,17 +143,53 @@ def _ensure_evaluations_seeded(db: Session, req_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 人员中台组织映射（「组织名/别名 → 目标系统名」的唯一来源）
+# ---------------------------------------------------------------------------
+def _org_mapping(org_type: Optional[str] = _SYSTEM_ORG_TYPE) -> Tuple[List[Dict[str, Any]], bool]:
+    """读取人员中台的映射索引（带进程内 TTL 缓存，见 master_service._cached）。
+
+    Returns:
+        (rows, degraded)
+          rows     —— [{"org_name","target","aliases","sort","org_id"}, ...] 按 (sort, id) 升序
+                      中台不可达时为 []
+          degraded —— True 表示中台不可用（此时 rows 一定为 []）
+    """
+    index, degraded = master_service_client.org_mapping_index()
+    if index is None:
+        return [], True
+    rows = []
+    for item in index:
+        if org_type and (item.get("org_type") or "") != org_type:
+            continue
+        rows.append(
+            {
+                "org_id": item.get("org_id"),
+                "org_name": _norm(item.get("org_name")),
+                # 中台口径：target 为空 = 映射到自身组织名
+                "target": _norm(item.get("target_system_name")) or _norm(item.get("org_name")),
+                "aliases": _norm(item.get("aliases")),
+                "sort": item.get("sort") or 0,
+            }
+        )
+    rows.sort(key=lambda r: (r["sort"], r["org_id"] or 0))
+    return rows, degraded
+
+
+# ---------------------------------------------------------------------------
 # 二、厂家名 → 系统名 的匹配链（四级）
 # ---------------------------------------------------------------------------
 def resolve_vendor_system(db: Session, req_id: str, raw_name: str) -> Tuple[Optional[str], str]:
     """把工单标题里解析出的厂家名归一到 system_name。
 
-    四级匹配链：
+    四级匹配链（``matched_by`` 取值保持 history 兼容，插件侧零改动）：
       1. system  —— 精确命中该需求团队评估里的系统名
-      2. team    —— 命中字典 team_name（厂家团队名，如「卓望」）
-      3. alias   —— 命中字典 aliases（标题别名，如「电子协议系统」→「电子协议」）
+      2. team    —— 命中**人员中台组织名**（system 类且启用）
+      3. alias   —— 命中中台组织 aliases（如「电子协议系统」→「电子协议」）
       4. contains—— 唯一包含匹配（兜底系统名不统一，如「XX系统」vs「XX」）
       未命中返回 (None, 'unmatched')，由上层标黄等待人工指定，**不静默丢弃**。
+
+    ⚠ 降级纪律：中台不可达时**跳过 2、3 级**，只用 1、4 级。
+      宁可少匹配让人指定，**绝不把「拿不到映射」等同于「空映射」而静默放过去**。
 
     Returns:
         (system_name | None, matched_by)
@@ -172,15 +211,18 @@ def resolve_vendor_system(db: Session, req_id: str, raw_name: str) -> Tuple[Opti
     if raw.lower() in low:
         return low[raw.lower()], "system"
 
-    # 2) + 3) 别名映射字典
-    teams = db.query(PmwbVendorTeam).filter(PmwbVendorTeam.enabled == 1).all()
-    for t in teams:
-        if raw.lower() == _norm(t.team_name).lower():
-            return _norm(t.system_name), "team"
-    for t in teams:
-        for alias in (_norm(t.aliases) or "").split(","):
-            if alias and alias.strip().lower() == raw.lower():
-                return _norm(t.system_name), "alias"
+    # 2) + 3) 人员中台组织映射（替代原本地字典 pmwb_vendor_team）
+    #    中台不可达时 mapping 退化为空列表 → 两级自然落空，等价于「跳过 2、3 级」
+    mapping, _degraded = _org_mapping()
+    # 2) 组织名精确命中
+    for m in mapping:
+        if raw.lower() == _norm(m["org_name"]).lower():
+            return _norm(m["target"]), "team"
+    # 3) aliases 精确命中 —— 必须逐项 split 比对，绝不能用 LIKE 子串
+    for m in mapping:
+        for alias in (_norm(m["aliases"]) or "").split(","):
+            if alias.strip() and alias.strip().lower() == raw.lower():
+                return _norm(m["target"]), "alias"
 
     # 4) 唯一包含匹配（系统名不统一的兜底）
     contained = [s for s in uniq_systems if raw.lower() in s.lower() or s.lower() in raw.lower()]
@@ -290,14 +332,20 @@ def list_vendor_devs(db: Session, req_id: str) -> Dict[str, Any]:
 
 
 def _team_name_of(db: Session, system_name: str) -> str:
-    """按 system_name 反查字典里的厂家团队名（展示用，查不到留空）。"""
-    t = (
-        db.query(PmwbVendorTeam)
-        .filter(PmwbVendorTeam.system_name == _norm(system_name), PmwbVendorTeam.enabled == 1)
-        .order_by(PmwbVendorTeam.sort.asc(), PmwbVendorTeam.id.asc())
-        .first()
-    )
-    return _norm(t.team_name) if t else ""
+    """按 system_name 反查**主组织名**（展示用，查不到留空，绝不抛异常）。
+
+    主组织 = 人员中台里 target 命中该系统名、按 (sort, id) 升序的第一条。
+    多对一时（多个组织映射同一系统名）展示的就是这个「主组织」。
+    不用人员数做排序基准 —— 人员进出会让展示名漂移。
+    """
+    mapping, _degraded = _org_mapping()
+    target = _norm(system_name)
+    if not target:
+        return ""
+    for m in mapping:
+        if _norm(m["target"]).lower() == target.lower():
+            return _norm(m["org_name"])
+    return ""
 
 
 def create_vendor_dev(db: Session, req_id: str, obj_in: Dict[str, Any]) -> Dict[str, Any]:
@@ -604,85 +652,44 @@ def save_vendor_manual(
 
 
 # ---------------------------------------------------------------------------
-# 七、厂家别名映射字典 CRUD
+# 七、目标系统名候选集（供配置下拉）
+#
+# 注：原「厂家别名映射字典 CRUD」（list/create/update/delete_vendor_team）已随
+#     pmwb_vendor_team 一并下线 —— 映射唯一的维护入口在人员中台「组织管理」。
 # ---------------------------------------------------------------------------
-def list_vendor_teams(db: Session) -> List[Dict[str, Any]]:
-    rows = (
-        db.query(PmwbVendorTeam)
-        .order_by(PmwbVendorTeam.sort.asc(), PmwbVendorTeam.id.asc())
-        .all()
-    )
-    return [
-        {
-            "id": r.id,
-            "team_name": r.team_name,
-            "system_name": r.system_name,
-            "aliases": r.aliases or "",
-            "sort": r.sort or 0,
-            "enabled": r.enabled if r.enabled is not None else 1,
-        }
-        for r in rows
-    ]
+def target_system_options(db: Session) -> Dict[str, Any]:
+    """完整候选集 = 中台候选 ∪ 评估表历史 distinct ∪ sent_emails 历史 distinct。
 
+    为什么必须在主后端合并：后两张历史表在 yxtyg_db，中台读不到（也不应跨库）。
+    为什么要并入历史值：老工单里出现过的系统名（如已被合并的旧称）也要能选到。
 
-def create_vendor_team(db: Session, obj_in: Dict[str, Any]) -> Dict[str, Any]:
-    team_name = _norm(obj_in.get("team_name"))
-    system_name = _norm(obj_in.get("system_name"))
-    if not team_name:
-        raise ValueError("team_name 不能为空")
-    if not system_name:
-        raise ValueError("system_name 不能为空")
-    if db.query(PmwbVendorTeam).filter(PmwbVendorTeam.team_name == team_name).first():
-        raise ValueError(f"厂家团队「{team_name}」已存在")
+    Returns:
+        {"options": [...], "degraded": bool, "master_count": int}
+        degraded=True 表示中台不可达，此时 options 只含本地历史值。
+    """
+    master_opts, degraded = master_service_client.target_system_options()
 
-    row = PmwbVendorTeam(
-        team_name=team_name,
-        system_name=system_name,
-        aliases=_norm(obj_in.get("aliases")),
-        sort=int(obj_in.get("sort") or 0),
-        enabled=int(obj_in.get("enabled") or 1),
-    )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
+    history: List[str] = []
+    for model in (PmwbRequirementEvaluation, SentEmail):
+        try:
+            rows = db.query(model.system_name).distinct().all()
+        except Exception:  # noqa: BLE001 兼容个别环境下模型字段差异
+            rows = []
+        history.extend(_norm(r[0]) for r in rows)
+
+    merged: Dict[str, str] = {}
+    for name in list(master_opts) + history:
+        key = name.lower()
+        if name and key not in merged:
+            merged[key] = name
+
     return {
-        "id": row.id,
-        "team_name": row.team_name,
-        "system_name": row.system_name,
-        "aliases": row.aliases or "",
-        "sort": row.sort or 0,
-        "enabled": row.enabled or 1,
+        "options": sorted(merged.values()),
+        "degraded": bool(degraded),
+        "master_count": len(master_opts),
     }
 
 
-def update_vendor_team(db: Session, team_id: int, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    row = db.query(PmwbVendorTeam).filter(PmwbVendorTeam.id == team_id).first()
-    if not row:
-        return None
-    for key in ("team_name", "system_name", "aliases"):
-        if key in obj_in and obj_in[key] is not None:
-            setattr(row, key, _norm(obj_in[key]))
-    if "sort" in obj_in and obj_in["sort"] is not None:
-        row.sort = int(obj_in["sort"])
-    if "enabled" in obj_in and obj_in["enabled"] is not None:
-        row.enabled = int(obj_in["enabled"])
-    row.updated_at = now_cn()
-    db.commit()
-    db.refresh(row)
-    return {
-        "id": row.id,
-        "team_name": row.team_name,
-        "system_name": row.system_name,
-        "aliases": row.aliases or "",
-        "sort": row.sort or 0,
-        "enabled": row.enabled or 1,
-    }
-
-
-def delete_vendor_team(db: Session, team_id: int) -> bool:
-    row = db.query(PmwbVendorTeam).filter(PmwbVendorTeam.id == team_id).first()
-    if not row:
-        return False
-    db.delete(row)
-    db.commit()
-    return True
+def org_type_options(db: Session = None) -> List[str]:
+    """组织类型合法值。取值域唯一真相源在人员中台，主后端**不落第二份**。"""
+    return master_service_client.org_type_options()
