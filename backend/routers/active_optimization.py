@@ -8,12 +8,23 @@ from db.base import get_db
 from schemas.active_optimization import (
     ActiveOptimizationCreate,
     ActiveOptimizationListResponse,
+    ActiveOptimizationReqLinkIn,
     ActiveOptimizationStats,
     ActiveOptimizationUpdate,
 )
 from services.active_optimization import active_optimization_service
 
 router = APIRouter(prefix="/active-optimizations", tags=["主动优化"])
+
+
+def _load_or_404(db: Session, opt_id: int):
+    """取工单 ORM 对象，不存在则 404。"""
+    obj = active_optimization_service._get(db, opt_id)
+    if not obj:
+        from core.exceptions import NotFoundException
+
+        raise NotFoundException(f"主动优化工单不存在：{opt_id}")
+    return obj
 
 
 @router.get("")
@@ -46,6 +57,56 @@ def get_summary_stats(db: Session = Depends(get_db)):
     """获取主动优化统计摘要。"""
     data = active_optimization_service.get_summary_stats(db)
     return success(data=data)
+
+
+# ─────────── 关联需求文号（一对多） ───────────
+# 声明在 /{opt_id} 之前（项目防御习惯：路径参数路由放最后）
+
+
+@router.get("/{opt_id}/req-links")
+def list_req_links(opt_id: int, db: Session = Depends(get_db)):
+    """关联需求文号列表（含 req_exists 有效性标记）。"""
+    return success(data=active_optimization_service.list_req_links(db, opt_id))
+
+
+@router.put("/{opt_id}/req-links")
+def replace_req_links(
+    opt_id: int, obj_in: ActiveOptimizationReqLinkIn, db: Session = Depends(get_db)
+):
+    """全量覆盖关联需求文号（幂等，为主写入方式）。"""
+    obj = _load_or_404(db, opt_id)
+    return success(
+        data=active_optimization_service._replace_req_links(
+            db, obj, obj_in.req_ids, strict=obj_in.strict
+        )
+    )
+
+
+@router.post("/{opt_id}/req-links")
+def add_req_links(
+    opt_id: int, obj_in: ActiveOptimizationReqLinkIn, db: Session = Depends(get_db)
+):
+    """增量添加关联需求文号（不删除已有）。"""
+    obj = _load_or_404(db, opt_id)
+    return success(
+        data=active_optimization_service._replace_req_links(
+            db, obj, obj_in.req_ids, strict=obj_in.strict, incremental=True
+        )
+    )
+
+
+@router.delete("/{opt_id}/req-links/{link_id}")
+def remove_req_link(opt_id: int, link_id: int, db: Session = Depends(get_db)):
+    """删除单条关联（不存在返回 deleted=False）。"""
+    return success(data=active_optimization_service.remove_req_link(db, opt_id, link_id))
+
+
+@router.delete("/{opt_id}/req-links")
+def remove_req_links_by_req_id(
+    opt_id: int, req_id: str = Query(..., description="需求文号"), db: Session = Depends(get_db)
+):
+    """按文号批量删除关联（清理失效文号用）。"""
+    return success(data=active_optimization_service.remove_req_links_by_req_id(db, opt_id, req_id))
 
 
 @router.get("/{opt_id}")

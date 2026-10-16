@@ -41,6 +41,7 @@ from routers import (
     todo,
     user_story,
     work_report,
+    workload_analysis,
     ai_qa,
 )
 
@@ -138,6 +139,7 @@ app.include_router(ai_qa.router, prefix="/api/v1", tags=["AI问答"])
 app.include_router(material.router, prefix="/api/v1", tags=["业务资料库-材料"])
 app.include_router(material.cat_router, prefix="/api/v1", tags=["业务资料库-分类"])
 app.include_router(high_level.router, prefix="/api/v1", tags=["高级别工单"])
+app.include_router(workload_analysis.router, prefix="/api/v1", tags=["工作量分析"])
 
 
 @app.on_event("startup")
@@ -153,6 +155,17 @@ async def startup_event():
             ensure_seed(s)
     except Exception as e:  # noqa: BLE001
         logger.warning("LLM provider seed skipped: %s", e)
+    # 存量迁移：主动优化工单「关联需求文号」由单值改一对多后，把历史 req_id 灌入
+    # pmwb_active_optimization_req。幂等，可安全重复执行（create_all 只建表不搬数据）。
+    try:
+        from db.base import SessionLocal
+        from services.active_optimization import active_optimization_service
+        with SessionLocal() as s:
+            n = active_optimization_service.migrate_legacy_req_ids(s)
+        if n:
+            logger.info("active_optimization legacy req_id migrated: %s rows", n)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("active_optimization legacy migration skipped: %s", e)
 
 
 @app.on_event("shutdown")

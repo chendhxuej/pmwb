@@ -430,7 +430,11 @@ class PmwbActiveOptimization(Base):
     # 见 status_registry: active_optimization（String(32)，新增状态零迁移）
     status = Column(String(32), default="pending", comment="评估状态（见 status_registry: active_optimization）")
     priority = Column(String(16), default="P2", comment="优先级：P0/P1/P2/P3")
-    req_id = Column(String(64), comment="关联需求文号")
+    # 【已废弃·仅历史兼容】2026-10-16 起关联需求改为一对多，多值请读
+    # pmwb_active_optimization_req。本列保留用于：① 存量迁移幂等源；② 邮件模板变量兼容；
+    # ③ service.update 只处理 `value is not None`，DROP 后旧 payload 会抛错。
+    # 写入时由 _replace_req_links 回填 req_ids[0]（**不清空**）。
+    req_id = Column(String(64), comment="【已废弃·仅历史兼容】关联需求文号（多值请读 pmwb_active_optimization_req）")
     note = Column(Text, comment="备注说明")
     created_by = Column(String(64), comment="创建人")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
@@ -446,6 +450,38 @@ class PmwbActiveOptimization(Base):
         Index("idx_active_opt_req_id", "req_id"),
         Index("idx_active_opt_admin_name", "admin_name"),
         {"comment": "主动优化建议工单表"},
+    )
+
+
+class PmwbActiveOptimizationReq(Base):
+    """主动优化工单 × 需求文号 关联表（一对多）。
+
+    背景（2026-10-16）：主动优化的「关联需求文号」由单值改为多值。存量
+    pmwb_active_optimization.req_id 一次性迁入本表后，该列降级为**历史兼容镜像**
+    （只回填展示、不再作为写入目标）。
+
+    口径铁律：req_id 必须存在于需求宇宙（SELECT DISTINCT req_id FROM sent_emails），
+    校验唯一实现在 services/active_optimization.py::_replace_req_links。
+    """
+
+    __tablename__ = "pmwb_active_optimization_req"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    opt_id = Column(
+        Integer,
+        ForeignKey("pmwb_active_optimization.id"),
+        nullable=False,
+        comment="主动优化工单ID",
+    )
+    req_id = Column(String(255), nullable=False, comment="关联需求文号（须存在于 sent_emails 需求宇宙）")
+    req_name = Column(String(500), comment="需求名称冗余快照（仅展示，不参与校验）")
+    created_by = Column(String(64), comment="创建人")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+
+    __table_args__ = (
+        UniqueConstraint("opt_id", "req_id", name="uk_opt_req"),
+        Index("idx_aor_req_id", "req_id"),
+        {"comment": "主动优化工单与需求文号关联表（一对多）"},
     )
 
 

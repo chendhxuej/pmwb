@@ -322,9 +322,15 @@
             <el-table-column label="评估状态" width="88" align="center">
               <template #default="{ row }"><StatusBadge module="active_optimization" :value="row.status" /></template>
             </el-table-column>
-            <el-table-column label="关联需求" width="150" show-overflow-tooltip align="center">
+            <el-table-column label="关联需求" width="190" align="center">
               <template #default="{ row }">
-                <span class="text-muted">{{ row.req_id || '—' }}</span>
+                <ReqLinkTags
+                  v-if="optReqIds(row).length"
+                  :req-ids="optReqIds(row)"
+                  :req-exists="optReqExists(row)"
+                  @open="openRequirementByReqId"
+                />
+                <span v-else class="text-muted">—</span>
               </template>
             </el-table-column>
             <el-table-column label="创建时间" width="100" align="center">
@@ -357,6 +363,15 @@
             />
           </div>
         </div>
+      </el-tab-pane>
+
+      <!-- ════════ 工作量分析标签 ════════ -->
+      <!-- v-if：未激活时不挂载，避免图表容器宽度为 0 导致 echarts 初始化空白 -->
+      <el-tab-pane label="工作量分析" name="workload">
+        <WorkloadAnalysisPanel
+          v-if="activeTab === 'workload'"
+          @open-requirement="openRequirementByReqId"
+        />
       </el-tab-pane>
     </el-tabs>
 
@@ -1279,24 +1294,11 @@
           </el-select>
         </el-form-item>
         <el-form-item label="关联需求">
-          <el-select
-            v-model="activeOptForm.req_id"
-            filterable
-            remote
-            reserve-keyword
-            clearable
-            placeholder="输入需求文号/名称搜索并选择"
-            :remote-method="searchLinkedReq"
-            :loading="reqSearchLoading"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="r in linkedReqOptions"
-              :key="r.req_id"
-              :label="`${r.req_name || '未命名需求'}（${r.req_id}）`"
-              :value="r.req_id"
-            />
-          </el-select>
+          <RequirementLinkSelect
+            v-model="activeOptForm.req_ids"
+            :link-names="activeOptLinkNames"
+            placeholder="点击选择一个或多个需求文号"
+          />
         </el-form-item>
         <el-form-item label="备注说明"><EnlargeInput v-model="activeOptForm.note" type="textarea" :rows="2" /></el-form-item>
       </el-form>
@@ -1335,7 +1337,16 @@
         </div>
         <div class="us-block">
           <div class="us-label">关联需求</div>
-          <div class="us-value font-mono">{{ activeOptDetail.req_id || '—' }}</div>
+          <div class="us-value">
+            <ReqLinkTags
+              v-if="optReqIds(activeOptDetail).length"
+              :req-ids="optReqIds(activeOptDetail)"
+              :req-exists="optReqExists(activeOptDetail)"
+              :max-visible="5"
+              @open="openRequirementByReqId"
+            />
+            <span v-else class="text-muted">—</span>
+          </div>
         </div>
         <div class="us-block">
           <div class="us-label">备注说明</div>
@@ -1365,6 +1376,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
 import { ownerList } from '@/utils/owner.js'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
+import RequirementLinkSelect from '@/components/Common/RequirementLinkSelect.vue'
+import ReqLinkTags from '@/components/Common/ReqLinkTags.vue'
+import WorkloadAnalysisPanel from '@/components/Requirement/WorkloadAnalysisPanel.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
@@ -1396,6 +1410,8 @@ import {
 
 /* ─────────────── 需求标签 ─────────────── */
 const activeTab = ref('requirement')
+/** 是否已进入过「工作量分析」tab（面板 v-if 挂载，无需父组件拉数） */
+const workloadVisited = ref(false)
 const reqKeyword = ref('')
 const reqIdFilter = ref('')
 const devTicketNoFilter = ref('')
@@ -1667,6 +1683,10 @@ watch(activeTab, (v) => {
   if (v === 'active_opt' && !activeOpts.value.length && !activeOptLoading.value) {
     loadActiveOpts()
   }
+  // 工作量分析：面板用 v-if 挂载，挂载即自行加载，这里只记录已进入过
+  if (v === 'workload') {
+    workloadVisited.value = true
+  }
 })
 
 /* 用户故事只读详情 */
@@ -1704,6 +1724,22 @@ async function openSourceRequirement(row) {
     usDetailVisible.value = false
     await openWorkflow(res)
     step.value = 'story'
+  } catch (e) {
+    ElMessage.error('跳转失败')
+  }
+}
+
+// 按文号跳转需求（关联需求标签 / 工作量分析明细共用）
+async function openRequirementByReqId(reqId) {
+  if (!reqId) return
+  try {
+    const res = await getRequirement(reqId)
+    if (!res) {
+      ElMessage.warning('未找到该需求记录')
+      return
+    }
+    activeOptDetailVisible.value = false
+    await openWorkflow(res)
   } catch (e) {
     ElMessage.error('跳转失败')
   }
@@ -2693,11 +2729,35 @@ const activeOptForm = reactive({
   admin_name: '',
   status: 'pending',
   req_id: '',
+  req_ids: [],
   note: '',
 })
+/** 当前编辑工单的「文号 → 需求名称」映射（供选择器展示，避免逐条回查） */
+const activeOptLinkNames = ref({})
+
+/** 关联文号：优先 req_ids 数组，回落历史单列 req_id（兼容迁移前数据） */
+function optReqIds(row) {
+  if (!row) return []
+  if (Array.isArray(row.req_ids) && row.req_ids.length) return row.req_ids
+  return row.req_id ? [row.req_id] : []
+}
+/** 文号 → 有效性（后端 req_links 带 req_exists；旧数据无该字段时视为有效） */
+function optReqExists(row) {
+  const out = {}
+  for (const lk of row?.req_links || []) out[lk.req_id] = lk.req_exists !== false
+  return out
+}
+/** 文号 → 需求名称 */
+function optReqNames(row) {
+  const out = {}
+  for (const lk of row?.req_links || []) if (lk.req_name) out[lk.req_id] = lk.req_name
+  return out
+}
+
 function openActiveOptDialog(row) {
   if (row) {
     Object.assign(activeOptForm, { priority: 'P2', ...row })
+    activeOptForm.req_ids = optReqIds(row)
   } else {
     Object.assign(activeOptForm, {
       id: null,
@@ -2707,39 +2767,14 @@ function openActiveOptDialog(row) {
       suggestion: '',
       admin_name: '',
       status: 'pending',
-      req_id: current.value.req_id || '',
+      req_id: '',
       note: '',
     })
+    // 新建时默认带上当前工作流需求文号（沿用既有行为）
+    activeOptForm.req_ids = current.value.req_id ? [current.value.req_id] : []
   }
+  activeOptLinkNames.value = optReqNames(row)
   activeOptDialog.value = true
-  // 预载关联需求可选项（确保当前已选值可显示，并带需求名称）
-  searchLinkedReq(activeOptForm.req_id || '').then(async () => {
-    if (activeOptForm.req_id && !linkedReqOptions.value.some((r) => r.req_id === activeOptForm.req_id)) {
-      let name = ''
-      try {
-        const res = await getRequirement(activeOptForm.req_id)
-        name = (res && res.req_name) || ''
-      } catch (e) {
-        /* 忽略，仅展示文号 */
-      }
-      linkedReqOptions.value.unshift({ req_id: activeOptForm.req_id, req_name: name })
-    }
-  })
-}
-
-/* 关联需求：远端搜索需求工单 */
-const linkedReqOptions = ref([])
-const reqSearchLoading = ref(false)
-async function searchLinkedReq(keyword) {
-  reqSearchLoading.value = true
-  try {
-    const res = await getRequirements({ keyword: keyword || undefined, page: 1, page_size: 50 })
-    linkedReqOptions.value = res.items || []
-  } catch (e) {
-    linkedReqOptions.value = []
-  } finally {
-    reqSearchLoading.value = false
-  }
 }
 
 /* 主动优化详情抽屉 */
@@ -2754,19 +2789,31 @@ async function saveActiveOpt() {
     ElMessage.warning('请填写工单标题')
     return
   }
-  const payload = { ...activeOptForm }
+  // req_ids 走关联表；req_id / req_links 是历史列与派生字段，不参与写入
+  const { req_ids, req_id, req_links, ...rest } = activeOptForm
+  const wanted = Array.isArray(req_ids) ? [...req_ids] : []
+  const payload = { ...rest, req_ids: wanted }
+
+  let saved = null
   if (activeOptForm.id) {
-    await updateActiveOptimization(activeOptForm.id, payload)
+    saved = await updateActiveOptimization(activeOptForm.id, payload)
     ElMessage.success('主动优化已更新')
   } else {
-    await createActiveOptimization(payload)
+    saved = await createActiveOptimization(payload)
     ElMessage.success('主动优化已创建')
   }
+  // 后端会剔除不在需求宇宙的文号，这里把被丢弃的显式提示出来
+  const got = saved?.req_ids || []
+  const dropped = wanted.filter((r) => !got.includes(r))
+  if (dropped.length) {
+    ElMessage.warning(`以下文号未关联成功（不在需求宇宙中）：${dropped.join('、')}`)
+  }
+
   activeOptDialog.value = false
   await loadActiveOpts()
   // 若抽屉正展示同一工单，同步刷新其详情
   if (activeOptDetailVisible.value && activeOptDetail.value?.id && activeOptForm.id === activeOptDetail.value.id) {
-    activeOptDetail.value = { ...activeOptForm }
+    activeOptDetail.value = { ...activeOptDetail.value, ...saved }
   }
 }
 async function removeActiveOpt(row) {
@@ -2781,14 +2828,18 @@ function openActiveOptMail(row, scene) {
   if (!row) return
   mailDialogTitle.value = scene === 'urge' ? '催办：主动优化建议' : '同步：主动优化建议'
   mailDialogTo.value = ownerList(String(row.admin_name || ''))
-  mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.req_id || '主动优化建议')
+  const reqIds = optReqIds(row)
+  mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || reqIds[0] || '主动优化建议')
   mailDialogVariables.value = {
     title: row.title || '',
     priority: row.priority || 'P2',
     status: row.status || 'pending',
     status_label: activeOptStatusLabel(row.status),
     admin_name: row.admin_name || '',
-    req_id: row.req_id || '',
+    // 一对多后：req_id 取首条（旧模板零改动），另给数组与顿号串
+    req_id: reqIds[0] || '',
+    req_ids: reqIds,
+    req_id_text: reqIds.join('、'),
     current_situation: row.current_situation || '（无）',
     suggestion: row.suggestion || '（无）',
     note: row.note || '（无）',
@@ -2809,7 +2860,7 @@ function buildActiveOptMailBody(row, scene) {
     `| 优先级 | ${row.priority || 'P2'} |`,
     `| 评估状态 | ${activeOptStatusLabel(row.status)} |`,
     `| 业务管理员 | ${row.admin_name || ''} |`,
-    `| 关联需求 | ${row.req_id || ''} |`,
+    `| 关联需求 | ${optReqIds(row).join('、') || ''} |`,
     '',
     '### 现状描述',
     row.current_situation || '（无）',
