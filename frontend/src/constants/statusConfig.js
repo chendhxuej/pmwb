@@ -117,6 +117,17 @@ export const MODULE_STATUS = {
     archived: { label: '已归档', tone: 'neutral' },
   },
 
+  // 需求×厂家 的开发状态（RequirementDeliveryView 生产部署「厂家开发状态」卡片）
+  // 真相源仍是后端 status_registry 的 vendor_dev 域，此处仅为首帧兜底 seed。
+  // 语义：live（已上线）由插件自动置位，completed（已完成）由人工确认；
+  // 需求级「上线联动」只看 completed。
+  vendor_dev: {
+    pending: { label: '待开发', tone: 'info' },
+    developing: { label: '开发中', tone: 'primary' },
+    live: { label: '已上线', tone: 'success', sensitive: true },
+    completed: { label: '已完成', tone: 'success' },
+  },
+
   // 主动优化（RequirementDeliveryView active_opt.status）
   active_optimization: {
     pending: { label: '待评估', tone: 'warning' },

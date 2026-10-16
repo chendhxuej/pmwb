@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>工单详情（模拟 · blob 下载，无直链）</title>
+  <style>
+    .tabs span { display:inline-block; padding:4px 12px; border:1px solid #ccc; cursor:pointer; }
+    .panel { display:none; border:1px solid #ccc; padding:8px; }
+    .panel.on { display:block; }
+    table { border-collapse: collapse; width:100%; }
+    th, td { border:1px solid #ebeef5; padding:4px 8px; }
+  </style>
+</head>
+<body>
+  <h3>REQ_2026第0930620号[订单中心]关于购物车协议复制步骤简化的需求</h3>
+
+  <div class="tabs">
+    <span id="tab-base">基本信息</span>
+    <span id="tab-attach">附件摘要</span>
+  </div>
+
+  <div class="panel on" id="panel-base">需求编号：REQ_2026第0930620号</div>
+  <div class="panel" id="panel-attach">
+    <table>
+      <thead>
+        <tr><th>附件名称</th><th>大小</th><th>上传人</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>需求说明书.docx</td><td>240KB</td><td>张三</td>
+          <td><button onclick="doDownload('需求说明书.docx','OTHER')">下载</button></td>
+        </tr>
+        <tr>
+          <!-- 目标行：文件名含「操作手册」，下载按钮是 blob 方式（无 href） -->
+          <td>操作手册-订单中心V2.0.docx</td><td>2.4MB</td><td>李四</td>
+          <td><button id="dl-manual" onclick="doDownload('操作手册-订单中心V2.0.docx','BLOBMANUAL')">下载</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+<script>
+  // 真实内网系统常见形态：后端返回二进制流 → 前端造 blob → createObjectURL → a.click()
+  function doDownload(name, payload) {
+    var blob = new Blob([payload], { type: 'application/octet-stream' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 100);
+  }
+</script>
+</body>
+</html>

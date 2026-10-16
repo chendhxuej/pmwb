@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>工单详情（模拟 · 附件摘要页签 + 直链下载）</title>
+  <style>
+    .tabs span { display:inline-block; padding:4px 12px; border:1px solid #ccc; cursor:pointer; }
+    .panel { display:none; border:1px solid #ccc; padding:8px; }
+    .panel.on { display:block; }
+    table { border-collapse: collapse; width:100%; }
+    th, td { border:1px solid #ebeef5; padding:4px 8px; }
+  </style>
+</head>
+<body>
+  <h3>REQ_2026第0930620号[CRM]关于购物车协议复制步骤简化的需求</h3>
+
+  <div class="tabs">
+    <span id="tab-base">基本信息</span>
+    <span id="tab-attach">附件摘要</span>
+    <span id="tab-flow">流转记录</span>
+  </div>
+
+  <div class="panel" id="panel-base">需求编号：REQ_2026第0930620号</div>
+
+  <!-- 附件面板：初始不在 DOM 中，点页签后才渲染（模拟 SPA 懒渲染，验证 waitFor 轮询） -->
+  <div class="panel" id="panel-attach"></div>
+
+  <div class="panel" id="panel-flow">2026-10-12 提交</div>
+
+<script>
+  document.getElementById('tab-attach').addEventListener('click', function () {
+    document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('on'); });
+    var p = document.getElementById('panel-attach');
+    p.classList.add('on');
+    if (p.dataset.rendered) return;
+    p.dataset.rendered = '1';
+    // 模拟接口返回后再渲染，留 300ms 延迟
+    setTimeout(function () {
+      p.innerHTML =
+        '<table><thead><tr><th>附件名称</th><th>大小</th><th>上传人</th><th>操作</th></tr></thead><tbody>' +
+        '<tr><td>需求说明书-购物车协议复制.docx</td><td>240KB</td><td>张三</td><td><a href="data:application/octet-stream;base64,YV9kb2M=">下载</a></td></tr>' +
+        '<tr><td>操作手册-购物车协议复制V1.2.docx</td><td>1.2MB</td><td>李四</td><td><a href="data:application/octet-stream;base64,SGVsbG8tTWFudWFs">下载</a></td></tr>' +
+        '<tr><td>测试报告.pdf</td><td>800KB</td><td>王五</td><td><a href="data:application/octet-stream;base64,YV9wZGY=">下载</a></td></tr>' +
+        '</tbody></table>';
+    }, 300);
+  });
+</script>
+</body>
+</html>

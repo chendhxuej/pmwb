@@ -12,12 +12,15 @@ from schemas.requirement import (
     RequirementDeliverableCreate,
     RequirementExtUpdate,
 )
+from schemas.vendor_dev import VendorDevCreate, VendorDevUpdate, VendorManualUpload
+from services import vendor_dev as vendor_dev_service
 from services.obsidian_link import (
     add_requirement_deliverable,
     get_requirement_deliverables,
     remove_requirement_deliverable,
 )
 from services.requirement import requirement_service
+from services.requirement_delivery import init_folder
 
 router = APIRouter(prefix="/requirements", tags=["需求管理"])
 
@@ -158,3 +161,91 @@ def delete_requirement_deliverable(req_id: str, index: int, db: Session = Depend
     """按索引删除一条需求直挂交付物。"""
     ok = remove_requirement_deliverable(db, req_id, index)
     return success(data={"deleted": ok})
+
+
+# ---------------------------------------------------------------------------
+# 厂家开发状态（2026-10-16 新增，生产部署环节）
+#
+# 口径铁律：厂家清单 = 「团队评估」中工作量 > 0 人天的系统，
+# 唯一实现 services/vendor_dev.py::active_team_systems，本路由不做第二份判定。
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{req_id}/vendor-devs")
+def get_vendor_devs(req_id: str, db: Session = Depends(get_db)):
+    """需求下各厂家的开发状态（实时按团队评估重算，缺失的活跃厂家自动补行）。"""
+    return success(data=vendor_dev_service.list_vendor_devs(db, req_id))
+
+
+@router.post("/{req_id}/vendor-devs")
+def add_vendor_dev(req_id: str, obj_in: VendorDevCreate, db: Session = Depends(get_db)):
+    """手工新增一个厂家行。"""
+    try:
+        data = vendor_dev_service.create_vendor_dev(
+            db, req_id, obj_in.model_dump(exclude_unset=True)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data, message=f"厂家「{data.get('system_name')}」已新增")
+
+
+@router.put("/{req_id}/vendor-devs/{vendor_dev_id}")
+def modify_vendor_dev(
+    req_id: str, vendor_dev_id: int, obj_in: VendorDevUpdate, db: Session = Depends(get_db)
+):
+    """更新厂家行（改状态走状态注册表流转校验）。
+
+    置「已完成」时：若该需求**所有活跃厂家**都已完成，自动触发上线联动
+    （跟踪状态 → 已上线；实际上线日 → 当周周四，**仅当为空时写入**）。
+    """
+    try:
+        data = vendor_dev_service.update_vendor_dev(
+            db, vendor_dev_id, obj_in.model_dump(exclude_unset=True)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not data:
+        raise HTTPException(status_code=404, detail="厂家行不存在")
+
+    message = "已更新"
+    fz = data.get("finalized") or {}
+    if fz.get("finalized"):
+        message = "该厂家已完成，需求已联动置为「已上线」"
+        if fz.get("delivered_date"):
+            message += f"，实际上线日写入 {fz['delivered_date']}"
+    elif fz.get("skipped"):
+        message = f"{message}（{fz.get('reason', '')}）"
+    return success(data=data, message=message)
+
+
+@router.delete("/{req_id}/vendor-devs/{vendor_dev_id}")
+def remove_vendor_dev(req_id: str, vendor_dev_id: int, db: Session = Depends(get_db)):
+    """删除一个厂家行（不存在的 id 返回 deleted=False，保持既有删除契约）。"""
+    ok = vendor_dev_service.delete_vendor_dev(db, vendor_dev_id)
+    return success(data={"deleted": ok})
+
+
+@router.post("/{req_id}/vendor-devs/{vendor_dev_id}/manual")
+def upload_vendor_manual(
+    req_id: str,
+    vendor_dev_id: int,
+    obj_in: VendorManualUpload,
+    db: Session = Depends(get_db),
+):
+    """上传某厂家的操作手册（插件抓到手册后回传，JSON body 传 base64）。
+
+    注意：厂家手册**不落 PmwbReqManual**（那张表是「按系统的操作手册」卡片在用，
+    unique(req_id, system_name) 会互相覆盖），而是记在该厂家行自己的字段上。
+    """
+    import base64
+
+    try:
+        content = base64.b64decode(obj_in.content_base64)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="content_base64 解码失败")
+
+    folder = init_folder(db, req_id)["folder"]
+    data = vendor_dev_service.save_vendor_manual(db, vendor_dev_id, obj_in.filename, content, folder)
+    if not data:
+        raise HTTPException(status_code=404, detail="厂家行不存在")
+    return success(data=data, message=f"厂家手册「{obj_in.filename}」已上传")

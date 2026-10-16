@@ -969,6 +969,98 @@
           </div>
         </div>
 
+        <!-- ───── 厂家开发状态（生产部署） ───── -->
+        <div v-show="step === 'deploy'" class="wf-step-panel">
+          <div class="bento-grid">
+            <div class="card" style="grid-column: span 12">
+              <div class="card-header flex-between">
+                <span class="card-label">厂家开发状态（按团队评估 · 工作量 &gt; 0 人天）</span>
+                <div class="flex gap-8">
+                  <el-button size="small" @click="openVendorTeamDlg">厂家别名映射</el-button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="hint-text mb-12">{{ vendorDevMeta.hint }}</div>
+                <el-table :data="vendorDevs" v-loading="vendorDevLoading" size="small" border>
+                  <el-table-column label="厂家 / 系统" min-width="170">
+                    <template #default="{ row }">
+                      <b>{{ row.system_name }}</b>
+                      <el-tag v-if="!row.is_active" size="small" type="info" style="margin-left:6px">
+                        0 人天（不参与联动）
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="sa_name" label="负责人" width="90" />
+                  <el-table-column label="工作量" width="90" align="right">
+                    <template #default="{ row }">{{ row.workload }} 人天</template>
+                  </el-table-column>
+                  <el-table-column prop="dev_ticket_no" label="开发单号" min-width="150" />
+                  <el-table-column label="开发状态" width="210">
+                    <template #default="{ row }">
+                      <el-select
+                        :model-value="row.dev_status"
+                        size="small"
+                        style="width:160px"
+                        @change="(v) => onChangeVendorStatus(row, v)"
+                      >
+                        <el-option
+                          v-for="o in vendorNextOptions(row)"
+                          :key="o.value"
+                          :label="o.label"
+                          :value="o.value"
+                        />
+                      </el-select>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="厂家操作手册" min-width="180">
+                    <template #default="{ row }">
+                      <span v-if="row.manual?.file_name">{{ row.manual.file_name }}</span>
+                      <span v-else class="text-muted">暂无（可由插件自动抓取上传）</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="updated_at" label="更新时间" width="150" />
+                  <el-table-column label="操作" width="70">
+                    <template #default="{ row }">
+                      <el-button link type="danger" size="small" @click="onDeleteVendorDev(row)">删除</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div v-if="!vendorDevs.length && !vendorDevLoading" class="empty-hint">
+                  暂无厂家记录。厂家取自「团队评估」中工作量 &gt; 0 人天的系统，请先在步骤 2「团队评估」录入各系统工作量。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───── 厂家团队别名映射字典 ───── -->
+        <el-dialog v-model="vendorTeamDlg" title="厂家团队「别名映射」字典" width="720px">
+          <div class="hint-text mb-12">
+            用于把工单标题里的厂家名 / 系统别名归一到团队评估的系统名。
+            <b>本字典不是厂家清单的源头</b>，厂家清单始终由「团队评估工作量 &gt; 0 人天」实时派生。
+          </div>
+          <el-table :data="vendorTeams" v-loading="vendorTeamLoading" size="small" border max-height="260">
+            <el-table-column prop="team_name" label="厂家团队名" width="150" />
+            <el-table-column prop="system_name" label="对应系统名" width="150" />
+            <el-table-column prop="aliases" label="别名（逗号分隔）" min-width="180" />
+            <el-table-column label="操作" width="120">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="editVendorTeam(row)">编辑</el-button>
+                <el-button link type="danger" size="small" @click="removeVendorTeam(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="flex gap-8 mt-12">
+            <el-input v-model="vendorTeamForm.team_name" placeholder="厂家团队名，如 卓望" size="small" style="width:180px" />
+            <el-input v-model="vendorTeamForm.system_name" placeholder="对应系统名，如 CRM" size="small" style="width:180px" />
+            <el-input v-model="vendorTeamForm.aliases" placeholder="别名，逗号分隔" size="small" style="flex:1" />
+            <el-button size="small" type="primary" @click="saveVendorTeam">
+              {{ vendorTeamForm.id ? '保存修改' : '新增' }}
+            </el-button>
+            <el-button size="small" @click="resetVendorTeamForm">清空</el-button>
+          </div>
+        </el-dialog>
+
         <!-- ───── 知识沉淀 ───── -->
         <div class="wf-step-panel" v-if="current.req_id">
           <div class="bento-grid">
@@ -1293,6 +1385,11 @@ import {
   listManuals, uploadManual, deleteManual, downloadManualUrl, previewManualUrl,
   listInterfaceDocs, uploadInterfaceDoc, deleteInterfaceDoc, downloadInterfaceDocUrl,
 } from '@/api/requirement'
+import {
+  listVendorDevs, createVendorDev, updateVendorDev, deleteVendorDev,
+  listVendorTeams, createVendorTeam, updateVendorTeam, deleteVendorTeam,
+} from '@/api/vendorDev.js'
+import { domainStatuses, getStatusMeta } from '@/constants/statusConfig.js'
 import {
   getActiveOptimizations, getActiveOptimizationStats, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
 } from '@/api/active_optimization'
@@ -1823,6 +1920,153 @@ async function loadManuals(reqId) {
   }
 }
 
+/* ── 厂家开发状态（生产部署环节，2026-10-16 新增） ──
+ * 口径铁律：厂家清单 = 「团队评估」中工作量 > 0 人天的系统，
+ * 唯一实现在后端 services/vendor_dev.py::active_team_systems，
+ * 前端只做展示与下发操作，**不做第二份过滤/判定**。
+ */
+const VENDOR_DEV_DOMAIN = 'vendor_dev'
+const vendorDevs = ref([])
+const vendorDevMeta = ref({ active_count: 0, total: 0, hint: '' })
+const vendorDevLoading = ref(false)
+const vendorTeams = ref([])
+
+function vendorStatusLabel(v) {
+  return getStatusMeta(VENDOR_DEV_DOMAIN, v == null ? '' : String(v)).label
+}
+
+/** 可选目标 = 当前状态 + 注册表 allowed_next（后端下发，前端不自行推导） */
+function vendorNextOptions(vd) {
+  const allowed = new Set([vd.dev_status, ...(vd.allowed_next || [])])
+  return [...allowed].map((v) => ({
+    value: v,
+    label: v === vd.dev_status ? `${vendorStatusLabel(v)}（当前）` : vendorStatusLabel(v),
+  }))
+}
+
+async function loadVendorDevs(reqId) {
+  vendorDevLoading.value = true
+  try {
+    const res = await listVendorDevs(reqId)
+    vendorDevs.value = res?.items || []
+    vendorDevMeta.value = {
+      active_count: res?.active_count || 0,
+      total: res?.total || 0,
+      hint: res?.hint || '',
+    }
+  } catch (e) {
+    vendorDevs.value = []
+    vendorDevMeta.value = { active_count: 0, total: 0, hint: '' }
+  } finally {
+    vendorDevLoading.value = false
+  }
+}
+
+async function onChangeVendorStatus(vd, next) {
+  if (!next || next === vd.dev_status) return
+  // 置「已完成」是需求级上线联动的触发点，必须二次确认
+  if (next === 'completed') {
+    try {
+      await ElMessageBox.confirm(
+        `确认厂家「${vd.system_name}」开发已完成？\n\n若该需求所有活跃厂家均已完成，需求将自动置为「已上线」，并把当周周四写入实际上线日（已有值不覆盖）。`,
+        '确认厂家完成',
+        { type: 'warning', confirmButtonText: '确认完成', cancelButtonText: '取消' }
+      )
+    } catch (e) {
+      return
+    }
+  }
+  try {
+    const res = await updateVendorDev(current.value.req_id, vd.id, { dev_status: next })
+    ElMessage.success(res?.message || '已更新')
+    await loadVendorDevs(current.value.req_id)
+    // 联动可能改了跟踪状态/实际上线日，同步刷新表单与列表
+    await refreshCurrent(current.value.req_id)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || '更新厂家状态失败')
+    await loadVendorDevs(current.value.req_id)
+  }
+}
+
+async function onDeleteVendorDev(vd) {
+  try {
+    await ElMessageBox.confirm(
+      `删除厂家「${vd.system_name}」的开发状态记录？`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+  await deleteVendorDev(current.value.req_id, vd.id)
+  ElMessage.success('已删除')
+  await loadVendorDevs(current.value.req_id)
+}
+
+/* ── 厂家团队「别名映射」字典维护 ── */
+const vendorTeamDlg = ref(false)
+const vendorTeamForm = ref({ id: null, team_name: '', system_name: '', aliases: '' })
+const vendorTeamLoading = ref(false)
+
+async function openVendorTeamDlg() {
+  vendorTeamLoading.value = true
+  vendorTeamDlg.value = true
+  try {
+    vendorTeams.value = (await listVendorTeams()) || []
+  } finally {
+    vendorTeamLoading.value = false
+  }
+}
+
+function resetVendorTeamForm() {
+  vendorTeamForm.value = { id: null, team_name: '', system_name: '', aliases: '' }
+}
+
+async function saveVendorTeam() {
+  const f = vendorTeamForm.value
+  if (!f.team_name || !f.system_name) {
+    ElMessage.warning('厂家团队名与对应系统名均为必填')
+    return
+  }
+  try {
+    const payload = {
+      team_name: f.team_name,
+      system_name: f.system_name,
+      aliases: f.aliases,
+    }
+    if (f.id) await updateVendorTeam(f.id, payload)
+    else await createVendorTeam(payload)
+    ElMessage.success(f.id ? '已更新' : '已新增')
+    resetVendorTeamForm()
+    vendorTeams.value = (await listVendorTeams()) || []
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || e?.message || '保存失败')
+  }
+}
+
+function editVendorTeam(t) {
+  vendorTeamForm.value = {
+    id: t.id,
+    team_name: t.team_name,
+    system_name: t.system_name,
+    aliases: t.aliases || '',
+  }
+}
+
+async function removeVendorTeam(t) {
+  try {
+    await ElMessageBox.confirm(`删除映射「${t.team_name} → ${t.system_name}」？`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch (e) {
+    return
+  }
+  await deleteVendorTeam(t.id)
+  vendorTeams.value = (await listVendorTeams()) || []
+}
+
 /* ── 接口规范文档（按系统） ── */
 const ifaceDocSystems = ref([])
 const ifaceDocUploadSystem = ref('')
@@ -2043,7 +2287,10 @@ async function openWorkflow(row) {
   }
   await loadEvaluations(key)
   await loadStories(key)
-  await Promise.all([loadStageLogs(key), loadDevEvents(key), loadManuals(key), loadInterfaceDocs(key)])
+  await Promise.all([
+    loadStageLogs(key), loadDevEvents(key), loadManuals(key), loadInterfaceDocs(key),
+    loadVendorDevs(key),
+  ])
 }
 
 async function loadEvaluations(reqId) {

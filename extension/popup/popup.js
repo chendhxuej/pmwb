@@ -2063,8 +2063,498 @@ function getAvatarColor(index) {
   return colors[index % colors.length];
 }
 
+// ==================== 厂家开发单扫描（2026-10-16 新增）====================
+//
+// 闭环：待办页扫描命中 → 标题拆「编号 / [厂家团队] / 需求标题」→ 弹窗确认
+//      → 同步到 PMWB 把该厂家开发状态置「已上线」→（可选）抓操作手册回传。
+//
+// 口径铁律（与后端一致，前端/插件**不做第二份判定**）：
+//   · 厂家清单 = 团队评估中工作量 > 0 的系统（后端 active_team_systems 唯一实现）
+//   · 插件只推进到「已上线」，「已完成」由老大在 PMWB 人工确认
+//   · 同步幂等、只前进不回退（已完成的厂家不会被覆盖）
+
+/** 工单筛选条件（配置化，将来环节名调整只改这里） */
+const WO_FILTER = {
+  systemName: 'IT开发子流程',
+  stage: '已上线待需求录入人确认',
+};
+
+/** 扫描结果缓存 */
+let _woResults = [];
+
+/**
+ * 注入到待办页执行：**表头驱动**的列表解析（不写死列序，抗页面微调）。
+ * 同时兼容原生 table 与 el-table / ant-table 等「表头表体分离」的组件库。
+ */
+function scanWorkorderListInPage(filter) {
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const WANTED = ['\u6807\u9898', '\u7cfb\u7edf\u540d\u79f0', '\u5f53\u524d\u73af\u8282', '\u4e0a\u4e00\u73af\u8282\u63d0\u4ea4\u4eba', '\u63a5\u6536\u65e5\u671f'];
+
+  // \u5019\u9009\u5bb9\u5668\uff1a\u2460\u7ec4\u4ef6\u5e93\u5916\u58f3\uff08\u8868\u5934/\u8868\u4f53\u5206\u79bb\uff09\u2461\u539f\u751f table
+  function candidateContainers() {
+    const out = [];
+    document.querySelectorAll('.el-table, .ant-table, .vxe-table').forEach((w) => out.push({ el: w, widget: true }));
+    document.querySelectorAll('table').forEach((t) => out.push({ el: t, widget: false }));
+    return out;
+  }
+
+  function readHeads(c) {
+    let t = null;
+    if (c.widget) {
+      // 必须优先取「真正的表头容器」：外壳里 .hidden-columns 幽灵表常排在前面
+      t = c.el.querySelector('.el-table__header table, .ant-table-header table');
+      if (!t) {
+        for (const cand of c.el.querySelectorAll('table')) {
+          if (cand.closest('.hidden-columns')) continue;
+          t = cand;
+          break;
+        }
+      }
+      if (!t) return [];
+    } else {
+      t = c.el;
+    }
+    let ths = [...t.querySelectorAll('thead th, thead td')];
+    if (!ths.length) ths = [...t.querySelectorAll('tr:first-child th, tr:first-child td')];
+    return ths.map((th) => norm(th.textContent));
+  }
+
+  function readRows(c) {
+    if (c.widget) {
+      // \u7ec4\u4ef6\u5e93\uff1a\u8868\u4f53\u5728 body-wrapper \u91cc\uff1b\u5916\u58f3\u53ef\u80fd\u8fd8\u6709 .hidden-columns \u5e7d\u7075\u8868\uff0c\u987b\u7ed5\u5f00
+      const bw = c.el.querySelector(
+        '.el-table__body-wrapper tbody, .ant-table-body tbody, .vxe-table--body tbody'
+      );
+      if (bw) {
+        const rs = [...bw.querySelectorAll('tr')];
+        if (rs.length) return rs;
+      }
+    }
+    return [...c.el.querySelectorAll('tbody tr')];
+  }
+
+  let best = null;
+  let bestRank = 0;
+  for (const c of candidateContainers()) {
+    const heads = readHeads(c);
+    const score = WANTED.filter((w) => heads.some((h) => h.includes(w))).length;
+    if (score < 2) continue;
+    const rows = readRows(c);
+    if (!rows.length) continue;
+    // \u540c\u5206\u4f18\u5148\u53d6\u884c\u591a\u7684\uff08\u7ec4\u4ef6\u5e93\u8868\u5934 table \u65e0 tbody\uff0c\u4f1a\u88ab\u81ea\u7136\u6dd8\u6c70\uff09
+    const rank = score * 1000 + Math.min(rows.length, 999);
+    if (rank > bestRank) { bestRank = rank; best = { heads, rows }; }
+  }
+  if (!best) return { ok: false, reason: '\u8868\u672a\u8bc6\u522b', heads: [], rows: [] };
+
+  const heads = best.heads;
+  const at = (name) => heads.findIndex((h) => h.includes(name));
+  const idx = {
+    title: at('\u6807\u9898'),
+    system: at('\u7cfb\u7edf\u540d\u79f0'),
+    stage: at('\u5f53\u524d\u73af\u8282'),
+    submitter: at('\u4e0a\u4e00\u73af\u8282\u63d0\u4ea4\u4eba'),
+    receive: at('\u63a5\u6536\u65e5\u671f'),
+  };
+
+  const rows = [];
+  for (const tr of best.rows) {
+    const tds = [...tr.querySelectorAll('td')];
+    if (!tds.length) continue;
+    const texts = tds.map((td) => norm(td.textContent));
+    const system = idx.system >= 0 ? texts[idx.system] : '';
+    const stage = idx.stage >= 0 ? texts[idx.stage] : '';
+    if (system !== filter.systemName || stage !== filter.stage) continue;
+
+    let detailUrl = '';
+    const titleTd = idx.title >= 0 ? tds[idx.title] : null;
+    if (titleTd) {
+      const a = titleTd.querySelector('a[href]');
+      if (a) detailUrl = a.href;
+    }
+    rows.push({
+      title: idx.title >= 0 ? texts[idx.title] : '',
+      system,
+      stage,
+      submitter: idx.submitter >= 0 ? texts[idx.submitter] : '',
+      receiveDate: idx.receive >= 0 ? texts[idx.receive] : '',
+      detailUrl,
+    });
+  }
+  return { ok: true, heads, matched: rows.length, total: best.rows.length, rows };
+}
+
+/**
+ * 标题三段解析：编号 + [厂家团队] + 需求标题（分隔符不固定也兼容）。
+ */
+function parseWorkorderTitle(title) {
+  const t = (title || '').trim();
+  const bracket = t.match(/[\[【]([^\]】]+)[\]】]/);
+  let code = '';
+  let vendor = '';
+  let reqTitle = t;
+
+  if (bracket) {
+    vendor = bracket[1].trim();
+    code = t.slice(0, bracket.index).trim();
+    reqTitle = t.slice(bracket.index + bracket[0].length).trim();
+  } else {
+    // 无方括号：按前导编号样式切（如 REQ_2026第0930620号 / ABC-1234）
+    const m = t.match(/^([A-Za-z]{1,10}[-_]?\d{4}\s*第?\s*\d+\s*号|[A-Za-z]{1,10}[-_]\d{4,})/);
+    if (m) {
+      code = m[1].trim();
+      reqTitle = t.slice(m[0].length).trim();
+    }
+  }
+  reqTitle = reqTitle.replace(/^关于\s*/, '').replace(/^[:：]\s*/, '').trim();
+  return { code, vendor, reqTitle, warn: !code || !vendor };
+}
+
+/** 扫描当前页的待办工单 */
+async function scanWorkorders() {
+  const btn = document.getElementById('btn-scan-workorder');
+  const statusEl = document.getElementById('wo-status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 正在扫描...';
+  statusEl.textContent = '扫描中';
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error('无法获取当前标签页');
+
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: scanWorkorderListInPage,
+      args: [WO_FILTER],
+    });
+
+    // 多 frame 取「命中行最多」的结果
+    let best = null;
+    for (const r of results || []) {
+      const d = r?.result;
+      if (!d) continue;
+      if (!best || (d.matched || 0) > (best.matched || 0) || (!best.ok && d.ok)) best = d;
+    }
+
+    if (!best || !best.ok) {
+      document.getElementById('wo-debug').textContent =
+        '未识别到待办列表。已扫描全部 table / .el-table / .ant-table，' +
+        '但未找到同时含「系统名称」「当前环节」等列头的表格。\n' +
+        '（可能列表在 iframe 中未加载完，或页面结构已改版 → 请刷新页面后重试）';
+      document.getElementById('wo-debug-card').style.display = '';
+      showToast('未识别到待办列表，请查看调试信息', 'error');
+      statusEl.textContent = '未识别';
+      return;
+    }
+
+    _woResults = best.rows.map((r) => {
+      const p = parseWorkorderTitle(r.title);
+      return { ...r, ...p, checked: true, force: false, manual: null, syncResult: null };
+    });
+
+    renderWorkorderResults(best);
+    statusEl.textContent = `命中 ${_woResults.length}`;
+    showToast(
+      _woResults.length ? `命中 ${_woResults.length} 条厂家工单` : '当前页无符合条件的工单',
+      _woResults.length ? 'success' : 'info'
+    );
+  } catch (e) {
+    showToast('扫描失败: ' + e.message, 'error');
+    statusEl.textContent = '失败';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔍 扫描当前页工单';
+  }
+}
+
+function renderWorkorderResults(scan) {
+  const card = document.getElementById('wo-result-card');
+  const list = document.getElementById('wo-result-list');
+  const debug = document.getElementById('wo-debug');
+  const debugCard = document.getElementById('wo-debug-card');
+
+  document.getElementById('wo-count').textContent = _woResults.length;
+  card.style.display = _woResults.length ? '' : 'none';
+  document.getElementById('btn-sync-workorder').style.display = _woResults.length ? '' : 'none';
+  document.getElementById('btn-clear-workorder').style.display = _woResults.length ? '' : 'none';
+
+  debugCard.style.display = '';
+  debug.textContent =
+    `识别到列头：${(scan.heads || []).join(' | ')}\n` +
+    `共 ${scan.total} 行，命中 ${scan.matched} 行（系统名称=${WO_FILTER.systemName} 且 当前环节=${WO_FILTER.stage}）\n` +
+    _woResults
+      .map((r, i) => `[${i + 1}] 编号=${r.code || '(空)'} 厂家=${r.vendor || '(空)'} 标题=${r.reqTitle || '(空)'}${r.warn ? '  ⚠️解析不完整' : ''}`)
+      .join('\n');
+
+  if (!_woResults.length) {
+    list.innerHTML = '<div class="empty-hint">当前页没有符合条件的工单</div>';
+    return;
+  }
+
+  list.innerHTML = _woResults
+    .map((r, i) => `
+      <div class="contact-item" data-wo-index="${i}">
+        <label style="display:flex;gap:8px;align-items:flex-start;">
+          <input type="checkbox" class="wo-check" data-i="${i}" ${r.checked ? 'checked' : ''}>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:600;word-break:break-all;">${escapeHtml(r.title)}</div>
+            <div style="font-size:11px;color:#666;">
+              编号 <b>${escapeHtml(r.code || '—')}</b> · 厂家 <b>${escapeHtml(r.vendor || '—')}</b>
+              · ${escapeHtml(r.submitter || '')} · ${escapeHtml(r.receiveDate || '')}
+            </div>
+            ${r.warn ? '<div style="font-size:11px;color:#e37400;">⚠️ 编号或厂家未解析出，请在 PMWB 补充别名后重扫</div>' : ''}
+            ${r.syncResult ? `<div style="font-size:11px;color:${r.syncResult.success ? '#0f9d58' : '#d93025'};">
+              ${escapeHtml(r.syncResult.message || (r.syncResult.success ? '已置为已上线' : '同步失败'))}</div>` : ''}
+            <label style="font-size:11px;color:#666;">
+              <input type="checkbox" class="wo-force" data-i="${i}" ${r.force ? 'checked' : ''}>
+              强制同步（该厂家工作量为 0 被规则剔除时勾选）
+            </label>
+          </div>
+        </label>
+      </div>`)
+    .join('');
+
+  list.querySelectorAll('.wo-check').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      _woResults[Number(cb.dataset.i)].checked = cb.checked;
+    });
+  });
+  list.querySelectorAll('.wo-force').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      _woResults[Number(cb.dataset.i)].force = cb.checked;
+    });
+  });
+}
+
+/** 确认同步：先展示、后写库（老大要求） */
+async function confirmWorkorderSync() {
+  const selected = _woResults.filter((r) => r.checked);
+  if (!selected.length) { showToast('请先勾选要同步的工单', 'error'); return; }
+
+  const autoManual = document.getElementById('wo-auto-manual').checked;
+  const btn = document.getElementById('btn-sync-workorder');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 同步中...';
+
+  try {
+    for (const r of selected) {
+      // 1) 可选：抓操作手册
+      if (autoManual && r.detailUrl) {
+        r.manual = await fetchVendorManual(r.detailUrl);
+      }
+      // 2) 同步开发状态
+      const payload = {
+        code: r.code || '',
+        vendor: r.vendor || '',
+        title: r.reqTitle || r.title || '',
+        force: !!r.force,
+      };
+      const res = await postJson(`${RELAY_SERVER}/plugins/workorder-sync`, payload);
+      r.syncResult = res || { success: false, message: '无响应' };
+      // 3) 手册回传
+      if (r.syncResult?.success && r.manual?.base64 && r.syncResult.vendor_dev_id) {
+        try {
+          await postJson(
+            `${RELAY_SERVER}/requirements/${encodeURIComponent(r.syncResult.req_id)}` +
+            `/vendor-devs/${r.syncResult.vendor_dev_id}/manual`,
+            { filename: r.manual.filename, content_base64: r.manual.base64 }
+          );
+          r.syncResult.message = (r.syncResult.message || '') + '；手册已上传';
+        } catch (e) {
+          r.syncResult.message = (r.syncResult.message || '') + '；手册上传失败：' + e.message;
+        }
+      }
+    }
+    const ok = selected.filter((r) => r.syncResult?.success).length;
+    showToast(`同步完成：成功 ${ok} / 共 ${selected.length}`, ok ? 'success' : 'error');
+  } catch (e) {
+    showToast('同步失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '✅ 确认同步选中项';
+    renderWorkorderResults({ heads: [], total: _woResults.length, matched: _woResults.length });
+  }
+}
+
+/**
+ * 注入到工单详情页执行：点「附件摘要」页签 → 按文件名含「操作手册」定位 → 取下载。
+ * 三路降级：① a[href] 直链 → 页面内 fetch 取 blob；② hook blob 下载；
+ * ③ 都失败则返回文件名与 URL 交人工处理。
+ */
+async function grabManualInPage() {
+  const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function waitFor(fn, timeout = 8000) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeout) {
+      const v = fn();
+      if (v) return v;
+      await sleep(200);
+    }
+    return null;
+  }
+
+  // ① 点开「附件摘要」页签
+  const tabEl = await waitFor(() => {
+    // 坑：<title> / 隐藏面板里的文案同样含关键字且是叶子节点，必须排除
+    const els = [...document.body.querySelectorAll('*')].filter((e) => {
+      if (e.children.length) return false;
+      if (e.closest('script, style, template, textarea')) return false;
+      const r = e.getBoundingClientRect();
+      if (!r.width && !r.height) return false; // display:none / 未渲染
+      const t = norm(e.textContent);
+      return t === '\u9644\u4ef6\u6458\u8981' || t.includes('\u9644\u4ef6\u6458\u8981');
+    });
+    // 完全相等优先（避免命中「附件摘要(3)」之外的长文案）
+    els.sort((a, b) => {
+      const ta = norm(a.textContent);
+      const tb = norm(b.textContent);
+      return (ta === '\u9644\u4ef6\u6458\u8981' ? 0 : 1) - (tb === '\u9644\u4ef6\u6458\u8981' ? 0 : 1);
+    });
+    return els[0] || null;
+  });
+
+  if (tabEl) {
+    tabEl.click();
+    await sleep(800);
+  }
+
+  // ② 找文件名含「操作手册」的行
+  const row = await waitFor(() => {
+    const trs = [...document.querySelectorAll('tr')];
+    return trs.find((tr) => norm(tr.textContent).includes('操作手册')) || null;
+  }, 10000);
+  if (!row) return { ok: false, reason: '未找到含「操作手册」的附件行' };
+
+  const fileCell = [...row.querySelectorAll('td, th')].find((td) => norm(td.textContent).includes('操作手册'));
+  const filename = norm(fileCell?.textContent) || '操作手册';
+  const btns = [...row.querySelectorAll('a, button')];
+  const dl = btns.find((b) => norm(b.textContent) === '下载' || norm(b.textContent).includes('下载'));
+  if (!dl) return { ok: false, reason: '该行未找到「下载」按钮', filename };
+
+  // ③a 直链 → 页面内 fetch（天然带 Cookie，规避内网 CORS）
+  const href = dl.getAttribute?.('href') || '';
+  if (href && !/^javascript:/i.test(href)) {
+    try {
+      const resp = await fetch(href, { credentials: 'include' });
+      const blob = await resp.blob();
+      const b64 = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+        fr.onerror = reject;
+        fr.readAsDataURL(blob);
+      });
+      if (b64) return { ok: true, filename, base64: b64, via: 'href' };
+    } catch (e) {
+      /* 落到下一路 */
+    }
+  }
+
+  // ③b 拦截 blob 下载：hook createObjectURL + a.click
+  try {
+    const captured = await new Promise((resolve) => {
+      const origCreate = URL.createObjectURL.bind(URL);
+      const origClick = HTMLAnchorElement.prototype.click;
+      let done = false;
+      URL.createObjectURL = function (blob) {
+        const url = origCreate(blob);
+        if (!done) {
+          done = true;
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+          fr.onerror = () => resolve('');
+          fr.readAsDataURL(blob);
+        }
+        return url;
+      };
+      HTMLAnchorElement.prototype.click = function () {
+        // 若 a 带 download 且 href 是 blob:，交给 createObjectURL 分支捕获
+        return origClick.apply(this, arguments);
+      };
+      dl.click();
+      setTimeout(() => {
+        URL.createObjectURL = origCreate;
+        HTMLAnchorElement.prototype.click = origClick;
+        if (!done) resolve('');
+      }, 6000);
+    });
+    if (captured) return { ok: true, filename, base64: captured, via: 'blob-hook' };
+  } catch (e) {
+    /* 落到下一路 */
+  }
+
+  // ③c 兜底：交人工
+  return { ok: false, reason: '自动下载失败，请手动下载后上传', filename, href };
+}
+
+/** 打开工单详情页并抓取操作手册（后台标签，抓完关闭） */
+async function fetchVendorManual(detailUrl) {
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create({ url: detailUrl, active: false });
+    // 等待详情页加载完成
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 20000);
+      const onUpdated = (tabId, info) => {
+        if (tabId === tab.id && info.status === 'complete') {
+          clearTimeout(timer);
+          chrome.tabs.onUpdated.removeListener(onUpdated);
+          resolve();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(onUpdated);
+    });
+    await new Promise((r) => setTimeout(r, 1500));  // 给 SPA 渲染留时间
+
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: grabManualInPage,
+    });
+    for (const r of results || []) {
+      if (r?.result?.ok) return { filename: r.result.filename, base64: r.result.base64 };
+    }
+    const first = (results || [])[0]?.result;
+    console.warn('[manual] 抓取失败:', first);
+    return null;
+  } catch (e) {
+    console.warn('[manual] 异常:', e);
+    return null;
+  } finally {
+    if (tab?.id) {
+      try { await chrome.tabs.remove(tab.id); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
+
+async function postJson(url, body) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return resp.json();
+}
+
 // ==================== 事件绑定 ====================
 function bindEvents() {
+  // 厂家工单扫描
+  document.getElementById('btn-scan-workorder').addEventListener('click', scanWorkorders);
+  document.getElementById('btn-sync-workorder').addEventListener('click', confirmWorkorderSync);
+  document.getElementById('btn-clear-workorder').addEventListener('click', () => {
+    _woResults = [];
+    document.getElementById('wo-result-card').style.display = 'none';
+    document.getElementById('wo-debug-card').style.display = 'none';
+    document.getElementById('btn-sync-workorder').style.display = 'none';
+    document.getElementById('btn-clear-workorder').style.display = 'none';
+    document.getElementById('wo-status').textContent = '未扫描';
+  });
+
   // 提取信息
   document.getElementById('btn-extract').addEventListener('click', extractInfo);
 

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>待办工作（模拟 · Element UI 组件库结构）</title>
+  <style>
+    /* 仅用于还原真实组件库的 DOM 形态：表头与表体是两张分离的 table */
+    .el-table { border: 1px solid #dcdfe6; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ebeef5; padding: 4px 8px; }
+    /* 组件库常见坑：渲染出「隐藏的重复表头列」用于测量列宽 */
+    .hidden-columns { display: none; }
+  </style>
+</head>
+<body>
+  <!--
+    模拟 Element UI / Element Plus 的 el-table：
+      · 表头在 .el-table__header > table > thead，表体在 .el-table__body-wrapper > table > tbody
+      · 两个 table **不在同一个父级**，且外层还有一个 .hidden-columns 的幽灵 table
+      · 列序再次打乱（当前环节在最前），验证扫描器走「表头驱动」且能跨表取表头
+  -->
+  <div class="el-table">
+    <div class="hidden-columns">
+      <table><thead><tr><th>占位</th></tr></thead><tbody><tr><td>x</td></tr></tbody></table>
+    </div>
+
+    <div class="el-table__header-wrapper">
+      <div class="el-table__header">
+        <table>
+          <thead>
+            <tr>
+              <th>当前环节</th>
+              <th>标题</th>
+              <th>系统名称</th>
+              <th>接收日期</th>
+              <th>上一环节提交人</th>
+            </tr>
+          </thead>
+        </table>
+      </div>
+    </div>
+
+    <div class="el-table__body-wrapper">
+      <table>
+        <tbody>
+          <!-- 命中 1 -->
+          <tr>
+            <td>已上线待需求录入人确认</td>
+            <td><a href="/detail/11">REQ_2026第0930620号[CRM]关于购物车协议复制步骤简化的需求</a></td>
+            <td>IT开发子流程</td>
+            <td>2026-10-12</td>
+            <td>admin</td>
+          </tr>
+          <!-- 命中 2：同编号不同厂家 -->
+          <tr>
+            <td>已上线待需求录入人确认</td>
+            <td><a href="/detail/12">REQ_2026第0930620号[订单中心]关于购物车协议复制步骤简化的需求</a></td>
+            <td>IT开发子流程</td>
+            <td>2026-10-12</td>
+            <td>admin</td>
+          </tr>
+          <!-- 不命中：环节不符 -->
+          <tr>
+            <td>已归档</td>
+            <td><a href="/detail/13">REQ_2026第0991412号[商机审批中心]关于企助手-商客版产品需求</a></td>
+            <td>IT开发子流程</td>
+            <td>2026-10-16</td>
+            <td>陈大海</td>
+          </tr>
+          <!-- 不命中：系统不符 -->
+          <tr>
+            <td>已上线待需求录入人确认</td>
+            <td><a href="/detail/14">REQ_2026第0986193号[CRM]关于扫码完结流程功能增强的需求</a></td>
+            <td>其它系统</td>
+            <td>2026-10-12</td>
+            <td>吴雨霜</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

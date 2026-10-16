@@ -16,6 +16,7 @@
     <!-- Tab 切换 -->
     <nav class="tabs">
       <button class="tab active" data-tab="extract">📥 提取信息</button>
+      <button class="tab" data-tab="workorder">🏭 厂家工单</button>
       <button class="tab" data-tab="contacts">👥 收件人管理</button>
       <button class="tab" data-tab="email-settings">📧 邮箱/数据库设置</button>
     </nav>
@@ -128,7 +129,51 @@
       </div>
     </section>
 
-    <!-- ==================== Tab 2: 收件人管理 ==================== -->
+    <!-- ==================== Tab 2: 厂家工单扫描 ==================== -->
+    <section class="tab-content" id="tab-workorder">
+      <div class="card">
+        <div class="card-header">
+          <span>🏭 厂家开发单扫描</span>
+          <span class="badge" id="wo-status">未扫描</span>
+        </div>
+        <p class="hint">
+          在<b>待办工作</b>列表页点击扫描，识别「系统名称 = IT开发子流程」且
+          「当前环节 = 已上线待需求录入人确认」的厂家开发单验收通知工单，
+          把对应厂家在 PMWB 里的开发状态置为<b>已上线</b>。
+        </p>
+        <div class="btn-row" style="margin-bottom:8px;">
+          <button class="btn btn-primary btn-block" id="btn-scan-workorder">🔍 扫描当前页工单</button>
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="wo-auto-manual"> 自动下载并上传该厂家的「操作手册」
+          </label>
+          <p class="hint" style="margin-top:4px;font-size:11px;">
+            勾选后会逐个打开工单详情页 → 「附件摘要」页签 → 按文件名含「操作手册」下载并回传。<b>默认关闭</b>。
+          </p>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-success" id="btn-sync-workorder" style="display:none;">✅ 确认同步选中项</button>
+          <button class="btn btn-secondary" id="btn-clear-workorder" style="display:none;">✕ 清空</button>
+        </div>
+      </div>
+
+      <div class="card" id="wo-result-card" style="display:none;">
+        <div class="card-header">
+          <span>📝 扫描结果（<span id="wo-count">0</span>）</span>
+        </div>
+        <div id="wo-result-list"></div>
+      </div>
+
+      <div class="card" id="wo-debug-card" style="display:none;">
+        <div class="card-header">
+          <span>🐞 解析调试</span>
+        </div>
+        <div class="field-value" id="wo-debug" style="font-size:11px;white-space:pre-wrap;"></div>
+      </div>
+    </section>
+
+    <!-- ==================== Tab 3: 收件人管理 ==================== -->
     <section class="tab-content" id="tab-contacts">
       <!-- 手动添加 -->
       <div class="card">

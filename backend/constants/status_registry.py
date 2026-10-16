@@ -318,6 +318,43 @@ _HIGH_LEVEL_TRACK = DomainDef(
     description="高级别工单本地跟踪态（非源工单状态；源状态见各来源域）",
 )
 
+# 需求×厂家 的开发状态（2026-10-16 新增，生产部署环节「厂家开发状态」卡片）。
+# 落地表 pmwb_req_vendor_dev.dev_status。
+# 刻意 **不加入 SOURCE_DOMAIN**：它不是任务中心的「来源」，加入会污染
+# 任务中心「来源→状态域」映射与统一态统计（理由同 high_level_track）。
+# 关键语义：live（已上线）由插件自动置位，completed（已完成）由人工确认；
+# 需求级「上线联动」只看 completed，不看 live。
+_VENDOR_DEV = DomainDef(
+    key="vendor_dev",
+    label="厂家开发状态",
+    writable=True,
+    statuses=(
+        StatusDef("pending", "待开发", "info", "pending",
+                  allowed_next=("developing", "live", "completed"),
+                  description="厂家尚未启动开发"),
+        StatusDef("developing", "开发中", "primary", "in_progress",
+                  allowed_next=("live", "completed", "pending"),
+                  description="厂家开发中；允许老大直接确认完成（插件漏抓时可跳过 live）"),
+        StatusDef("live", "已上线", "success", "in_progress", sensitive=True,
+                  allowed_next=("completed", "developing"),
+                  description="插件抓到厂家开发单「已上线待需求录入人确认」后自动置此态，仍需人工确认完成"),
+        StatusDef("completed", "已完成", "success", "done", is_terminal=True,
+                  allowed_next=("live", "developing"),
+                  description="人工确认该厂家开发完成；最后一家置此态时触发需求级上线联动"),
+    ),
+    # dev_status 为 String(32) 自由串，历史/外部值容错
+    label_aliases={
+        "": "developing",
+        "待开发": "pending",
+        "开发中": "developing",
+        "上线": "live",
+        "已上线": "live",
+        "完成": "completed",
+        "已完成": "completed",
+    },
+    description="需求×厂家开发状态（生产部署）；厂家清单=团队评估中 workload>0 的系统",
+)
+
 
 # ─────────────────────────────────────────────────────────────
 # 注册表本体
@@ -343,6 +380,7 @@ REGISTRY: Dict[str, DomainDef] = {
         _TASK_CENTER,
         _REQUIREMENT_URGE,
         _HIGH_LEVEL_TRACK,
+        _VENDOR_DEV,
     )
 }
 

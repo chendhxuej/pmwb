@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from core.exceptions import NotFoundException, ValidationException
+from services.vendor_dev import active_team_systems
 from db.models import (
     PmwbReqDevEvent,
     PmwbReqInterfaceDoc,
@@ -410,26 +411,26 @@ def _manual_to_dict(m: PmwbReqManual) -> Dict[str, Any]:
 
 
 def list_manual_systems(db: Session, req_id: str) -> Dict[str, Any]:
-    """按「当前需求的团队（评估记录系统）」列手册；没有手册的系统也展示（暂无操作手册）。"""
-    evals = (
-        db.query(PmwbRequirementEvaluation)
-        .filter(PmwbRequirementEvaluation.req_id == req_id)
-        .all()
-    )
-    # 系统 → SA 映射（保留首个非空）
+    """按「当前需求的团队」列手册；没有手册的系统也展示（暂无操作手册）。
+
+    2026-10-16 改造：**与「厂家开发状态」共用同一份团队清单**，
+    唯一源 ``services.vendor_dev.active_team_systems()``
+    （= 团队评估中工作量 > 0 人天的系统，0 与 NULL 一并剔除）。
+    禁在本函数里另写一份评估查询，否则两边口径会打架。
+
+    **资产保护分支**：手册表里有、但已被 0 人天规则剔除（或评估记录已删除）的
+    系统**仍然展示**，并打 ``is_zero_workload=True``，前端标注
+    「0 人天（不参与开发状态）」——避免已上传的手册文件在 UI 上消失找不着。
+    """
+    # 系统 → SA 映射（唯一源：团队评估 workload>0）
     sa_map: Dict[str, str] = {}
-    for ev in evals:
-        sys_name = (ev.system_name or "").strip()
-        if sys_name and sys_name not in sa_map:
-            sa_map[sys_name] = (ev.sa_name or "").strip()
+    for item in active_team_systems(db, req_id):
+        sa_map[item["system_name"]] = item["sa_name"]
+
     manuals = {
         m.system_name: m
         for m in db.query(PmwbReqManual).filter(PmwbReqManual.req_id == req_id).all()
     }
-    # 手册表里有、但评估记录已删除的系统也要展示
-    for sys_name in manuals:
-        if sys_name not in sa_map:
-            sa_map[sys_name] = ""
     systems = []
     for sys_name, sa_name in sa_map.items():
         m = manuals.get(sys_name)
@@ -437,7 +438,20 @@ def list_manual_systems(db: Session, req_id: str) -> Dict[str, Any]:
             {
                 "system_name": sys_name,
                 "sa_name": sa_name,
+                "is_zero_workload": False,
                 "manual": _manual_to_dict(m) if m else None,
+            }
+        )
+    # 资产保护：手册已上传但系统已被剔除/评估记录已删 → 仍展示，标 0 人天
+    for sys_name, m in manuals.items():
+        if sys_name in sa_map:
+            continue
+        systems.append(
+            {
+                "system_name": sys_name,
+                "sa_name": "",
+                "is_zero_workload": True,
+                "manual": _manual_to_dict(m),
             }
         )
     # 有手册的排前面

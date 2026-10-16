@@ -212,6 +212,84 @@ class PmwbReqManual(Base):
     )
 
 
+class PmwbVendorTeam(Base):
+    """厂家团队「别名映射」字典（2026-10-16 新增）。
+
+    注意：本表**不是**厂家团队的清单源头，只是归一化用的映射字典。
+    厂家清单的唯一真相源是「团队评估」中 workload > 0 的系统，见
+    ``services/vendor_dev.py::active_team_systems``。
+
+    team_name 是厂家团队名（如「卓望」），system_name 是其在团队评估中
+    对应的系统名（如「CRM」），aliases 收录工单标题里可能出现的其它写法，
+    用于把插件解析出的厂家名归一到 system_name。
+    """
+
+    __tablename__ = "pmwb_vendor_team"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    team_name = Column(String(128), nullable=False, unique=True, comment="厂家团队名，如「卓望」")
+    system_name = Column(String(128), nullable=False, comment="对应团队评估中的系统名（关联键），如「CRM」")
+    aliases = Column(String(512), comment="工单标题中可能出现的别名，逗号分隔")
+    sort = Column(Integer, default=0, comment="排序")
+    enabled = Column(Integer, default=1, comment="是否启用 1/0")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        Index("idx_vendor_team_system", "system_name"),
+        {"comment": "厂家团队别名映射字典"},
+    )
+
+
+class PmwbReqVendorDev(Base):
+    """需求×厂家 的开发状态（2026-10-16 新增，生产部署环节）。
+
+    一需求一个厂家（按 system_name 区分）一行。
+    system_name 即厂家标识，直接对齐团队评估的系统名，也与厂家开发单标题
+    中的 ``[xxx]`` 片段一致（如 ``[CRM]``、``[订单中心]``）。
+
+    铁律：本表**不存 workload**。工作量与「是否活跃」一律实时读团队评估，
+    避免两处口径打架（详见 services/vendor_dev.py）。
+    """
+
+    __tablename__ = "pmwb_req_vendor_dev"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号，对应 sent_emails.req_id")
+    system_name = Column(String(128), nullable=False, comment="厂家标识=团队评估系统名")
+    team_name = Column(String(128), comment="厂家团队名（展示用，冗余自字典）")
+    sa_name = Column(String(64), comment="该厂家负责人（展示用，冗余自团队评估）")
+    dev_ticket_no = Column(String(255), comment="该厂家对应的开发单号")
+    dev_status = Column(
+        String(32),
+        default="developing",
+        comment="开发状态：pending/developing/live/completed（合法值见 status_registry，禁 ENUM）",
+    )
+    manual_file_name = Column(String(500), comment="厂家操作手册原始文件名")
+    manual_local_path = Column(String(1024), comment="厂家操作手册相对 vault 路径")
+    manual_archived_path = Column(String(512), comment="厂家操作手册归档后的 Obsidian 路径")
+    manual_uploaded_at = Column(DateTime, comment="厂家操作手册上传时间")
+    source = Column(String(16), default="manual", comment="来源：plugin/manual")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("req_id", "system_name", name="uk_req_vendor_dev_system"),
+        Index("idx_req_vendor_dev_req_id", "req_id"),
+        {"comment": "需求×厂家开发状态（生产部署）"},
+    )
+
+
 class PmwbReqInterfaceDoc(Base):
     """需求接口规范文档（启动开发环节，按系统/团队区分，一系统一份）。"""
 

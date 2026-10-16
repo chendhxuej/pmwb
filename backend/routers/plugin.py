@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from db.base import get_db
+from services import vendor_dev as vendor_dev_service
 from services.plugin import plugin_service
 
 router = APIRouter(prefix="/plugins", tags=["插件接入"])
@@ -58,6 +59,21 @@ class SaInfoUpdate(BaseModel):
     system_name: str = ""
     email: str
     wechat_nickname: str = ""
+
+
+class PluginWorkorderSyncRequest(BaseModel):
+    """厂家开发单验收通知工单 → 需求厂家开发状态同步。
+
+    code   —— 标题拆出的编号（开发单号优先匹配）
+    vendor —— 标题拆出的厂家团队片段，如「CRM」「订单中心」
+    title  —— 标题拆出的需求标题（编号匹配不上时的兜底）
+    force  —— 该厂家已被 0 人天规则剔除时，是否强制同步
+    """
+
+    code: str = ""
+    vendor: str = ""
+    title: str = ""
+    force: bool = False
 
 
 # ---------------- 健康检查（对齐 2525 /health，插件检查 status==='ok'）----------------
@@ -193,5 +209,29 @@ def delete_contact(
     try:
         affected = plugin_service.delete_contact(db, sa_name, system_name, email)
         return {"success": True, "affectedRows": affected}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)}
+
+
+# ---------------- 厂家团队字典（供插件解析标题时做别名归一）----------------
+@router.get("/vendor-teams")
+def plugin_vendor_teams(db: Session = Depends(get_db)):
+    try:
+        return {"success": True, "teams": vendor_dev_service.list_vendor_teams(db)}
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": str(exc)}
+
+
+# ---------------- 厂家开发单 → 需求厂家开发状态同步 ----------------
+@router.post("/workorder-sync")
+def plugin_workorder_sync(req: PluginWorkorderSyncRequest, db: Session = Depends(get_db)):
+    """把插件扫描命中的厂家开发单同步为对应厂家的「已上线」。
+
+    幂等且**只前进不回退**：已 completed 的厂家不会被覆盖回 live。
+    厂家名经四级匹配链归一到 system_name；命中的系统若在团队评估中
+    工作量为 0，默认拒绝同步并返回 reason=zero_workload（除非 force）。
+    """
+    try:
+        return vendor_dev_service.sync_from_plugin(db, req.model_dump())
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": str(exc)}
