@@ -262,17 +262,21 @@
           </div>
         </el-form-item>
         <el-form-item label="目标系统名">
-          <el-select
-            v-model="orgForm.target_system_name"
-            placeholder="不配置＝映射到自身名称"
-            filterable
-            clearable
-            style="width: 100%"
-          >
-            <el-option v-for="s in targetSystemOptions" :key="s" :label="s" :value="s" />
-          </el-select>
+          <div style="display: flex; gap: 8px; width: 100%">
+            <el-select
+              v-model="orgForm.target_system_name"
+              placeholder="不配置＝映射到自身名称"
+              filterable
+              clearable
+              style="flex: 1"
+            >
+              <el-option v-for="s in targetSystemOptions" :key="s" :label="s" :value="s" />
+            </el-select>
+            <el-button @click="createPlatform">新增</el-button>
+          </div>
           <div class="pc-hint">
-            多个组织填同一个系统名＝多对一归一（如 政企工作台/电子协议 → 订单中心）
+            多个组织填同一个系统名＝多对一归一（如 政企工作台/电子协议 → 订单中心）；
+            候选里没有的新平台点「新增」创建为系统组织
           </div>
         </el-form-item>
         <el-form-item label="系统别名">
@@ -499,6 +503,53 @@ function openOrgEdit(org) {
 function openOrgMapping(org) {
   openOrgEdit(org)
 }
+
+// 新增目标系统平台：候选集里没有的新平台，以「系统」类组织创建进人员中台，
+// 创建后自动进目标系统名候选（中台实时；主后端 meta 有 60s TTL，本地乐观追加兜底）。
+async function createPlatform() {
+  let name = ''
+  try {
+    const ret = await ElMessageBox.prompt(
+      '新平台将作为「系统」类组织创建（org_type=system），创建后可为其配置别名、成员，并自动出现在目标系统名候选中。',
+      '新增目标系统平台',
+      {
+        confirmButtonText: '创建',
+        cancelButtonText: '取消',
+        inputPlaceholder: '如：商客专区运营平台',
+        inputValidator: (v) => (v && v.trim() ? true : '请输入平台名称'),
+      }
+    )
+    name = (ret.value || '').trim()
+  } catch {
+    return // 取消
+  }
+  if (targetSystemOptions.value.includes(name)) {
+    orgForm.target_system_name = name
+    ElMessage.info(`「${name}」已在候选集中，已为你选中`)
+    return
+  }
+  try {
+    await basicDataApi.createOrg({
+      name,
+      description: null,
+      sort: 0,
+      enabled: true,
+      org_type: 'system',
+      target_system_name: null,
+      aliases: null,
+    })
+    if (!targetSystemOptions.value.includes(name)) {
+      targetSystemOptions.value = [...targetSystemOptions.value, name].sort()
+    }
+    orgForm.target_system_name = name
+    ElMessage.success(`平台「${name}」已创建为系统组织，并已选中`)
+    await loadOrgs()
+    loadMappingOptions() // 后台刷新候选（8000 侧 60s 缓存过期后自然一致）
+  } catch (e) {
+    ElMessage.error(e?.message || '创建失败')
+  }
+}
+
 async function submitOrg() {
   if (!orgForm.name.trim()) {
     ElMessage.warning('请填写组织名称')
