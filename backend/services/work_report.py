@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 REPORT_TYPE_LABELS = {
     "daily": "日报", "weekly": "周报", "monthly": "月报", "custom": "自定义",
     "requirement": "需求分析",
+    # 2026-10-19 固化：需求开发超期专题（默认 25 天阈值，见 services/requirement_dev_overdue.py）
+    "dev_overdue": "需求开发超期专题分析",
 }
 STATUS_LABELS = {"draft": "草稿", "finalized": "已定稿", "sent": "已发送"}
 OBSIDIAN_ROOT = "15-工作总结"
@@ -74,6 +76,9 @@ def _date_range(report_type: str, ds: Optional[date], de: Optional[date]):
     elif report_type == "requirement":
         # 需求分析专题：默认近 7 天（含今天）
         start = end - timedelta(days=6)
+    elif report_type == "dev_overdue":
+        # 需求开发超期专题：快照口径，只关心统计基准日（start=end）
+        start = end
     else:  # daily / custom
         start = end
     return start, end
@@ -240,6 +245,8 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
     start, end = _date_range(report_type, ds, de)
     if report_type == "requirement":
         return _generate_requirement_analysis(db, start, end, params)
+    if report_type == "dev_overdue":
+        return _generate_dev_overdue(db, start, end, params)
     # 阶段耗时埋点：此前「生成慢」无法定位到底是数据采集还是 LLM 调用，只能靠猜
     _t0 = time.time()
     data = ReportDataCollector(db).collect(start, end)
@@ -310,6 +317,73 @@ def _generate_requirement_analysis(db: Session, start: date, end: date, params: 
     r = PmwbWorkReport(
         report_type="requirement", title=title, content=md,
         date_start=start, date_end=end, status="draft",
+    )
+    r.gen_used_llm = 1 if used_llm else 0
+    r.gen_model = provider_name or ""
+    r.gen_notice = notice or ""
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return {**to_out(r), "used_llm": bool(used_llm), "provider_name": provider_name, "llm_notice": notice}
+
+
+def _clean_insight(md: str) -> str:
+    """清理 LLM 研判章节：去代码围栏、去自带的章节标题，只保留列表正文。"""
+    import re as _re
+
+    text = (md or "").strip()
+    text = _re.sub(r"^```[a-zA-Z]*\s*", "", text)
+    text = _re.sub(r"\s*```$", "", text).strip()
+    # 去掉 LLM 可能自带的「## 四、研判与建议」等标题行
+    text = _re.sub(r"^#{1,4}\s*.*研判.*$", "", text, flags=_re.MULTILINE).strip()
+    return text
+
+
+def _generate_dev_overdue(db: Session, start: date, end: date, params: Dict[str, Any]) -> Dict[str, Any]:
+    """「需求开发超期专题分析」生成。
+
+    与日常报告不同：不走 ReportDataCollector 七章管线，也不做 _ensure_sections /
+    下期计划拼接。明细表与统计全由 requirement_dev_overdue 确定性渲染，
+    LLM 只负责「四、研判与建议」章节，不可用时规则兜底。
+    """
+    from services import requirement_dev_overdue as rdo
+
+    try:
+        overdue_days = int(params.get("overdue_days") or rdo.OVERDUE_DAYS_DEFAULT)
+    except (TypeError, ValueError):
+        overdue_days = rdo.OVERDUE_DAYS_DEFAULT
+
+    as_of = end or date.today()
+    _t0 = time.time()
+    data = rdo.collect(db, as_of, overdue_days)
+    system, user = rdo.build_prompt(data)
+    _t_collect = time.time() - _t0
+    logger.info(
+        "[开发超期] 数据筛选 %.1fs：开发中 %d 条 / 超 %d 天未上线 %d 条，user_message %d 字符",
+        _t_collect, data["total_dev"], overdue_days, data["overdue_count"], len(user),
+    )
+
+    insight, used_llm, provider_name, notice = "", False, "", ""
+    if data["overdue_count"]:
+        insight, used_llm, provider_name, notice = generate_report_markdown(db, system, user)
+        insight = _clean_insight(insight)
+    _t_llm = time.time() - _t0 - _t_collect
+    logger.info(
+        "[开发超期] LLM 调用 %.1fs，used_llm=%s，provider=%s，notice=%s",
+        _t_llm, used_llm, provider_name, (notice or "")[:200],
+    )
+
+    if not insight:
+        insight = rdo.render_rule_insight(data)
+        if data["overdue_count"]:
+            used_llm = False
+            notice = notice or "所有已启用的大模型均不可用，研判与建议已按规则生成（明细与统计不受影响）。"
+
+    md = rdo.render_markdown(data, insight)
+    title = f"{_type_label('dev_overdue')}（{as_of.isoformat()}）"
+    r = PmwbWorkReport(
+        report_type="dev_overdue", title=title, content=md,
+        date_start=as_of, date_end=as_of, status="draft",
     )
     r.gen_used_llm = 1 if used_llm else 0
     r.gen_model = provider_name or ""

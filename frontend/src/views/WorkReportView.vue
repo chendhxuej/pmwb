@@ -70,16 +70,23 @@
             <el-option label="月报" value="monthly" />
             <el-option label="自定义" value="custom" />
             <el-option label="需求分析" value="requirement" />
+            <el-option label="需求开发超期专题分析" value="dev_overdue" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="genForm.report_type === 'requirement'" label="超期天数">
+        <el-form-item
+          v-if="genForm.report_type === 'requirement' || genForm.report_type === 'dev_overdue'"
+          label="超期天数"
+        >
           <el-input-number v-model="genForm.overdue_days" :min="1" :max="365" style="width: 100%" />
-          <div class="form-tip">计划上线需求口径：尚未上线且进入「启动开发」环节已超该天数（默认 15 天）</div>
+          <div v-if="genForm.report_type === 'dev_overdue'" class="form-tip">
+            开发超期口径：跟踪状态为「开发中」且尚未上线，进入「启动开发」环节已超该天数（默认 25 天，可手工调整）
+          </div>
+          <div v-else class="form-tip">计划上线需求口径：尚未上线且进入「启动开发」环节已超该天数（默认 15 天）</div>
         </el-form-item>
-        <el-form-item label="起始日期">
+        <el-form-item v-if="genForm.report_type !== 'dev_overdue'" label="起始日期">
           <el-date-picker v-model="genForm.date_start" type="date" value-format="YYYY-MM-DD" placeholder="缺省自动推算" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="结束日期">
+        <el-form-item :label="genForm.report_type === 'dev_overdue' ? '统计基准日' : '结束日期'">
           <el-date-picker v-model="genForm.date_end" type="date" value-format="YYYY-MM-DD" placeholder="默认今天，可改" style="width: 100%" />
         </el-form-item>
       </el-form>
@@ -181,7 +188,7 @@ const loading = ref(false)
 // 左侧栏分类（含数量徽标）
 const activeCategory = ref('all')
 const categoryList = computed(() => {
-  const counts = { all: list.value.length, daily: 0, weekly: 0, monthly: 0, custom: 0, requirement: 0 }
+  const counts = { all: list.value.length, daily: 0, weekly: 0, monthly: 0, custom: 0, requirement: 0, dev_overdue: 0 }
   for (const r of list.value) counts[r.report_type] = (counts[r.report_type] || 0) + 1
   return [
     { label: '全部', value: 'all', count: counts.all },
@@ -190,6 +197,7 @@ const categoryList = computed(() => {
     { label: '月报', value: 'monthly', count: counts.monthly },
     { label: '自定义', value: 'custom', count: counts.custom },
     { label: '需求分析', value: 'requirement', count: counts.requirement },
+    { label: '开发超期分析', value: 'dev_overdue', count: counts.dev_overdue },
   ]
 })
 const filteredList = computed(() =>
@@ -208,7 +216,12 @@ function _startGenTimer() {
 function _stopGenTimer() {
   if (_genTimer) { clearInterval(_genTimer); _genTimer = null }
 }
-const genForm = reactive({ report_type: 'daily', date_start: '', date_end: '', overdue_days: 15 })
+const genForm = reactive({ report_type: 'daily', date_start: '', date_end: '', overdue_days: 25 })
+
+// 各专题的超期天数默认值：需求分析 15 天 / 需求开发超期 25 天（老大 2026-10-19 定）
+function defaultOverdueDays(type) {
+  return type === 'dev_overdue' ? 25 : 15
+}
 
 function todayStr() {
   const d = new Date()
@@ -222,7 +235,10 @@ function shiftDays(n) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 function applyDefaultDates(type) {
+  genForm.overdue_days = defaultOverdueDays(type)
   genForm.date_end = todayStr()
+  // 开发超期专题为快照口径，只看统计基准日，起始日期不参与计算
+  if (type === 'dev_overdue') { genForm.date_start = todayStr(); return }
   if (type === 'weekly' || type === 'custom') genForm.date_start = shiftDays(-6)
   else if (type === 'monthly') genForm.date_start = shiftDays(1 - new Date().getDate())
   else genForm.date_start = todayStr()
