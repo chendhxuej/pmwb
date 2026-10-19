@@ -506,6 +506,27 @@ function openOrgMapping(org) {
 
 // 新增目标系统平台：候选集里没有的新平台，以「系统」类组织创建进人员中台，
 // 创建后自动进目标系统名候选（中台实时；主后端 meta 有 60s TTL，本地乐观追加兜底）。
+/** 从 axios 错误里取可读文案（后端既有 {code,message} 也有 FastAPI 的 {detail}） */
+function errText(e) {
+  const d = e?.response?.data || e || {}
+  if (typeof d.message === 'string' && d.message) return d.message
+  if (typeof d.detail === 'string' && d.detail) return d.detail
+  if (Array.isArray(d.detail)) {
+    return d.detail.map((x) => (x && x.msg) || '').filter(Boolean).join('；')
+  }
+  return e?.message || ''
+}
+
+/** 把新平台补齐进候选并选中（8000 侧 meta 有 60s TTL，必须本地补一次） */
+async function selectNewPlatform(name) {
+  await loadOrgs()
+  await loadMappingOptions()
+  if (!targetSystemOptions.value.includes(name)) {
+    targetSystemOptions.value = [...targetSystemOptions.value, name].sort()
+  }
+  orgForm.target_system_name = name
+}
+
 async function createPlatform() {
   let name = ''
   try {
@@ -541,15 +562,40 @@ async function createPlatform() {
     // 顺序很重要：先刷新（拿到的可能是 8000 侧 60s 内的旧列表），
     // 再把新平台补齐进候选，最后才回填选中值 —— 否则刷新会把乐观项覆盖掉，
     // el-select 找不到对应 option，输入框显示为空（2026-10-19 实测踩到）。
-    await loadOrgs()
-    await loadMappingOptions()
-    if (!targetSystemOptions.value.includes(name)) {
-      targetSystemOptions.value = [...targetSystemOptions.value, name].sort()
-    }
-    orgForm.target_system_name = name
+    await selectNewPlatform(name)
     ElMessage.success(`平台「${name}」已创建为系统组织，并已选中`)
   } catch (e) {
-    ElMessage.error(e?.message || '创建失败')
+    const msg = errText(e)
+    // 重名且已有那条不是系统平台 → 提供「一键转为系统平台」。
+    // 典型来源：2026-10-19 之前代理层丢字段，创建时 org_type 被丢弃落成了 department。
+    const exist = orgs.value.find((o) => (o.name || '').trim() === name)
+    if (/已存在同名组织|组织名称重复/.test(msg) && exist) {
+      const curType = exist.org_type || 'department'
+      if (curType === 'system') {
+        await selectNewPlatform(name)
+        ElMessage.info(`「${name}」已是系统平台，已为你选中`)
+        return
+      }
+      try {
+        await ElMessageBox.confirm(
+          `已存在同名组织「${name}」（当前类型：${ORG_TYPE_LABELS[curType] || curType}）。` +
+            '是否把它转为「系统平台」？转换后会出现在目标系统名候选中，可按系统维度配置别名与厂家。',
+          '转为系统平台',
+          { confirmButtonText: '转为系统平台', cancelButtonText: '取消', type: 'warning' }
+        )
+      } catch {
+        return
+      }
+      try {
+        await basicDataApi.updateOrg(exist.id, { org_type: 'system' })
+        await selectNewPlatform(name)
+        ElMessage.success(`「${name}」已转为系统平台，并已选中`)
+      } catch (e2) {
+        ElMessage.error(errText(e2) || '转为系统平台失败')
+      }
+      return
+    }
+    ElMessage.error(msg || '创建失败')
   }
 }
 

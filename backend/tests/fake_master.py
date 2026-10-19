@@ -169,7 +169,17 @@ class FakeMasterBackend:
                 name = (json_body.get("name") or "").strip()
                 if not name:
                     return self._fail("组织名称不能为空")
-                if any(o["name"] == name for o in self.orgs.values()):
+                exist = next((o for o in self.orgs.values() if o["name"] == name), None)
+                if exist is not None:
+                    # 对齐中台：同名但类型不同时给出可操作提示（2026-10-19 行商平台）
+                    want = json_body.get("org_type") or "department"
+                    cur = exist.get("org_type") or "department"
+                    if cur != want:
+                        labels = {"system": "系统平台", "department": "部门", "branch": "分公司"}
+                        return self._fail(
+                            f"已存在同名组织「{name}」（当前类型：{labels.get(cur, cur)}）。"
+                            f"请编辑该组织把「组织类型」改为{labels.get(want, want)}，或换个名称"
+                        )
                     return self._fail(f"组织名称重复：{name}")
                 org = {
                     "id": self._next("org"),

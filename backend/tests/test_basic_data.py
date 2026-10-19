@@ -166,3 +166,21 @@ class TestOrgMappingFieldsPassthrough:
         assert data.get("target_system_name") == "订单中心"
         assert data.get("aliases") == "别名C"
         client.delete(f"/api/v1/basic-data/orgs/{org['id']}")
+
+    def test_duplicate_org_error_message_passthrough(self, client):
+        """中台的可读报错必须原样透出，不能被代理层吞成「创建组织失败」。
+
+        事故（2026-10-19）：新增平台「行商平台」前端只显示「创建组织失败」，
+        实际中台已明确说「已存在同名组织（当前类型：部门），请改为系统平台」——
+        原因写在 _request 只读 detail、读不到中台的 message。
+        """
+        name = _unique_name("重名透传")
+        org = _create_org(client, name)  # 默认 department
+        try:
+            resp = client.post("/api/v1/basic-data/orgs", json={"name": name, "org_type": "system"})
+            assert resp.status_code == 400, resp.text
+            msg = resp.json().get("message") or ""
+            assert "已存在同名组织" in msg, msg
+            assert "部门" in msg and "系统平台" in msg, msg
+        finally:
+            client.delete(f"/api/v1/basic-data/orgs/{org['id']}")

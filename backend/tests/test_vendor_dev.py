@@ -186,6 +186,107 @@ def test_resolve_vendor_system_alias_and_fuzzy(db):
 
 
 # ---------------------------------------------------------------------------
+# 二·A2、多对一反向展开（2026-10-19 线上问题）
+# ---------------------------------------------------------------------------
+def _cleanup_orgs(*names):
+    for n in names:
+        oid = _org_id_by_name(n)
+        if oid:
+            _MC.delete_org(oid, force=True)
+
+
+def test_sync_target_system_reverse_maps_to_active_team(db):
+    """标题写合并后的目标系统名（订单中心），评估里记的是原厂家（电子协议）。
+
+    线上实例：REQ_2026第0930620号[订单中心] 关于购物车协议复制步骤简化的需求
+      评估 = 电子协议 14 人天 / 订单中心 0 人天 / CRM 17 人天
+    旧逻辑：第 1 级精确命中「订单中心」→ 0 人天 → 直接判 zero_workload，
+            真正干活的「电子协议」永远同步不到。
+    新逻辑：按 target 归组反向展开 → 唯一活跃项 [电子协议] → 直接同步。
+    """
+    _seed(db)
+    _eval(db, "电子协议", 14.0, sa_name="秦新")
+    _eval(db, "订单中心", 0.0, sa_name="王辅松")
+    _seed_org("电子协议", org_type="system", target_system_name="订单中心")
+    _seed_org("政企工作台", org_type="system", target_system_name="订单中心")
+    try:
+        res = sync_from_plugin(db, {"code": REQ, "vendor": "订单中心"})
+        assert res["success"] is True, res
+        assert res["system_name"] == "电子协议"
+        assert res["matched_by"] == "reverse"
+        assert res["is_active"] is True
+        # 落地行写的是真正干活的厂家，且带上评估里的 SA
+        row = db.query(PmwbReqVendorDev).filter_by(req_id=REQ, system_name="电子协议").first()
+        assert row is not None and row.dev_status == "live"
+        assert row.sa_name == "秦新"
+    finally:
+        _cleanup_orgs("电子协议", "政企工作台")
+
+
+def test_sync_reverse_mapping_ambiguous_returns_candidates(db):
+    """同一目标系统下有 2 个活跃团队 → 不猜，返回候选交人工点选。"""
+    _seed(db)
+    _eval(db, "电子协议", 14.0)
+    _eval(db, "政企工作台", 10.0)
+    _eval(db, "订单中心", 0.0)
+    _seed_org("电子协议", org_type="system", target_system_name="订单中心")
+    _seed_org("政企工作台", org_type="system", target_system_name="订单中心")
+    try:
+        res = sync_from_plugin(db, {"code": REQ, "vendor": "订单中心"})
+        assert res["success"] is False
+        assert res["reason"] == "vendor_ambiguous"
+        # 按工作量降序：电子协议(14) 在 政企工作台(10) 前
+        assert res["candidates"] == ["电子协议", "政企工作台"]
+
+        # 用户点选后带 system_name 重试
+        ok = sync_from_plugin(db, {"code": REQ, "vendor": "订单中心", "system_name": "政企工作台"})
+        assert ok["success"] is True
+        assert ok["system_name"] == "政企工作台"
+        assert ok["matched_by"] == "explicit"
+    finally:
+        _cleanup_orgs("电子协议", "政企工作台")
+
+
+def test_sync_explicit_system_must_be_in_eval(db):
+    """手工指定 system_name 也不能乱填，必须在该需求的团队评估里。"""
+    _seed(db)
+    _eval(db, "CRM", 17.0)
+    res = sync_from_plugin(db, {"code": REQ, "vendor": "CRM", "system_name": "BOSS"})
+    assert res["success"] is False
+    assert res["reason"] == "system_not_in_eval"
+
+
+def test_reverse_mapping_does_not_cross_target_groups(db):
+    """反向展开只在同一 target 组内生效：CRM 不会被 订单中心 那边影响。"""
+    _seed(db)
+    _eval(db, "电子协议", 14.0)
+    _eval(db, "订单中心", 0.0)
+    _eval(db, "CRM", 17.0)
+    _seed_org("电子协议", org_type="system", target_system_name="订单中心")
+    try:
+        res = sync_from_plugin(db, {"code": REQ, "vendor": "CRM"})
+        assert res["success"] is True
+        assert res["system_name"] == "CRM"
+        assert res["matched_by"] == "system"
+    finally:
+        _cleanup_orgs("电子协议")
+
+
+def test_target_system_options_not_merged_from_history(client: TestClient, db):
+    """下拉候选必须与中台保存校验同源，**不得**并入 yxtyg_db 历史名。
+
+    事故（2026-10-19 实测）：8000 把评估表 distinct（电子协议 / DI / 商机平台…）
+    并进候选，但中台保存时按自己的候选集校验 → 用户在下拉里选了，保存却报
+    「目标系统名不在候选集内」。历史名要能作为目标，得先「新增平台」建成 system 组织。
+    """
+    _seed(db)
+    _eval(db, "_仅历史存在的系统", 5.0)
+    body = client.get("/api/v1/meta/target-system-options").json()["data"]
+    assert "_仅历史存在的系统" not in body["options"], body
+    assert body["options"] == sorted(set(body["options"]))
+
+
+# ---------------------------------------------------------------------------
 # 二·B、降级演练：人员中台不可达
 # ---------------------------------------------------------------------------
 def test_master_unreachable_skips_team_and_alias_levels(db, monkeypatch):

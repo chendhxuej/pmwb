@@ -175,9 +175,74 @@ def _org_mapping(org_type: Optional[str] = _SYSTEM_ORG_TYPE) -> Tuple[List[Dict[
     return rows, degraded
 
 
+def _target_of(system_name: str, mapping: List[Dict[str, Any]]) -> str:
+    """把 system_name 归到它所属的**目标系统**（组织无映射时=自身）。
+
+    例：电子协议 → 订单中心；订单中心 → 订单中心；CRM → CRM。
+    中台不可达（mapping 为空）时一律回落到自身，等价于「不做归组」。
+    """
+    n = _norm(system_name)
+    if not n:
+        return ""
+    for m in mapping:
+        if _norm(m["org_name"]).lower() == n.lower():
+            return _norm(m["target"]) or n
+    return n
+
+
+def expand_target_group(
+    db: Session,
+    req_id: str,
+    system_name: str,
+    actives: Optional[List[Dict[str, Any]]] = None,
+) -> List[str]:
+    """**多对一反向映射的唯一实现**：目标系统名 → 该目标下「活跃」的评估系统名。
+
+    场景（2026-10-19 线上问题）：需求「购物车协议复制步骤简化」的团队评估是
+    ``电子协议 14 人天 / 订单中心 0 人天 / CRM 17 人天``，而开发工单标题是
+    ``[订单中心]``（合并后的统一平台名）。四级匹配链会精确命中评估里的
+    「订单中心」→ 0 人天 → 被规则剔除，于是永远同步不了真正干活的「电子协议」。
+
+    反向展开：raw →(正查)→ 订单中心 →(按 target 归组)→ {订单中心, 电子协议, 政企工作台}
+    → 与活跃团队取交集 → [电子协议]。
+
+    Returns:
+        活跃系统名列表，**按工作量降序**（投入多的当主责）；无交集返回 []。
+        多于 1 个说明无法唯一确定，由调用方要求人工指定，绝不静默猜一个。
+    """
+    actives = actives if actives is not None else active_team_systems(db, req_id)
+    mapping, _degraded = _org_mapping()
+    target = _target_of(system_name, mapping).lower()
+    if not target:
+        return []
+
+    wl = {_norm(a["system_name"]): float(a.get("workload") or 0) for a in actives}
+    out: List[str] = []
+    for a in actives:
+        s = _norm(a["system_name"])
+        if s and s not in out and _target_of(s, mapping).lower() == target:
+            out.append(s)
+    out.sort(key=lambda s: (-wl.get(s, 0.0), s))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 二、厂家名 → 系统名 的匹配链（四级）
 # ---------------------------------------------------------------------------
+def _eval_system_names(db: Session, req_id: str) -> List[str]:
+    """该需求「团队评估」里的系统名（去重，**含 0 人天**）。
+
+    保留 0 人天是为了让上层能区分「命中但被规则剔除」与「压根没这个团队」，
+    提示文案不同（前者可勾强制同步，后者只能补别名）。
+    """
+    rows = (
+        db.query(PmwbRequirementEvaluation.system_name)
+        .filter(PmwbRequirementEvaluation.req_id == _norm(req_id))
+        .all()
+    )
+    return sorted({_norm(r[0]) for r in rows if _norm(r[0])})
+
+
 def resolve_vendor_system(db: Session, req_id: str, raw_name: str) -> Tuple[Optional[str], str]:
     """把工单标题里解析出的厂家名归一到 system_name。
 
@@ -199,13 +264,7 @@ def resolve_vendor_system(db: Session, req_id: str, raw_name: str) -> Tuple[Opti
         return None, "unmatched"
 
     # 1) 该需求团队评估里的系统名（含 0 人天的，便于上层区分「命中但已剔除」）
-    eval_systems = [
-        _norm(r[0])
-        for r in db.query(PmwbRequirementEvaluation.system_name)
-        .filter(PmwbRequirementEvaluation.req_id == _norm(req_id))
-        .all()
-        if _norm(r[0])
-    ]
+    eval_systems = _eval_system_names(db, req_id)
     uniq_systems = sorted(set(eval_systems))
     low = {s.lower(): s for s in uniq_systems}
     if raw.lower() in low:
@@ -526,17 +585,25 @@ def _find_req_by_title(db: Session, title: str) -> Optional[str]:
 def sync_from_plugin(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     """插件扫描到厂家开发单后同步开发状态 → live（幂等、只前进不回退）。
 
-    payload: {code, vendor, title, force}
-        code   —— 标题拆出的编号（开发单号优先）
-        vendor —— 标题拆出的厂家团队片段，如「CRM」「订单中心」
-        title  —— 标题拆出的需求标题（兜底匹配用）
-        force  —— 该厂家已被 0 人天规则剔除时，是否强制同步
+    payload: {code, vendor, title, force, system_name}
+        code        —— 标题拆出的编号（开发单号优先）
+        vendor      —— 标题拆出的厂家团队片段，如「CRM」「订单中心」
+        title       —— 标题拆出的需求标题（兜底匹配用）
+        force       —— 该厂家已被 0 人天规则剔除时，是否强制同步
+        system_name —— 可选，用户在多对一歧义时点选的**具体评估系统名**；
+                       传了就跳过名称解析（仍校验必须在该需求评估内）
+
+    多对一（2026-10-19）：标题里的「订单中心」是合并后的目标系统名，
+    团队评估里记的是原厂家（电子协议/政企工作台）。命中目标系统但它是 0 人天时，
+    走 ``expand_target_group()`` 反向展开到真正活跃的那个；展开出多个则返回
+    ``vendor_ambiguous`` + candidates，由插件让用户点选后带 system_name 重试。
 
     Returns:
         {"success": bool, ...}；失败时带 reason 供插件弹窗提示。
     """
     code = _norm(payload.get("code"))
     raw_vendor = _norm(payload.get("vendor"))
+    explicit_system = _norm(payload.get("system_name"))
     title = _norm(payload.get("title"))
     force = bool(payload.get("force"))
 
@@ -545,26 +612,67 @@ def sync_from_plugin(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "reason": "req_not_found", "message": f"未匹配到需求（编号 {code}）"}
 
     _ensure_evaluations_seeded(db, req_id)
-    system_name, matched_by = resolve_vendor_system(db, req_id, raw_vendor)
-    if not system_name:
-        return {
-            "success": False,
-            "reason": "vendor_not_matched",
-            "req_id": req_id,
-            "vendor": raw_vendor,
-            "message": f"厂家「{raw_vendor}」未能匹配到系统，请在插件里指定或补充别名",
-        }
-
     actives = active_team_systems(db, req_id)
     active_wl = {a["system_name"]: a["workload"] for a in actives}
+
+    if explicit_system:
+        # 插件在「多对一歧义」时让用户点选的具体系统，必须是该需求评估里真实存在的
+        if explicit_system not in _eval_system_names(db, req_id):
+            return {
+                "success": False,
+                "reason": "system_not_in_eval",
+                "req_id": req_id,
+                "system_name": explicit_system,
+                "message": f"「{explicit_system}」不在该需求的团队评估中，无法同步",
+            }
+        system_name, matched_by = explicit_system, "explicit"
+    else:
+        system_name, matched_by = resolve_vendor_system(db, req_id, raw_vendor)
+        if not system_name:
+            return {
+                "success": False,
+                "reason": "vendor_not_matched",
+                "req_id": req_id,
+                "vendor": raw_vendor,
+                "message": f"厂家「{raw_vendor}」未能匹配到系统，请在插件里指定或补充别名",
+            }
+
     is_active = system_name in active_wl
+
+    # ★ 多对一反向展开（2026-10-19 线上问题）：标题给的是**合并后的目标系统名**
+    #   （如「订单中心」），而团队评估里记的是原厂家（如「电子协议」）。
+    #   命中目标系统本身但它是 0 人天时，按 target 归组找真正活跃的那个。
+    group: List[str] = []
+    if not is_active:
+        group = expand_target_group(db, req_id, system_name, actives)
+        if len(group) == 1:
+            system_name, matched_by = group[0], "reverse"
+            is_active = True
+        elif len(group) > 1:
+            # 一个工单不能同时代表多家：交人工选，绝不静默猜一个
+            return {
+                "success": False,
+                "reason": "vendor_ambiguous",
+                "req_id": req_id,
+                "vendor": raw_vendor,
+                "system_name": system_name,
+                "candidates": group,
+                "message": (
+                    f"「{raw_vendor}」对应目标系统下有 {len(group)} 个活跃团队"
+                    f"（{'、'.join(group)}），请选择要更新的厂家"
+                ),
+            }
+
     if not is_active and not force:
+        group = group or expand_target_group(db, req_id, system_name, actives)
+        hint = f"；该目标系统下的活跃团队：{'、'.join(group)}" if group else ""
         return {
             "success": False,
             "reason": "zero_workload",
             "req_id": req_id,
             "system_name": system_name,
-            "message": f"系统「{system_name}」在团队评估中工作量为 0，已被规则剔除（可勾选强制同步）",
+            "candidates": group,
+            "message": f"系统「{system_name}」在团队评估中工作量为 0，已被规则剔除{hint}（可勾选强制同步）",
         }
 
     row = (
@@ -658,35 +766,25 @@ def save_vendor_manual(
 #     pmwb_vendor_team 一并下线 —— 映射唯一的维护入口在人员中台「组织管理」。
 # ---------------------------------------------------------------------------
 def target_system_options(db: Session) -> Dict[str, Any]:
-    """完整候选集 = 中台候选 ∪ 评估表历史 distinct ∪ sent_emails 历史 distinct。
+    """「目标系统名」候选集 = **人员中台 system 组织的有效目标名**。
 
-    为什么必须在主后端合并：后两张历史表在 yxtyg_db，中台读不到（也不应跨库）。
-    为什么要并入历史值：老工单里出现过的系统名（如已被合并的旧称）也要能选到。
+    ⚠ 不再并入 yxtyg_db 历史表（评估表 / sent_emails）的 distinct 值。
+      原因（2026-10-19 实测）：中台保存时按**它自己的**候选集校验，把历史名并进来
+      会造出「下拉能选、一点保存就报『不在候选集内』」的陷阱（DI / 电子协议 /
+      商机平台 三个都被中台拒绝）。
+      历史里出现过但中台没有的名字，正确做法是到「新增平台」建一个 system 组织，
+      而不是让它出现在候选里 —— 单一真相源不破。
 
     Returns:
         {"options": [...], "degraded": bool, "master_count": int}
-        degraded=True 表示中台不可达，此时 options 只含本地历史值。
+        degraded=True 表示中台不可达，此时 options 为空（宁可不让选，也不给错选项）。
     """
     master_opts, degraded = master_service_client.target_system_options()
-
-    history: List[str] = []
-    for model in (PmwbRequirementEvaluation, SentEmail):
-        try:
-            rows = db.query(model.system_name).distinct().all()
-        except Exception:  # noqa: BLE001 兼容个别环境下模型字段差异
-            rows = []
-        history.extend(_norm(r[0]) for r in rows)
-
-    merged: Dict[str, str] = {}
-    for name in list(master_opts) + history:
-        key = name.lower()
-        if name and key not in merged:
-            merged[key] = name
-
+    options = sorted({_norm(o) for o in (master_opts or []) if _norm(o)})
     return {
-        "options": sorted(merged.values()),
+        "options": options,
         "degraded": bool(degraded),
-        "master_count": len(master_opts),
+        "master_count": len(options),
     }
 
 

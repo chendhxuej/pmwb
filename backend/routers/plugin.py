@@ -68,12 +68,14 @@ class PluginWorkorderSyncRequest(BaseModel):
     vendor —— 标题拆出的厂家团队片段，如「CRM」「订单中心」
     title  —— 标题拆出的需求标题（编号匹配不上时的兜底）
     force  —— 该厂家已被 0 人天规则剔除时，是否强制同步
+    system_name —— 多对一歧义时用户点选的具体评估系统名（可选，传了跳过解析）
     """
 
     code: str = ""
     vendor: str = ""
     title: str = ""
     force: bool = False
+    system_name: str = ""
 
 
 # ---------------- 健康检查（对齐 2525 /health，插件检查 status==='ok'）----------------

@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 ORG_MAP_CACHE_TTL = 60.0
 
 
+class MasterServiceError(Exception):
+    """人员中台返回业务错误（携带中台原文与 HTTP 状态，供上层分别转 400/404）。"""
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
+
+
 class MasterServiceClient:
     """封装对 pmwb-master-service 的 HTTP 调用。
 
@@ -68,17 +76,30 @@ class MasterServiceClient:
             body = resp.json()
             if body.get("code") == 0:
                 return {"ok": True, "data": body.get("data"), "error": None}
-            return {"ok": False, "data": None, "error": body.get("message", "Unknown error")}
+            return {
+                "ok": False,
+                "data": None,
+                "error": body.get("message", "Unknown error"),
+                "status": resp.status_code,
+            }
         except httpx.HTTPStatusError as e:
+            # 中台业务错误统一返回 {code,message,data}（400），FastAPI 原生错误才是 detail。
+            # 只读 detail 会把「已存在同名组织…」这类可读原因吞成 "400 Bad Request"。
+            body = {}
             try:
-                detail = e.response.json().get("detail", str(e))
+                body = e.response.json() or {}
             except Exception:
-                detail = str(e)
+                body = {}
+            detail = body.get("detail") or body.get("message") or str(e)
+            if isinstance(detail, list):
+                detail = "；".join(
+                    str(d.get("msg", d)) if isinstance(d, dict) else str(d) for d in detail
+                )
             logger.warning("Master service HTTP error: %s %s -> %s", method, path, detail)
-            return {"ok": False, "data": None, "error": detail}
+            return {"ok": False, "data": None, "error": detail, "status": e.response.status_code}
         except httpx.RequestError as e:
             logger.warning("Master service unreachable: %s %s -> %s", method, path, e)
-            return {"ok": False, "data": None, "error": f"人员中台服务不可用: {e}"}
+            return {"ok": False, "data": None, "error": f"人员中台服务不可用: {e}", "status": None}
 
     # ------------------------------------------------------------------
     # 健康检查
@@ -100,13 +121,21 @@ class MasterServiceClient:
                 return o
         return None
 
-    def create_org(self, data: dict) -> Optional[dict]:
+    def create_org(self, data: dict, raise_error: bool = False) -> Optional[dict]:
         r = self._request("POST", "/api/v1/basic-data/orgs", json=data)
-        return r["data"] if r["ok"] else None
+        if r["ok"]:
+            return r["data"]
+        if raise_error:
+            raise MasterServiceError(r["error"] or "创建组织失败", r.get("status"))
+        return None
 
-    def update_org(self, org_id: int, data: dict) -> Optional[dict]:
+    def update_org(self, org_id: int, data: dict, raise_error: bool = False) -> Optional[dict]:
         r = self._request("PUT", f"/api/v1/basic-data/orgs/{org_id}", json=data)
-        return r["data"] if r["ok"] else None
+        if r["ok"]:
+            return r["data"]
+        if raise_error:
+            raise MasterServiceError(r["error"] or "更新组织失败", r.get("status"))
+        return None
 
     def delete_org(self, org_id: int, force: bool = False) -> bool:
         path = f"/api/v1/basic-data/orgs/{org_id}"

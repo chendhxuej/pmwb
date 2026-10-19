@@ -2304,7 +2304,15 @@ function renderWorkorderResults(scan) {
             </div>
             ${r.warn ? '<div style="font-size:11px;color:#e37400;">⚠️ 编号或厂家未解析出，请在 PMWB 补充别名后重扫</div>' : ''}
             ${r.syncResult ? `<div style="font-size:11px;color:${r.syncResult.success ? '#0f9d58' : '#d93025'};">
-              ${escapeHtml(r.syncResult.message || (r.syncResult.success ? '已置为已上线' : '同步失败'))}</div>` : ''}
+              ${escapeHtml(r.syncResult.message || (r.syncResult.success ? '已置为已上线' : '同步失败'))}${r.syncResult.success && r.syncResult.system_name ? `（厂家：${escapeHtml(r.syncResult.system_name)}）` : ''}</div>` : ''}
+            ${r.syncResult && r.syncResult.reason === 'vendor_ambiguous' && (r.syncResult.candidates || []).length
+              ? `<div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;">
+                  ${r.syncResult.candidates
+                    .map((c) => `<button type="button" class="wo-cand-btn" data-i="${i}" data-sys="${escapeHtml(c)}"
+                      style="font-size:11px;padding:2px 8px;border:1px solid #1677ff;color:#1677ff;background:#fff;border-radius:10px;cursor:pointer;">同步到 ${escapeHtml(c)}</button>`)
+                    .join('')}
+                </div>`
+              : ''}
             <label style="font-size:11px;color:#666;">
               <input type="checkbox" class="wo-force" data-i="${i}" ${r.force ? 'checked' : ''}>
               强制同步（该厂家工作量为 0 被规则剔除时勾选）
@@ -2324,6 +2332,61 @@ function renderWorkorderResults(scan) {
       _woResults[Number(cb.dataset.i)].force = cb.checked;
     });
   });
+
+  // 多对一歧义：用户点选具体厂家后，带 system_name 重试这一条
+  list.querySelectorAll('.wo-cand-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const r = _woResults[Number(btn.dataset.i)];
+      if (!r) return;
+      const sys = btn.dataset.sys;
+      r.systemName = sys;
+      r.checked = true;
+      btn.disabled = true;
+      btn.textContent = '同步中...';
+      const autoManual = document.getElementById('wo-auto-manual').checked;
+      try {
+        const res = await syncWorkorderItem(r, autoManual);
+        showToast(res.success ? `已同步到「${sys}」` : res.message || '同步失败', res.success ? 'success' : 'error');
+      } catch (e) {
+        showToast('同步失败: ' + e.message, 'error');
+      }
+      renderWorkorderResults({ heads: [], total: _woResults.length, matched: _woResults.length });
+    });
+  });
+}
+
+/** 同步单条：抓手册（可选）→ 同步开发状态 → 手册回传。返回 syncResult。 */
+async function syncWorkorderItem(r, autoManual) {
+  // 1) 可选：抓操作手册
+  if (autoManual && r.detailUrl) {
+    r.manual = await fetchVendorManual(r.detailUrl);
+  }
+  // 2) 同步开发状态
+  //    system_name：多对一歧义时用户点选的厂家；空则由后端按映射链路自动判定
+  //    （标题写的是合并后的「订单中心」，后端会反向展开到评估里的「电子协议」）
+  const payload = {
+    code: r.code || '',
+    vendor: r.vendor || '',
+    title: r.reqTitle || r.title || '',
+    force: !!r.force,
+    system_name: r.systemName || '',
+  };
+  const res = await postJson(`${RELAY_SERVER}/plugins/workorder-sync`, payload);
+  r.syncResult = res || { success: false, message: '无响应' };
+  // 3) 手册回传
+  if (r.syncResult?.success && r.manual?.base64 && r.syncResult.vendor_dev_id) {
+    try {
+      await postJson(
+        `${RELAY_SERVER}/requirements/${encodeURIComponent(r.syncResult.req_id)}` +
+        `/vendor-devs/${r.syncResult.vendor_dev_id}/manual`,
+        { filename: r.manual.filename, content_base64: r.manual.base64 }
+      );
+      r.syncResult.message = (r.syncResult.message || '') + '；手册已上传';
+    } catch (e) {
+      r.syncResult.message = (r.syncResult.message || '') + '；手册上传失败：' + e.message;
+    }
+  }
+  return r.syncResult;
 }
 
 /** 确认同步：先展示、后写库（老大要求） */
@@ -2338,32 +2401,7 @@ async function confirmWorkorderSync() {
 
   try {
     for (const r of selected) {
-      // 1) 可选：抓操作手册
-      if (autoManual && r.detailUrl) {
-        r.manual = await fetchVendorManual(r.detailUrl);
-      }
-      // 2) 同步开发状态
-      const payload = {
-        code: r.code || '',
-        vendor: r.vendor || '',
-        title: r.reqTitle || r.title || '',
-        force: !!r.force,
-      };
-      const res = await postJson(`${RELAY_SERVER}/plugins/workorder-sync`, payload);
-      r.syncResult = res || { success: false, message: '无响应' };
-      // 3) 手册回传
-      if (r.syncResult?.success && r.manual?.base64 && r.syncResult.vendor_dev_id) {
-        try {
-          await postJson(
-            `${RELAY_SERVER}/requirements/${encodeURIComponent(r.syncResult.req_id)}` +
-            `/vendor-devs/${r.syncResult.vendor_dev_id}/manual`,
-            { filename: r.manual.filename, content_base64: r.manual.base64 }
-          );
-          r.syncResult.message = (r.syncResult.message || '') + '；手册已上传';
-        } catch (e) {
-          r.syncResult.message = (r.syncResult.message || '') + '；手册上传失败：' + e.message;
-        }
-      }
+      await syncWorkorderItem(r, autoManual);
     }
     const ok = selected.filter((r) => r.syncResult?.success).length;
     showToast(`同步完成：成功 ${ok} / 共 ${selected.length}`, ok ? 'success' : 'error');

@@ -10,7 +10,8 @@ from typing import Dict, List, Optional
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
-from utils.master_service import master_service_client
+from utils.master_service import master_service_client, MasterServiceError
+from core.exceptions import ValidationException
 
 # Excel 导入列名与顺序（保留用于模板生成）
 TEMPLATE_COLUMNS = [
@@ -37,10 +38,21 @@ class BasicDataService:
         return sorted(orgs, key=lambda o: (o.get("sort", 0), o.get("id", 0)))
 
     def create_org(self, db: Session, data: dict) -> Optional[dict]:
-        return master_service_client.create_org(data)
+        # 中台原文（如「已存在同名组织…请把组织类型改为系统平台」）必须原样透出，
+        # 否则前端只剩「创建组织失败」，用户无从下手（2026-10-19 行商平台）。
+        try:
+            return master_service_client.create_org(data, raise_error=True)
+        except MasterServiceError as exc:
+            raise ValidationException(str(exc))
 
     def update_org(self, db: Session, org_id: int, data: dict) -> Optional[dict]:
-        return master_service_client.update_org(org_id, data)
+        try:
+            return master_service_client.update_org(org_id, data, raise_error=True)
+        except MasterServiceError as exc:
+            # 组织不存在 → 交回 router 抛 404（不能降级成 400「更新组织失败」）
+            if getattr(exc, "status", None) == 404 or "组织不存在" in str(exc):
+                return None
+            raise ValidationException(str(exc))
 
     def delete_org(self, db: Session, org_id: int, force: bool = False) -> bool:
         return master_service_client.delete_org(org_id, force=force)

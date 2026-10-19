@@ -122,7 +122,8 @@ export function getOrgTypeOptions() {
   return request.get('meta/org-type-options')
 }
 
-/** 「目标系统名」完整候选集 = 中台候选 ∪ 评估表历史 distinct ∪ sent_emails distinct。
+/** 「目标系统名」候选集 = 人员中台 system 组织的有效目标名。
+ *  与中台保存校验同源（不再并入历史表 distinct，否则会出现「能选但保存被拒」）。
  *  后端返回 { options, degraded, master_count }，这里统一解包成 v-for 可直接用的数组。 */
 export function getTargetSystemOptions() {
   return request.get('meta/target-system-options').then((d) => (Array.isArray(d) ? d : d?.options || []))

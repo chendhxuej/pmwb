@@ -55,13 +55,28 @@ def test_multi_org_to_one_target_allowed():
         _force_clean_by_name(n)
 
 
-def test_target_system_options_contains_real_systems():
-    """候选集应覆盖 2026-10-16 摸底时的 9 个 system 类组织目标名。"""
+def test_target_system_options_matches_system_orgs():
+    """候选集 = **启用的 system 类组织** 的「有效目标名」去重（target 空 → 自身）。
+
+    不写死具体名字（数据会随业务增删），只断言这条不变式：
+      · 每个 system 组织的有效目标名都能选到；
+      · 源组织（如 电子协议 → 订单中心）**不应**出现在候选里 —— 它是别名来源，
+        不是可选的目标系统（2026-10-16 多对一归并后的口径）。
+    """
+    orgs = client.get("/api/v1/basic-data/orgs").json()["data"]
     resp = client.get("/api/v1/basic-data/target-system-options")
     assert resp.status_code == 200
     opts = resp.json()["data"]
-    for sys_name in ("CRM", "订单中心", "电子协议", "政企工作台", "BOSS", "网格通", "能运"):
-        assert sys_name in opts, f"{sys_name} 不在候选集：{opts}"
+
+    assert opts == sorted(opts), f"候选未排序：{opts}"
+    assert len(opts) == len(set(opts)), f"候选有重复：{opts}"
+
+    expect = set()
+    for o in orgs:
+        if o.get("org_type") != "system" or not o.get("enabled", True):
+            continue
+        expect.add((o.get("target_system_name") or "").strip() or (o.get("name") or "").strip())
+    assert set(opts) == expect, f"候选集与 system 组织不一致：opts={opts} expect={sorted(expect)}"
 
 
 def test_org_mapping_index_shape_and_order():
@@ -159,6 +174,25 @@ def test_duplicate_org_name_on_update_rejected_not_500():
     # 断言 CRM 未被改名破坏
     orgs = {o["id"]: o for o in client.get("/api/v1/basic-data/orgs").json()["data"]}
     assert orgs[crm_id]["name"] == "CRM", "撞名失败后不应残留半改状态"
+
+
+def test_duplicate_name_with_different_type_gives_actionable_hint():
+    """同名但类型不同 → 报错要说清「已有那条是什么类型」，否则用户无从下手。
+
+    真实场景（2026-10-19）：「行商平台」因代理层丢字段先落成 department，
+    之后按 system 再建只看到「创建失败」，不知道是重名还是别的问题。
+    """
+    name = "_T同名不同类"
+    r1 = _mk_org(name, org_type="department")
+    assert r1.status_code == 200, r1.text
+    try:
+        r2 = _mk_org(name, org_type="system")
+        assert r2.status_code == 400, r2.text
+        msg = r2.json().get("message") or ""
+        assert "已存在同名组织" in msg, msg
+        assert "部门" in msg and "系统平台" in msg, msg
+    finally:
+        _force_clean_by_name(name)
 
 
 # ---------------------------------------------------------------------------

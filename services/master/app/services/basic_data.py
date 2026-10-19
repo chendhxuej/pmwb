@@ -54,6 +54,8 @@ def _parse_enabled(value):
 #   branch     = 地市/分公司
 ORG_TYPES = ("system", "department", "branch")
 DEFAULT_ORG_TYPE = "department"
+# 仅用于报错文案（不改取值域）；前端另有中文标签，这里是给「重名」提示用的
+ORG_TYPE_LABELS = {"system": "系统平台", "department": "部门", "branch": "分公司"}
 
 
 def _norm(value) -> str:
@@ -121,9 +123,26 @@ class BasicDataService:
             db.commit()
         except IntegrityError:
             db.rollback()
-            raise ValidationException(f"组织名称重复：{payload.get('name', '')}")
+            raise ValidationException(self._duplicate_name_message(db, payload))
         db.refresh(obj)
         return obj
+
+    def _duplicate_name_message(self, db: Session, payload: dict) -> str:
+        """重名报错要说清「已有那条是什么类型」，否则用户只会看到「创建失败」无从下手。
+
+        典型场景：先按部门建过同名组织，后来想把它当系统平台用（2026-10-19 行商平台）。
+        """
+        name = _norm(payload.get("name"))
+        want = _norm(payload.get("org_type")) or DEFAULT_ORG_TYPE
+        exists = db.query(PmwbOrg).filter(PmwbOrg.name == name).first()
+        if exists:
+            cur = _norm(exists.org_type) or DEFAULT_ORG_TYPE
+            if cur != want:
+                return (
+                    f"已存在同名组织「{name}」（当前类型：{ORG_TYPE_LABELS.get(cur, cur)}）。"
+                    f"请编辑该组织把「组织类型」改为{ORG_TYPE_LABELS.get(want, want)}，或换个名称"
+                )
+        return f"组织名称重复：{name}"
 
     def update_org(self, db: Session, org_id: int, data: dict) -> Optional[PmwbOrg]:
         """更新组织。返回对象上可能挂有 `cascade_updated`（目标系统更名的级联行数）。"""
@@ -141,7 +160,12 @@ class BasicDataService:
             db.commit()
         except IntegrityError:
             db.rollback()
-            raise ValidationException(f"组织名称重复：{payload.get('name', '')}")
+            # 部分更新时 payload 可能不含 name/org_type，用现值补齐再生成提示
+            hint = {
+                "name": payload.get("name") or obj.name,
+                "org_type": payload.get("org_type") or obj.org_type,
+            }
+            raise ValidationException(self._duplicate_name_message(db, hint))
         db.refresh(obj)
         # 目标系统更名 → 中台级联刷「引用了该旧名」的 target_system_name
         new_name = _norm(obj.name)
