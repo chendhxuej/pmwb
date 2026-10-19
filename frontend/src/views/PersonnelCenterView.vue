@@ -538,13 +538,16 @@ async function createPlatform() {
       target_system_name: null,
       aliases: null,
     })
+    // 顺序很重要：先刷新（拿到的可能是 8000 侧 60s 内的旧列表），
+    // 再把新平台补齐进候选，最后才回填选中值 —— 否则刷新会把乐观项覆盖掉，
+    // el-select 找不到对应 option，输入框显示为空（2026-10-19 实测踩到）。
+    await loadOrgs()
+    await loadMappingOptions()
     if (!targetSystemOptions.value.includes(name)) {
       targetSystemOptions.value = [...targetSystemOptions.value, name].sort()
     }
     orgForm.target_system_name = name
     ElMessage.success(`平台「${name}」已创建为系统组织，并已选中`)
-    await loadOrgs()
-    loadMappingOptions() // 后台刷新候选（8000 侧 60s 缓存过期后自然一致）
   } catch (e) {
     ElMessage.error(e?.message || '创建失败')
   }

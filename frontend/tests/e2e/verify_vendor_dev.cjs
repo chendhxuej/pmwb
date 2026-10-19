@@ -241,6 +241,37 @@ async function run() {
         [...document.querySelectorAll('.el-tab-pane')]
           .filter((p) => p.offsetParent !== null)
           .some((p) => [...p.querySelectorAll('button')].some((b) => (b.innerText || '').includes('配置映射管理')))))
+    // 目标系统名下拉支持「新增平台」（2026-10-19）：弹窗内该字段旁必须有「新增」按钮，
+    // 且 select 可输入（filterable）；点按钮应弹出命名输入框（不实际创建，避免污染业务数据）
+    await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.el-table__body tr')]
+      const row = rows.find((r) => (r.innerText || '').includes('订单中心')) || rows[0]
+      const edit = [...(row ? row.querySelectorAll('button') : [])].find((b) => (b.innerText || '').trim() === '编辑')
+      if (edit) edit.click()
+    })
+    await sleep(1500)
+    const tgtField = await page.evaluate(() => {
+      const d = [...document.querySelectorAll('.el-dialog')].find((x) => x.offsetParent !== null)
+      if (!d) return { visible: false }
+      const items = [...d.querySelectorAll('.el-form-item')]
+      const tgt = items.find((it) => ((it.querySelector('.el-form-item__label') || {}).innerText || '').includes('目标系统名'))
+      if (!tgt) return { visible: true, found: false }
+      return {
+        visible: true,
+        found: true,
+        btnTexts: [...tgt.querySelectorAll('button')].map((b) => (b.innerText || '').trim()),
+        filterable: !!tgt.querySelector('.el-select input'),
+      }
+    })
+    check('组织弹窗「目标系统名」旁有「新增」按钮',
+      tgtField.found && (tgtField.btnTexts || []).includes('新增'), JSON.stringify(tgtField.btnTexts || []))
+    check('「目标系统名」下拉可输入搜索（filterable）', !!tgtField.filterable)
+    await page.evaluate(() => {
+      const d = [...document.querySelectorAll('.el-dialog')].find((x) => x.offsetParent !== null)
+      const close = d && d.querySelector('.el-dialog__headerbtn')
+      if (close) close.click()
+    })
+    await sleep(800)
     // 反向验证深链确实生效（不是默认值凑巧命中）
     await page.goto(`${BASE}/basic-data?tab=staff`, { waitUntil: 'networkidle0' })
     await sleep(2500)

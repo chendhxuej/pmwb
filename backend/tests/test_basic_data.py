@@ -121,3 +121,48 @@ class TestStaffOptions:
         assert all(g["org_name"] != org_name for g in resp.json()["data"])
         # 清理
         client.delete(f"/api/v1/basic-data/orgs/{org['id']}")
+
+
+class TestOrgMappingFieldsPassthrough:
+    """映射三字段必须能穿过 8000 代理层落库（2026-10-19 事故回归）。
+
+    事故：backend/schemas/basic_data.py 的 OrgCreate/OrgUpdate 只有
+    name/sort/enabled，Pydantic 对未知字段**静默丢弃** → 前端保存映射"成功"
+    但 org_type 回落 department、target/aliases 丢失。中台侧测试直连 8001
+    绕过了代理层，故未暴露。本用例锁死字段透传。
+    """
+
+    def test_create_org_passes_mapping_fields(self, client):
+        name = _unique_name("测试平台")
+        resp = client.post(
+            "/api/v1/basic-data/orgs",
+            json={
+                "name": name,
+                "sort": 0,
+                "enabled": True,
+                "description": "映射透传测试",
+                "org_type": "system",
+                "target_system_name": "订单中心",
+                "aliases": "旧称A,旧称B",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data.get("org_type") == "system", f"org_type 被吞：{data}"
+        assert data.get("target_system_name") == "订单中心"
+        assert data.get("aliases") == "旧称A,旧称B"
+        assert data.get("description") == "映射透传测试"
+        client.delete(f"/api/v1/basic-data/orgs/{data['id']}")
+
+    def test_update_org_passes_mapping_fields(self, client):
+        org = _create_org(client, _unique_name("测试平台更新"))
+        resp = client.put(
+            f"/api/v1/basic-data/orgs/{org['id']}",
+            json={"org_type": "system", "target_system_name": "订单中心", "aliases": "别名C"},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data.get("org_type") == "system", f"org_type 被吞：{data}"
+        assert data.get("target_system_name") == "订单中心"
+        assert data.get("aliases") == "别名C"
+        client.delete(f"/api/v1/basic-data/orgs/{org['id']}")

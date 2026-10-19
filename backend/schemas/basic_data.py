@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -35,14 +35,26 @@ class RoleOut(BaseModel):
 # ---------------------------------------------------------------------------
 class OrgCreate(BaseModel):
     name: str
+    description: Optional[str] = None
     sort: Optional[int] = 0
     enabled: Optional[bool] = True
+    # ── 系统别名映射（2026-10-19 修复）────────────────────────
+    # 前端经本服务代理保存组织；此处若缺字段，Pydantic 会**静默丢弃**，
+    # 导致映射配置"保存成功但没生效"（org_type 回落 department）。
+    # 长度与中台 schemas 及库表 String(n) 对齐，超长在 422 层拦截。
+    org_type: Optional[str] = Field(default=None, max_length=32)
+    target_system_name: Optional[str] = Field(default=None, max_length=128)
+    aliases: Optional[str] = Field(default=None, max_length=512)
 
 
 class OrgUpdate(BaseModel):
     name: Optional[str] = None
+    description: Optional[str] = None
     sort: Optional[int] = None
     enabled: Optional[bool] = None
+    org_type: Optional[str] = Field(default=None, max_length=32)
+    target_system_name: Optional[str] = Field(default=None, max_length=128)
+    aliases: Optional[str] = Field(default=None, max_length=512)
 
 
 class OrgOut(BaseModel):
