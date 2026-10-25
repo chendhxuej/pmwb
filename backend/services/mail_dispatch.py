@@ -122,6 +122,20 @@ SCENES: dict[str, MailScene] = {
         default_subject="【高级别工单同步】{recipient_name}",
         fallback_template="## 高级别工单同步\n\n以下高级别工单最新情况，请知悉。",
     ),
+    # 敏感需求（需求与交付子模块，2026-10-25）：P0/P1 倒排跟踪督办，与高级别工单同构；
+    # 正文复用任务中心装配器（TASK_LIST_SCENES）；3210 无对应模板，不设 template_key。
+    "sensitive_req_urge": MailScene(
+        "sensitive_req_urge", email_type="pmwb_sensitive_req_urge", source="sensitive-req",
+        raw=False, renderer=True,
+        default_subject="【敏感需求督办】{recipient_name}",
+        fallback_template="## 敏感需求督办\n\n请按倒排计划尽快推进以下敏感需求并反馈进展。",
+    ),
+    "sensitive_req_notify": MailScene(
+        "sensitive_req_notify", email_type="pmwb_sensitive_req_notify", source="sensitive-req",
+        raw=False, renderer=True,
+        default_subject="【敏感需求同步】{recipient_name}",
+        fallback_template="## 敏感需求同步\n\n以下敏感需求倒排进展同步，请知悉。",
+    ),
     "plugin": MailScene("plugin", email_type="xqemail_plugin", source="plugin"),
     # supervise 场景：3210 模板已由 T-A 建设（supervise_urge/supervise_sync type）
     # supervise 场景：正文改由 PMWB 装配器渲染（renderer=True），

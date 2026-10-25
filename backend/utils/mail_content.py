@@ -176,6 +176,17 @@ SCENE_META: dict[str, dict[str, str]] = {
         "brand_color": "#165dff",
         "intro": "以下高级别工单最新情况同步如下，请知悉。",
     },
+    # 敏感需求（2026-10-25 注册）：复用任务中心清单装配器（TASK_LIST_SCENES）。
+    "sensitive_req_urge": {
+        "title": "敏感需求督办",
+        "brand_color": "#f53f3f",
+        "intro": "以下敏感需求（P0/P1）存在里程碑临期/超期，请按倒排计划优先推进并反馈进展：",
+    },
+    "sensitive_req_notify": {
+        "title": "敏感需求同步",
+        "brand_color": "#165dff",
+        "intro": "以下敏感需求倒排跟踪进展同步如下，请知悉。",
+    },
 }
 
 _TICKET_FIELDS = [
@@ -266,6 +277,12 @@ SCENE_FIELDS: dict[str, list[MailField]] = {
     "high_level_notify": [
         _f("tasks", "工单清单", type="task_list", in_body=True),
     ],
+    "sensitive_req_urge": [
+        _f("tasks", "需求清单", type="task_list", in_body=True),
+    ],
+    "sensitive_req_notify": [
+        _f("tasks", "需求清单", type="task_list", in_body=True),
+    ],
 }
 
 # 字段表屏蔽场景（2026-09-29 方案A：正文为单一信息源）。
@@ -297,6 +314,8 @@ TASK_LIST_SCENES = {
     "task_center_urge",
     "high_level_urge",
     "high_level_notify",
+    "sensitive_req_urge",
+    "sensitive_req_notify",
 }
 
 

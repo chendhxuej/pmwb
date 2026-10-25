@@ -54,6 +54,7 @@ class DomainDef:
     label: str                      # 域显示名
     statuses: Tuple[StatusDef, ...] = ()
     writable: bool = True           # 是否允许就地改状态（派生只读域为 False）
+    free_transition: bool = False   # True=该域任意状态互转，忽略各 StatusDef 的 allowed_next
     label_aliases: Dict[str, str] = field(default_factory=dict)  # 自由串容错别名
     description: str = ""
 
@@ -215,11 +216,19 @@ _REQUIREMENT = DomainDef(
     label="需求",
     writable=False,   # 需求状态在需求模块维护
     statuses=(
-        StatusDef("proposed", "建议中", "neutral", "pending"),
-        StatusDef("accepted", "已受理", "primary", "in_progress"),
-        StatusDef("dev", "开发中", "warning", "in_progress"),
+        StatusDef("proposed", "建议中", "neutral", "pending",
+                  allowed_next=("accepted", "dev", "closed", "paused")),
+        StatusDef("accepted", "已受理", "primary", "in_progress",
+                  allowed_next=("dev", "closed")),
+        StatusDef("dev", "开发中", "warning", "in_progress",
+                  allowed_next=("partial_live", "live_failed", "closed", "paused")),
+        StatusDef("partial_live", "部分上线", "warning", "in_progress",
+                  allowed_next=("closed", "live_failed", "dev")),
+        StatusDef("live_failed", "上线失败", "danger", "blocked", sensitive=True,
+                  allowed_next=("dev", "paused")),
         StatusDef("closed", "已上线", "success", "done", is_terminal=True),
-        StatusDef("paused", "已暂停", "danger", "blocked", sensitive=True),
+        StatusDef("paused", "已暂停", "danger", "blocked", sensitive=True,
+                  allowed_next=("proposed", "accepted", "dev")),
     ),
 )
 
@@ -324,35 +333,108 @@ _HIGH_LEVEL_TRACK = DomainDef(
 # 任务中心「来源→状态域」映射与统一态统计（理由同 high_level_track）。
 # 关键语义：live（已上线）由插件自动置位，completed（已完成）由人工确认；
 # 需求级「上线联动」只看 completed，不看 live。
+#
+# 2026-10-21 调整（老大要求）：
+#   1) 枚举值向需求工单状态（requirement 域）看齐，补齐 partial_live / live_failed /
+#      paused 三态 —— 厂家维度确实会出现「只上了一部分」「上线失败回滚」「暂停开发」，
+#      原先只有 4 态时只能瞎选一个，台账失真。
+#      requirement 的 proposed/accepted（建议中/已受理）不加：厂家行由需求派生，
+#      需求没受理时根本不会有厂家行。
+#   2) **free_transition=True 放开流转限制**：页面上下拉可选全部状态、任意互转
+#      （含 completed 退回），后端不再以 allowed_next 拦截。
+#      原因：厂家实际操作顺序不受系统预设约束（例：上线后发现问题→回滚到开发中→
+#      再上线），硬拦只会逼人去错填别的状态。
 _VENDOR_DEV = DomainDef(
     key="vendor_dev",
     label="厂家开发状态",
     writable=True,
+    free_transition=True,   # ★ 任意状态互转，见上方说明
     statuses=(
         StatusDef("pending", "待开发", "info", "pending",
-                  allowed_next=("developing", "live", "completed"),
                   description="厂家尚未启动开发"),
         StatusDef("developing", "开发中", "primary", "in_progress",
-                  allowed_next=("live", "completed", "pending"),
-                  description="厂家开发中；允许老大直接确认完成（插件漏抓时可跳过 live）"),
+                  description="厂家开发中；插件漏抓时可直接确认完成"),
+        StatusDef("partial_live", "部分上线", "warning", "in_progress",
+                  description="该厂家只交付了部分功能/模块，其余仍在开发或待上线"),
         StatusDef("live", "已上线", "success", "in_progress", sensitive=True,
-                  allowed_next=("completed", "developing"),
                   description="插件抓到厂家开发单「已上线待需求录入人确认」后自动置此态，仍需人工确认完成"),
+        StatusDef("live_failed", "上线失败", "danger", "blocked", sensitive=True,
+                  description="上线过程失败/回滚，需厂家重新排期"),
+        StatusDef("paused", "已暂停", "danger", "blocked", sensitive=True,
+                  description="厂家暂停该需求的开发（排期调整、需求方叫停等）"),
         StatusDef("completed", "已完成", "success", "done", is_terminal=True,
-                  allowed_next=("live", "developing"),
                   description="人工确认该厂家开发完成；最后一家置此态时触发需求级上线联动"),
     ),
     # dev_status 为 String(32) 自由串，历史/外部值容错
     label_aliases={
         "": "developing",
         "待开发": "pending",
+        "未开发": "pending",
         "开发中": "developing",
         "上线": "live",
         "已上线": "live",
+        "部分上线": "partial_live",
+        "上线失败": "live_failed",
+        "暂停": "paused",
+        "已暂停": "paused",
         "完成": "completed",
         "已完成": "completed",
     },
-    description="需求×厂家开发状态（生产部署）；厂家清单=团队评估中 workload>0 的系统",
+    description="需求×厂家开发状态（生产部署）；厂家清单=团队评估中 workload>0 的系统；状态任意互转",
+)
+
+# 敏感需求跟踪态（2026-10-25 新增，需求与交付「敏感需求跟踪」子模块）。
+# 与 _HIGH_LEVEL_TRACK 同构：不是源需求状态，而是跟踪表
+# pmwb_sensitive_req_track.track_status 的取值集合；源需求状态仍由 requirement 域负责。
+# 刻意 **不加入 SOURCE_DOMAIN**（理由同 high_level_track）；
+# 任务中心 collector（source=sensitive_req）在服务层用本域做统一态映射。
+_SENSITIVE_REQ_TRACK = DomainDef(
+    key="sensitive_req_track",
+    label="敏感需求·跟踪",
+    writable=True,
+    statuses=(
+        StatusDef("active", "跟踪中", "primary", "in_progress",
+                  allowed_next=("delayed", "escalated", "resolved", "dropped"),
+                  description="已纳入倒排跟踪"),
+        StatusDef("delayed", "已逾期", "warning", "in_progress", sensitive=True,
+                  allowed_next=("escalated", "resolved", "dropped", "active"),
+                  description="存在里程碑超期未完成"),
+        StatusDef("escalated", "督办升级", "danger", "in_progress", sensitive=True,
+                  allowed_next=("resolved", "dropped", "active", "delayed"),
+                  description="已邮件督办/人工提级，需重点关注"),
+        StatusDef("resolved", "已上线闭环", "success", "done", is_terminal=True,
+                  allowed_next=("active",),
+                  description="需求已上线或人工确认闭环"),
+        StatusDef("dropped", "已移除", "neutral", "blocked", is_terminal=True,
+                  allowed_next=("active",),
+                  description="源需求消失、级别下调或人工移出跟踪范围"),
+    ),
+    description="敏感需求本地跟踪态（非源需求状态；源状态见 requirement 域）",
+)
+
+# 敏感需求里程碑状态（2026-10-25 新增）：pmwb_sensitive_req_milestone.status。
+# 同样不加入 SOURCE_DOMAIN（非任务来源域）。
+_SENSITIVE_MILESTONE = DomainDef(
+    key="sensitive_milestone",
+    label="敏感需求·里程碑",
+    writable=True,
+    free_transition=True,   # 实际推进顺序不受系统预设约束（补录/回退常态），任意互转
+    statuses=(
+        StatusDef("pending", "未开始", "info", "pending",
+                  description="阶段未启动"),
+        StatusDef("doing", "进行中", "primary", "in_progress",
+                  description="阶段推进中"),
+        StatusDef("done", "已完成", "success", "done", is_terminal=True,
+                  description="阶段工作完成（actual_end 已填或以此为准）"),
+    ),
+    label_aliases={
+        "": "pending",
+        "未开始": "pending",
+        "进行中": "doing",
+        "已完成": "done",
+        "完成": "done",
+    },
+    description="敏感需求里程碑状态（需求×团队×阶段）；任意互转",
 )
 
 
@@ -381,6 +463,8 @@ REGISTRY: Dict[str, DomainDef] = {
         _REQUIREMENT_URGE,
         _HIGH_LEVEL_TRACK,
         _VENDOR_DEV,
+        _SENSITIVE_REQ_TRACK,
+        _SENSITIVE_MILESTONE,
     )
 }
 
@@ -394,6 +478,8 @@ SOURCE_DOMAIN: Dict[str, str] = {
     "meeting_action": "meeting_action",
     "active_optimization": "active_optimization",
     "requirement_urge": "requirement_urge",
+    # 2026-10-25：敏感需求任务来源 → 本地跟踪态域（raw_status=track_status）
+    "sensitive_req": "sensitive_req_track",
     "key_work": "keywork",   # 占位，实际由 _KEYWORK_PREFIX 解析
 }
 
@@ -441,8 +527,26 @@ def to_unified(domain: str, value: Optional[str]) -> str:
 
 
 def allowed_next(domain: str, value: Optional[str]) -> List[str]:
-    s = get_status(domain, value)
-    return list(s.allowed_next) if s else []
+    """可流转到的目标状态值列表。
+
+    - 域标记 ``free_transition=True``（如 vendor_dev）：返回该域**全部其他状态**，
+      即任意互转；调用方的「不在白名单就拒绝」校验自然放行。
+    - 否则按 StatusDef.allowed_next 返回；``()`` 表示无额外约束（由调用方决定）。
+    """
+    d = REGISTRY.get(domain)
+    if not d:
+        return []
+    cur = get_status(domain, value)
+    if d.free_transition:
+        cur_value = cur.value if cur else (value or "").strip()
+        return [s.value for s in d.statuses if s.value != cur_value]
+    return list(cur.allowed_next) if cur else []
+
+
+def is_free_transition(domain: str) -> bool:
+    """该域是否放开流转限制（任意状态互转）。"""
+    d = REGISTRY.get(domain)
+    return bool(d and d.free_transition)
 
 
 def is_terminal(domain: str, value: Optional[str]) -> bool:
@@ -478,6 +582,7 @@ def as_metadata() -> Dict[str, Any]:
             "key": key,
             "label": d.label,
             "writable": d.writable,
+            "free_transition": d.free_transition,
             "description": d.description,
             # 自由串容错别名（历史脏值 → 规范值）。前端可用于「原值能否解析」的提示/校验。
             "label_aliases": dict(d.label_aliases),
@@ -489,7 +594,8 @@ def as_metadata() -> Dict[str, Any]:
                     "unified": s.unified,
                     "sensitive": s.sensitive,
                     "is_terminal": s.is_terminal,
-                    "allowed_next": list(s.allowed_next),
+                    # free_transition 域下发全集，避免前端拿到 () 后误判「无处可去」
+                    "allowed_next": allowed_next(key, s.value),
                     "required_fields": list(s.required_fields),
                     "description": s.description,
                 }

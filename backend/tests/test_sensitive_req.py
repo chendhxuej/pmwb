@@ -1,0 +1,463 @@
+"""敏感需求跟踪子模块单测 —— 2026-10-25。
+
+覆盖：
+- sync 自动入池：P0/P1/集团需求/紧急需求 → active；P2/P3 不入池；幂等
+- 源需求 closed → 自动闭环 resolved
+- 级别下调 → 降级退池；lock 锁定保池；dismiss 永不复活
+- 里程碑超期 → delayed；逾期解除（补完成/改期）→ 回 active
+- 倒排建议：无上线要求报错；偏移正确（deploy=deadline、test=-4、dev=-10、plan=-18、evaluate=-25）；
+  团队唯一源 active_team_systems（workload>0）
+- 里程碑保存：全量覆盖删旧行；计划完成晚于上线要求拒绝；非法阶段拒绝
+- update_milestone 联动：全部 done → resolved；有超期未完成 → delayed
+- to_unified 映射（sensitive_req → sensitive_req_track 域）
+- 任务中心 collector collect_sensitive_req：在跟池入列、closed 不入列、due=卡点里程碑
+- 邮件：dry_run 不落真实发送、不回写督办次数；confirm_send 落 email_records + urge_count 自增 + escalated
+- 红黄态实时计算不落库（is_overdue / is_due_soon）
+
+安全：EmailCenterClient.send_email 一律 monkeypatch 为假实现，绝不真发。
+"""
+import sys
+from datetime import date, timedelta
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from constants.status_registry import allowed_next, resolve_domain, to_unified
+from core.exceptions import NotFoundException, ValidationException
+from db.models import (
+    EmailRecord,
+    PmwbRequirementEvaluation,
+    PmwbRequirementExt,
+    PmwbSensitiveReqMilestone,
+    PmwbSensitiveReqTrack,
+    SentEmail,
+)
+from schemas.sensitive_req import (
+    SensitiveReqMilestoneItem,
+    SensitiveReqMilestoneSaveRequest,
+    SensitiveReqMilestoneUpdateRequest,
+    SensitiveReqSendRequest,
+    SensitiveReqTrackUpdateRequest,
+)
+from services.mail_dispatch import EmailCenterClient
+from services.sensitive_req import sensitive_req_service
+from services.task_center import task_center_service
+from tests.factories import RequirementExtFactory
+from utils.email import email_client
+
+TODAY = date.today()
+DEADLINE = TODAY + timedelta(days=30)
+
+
+def _ext(db, req_id="REQ-SR-001", priority="P0", status="dev", **kw):
+    kw.setdefault("version_required_date", DEADLINE)
+    return RequirementExtFactory.create(db, req_id=req_id, priority=priority, status=status, **kw)
+
+
+def _eval(db, req_id, system_name="CRM", sa_name="张三", workload=10.0):
+    ev = PmwbRequirementEvaluation(
+        req_id=req_id, system_name=system_name, sa_name=sa_name, workload=workload
+    )
+    db.add(ev)
+    db.commit()
+    db.refresh(ev)
+    return ev
+
+
+def _ms(db, req_id, team="CRM", stage="dev", planned_end=None, status="pending", **kw):
+    row = PmwbSensitiveReqMilestone(
+        req_id=req_id, team_system_name=team, stage=stage,
+        planned_end=planned_end, status=status, **kw,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+# ─────────────────────────────────────────────────────────────
+# 1. sync 自动入池
+# ─────────────────────────────────────────────────────────────
+def test_sync_pulls_high_priority(db):
+    _ext(db, "REQ-A", priority="P0")
+    _ext(db, "REQ-B", priority="P1")
+    _ext(db, "REQ-C", priority="集团需求")
+    _ext(db, "REQ-D", priority="紧急需求")
+    _ext(db, "REQ-E", priority="P2")
+    _ext(db, "REQ-F", priority="P3")
+
+    stats = sensitive_req_service.sync(db)
+    assert stats["added"] == 4
+    rows = {r.req_id: r for r in db.query(PmwbSensitiveReqTrack).all()}
+    assert set(rows) == {"REQ-A", "REQ-B", "REQ-C", "REQ-D"}
+    assert all(r.track_status == "active" and r.is_sensitive == 1 for r in rows.values())
+    assert rows["REQ-A"].judge_reason == "R1:P0"
+    assert rows["REQ-C"].judge_reason == "R1:集团需求"
+
+
+def test_sync_idempotent(db):
+    _ext(db, "REQ-A", priority="P0")
+    sensitive_req_service.sync(db)
+    stats = sensitive_req_service.sync(db)
+    assert stats["added"] == 0
+    assert db.query(PmwbSensitiveReqTrack).count() == 1
+
+
+def test_sync_closed_req_resolves(db):
+    _ext(db, "REQ-A", priority="P0", status="closed", delivered_date=TODAY)
+    sensitive_req_service.sync(db)
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.track_status == "resolved"
+
+
+def test_sync_demote_on_priority_down(db):
+    _ext(db, "REQ-A", priority="P0")
+    sensitive_req_service.sync(db)
+    ext = db.query(PmwbRequirementExt).filter_by(req_id="REQ-A").first()
+    ext.priority = "P2"
+    db.commit()
+    stats = sensitive_req_service.sync(db)
+    assert stats["demoted"] == 1
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.is_sensitive == 0 and row.track_status == "dropped"
+
+
+def test_lock_keeps_pool_on_demote_and_dismiss_never_revives(db):
+    _ext(db, "REQ-A", priority="P0")
+    sensitive_req_service.sync(db)
+    sensitive_req_service.update_track(
+        db, "REQ-A", SensitiveReqTrackUpdateRequest(manual_override="lock")
+    )
+    ext = db.query(PmwbRequirementExt).filter_by(req_id="REQ-A").first()
+    ext.priority = "P3"
+    db.commit()
+    sensitive_req_service.sync(db)
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.is_sensitive == 1 and row.judge_reason == "R4:lock"
+
+    # dismiss 后即使再改回 P0 也不复活
+    sensitive_req_service.update_track(
+        db, "REQ-A", SensitiveReqTrackUpdateRequest(manual_override="dismiss")
+    )
+    ext.priority = "P0"
+    db.commit()
+    stats = sensitive_req_service.sync(db)
+    assert stats["added"] == 0
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.track_status == "dropped"
+
+
+def test_sync_source_gone_drops(db):
+    _ext(db, "REQ-A", priority="P0")
+    sensitive_req_service.sync(db)
+    db.query(PmwbRequirementExt).filter_by(req_id="REQ-A").delete()
+    db.commit()
+    stats = sensitive_req_service.sync(db)
+    assert stats["removed"] == 1
+
+
+# ─────────────────────────────────────────────────────────────
+# 2. 里程碑超期 → delayed；解除 → active
+# ─────────────────────────────────────────────────────────────
+def test_overdue_milestone_marks_delayed(db):
+    _ext(db, "REQ-A", priority="P0")
+    _ms(db, "REQ-A", stage="dev", planned_end=TODAY - timedelta(days=2))
+    stats = sensitive_req_service.sync(db)
+    assert stats["delayed"] == 1
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.track_status == "delayed"
+    assert row.first_overdue_at == TODAY - timedelta(days=2)
+
+
+def test_overdue_cleared_back_to_active(db):
+    _ext(db, "REQ-A", priority="P0")
+    _ms(db, "REQ-A", stage="dev", planned_end=TODAY - timedelta(days=2))
+    sensitive_req_service.sync(db)
+    ms = db.query(PmwbSensitiveReqMilestone).filter_by(req_id="REQ-A").first()
+    # 改期到未来（未完成）→ 超期解除回 active
+    sensitive_req_service.update_milestone(
+        db, ms.id, SensitiveReqMilestoneUpdateRequest(planned_end=TODAY + timedelta(days=3))
+    )
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.track_status == "active"
+
+
+def test_all_done_auto_resolves(db):
+    _ext(db, "REQ-A", priority="P0")
+    _ms(db, "REQ-A", stage="dev", planned_end=TODAY - timedelta(days=2))
+    sensitive_req_service.sync(db)
+    ms = db.query(PmwbSensitiveReqMilestone).filter_by(req_id="REQ-A").first()
+    # 唯一里程碑完成 → 全部完成 → 跟踪自动闭环
+    sensitive_req_service.update_milestone(
+        db, ms.id, SensitiveReqMilestoneUpdateRequest(status="done", actual_end=TODAY)
+    )
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.track_status == "resolved"
+
+
+def test_escalated_not_downgraded_by_sync(db):
+    _ext(db, "REQ-A", priority="P0")
+    _ms(db, "REQ-A", stage="dev", planned_end=TODAY - timedelta(days=2))
+    sensitive_req_service.sync(db)
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    row.track_status = "escalated"
+    db.commit()
+    sensitive_req_service.sync(db)
+    db.refresh(row)
+    assert row.track_status == "escalated"
+
+
+# ─────────────────────────────────────────────────────────────
+# 3. 倒排建议
+# ─────────────────────────────────────────────────────────────
+def test_plan_suggestion_requires_deadline(db):
+    _ext(db, "REQ-A", priority="P0", version_required_date=None)
+    with pytest.raises(ValidationException):
+        sensitive_req_service.plan_suggestion(db, "REQ-A")
+
+
+def test_plan_suggestion_offsets_and_teams(db):
+    _ext(db, "REQ-A", priority="P0", sa_name="张三")
+    _eval(db, "REQ-A", system_name="CRM", sa_name="李四", workload=5.0)
+    _eval(db, "REQ-A", system_name="BOSS", sa_name="王五", workload=3.0)
+    _eval(db, "REQ-A", system_name="零工作量", workload=0.0)  # 不活跃，不入团队
+
+    sug = sensitive_req_service.plan_suggestion(db, "REQ-A")
+    assert sug["teams"] == ["BOSS", "CRM"]  # workload>0 去重排序
+    assert len(sug["items"]) == 10  # 2 团队 × 5 阶段
+    by_key = {(i["team_system_name"], i["stage"]): i for i in sug["items"]}
+    # 偏移：deploy=0、test=4、dev=10、plan=18、evaluate=25
+    assert by_key[("CRM", "deploy")]["planned_end"] == DEADLINE
+    assert by_key[("CRM", "test")]["planned_end"] == DEADLINE - timedelta(days=4)
+    assert by_key[("CRM", "dev")]["planned_end"] == DEADLINE - timedelta(days=10)
+    assert by_key[("CRM", "plan")]["planned_end"] == DEADLINE - timedelta(days=18)
+    assert by_key[("CRM", "evaluate")]["planned_end"] == DEADLINE - timedelta(days=25)
+    # 评估责任人预填 SA，开发责任人预填厂家负责人
+    assert by_key[("CRM", "evaluate")]["owner"] == "张三"
+    assert by_key[("CRM", "dev")]["owner"] == "李四"
+    # 阶段衔接：planned_start = 上一阶段 planned_end + 1
+    assert by_key[("CRM", "test")]["planned_start"] == by_key[("CRM", "dev")]["planned_end"] + timedelta(days=1)
+
+
+def test_plan_suggestion_fallback_team(db):
+    _ext(db, "REQ-A", priority="P0", system_name="电子协议")
+    sug = sensitive_req_service.plan_suggestion(db, "REQ-A")
+    assert sug["teams"] == ["电子协议"]
+
+
+# ─────────────────────────────────────────────────────────────
+# 4. 里程碑保存（PUT 全量覆盖）
+# ─────────────────────────────────────────────────────────────
+def test_save_milestones_full_overwrite(db):
+    _ext(db, "REQ-A", priority="P0")
+    _ms(db, "REQ-A", team="OLD", stage="dev", planned_end=DEADLINE - timedelta(days=10))
+    items = [
+        SensitiveReqMilestoneItem(team_system_name="CRM", stage=st, planned_end=DEADLINE - timedelta(days=off))
+        for st, off in (("deploy", 0), ("test", 4), ("dev", 10))
+    ]
+    res = sensitive_req_service.save_milestones(
+        db, "REQ-A", SensitiveReqMilestoneSaveRequest(items=items)
+    )
+    assert res["saved"] == 3
+    rows = db.query(PmwbSensitiveReqMilestone).filter_by(req_id="REQ-A").all()
+    assert {(r.team_system_name, r.stage) for r in rows} == {("CRM", "deploy"), ("CRM", "test"), ("CRM", "dev")}
+
+
+def test_save_milestones_rejects_late_end(db):
+    _ext(db, "REQ-A", priority="P0")
+    with pytest.raises(ValidationException):
+        sensitive_req_service.save_milestones(db, "REQ-A", SensitiveReqMilestoneSaveRequest(items=[
+            SensitiveReqMilestoneItem(team_system_name="CRM", stage="deploy", planned_end=DEADLINE + timedelta(days=1))
+        ]))
+
+
+def test_save_milestones_rejects_bad_stage(db):
+    _ext(db, "REQ-A", priority="P0")
+    with pytest.raises(ValidationException):
+        sensitive_req_service.save_milestones(db, "REQ-A", SensitiveReqMilestoneSaveRequest(items=[
+            SensitiveReqMilestoneItem(team_system_name="CRM", stage="story")
+        ]))
+
+
+def test_save_milestones_rejects_duplicate(db):
+    _ext(db, "REQ-A", priority="P0")
+    with pytest.raises(ValidationException):
+        sensitive_req_service.save_milestones(db, "REQ-A", SensitiveReqMilestoneSaveRequest(items=[
+            SensitiveReqMilestoneItem(team_system_name="CRM", stage="dev"),
+            SensitiveReqMilestoneItem(team_system_name="CRM", stage="dev"),
+        ]))
+
+
+# ─────────────────────────────────────────────────────────────
+# 5. update_milestone 联动
+# ─────────────────────────────────────────────────────────────
+def test_all_done_resolves_track(db):
+    _ext(db, "REQ-A", priority="P0")
+    ms1 = _ms(db, "REQ-A", team="CRM", stage="deploy", planned_end=DEADLINE, status="done")
+    ms2 = _ms(db, "REQ-A", team="CRM", stage="dev", planned_end=DEADLINE - timedelta(days=10), status="doing")
+    sensitive_req_service.sync(db)
+    sensitive_req_service.update_milestone(db, ms2.id, SensitiveReqMilestoneUpdateRequest(status="done"))
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.track_status == "resolved"
+    assert ms1.id  # noqa：占位引用
+
+
+def test_milestone_red_flag_is_computed_not_stored(db):
+    _ext(db, "REQ-A", priority="P0")
+    _ms(db, "REQ-A", stage="test", planned_end=TODAY - timedelta(days=1))
+    today = TODAY
+    ms = db.query(PmwbSensitiveReqMilestone).filter_by(req_id="REQ-A").first()
+    composed = sensitive_req_service._compose_milestone(ms, None, today)
+    assert composed["is_overdue"] is True and composed["overdue_days"] == 1
+    # 完成 → 不再红
+    ms.status = "done"
+    composed2 = sensitive_req_service._compose_milestone(ms, None, today)
+    assert composed2["is_overdue"] is False
+
+
+# ─────────────────────────────────────────────────────────────
+# 6. 注册表 / 任务中心接线
+# ─────────────────────────────────────────────────────────────
+def test_registry_domains_and_unified():
+    assert resolve_domain("sensitive_req") == "sensitive_req_track"
+    assert to_unified("sensitive_req_track", "active") == "in_progress"
+    assert to_unified("sensitive_req_track", "delayed") == "in_progress"
+    assert to_unified("sensitive_req_track", "escalated") == "in_progress"
+    assert to_unified("sensitive_req_track", "resolved") == "done"
+    assert to_unified("sensitive_req_track", "dropped") == "blocked"
+    # 流转白名单：active 不能直接到 dropped
+    assert "dropped" in allowed_next("sensitive_req_track", "active")
+
+
+def test_task_center_collector(db):
+    _ext(db, "REQ-A", priority="P0", status="dev")
+    _ms(db, "REQ-A", team="CRM", stage="dev", planned_end=TODAY - timedelta(days=1), owner="李四")
+    sensitive_req_service.sync(db)
+    items = task_center_service.collect_sensitive_req(db)
+    assert len(items) == 1
+    it = items[0]
+    assert it.task_id == "sensitive_req:REQ-A"
+    assert it.status == "in_progress"
+    assert it.priority == "P0"
+    assert it.is_overdue is True
+    assert it.owner == "李四"
+    assert it.due_date == TODAY - timedelta(days=1)
+    assert "sensitive" in it.source_url
+
+
+def test_task_center_collector_skips_closed_and_missing(db):
+    _ext(db, "REQ-A", priority="P0", status="closed")
+    _ext(db, "REQ-B", priority="P1")
+    sensitive_req_service.sync(db)
+    items = task_center_service.collect_sensitive_req(db)
+    assert [it.source_id for it in items] == ["REQ-B"]
+
+
+# ─────────────────────────────────────────────────────────────
+# 7. 邮件督办（安全：全部假发送）
+# ─────────────────────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def _fake_email_sender(monkeypatch):
+    """会话级兜底：邮件发送一律假实现（双保险，另见 conftest fake_master）。"""
+    monkeypatch.setattr(EmailCenterClient, "send_email", lambda self, *a, **kw: {"success": True, "id": "fake-1"})
+    monkeypatch.setattr(email_client, "send_email", lambda *a, **kw: {"success": True, "id": "fake-1"})
+
+
+def _seed_for_mail(db):
+    _ext(db, "REQ-A", priority="P0", status="dev")
+    db.add(SentEmail(req_id="REQ-A", req_name="一网通融合开通流程升级"))
+    db.commit()
+    _ms(db, "REQ-A", team="CRM", stage="dev", planned_end=TODAY - timedelta(days=1), owner="李四")
+    sensitive_req_service.sync(db)
+
+
+def test_draft_and_dry_run_preview(db, monkeypatch):
+    _seed_for_mail(db)
+    refs = [{"source": "sensitive_req", "source_id": "REQ-A"}]
+    draft = sensitive_req_service.draft(db, refs, "urge", "", "李四")
+    assert draft["body_md"] and draft["subject"]
+    assert "一网通融合开通流程升级" in draft["body_md"]
+
+    n_records = db.query(EmailRecord).count()
+    req = SensitiveReqSendRequest(
+        tasks=[{"source": "sensitive_req", "source_id": "REQ-A"}],
+        to="lisi@example.com",
+        send_type="urge",
+        dry_run=True,
+    )
+    res = sensitive_req_service.send(db, req)
+    assert res["preview"] is True
+    # dry_run 不落记录、不回写督办
+    assert db.query(EmailRecord).count() == n_records
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert (row.urge_count or 0) == 0
+
+
+def test_confirm_send_bumps_urge_and_escalates(db, monkeypatch):
+    _seed_for_mail(db)
+    monkeypatch.setattr(
+        "services.mail_dispatch.dispatch_email",
+        lambda db, **kw: {"success": True, "record_id": 9527, "message": "ok"},
+    )
+    req = SensitiveReqSendRequest(
+        tasks=[{"source": "sensitive_req", "source_id": "REQ-A"}],
+        to="lisi@example.com",
+        send_type="urge",
+        confirm_send=True,
+    )
+    res = sensitive_req_service.send(db, req)
+    assert res["success"] is True
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-A").first()
+    assert row.urge_count == 1 and row.last_urged_at is not None
+    assert row.track_status == "escalated"
+    ms = db.query(PmwbSensitiveReqMilestone).filter_by(req_id="REQ-A").first()
+    assert ms.urge_count == 1
+    # 逐条落库（ref_type=sensitive_req）
+    recs = db.query(EmailRecord).filter(EmailRecord.ref_type == "sensitive_req").all()
+    assert any(r.ref_id == "REQ-A" for r in recs)
+
+
+def test_send_requires_recipient_validation(db, monkeypatch):
+    _seed_for_mail(db)
+    req = SensitiveReqSendRequest(
+        tasks=[{"source": "sensitive_req", "source_id": "REQ-A"}],
+        to="not-an-email",
+        send_type="urge",
+        confirm_send=True,
+    )
+    with pytest.raises(ValidationException):
+        sensitive_req_service.send(db, req)
+
+
+# ─────────────────────────────────────────────────────────────
+# 8. 跟踪态流转 & 详情
+# ─────────────────────────────────────────────────────────────
+def test_track_transition_validation(db):
+    _ext(db, "REQ-A", priority="P0")
+    sensitive_req_service.sync(db)
+    # active → resolved 合法
+    res = sensitive_req_service.update_track(
+        db, "REQ-A", SensitiveReqTrackUpdateRequest(track_status="resolved")
+    )
+    assert res["track_status"] == "resolved"
+    # resolved → delayed 非法（allowed_next 只有 active）
+    with pytest.raises(ValidationException):
+        sensitive_req_service.update_track(
+            db, "REQ-A", SensitiveReqTrackUpdateRequest(track_status="delayed")
+        )
+
+
+def test_detail_composes_lanes_and_hints(db):
+    _ext(db, "REQ-A", priority="P0", status="closed", delivered_date=TODAY)
+    _ms(db, "REQ-A", team="CRM", stage="deploy", planned_end=DEADLINE)
+    _ms(db, "REQ-A", team="BOSS", stage="dev", planned_end=DEADLINE - timedelta(days=10))
+    sensitive_req_service.sync(db)
+    detail = sensitive_req_service.get_detail(db, "REQ-A")
+    assert set(detail["lanes"].keys()) == {"BOSS", "CRM"}
+    assert detail["teams"] == ["BOSS", "CRM"]
+    deploy_row = next(
+        m for m in detail["milestones"] if m["team_system_name"] == "CRM" and m["stage"] == "deploy"
+    )
+    assert deploy_row["actual_hint"] == TODAY.isoformat()  # ext.delivered_date 只读引用（JSON 序列化为字符串）

@@ -1737,3 +1737,109 @@ class PmwbHighLevelTrack(Base):
         Index("idx_hl_override", "manual_override"),
         {"comment": "高级别工单跟踪表（仅存跟踪态，不复制工单本体）"},
     )
+
+
+class PmwbSensitiveReqTrack(Base):
+    """敏感需求跟踪表（需求与交付「敏感需求跟踪」子模块，2026-10-25）。
+
+    设计铁律与 pmwb_high_level_track 同构：**只存跟踪态，不复制需求本体**。
+    需求名称/优先级/上线要求时间/跟踪状态等一律实时回读
+    sent_emails + pmwb_requirement_ext（services/sensitive_req.py）。
+
+    唯一锚点 req_id（对应 pmwb_requirement_ext.req_id）。
+    ⚠ 上线要求时间（倒排终点）权威源 = pmwb_requirement_ext.version_required_date
+    （老大 2026-10-25 拍板），本表**不另存 deadline 字段**，杜绝第二真相源。
+
+    track_status 取值见 constants/status_registry.py::_SENSITIVE_REQ_TRACK
+    （域 key=sensitive_req_track）。
+    """
+
+    __tablename__ = "pmwb_sensitive_req_track"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号，对应 pmwb_requirement_ext.req_id")
+
+    is_sensitive = Column(Integer, nullable=False, default=1, comment="当前是否敏感（规则+人工合成）")
+    judge_reason = Column(String(255), comment="判定来源：R1:P0 / R1:集团需求 / R4:lock / R4:dismiss")
+    level_code = Column(String(8), comment="命中级别码 P0/P1（自由文本时为空）")
+
+    manual_override = Column(String(16), comment="人工覆盖：lock 锁定 / dismiss 移出 / NULL 无")
+    track_status = Column(
+        String(32), nullable=False, default="active",
+        comment="跟踪态（见 status_registry: sensitive_req_track）",
+    )
+
+    urge_count = Column(Integer, nullable=False, default=0, comment="累计督办次数")
+    last_urged_at = Column(DateTime, comment="最近一次督办时间")
+
+    first_seen_at = Column(DateTime, nullable=False, default=now_cn, comment="首次纳入时间")
+    last_seen_at = Column(DateTime, nullable=False, default=now_cn, comment="最近一次采集命中时间")
+    first_overdue_at = Column(Date, comment="首次超期日期（首个里程碑超期日）")
+    resolved_at = Column(DateTime, comment="自动/人工闭环时间")
+    removed_at = Column(DateTime, comment="源需求消失/人工移出时间")
+
+    operator = Column(String(64), comment="最近操作人（留痕）")
+    created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        UniqueConstraint("req_id", name="uk_sr_req"),
+        Index("idx_sr_pool", "is_sensitive", "track_status"),
+        Index("idx_sr_status", "track_status"),
+        Index("idx_sr_seen", "last_seen_at"),
+        {"comment": "敏感需求跟踪表（仅存跟踪态，不复制需求本体）"},
+    )
+
+
+class PmwbSensitiveReqMilestone(Base):
+    """敏感需求倒排里程碑表（需求×团队×阶段 粒度，2026-10-25）。
+
+    管控粒度（老大 2026-10-25 拍板）：**需求 × 团队 × 阶段**，
+    每个团队对敏感需求的 5 个阶段（评估/方案/开发/测试/上线交付）
+    各有独立的计划完成时间、责任人与督办计数。
+
+    边界约定：
+      - stage 为敏感域专用 5 阶段枚举，**独立于**通用 6 环节 stage_log
+        （requirement_stage.py 的 collect/evaluate/story/doc/dev/deploy）；
+      - 环节事实时间（如 dev 进入/离开、实际交付日）**只读引用**
+        stage_log 与 ext.delivered_date，本表 actual_end 仅为人工确认值；
+      - 倒排终点 = ext.version_required_date，本表不存 deadline；
+      - 红黄预警态（临期/超期）由 planned_end vs today 实时计算，不落库。
+    """
+
+    __tablename__ = "pmwb_sensitive_req_milestone"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号")
+    team_system_name = Column(
+        String(128), nullable=False,
+        comment="团队标识=团队评估系统名（唯一链路 vendor_dev.active_team_systems）",
+    )
+    stage = Column(
+        String(32), nullable=False,
+        comment="管控阶段: evaluate/plan/dev/test/deploy（敏感域专用枚举）",
+    )
+
+    owner = Column(String(255), comment="阶段责任人（可多人，逗号分隔）")
+    planned_start = Column(Date, comment="计划开始日期（倒排产物）")
+    planned_end = Column(Date, comment="计划完成日期（倒排产物）")
+    actual_end = Column(Date, comment="实际完成日期（人工确认；dev/deploy 可参照 stage_log 提示）")
+    status = Column(
+        String(32), default="pending",
+        comment="里程碑状态: pending/doing/done（见 status_registry: sensitive_milestone，禁 ENUM）",
+    )
+    risk_note = Column(String(500), comment="风险/备注")
+    source = Column(String(16), default="manual", comment="来源: auto=倒排建议生成 / manual=人工")
+
+    urge_count = Column(Integer, nullable=False, default=0, comment="累计督办次数")
+    last_urged_at = Column(DateTime, comment="最近一次督办时间")
+
+    created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        UniqueConstraint("req_id", "team_system_name", "stage", name="uk_sr_milestone"),
+        Index("idx_sr_ms_req_id", "req_id"),
+        Index("idx_sr_ms_end", "planned_end"),
+        {"comment": "敏感需求倒排里程碑（需求×团队×阶段）"},
+    )

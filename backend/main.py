@@ -34,6 +34,7 @@ from routers import (
     requirement,
     requirement_delivery,
     research,
+    sensitive_req,
     sql_script,
     status_meta,
     supervise,
@@ -139,6 +140,7 @@ app.include_router(ai_qa.router, prefix="/api/v1", tags=["AI问答"])
 app.include_router(material.router, prefix="/api/v1", tags=["业务资料库-材料"])
 app.include_router(material.cat_router, prefix="/api/v1", tags=["业务资料库-分类"])
 app.include_router(high_level.router, prefix="/api/v1", tags=["高级别工单"])
+app.include_router(sensitive_req.router, prefix="/api/v1", tags=["敏感需求跟踪"])
 app.include_router(workload_analysis.router, prefix="/api/v1", tags=["工作量分析"])
 
 

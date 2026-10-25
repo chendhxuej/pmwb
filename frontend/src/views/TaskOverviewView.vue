@@ -147,7 +147,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Document, Check, Warning, Search, Tools, Calendar, Files, Bell, MagicStick,
+  Document, Check, Warning, Search, Tools, Calendar, Bell, MagicStick, Timer,
 } from '@element-plus/icons-vue'
 import OwnerMatrix from '@/components/Common/OwnerMatrix.vue'
 import TaskBatchSuperviseDialog from '@/components/Common/TaskBatchSuperviseDialog.vue'
@@ -166,15 +166,17 @@ const MATRIX_STATUSES = computed(() =>
 )
 
 // 来源元数据：图标 + 色调（色调走设计令牌，组件内禁硬编码十六进制）+ 二级路由 slug
+// 2026-10-15：key_work（重点工作）已移出任务来源（见后端 schemas/task_center.TASK_SOURCES），
+// 此处不再列；重点工作进度由「重点工作」模块自身页面承载。
 const SOURCE_META = [
   { key: 'todo', label: '个人待办', icon: Check, tone: 'accent', slug: 'todo' },
   { key: 'operation_issue', label: '运营问题', icon: Warning, tone: 'danger', slug: 'operation-issue' },
   { key: 'research_issue', label: '一线调研', icon: Search, tone: 'accent', slug: 'research-issue' },
   { key: 'dev_ticket', label: '开发工单', icon: Tools, tone: 'warning', slug: 'dev-ticket' },
   { key: 'meeting_action', label: '会议行动项', icon: Calendar, tone: 'success', slug: 'meeting-action' },
-  { key: 'key_work', label: '重点工作', icon: Files, tone: 'accent', slug: 'key-work' },
   { key: 'requirement_urge', label: '需求催办', icon: Bell, tone: 'warning', slug: 'requirement-urge' },
   { key: 'active_optimization', label: '主动优化', icon: MagicStick, tone: 'success', slug: 'active-optimization' },
+  { key: 'sensitive_req', label: '敏感需求', icon: Timer, tone: 'danger', slug: 'sensitive-req' },
 ]
 
 // 摘要 chips 用的来源简称（控制宽度）
@@ -184,9 +186,9 @@ const SOURCE_SHORT = {
   research_issue: '调研',
   dev_ticket: '开发',
   meeting_action: '会议',
-  key_work: '重点',
   requirement_urge: '催办',
   active_optimization: '优化',
+  sensitive_req: '敏感',
 }
 
 // 矩阵文案：与运营监控「责任人分布」区分开（维度是任务来源而非工单类别）

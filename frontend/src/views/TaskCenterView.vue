@@ -427,20 +427,25 @@ async function handleNewTodoSubmit() {
 }
 
 // 来源 key → 中文名（与后端 schemas.task_center.SOURCE_LABELS 对齐）
+// 2026-10-15：key_work（重点工作）已移出任务来源，此处不再列。
 const SOURCE_LABELS = {
   todo: '个人待办',
   operation_issue: '运营问题',
   research_issue: '一线调研',
   dev_ticket: '开发工单',
   meeting_action: '会议行动项',
-  key_work: '重点工作',
   requirement_urge: '需求催办',
   active_optimization: '主动优化',
+  sensitive_req: '敏感需求',
 }
 
-// 当前来源：优先地址栏 ?source=（总览下钻自动设置检索条件），其次旧二级路由 meta.source（现已废弃恒空）；空 = 全部任务
-const activeSource = computed(() => route.query.source || route.meta?.source || '')
-// 来源下拉选项（全部来源 + 8 个聚合来源），供用户在全部任务页手动切换来源
+// 当前来源：优先地址栏 ?source=（总览下钻自动设置检索条件），其次旧二级路由 meta.source（现已废弃恒空）；空 = 全部任务。
+// 白名单兜底：已下线来源（如旧深链 ?source=key_work）静默回退到「全部任务」，避免后端校验报错。
+const activeSource = computed(() => {
+  const s = route.query.source || route.meta?.source || ''
+  return Object.prototype.hasOwnProperty.call(SOURCE_LABELS, s) ? s : ''
+})
+// 来源下拉选项（全部来源 + 7 个聚合来源），供用户在全部任务页手动切换来源
 const SOURCE_OPTIONS = Object.entries(SOURCE_LABELS).map(([value, label]) => ({ value, label }))
 const pageTitle = computed(() =>
   activeSource.value
@@ -449,6 +454,7 @@ const pageTitle = computed(() =>
 )
 const pageSubtitle = computed(() => {
   if (activeSource.value === 'requirement_urge') return '待催办需求（团队评估环节，按 SA 分组催办）'
+  if (activeSource.value === 'sensitive_req') return '敏感需求（P0/P1 倒排跟踪，需求×团队×阶段督办）'
   if (activeSource.value) return '该来源任务列表（在办口径，不含已完成/挂起）'
   return '需求催办 / 邮件中心 / 运营监控 —— 三端任务聚合（在办口径）'
 })
@@ -663,7 +669,6 @@ function sourceTagType(source) {
     research_issue: 'primary',
     dev_ticket: 'warning',
     meeting_action: 'success',
-    key_work: 'info',
     requirement_urge: 'warning',
     active_optimization: 'success',
   }[source] || 'info'

@@ -21,15 +21,17 @@ const STATUS_KEYS = ['pending', 'in_progress', 'done', 'blocked'];
 const STATUS_LABELS = { pending: '待处理', in_progress: '进行中', done: '已完成', blocked: '阻塞/挂起' };
 // 任务总览矩阵仅展示未完结两态（与前端 TaskOverviewView.MATRIX_STATUSES 一致）
 const MATRIX_STATUSES = ['pending', 'in_progress'];
+// 2026-10-15：key_work（重点工作）已移出任务来源，来源数组随之后收为 7 项
+// 2026-10-25：新增 sensitive_req（敏感需求跟踪）为第 8 项
 const SOURCES = [
   { key: 'todo', label: '个人待办', slug: 'todo' },
   { key: 'operation_issue', label: '运营问题', slug: 'operation-issue' },
   { key: 'research_issue', label: '一线调研', slug: 'research-issue' },
   { key: 'dev_ticket', label: '开发工单', slug: 'dev-ticket' },
   { key: 'meeting_action', label: '会议行动项', slug: 'meeting-action' },
-  { key: 'key_work', label: '重点工作', slug: 'key-work' },
   { key: 'requirement_urge', label: '需求催办', slug: 'requirement-urge' },
   { key: 'active_optimization', label: '主动优化', slug: 'active-optimization' },
+  { key: 'sensitive_req', label: '敏感需求', slug: 'sensitive-req' },
 ];
 
 const log = [];

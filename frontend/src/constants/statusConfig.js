@@ -84,8 +84,10 @@ export const MODULE_STATUS = {
   // 需求（RequirementView 主视图）—— closed=已上线(success)
   requirement: {
     proposed: { label: '建议中', tone: 'neutral' },
-    accepted: { label: '已受理', tone: 'primary' },
+    accepted: { label: '已采纳', tone: 'primary' },
     dev: { label: '开发中', tone: 'warning' },
+    partial_live: { label: '部分上线', tone: 'warning' },
+    live_failed: { label: '上线失败', tone: 'danger' },
     closed: { label: '已上线', tone: 'success' },
     paused: { label: '已暂停', tone: 'danger', sensitive: true },
   },
@@ -103,6 +105,8 @@ export const MODULE_STATUS = {
     proposed: { label: '建议中', tone: 'neutral' },
     accepted: { label: '已采纳', tone: 'primary' },
     dev: { label: '开发中', tone: 'warning' },
+    partial_live: { label: '部分上线', tone: 'warning' },
+    live_failed: { label: '上线失败', tone: 'danger' },
     closed: { label: '已上线', tone: 'success' },
     paused: { label: '暂停', tone: 'warning' },
   },
@@ -121,10 +125,15 @@ export const MODULE_STATUS = {
   // 真相源仍是后端 status_registry 的 vendor_dev 域，此处仅为首帧兜底 seed。
   // 语义：live（已上线）由插件自动置位，completed（已完成）由人工确认；
   // 需求级「上线联动」只看 completed。
+  // 2026-10-21：枚举向需求工单状态看齐，补齐 部分上线/上线失败/已暂停（共 7 态），
+  // 且该域 free_transition=True —— 页面任意状态可互转。
   vendor_dev: {
     pending: { label: '待开发', tone: 'info' },
     developing: { label: '开发中', tone: 'primary' },
+    partial_live: { label: '部分上线', tone: 'warning' },
     live: { label: '已上线', tone: 'success', sensitive: true },
+    live_failed: { label: '上线失败', tone: 'danger', sensitive: true },
+    paused: { label: '已暂停', tone: 'danger', sensitive: true },
     completed: { label: '已完成', tone: 'success' },
   },
 
@@ -161,6 +170,22 @@ export const MODULE_STATUS = {
     escalated: { label: '已升级', tone: 'warning', sensitive: true },
     resolved: { label: '已闭环', tone: 'success' },
     dropped: { label: '已移除', tone: 'neutral' },
+  },
+
+  // 敏感需求·跟踪态（SensitiveReqPanel）—— 本地跟踪态，非源需求状态（2026-10-25）
+  sensitive_req_track: {
+    active: { label: '跟踪中', tone: 'primary' },
+    delayed: { label: '已逾期', tone: 'warning', sensitive: true },
+    escalated: { label: '督办升级', tone: 'danger', sensitive: true },
+    resolved: { label: '已上线闭环', tone: 'success' },
+    dropped: { label: '已移除', tone: 'neutral' },
+  },
+
+  // 敏感需求·里程碑状态（需求×团队×阶段，2026-10-25）—— free_transition 任意互转
+  sensitive_milestone: {
+    pending: { label: '未开始', tone: 'info' },
+    doing: { label: '进行中', tone: 'primary' },
+    done: { label: '已完成', tone: 'success' },
   },
 }
 
@@ -330,6 +355,7 @@ const _FALLBACK_SOURCE_DOMAIN = {
   meeting_action: 'meeting_action',
   active_optimization: 'active_optimization',
   requirement_urge: 'requirement_urge',
+  sensitive_req: 'sensitive_req_track',
   key_work: 'keywork',
 }
 const _FALLBACK_KEYWORK_PREFIX = { task: 'keywork_task', milestone: 'keywork_ms', month: 'keywork_plan', week: 'keywork_plan' }

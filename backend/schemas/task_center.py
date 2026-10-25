@@ -8,16 +8,22 @@ from pydantic import BaseModel, Field
 # 统一态口径唯一真相源 = constants/status_registry.py（此处仅再导出，勿另写一份）
 from constants.status_registry import UNIFIED_LABELS, UNIFIED_STATUSES  # noqa: F401
 
-# 任务来源枚举（八大来源）
+# 任务来源枚举（七大来源）
+#
+# 2026-10-15：**移除 `key_work`（重点工作）**。重点工作是「目标/计划」而非工单，
+# 其进度由「重点工作」模块自身页面（/key-works）承载，不应再混入任务/工单监控口径。
+# 移除范围是此单一真相源 —— 采集、统计、列表、来源筛选、看板分布一并跟随，禁止在
+# 别处再造第二份「排除清单」。`collect_key_work` 方法体保留（未注册进 _COLLECTORS），
+# 便于将来恢复来源或独立复用。
 TASK_SOURCES = [
     "todo",                # 个人待办 pmwb_todo
     "operation_issue",     # 运营问题 pmwb_operation_issue
     "research_issue",      # 一线调研工单 pmwb_research_issue
     "dev_ticket",          # 开发工单 pmwb_dev_ticket
     "meeting_action",      # 会议行动项 pmwb_meeting_action
-    "key_work",            # 重点工作（成员任务/里程碑/主项）
     "requirement_urge",    # 待催办需求（sent_emails 派生）
     "active_optimization", # 主动优化建议
+    "sensitive_req",       # 敏感需求跟踪（P0/P1 倒排督办，2026-10-25）
 ]
 
 SOURCE_LABELS = {
@@ -26,9 +32,9 @@ SOURCE_LABELS = {
     "research_issue": "一线调研",
     "dev_ticket": "开发工单",
     "meeting_action": "会议行动项",
-    "key_work": "重点工作",
     "requirement_urge": "需求催办",
     "active_optimization": "主动优化",
+    "sensitive_req": "敏感需求",
 }
 
 # 统一状态标签（统一态 bus 的中文名，源自注册表 UNIFIED_LABELS）

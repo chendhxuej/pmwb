@@ -76,6 +76,8 @@
               <el-option label="建议中" value="proposed" />
               <el-option label="已采纳" value="accepted" />
               <el-option label="开发中" value="dev" />
+              <el-option label="部分上线" value="partial_live" />
+              <el-option label="上线失败" value="live_failed" />
               <el-option label="已上线" value="closed" />
               <el-option label="暂停" value="paused" />
             </el-select>
@@ -402,6 +404,12 @@
           @open-requirement="openRequirementByReqId"
         />
       </el-tab-pane>
+
+      <!-- ════════ 敏感需求跟踪标签 ════════ -->
+      <!-- v-if：延迟挂载（首次进入才拉数据），与工作量分析同口径 -->
+      <el-tab-pane label="敏感需求跟踪" name="sensitive">
+        <SensitiveReqPanel v-if="activeTab === 'sensitive'" ref="sensitivePanelRef" />
+      </el-tab-pane>
     </el-tabs>
 
     <!-- 统一邮件弹窗（督办：催办 / 同步通知） -->
@@ -492,7 +500,8 @@
                       <el-form-item label="跟踪状态">
                         <el-select v-model="current.status" style="width:100%">
                           <el-option label="建议中" value="proposed" /><el-option label="已采纳" value="accepted" />
-                          <el-option label="开发中" value="dev" /><el-option label="已上线" value="closed" />
+                          <el-option label="开发中" value="dev" /><el-option label="部分上线" value="partial_live" />
+                          <el-option label="上线失败" value="live_failed" /><el-option label="已上线" value="closed" />
                           <el-option label="暂停" value="paused" />
                         </el-select>
                       </el-form-item>
@@ -1026,7 +1035,11 @@
                 </div>
               </div>
               <div class="card-body">
-                <div class="hint-text mb-12">{{ vendorDevMeta.hint }}</div>
+                <div class="hint-text mb-12">
+                  {{ vendorDevMeta.hint }}
+                  状态下拉已放开流转限制，可任意调整（含从「已完成」退回）；
+                  仅当所有活跃厂家都置为「已完成」时才联动需求上线。
+                </div>
                 <el-table :data="vendorDevs" v-loading="vendorDevLoading" size="small" border>
                   <el-table-column label="厂家 / 系统" min-width="170">
                     <template #default="{ row }">
@@ -1306,7 +1319,8 @@
         <el-form-item label="跟踪状态">
           <el-select v-model="reqForm.status" style="width:100%">
             <el-option label="建议中" value="proposed" /><el-option label="已采纳" value="accepted" />
-            <el-option label="开发中" value="dev" /><el-option label="已上线" value="closed" />
+            <el-option label="开发中" value="dev" /><el-option label="部分上线" value="partial_live" />
+            <el-option label="上线失败" value="live_failed" /><el-option label="已上线" value="closed" />
             <el-option label="暂停" value="paused" />
           </el-select>
         </el-form-item>
@@ -1424,7 +1438,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils/format'
@@ -1433,6 +1447,7 @@ import StaffSelect from '@/components/Common/StaffSelect.vue'
 import RequirementLinkSelect from '@/components/Common/RequirementLinkSelect.vue'
 import ReqLinkTags from '@/components/Common/ReqLinkTags.vue'
 import WorkloadAnalysisPanel from '@/components/Requirement/WorkloadAnalysisPanel.vue'
+import SensitiveReqPanel from '@/components/Requirement/SensitiveReqPanel.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
@@ -2025,10 +2040,14 @@ function vendorStatusLabel(v) {
   return getStatusMeta(VENDOR_DEV_DOMAIN, v == null ? '' : String(v)).label
 }
 
-/** 可选目标 = 当前状态 + 注册表 allowed_next（后端下发，前端不自行推导） */
+/** 可选目标 = 注册表全集（后端下发 allowed_next，前端不自行推导）
+ *
+ * 2026-10-21：vendor_dev 域已 free_transition=True，后端下发的是「其余全部状态」，
+ * 因此下拉可任意互转（含从已完成退回）。前端只负责渲染，**不做附加白名单**。
+ */
 function vendorNextOptions(vd) {
-  const allowed = new Set([vd.dev_status, ...(vd.allowed_next || [])])
-  return [...allowed].map((v) => ({
+  const values = [...new Set([...(vd.allowed_next || []), vd.dev_status])].filter(Boolean)
+  return values.map((v) => ({
     value: v,
     label: v === vd.dev_status ? `${vendorStatusLabel(v)}（当前）` : vendorStatusLabel(v),
   }))
@@ -2061,6 +2080,17 @@ async function onChangeVendorStatus(vd, next) {
         `确认厂家「${vd.system_name}」开发已完成？\n\n若该需求所有活跃厂家均已完成，需求将自动置为「已上线」，并把当周周四写入实际上线日（已有值不覆盖）。`,
         '确认厂家完成',
         { type: 'warning', confirmButtonText: '确认完成', cancelButtonText: '取消' }
+      )
+    } catch (e) {
+      return
+    }
+  } else if (vd.dev_status === 'completed') {
+    // 2026-10-21 放开流转：允许从「已完成」退回，但需求级「已上线」不会跟着回退，先讲清楚
+    try {
+      await ElMessageBox.confirm(
+        `厂家「${vd.system_name}」将从「已完成」退回「${vendorStatusLabel(next)}」。\n\n注意：若该需求已因厂家完成被联动为「已上线」，需求跟踪状态与实际上线日**不会自动撤销**，需在需求信息里手动调整。`,
+        '确认回退厂家状态',
+        { type: 'warning', confirmButtonText: '确认回退', cancelButtonText: '取消' }
       )
     } catch (e) {
       return
@@ -2913,10 +2943,10 @@ function priorityClass(p) {
   return { P0: 'red', P1: 'amber', P2: 'blue', P3: 'gray' }[p] || 'gray'
 }
 function statusType(s) {
-  return { proposed: 'info', accepted: 'warning', dev: 'primary', closed: 'success', paused: 'info' }[s] || 'info'
+  return { proposed: 'info', accepted: 'warning', dev: 'primary', partial_live: 'warning', live_failed: 'danger', closed: 'success', paused: 'info' }[s] || 'info'
 }
 function statusLabel(s) {
-  return { proposed: '建议中', accepted: '已采纳', dev: '开发中', closed: '已上线', paused: '暂停' }[s] || s || '建议中'
+  return { proposed: '建议中', accepted: '已采纳', dev: '开发中', partial_live: '部分上线', live_failed: '上线失败', closed: '已上线', paused: '暂停' }[s] || s || '建议中'
 }
 function priorityType(p) {
   return { P0: 'danger', P1: 'warning', P2: '', P3: 'info' }[p] || ''
@@ -2925,6 +2955,7 @@ const route = useRoute()
 const router = useRouter()
 
 /* 深链定位 */
+const sensitivePanelRef = ref(null)
 function applyDeepLink() {
   const q = route.query
   if (q.new) {
@@ -2939,6 +2970,15 @@ function applyDeepLink() {
     loadActiveOpts().then(() => {
       const row = activeOpts.value.find((t) => String(t.id) === String(q.activeOpt))
       if (row) { openActiveOptDialog(row); }
+    })
+  } else if (q.sensitive) {
+    // 敏感需求跟踪深链（任务中心/督办邮件跳转）：切 tab 并直开详情抽屉
+    activeTab.value = 'sensitive'
+    // 面板 v-if 延迟挂载：等 nextTick 拿到 ref 再调用
+    nextTick(() => {
+      if (sensitivePanelRef.value) {
+        sensitivePanelRef.value.openDetail(q.sensitive)
+      }
     })
   }
 }

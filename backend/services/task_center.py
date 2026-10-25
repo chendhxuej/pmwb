@@ -25,6 +25,8 @@ from db.models import (
     PmwbMeetingAction,
     PmwbOperationIssue,
     PmwbResearchIssue,
+    PmwbSensitiveReqMilestone,
+    PmwbSensitiveReqTrack,
     PmwbTodo,
     SentEmail,
     now_cn,
@@ -293,7 +295,7 @@ class TaskCenterService:
             items.append(TaskItem(
                 task_id=f"key_work:task-{r.id}",
                 source="key_work",
-                source_label=SOURCE_LABELS["key_work"],
+                source_label=SOURCE_LABELS.get("key_work", "重点工作"),
                 source_id=f"task-{r.id}",
                 title=r.title or "",
                 status=status,
@@ -323,7 +325,7 @@ class TaskCenterService:
             items.append(TaskItem(
                 task_id=f"key_work:milestone-{r.id}",
                 source="key_work",
-                source_label=SOURCE_LABELS["key_work"],
+                source_label=SOURCE_LABELS.get("key_work", "重点工作"),
                 source_id=f"milestone-{r.id}",
                 title=f"[里程碑] {r.name or ''}",
                 status=status,
@@ -500,6 +502,123 @@ class TaskCenterService:
             ))
         return items
 
+    def collect_sensitive_req(self, db: Session) -> List[TaskItem]:
+        """敏感需求（P0/P1 倒排跟踪，2026-10-25）：以 pmwb_sensitive_req_track 在跟池为准。
+
+        粒度 = 需求（req_id）一列；跟踪态经 status_registry（sensitive_req_track 域）
+        统一化；due_date 取「最近关键里程碑 planned_end」，无里程碑回退上线要求日
+        （ext.version_required_date，倒排终点权威源）。
+        本体字段实时回读 ext/sent_emails，不读跟踪快照（与 sensitive_req 服务同铁律）。
+        """
+        from db.models import PmwbRequirementExt  # 与 collect_requirement_urge 同模式：方法内局部导入
+
+        rows = (
+            db.query(PmwbSensitiveReqTrack)
+            .filter(
+                PmwbSensitiveReqTrack.is_sensitive == 1,
+                PmwbSensitiveReqTrack.track_status.in_(("active", "delayed", "escalated")),
+            )
+            .all()
+        )
+        if not rows:
+            return []
+        req_ids = [r.req_id for r in rows]
+
+        ext_map = {
+            r[0]: r
+            for r in (
+                db.query(
+                    PmwbRequirementExt.req_id,
+                    PmwbRequirementExt.priority,
+                    PmwbRequirementExt.status,
+                    PmwbRequirementExt.version_required_date,
+                )
+                .filter(PmwbRequirementExt.req_id.in_(req_ids))
+                .all()
+            )
+        }
+        name_map: Dict[str, str] = {}
+        for rid, rname in (
+            db.query(SentEmail.req_id, SentEmail.req_name)
+            .filter(SentEmail.req_id.in_(req_ids))
+            .all()
+        ):
+            if rid and rname and rid not in name_map:
+                name_map[rid] = rname
+
+        ms_rows = (
+            db.query(PmwbSensitiveReqMilestone)
+            .filter(PmwbSensitiveReqMilestone.req_id.in_(req_ids))
+            .all()
+        )
+        ms_by_req: Dict[str, List[PmwbSensitiveReqMilestone]] = {}
+        for ms in ms_rows:
+            ms_by_req.setdefault(ms.req_id, []).append(ms)
+
+        today = now_cn().date()
+        items: List[TaskItem] = []
+        for row in rows:
+            ext = ext_map.get(row.req_id)
+            if ext is None or ext[2] == "closed":
+                # 源需求已删/已上线：不进任务列表（跟踪池闭环由 sensitive_req.sync 负责）
+                continue
+            _, priority, status, vrd = ext
+
+            milestones = ms_by_req.get(row.req_id, [])
+            pending = [
+                m for m in milestones
+                if m.status != "done" and m.planned_end
+            ]
+            overdue_ms = [m for m in pending if m.planned_end < today]
+            due_soon_ms = [
+                m for m in pending
+                if m not in overdue_ms
+                and (m.planned_end - today).days <= DUE_SOON_DAYS
+            ]
+            # 最近关键里程碑：超期最早 > 临期最早 > 未来最早
+            focus = (
+                sorted(overdue_ms, key=lambda m: m.planned_end)[0]
+                if overdue_ms
+                else (
+                    sorted(due_soon_ms, key=lambda m: m.planned_end)[0]
+                    if due_soon_ms
+                    else (sorted(pending, key=lambda m: m.planned_end)[0] if pending else None)
+                )
+            )
+            due = focus.planned_end if focus else vrd
+            status_u = status_registry.to_unified(
+                status_registry.resolve_domain("sensitive_req"), row.track_status
+            )
+
+            items.append(TaskItem(
+                task_id=f"sensitive_req:{row.req_id}",
+                source="sensitive_req",
+                source_label=SOURCE_LABELS["sensitive_req"],
+                source_id=row.req_id,
+                title=f"[{row.req_id}] {name_map.get(row.req_id, '')}",
+                status=status_u,
+                status_label=STATUS_LABELS[status_u],
+                raw_status=row.track_status,
+                owner=(focus.owner if focus and focus.owner else ""),
+                priority=priority or None,
+                due_date=due,
+                created_at=row.first_seen_at.date() if row.first_seen_at else None,
+                source_url=f"/requirement-delivery?sensitive={row.req_id}",
+                detail={
+                    "需求编号": row.req_id,
+                    "上线要求": vrd.isoformat() if vrd else "未填",
+                    "里程碑进度": f"{sum(1 for m in milestones if m.status == 'done')}/{len(milestones)}",
+                    "卡点": (
+                        f"{focus.team_system_name}·{focus.stage}（{focus.planned_end.isoformat()}）"
+                        if focus else "—"
+                    ),
+                    "督办次数": str(row.urge_count or 0),
+                },
+                is_overdue=bool(overdue_ms),
+                is_due_soon=bool(due_soon_ms),
+            ))
+        return items
+
     # ------------------------------------------------------------------
     # 聚合查询
     # ------------------------------------------------------------------
@@ -510,9 +629,12 @@ class TaskCenterService:
         "research_issue": "collect_research_issue",
         "dev_ticket": "collect_dev_ticket",
         "meeting_action": "collect_meeting_action",
-        "key_work": "collect_key_work",
+        # 2026-10-15：key_work 已移出任务来源（见 schemas/task_center.TASK_SOURCES 注释）。
+        # collect_key_work 方法体保留但**不注册**，故不会参与采集/统计/列表。
         "requirement_urge": "collect_requirement_urge",
         "active_optimization": "collect_active_optimization",
+        # 2026-10-25：敏感需求跟踪（P0/P1 倒排督办），req 粒度，仅「在跟池」入列
+        "sensitive_req": "collect_sensitive_req",
     }
 
     def collect_with_report(
