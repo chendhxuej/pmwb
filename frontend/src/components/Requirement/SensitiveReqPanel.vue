@@ -6,7 +6,7 @@
         <div class="pm-stat__top">
           <span class="pm-stat__label">在跟需求</span>
         </div>
-        <div class="pm-stat__val">{{ stats.in_pool || 0 }}<span class="pm-stat__unit">个</span></div>
+        <div class="pm-stat__val">{{ stats.total || 0 }}<span class="pm-stat__unit">个</span></div>
         <div class="pm-stat__sub">P0/P1 及等同级别</div>
       </div>
       <div class="pm-stat">

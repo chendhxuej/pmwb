@@ -95,6 +95,24 @@ async function run() {
     check('统计条含 在跟/超期/逾期未上线 卡', statsInfo.hasInPool && statsInfo.hasOverdue && statsInfo.hasDeadline,
       (statsInfo.labels || []).join('/'));
 
+    // 3b. 统计卡数值必须与列表总数一致（2026-10-25 事故：字段名 in_pool vs total 不匹配，
+    //     卡片恒显示 0，仅校验标签存在会漏过 —— 数值一致性必须断言）
+    const statValInfo = await page.evaluate(() => {
+      const panel = document.querySelector('.srp');
+      const cards = [...panel.querySelectorAll('.pm-stat')];
+      const pick = (label) => {
+        const c = cards.find((x) => x.textContent.includes(label));
+        const v = c ? c.querySelector('.pm-stat__val') : null;
+        return v ? Number(v.textContent.replace(/[^\d]/g, '')) : null;
+      };
+      const footer = panel.querySelector('.table-footer')?.textContent || '';
+      const m = footer.match(/共\s*(\d+)\s*条/);
+      return { inPool: pick('在跟需求'), listTotal: m ? Number(m[1]) : null };
+    });
+    check('统计卡「在跟需求」有值', (statValInfo.inPool || 0) > 0, `卡片=${statValInfo.inPool}`);
+    check('统计卡「在跟需求」= 列表总数', statValInfo.inPool === statValInfo.listTotal,
+      `卡片=${statValInfo.inPool} 列表=${statValInfo.listTotal}`);
+
     // 4. 列表与中文跟踪态徽章
     const listInfo = await page.evaluate(() => {
       const panel = document.querySelector('.srp');
