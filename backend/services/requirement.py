@@ -85,6 +85,7 @@ class RequirementService:
                 "tags": ext.tags,
                 "personal_note": ext.personal_note,
                 "priority": ext.priority,
+                "category": ext.category,
                 "owner_note": ext.owner_note,
                 "version_required_date": ext.version_required_date,
                 "delivered_date": ext.delivered_date,
@@ -134,6 +135,7 @@ class RequirementService:
         dev_ticket_no: Optional[str] = None,
         status: Optional[str] = None,
         priority: Optional[str] = None,
+        category: Optional[str] = None,
         system_name: Optional[str] = None,
         is_involved: Optional[int] = None,
         page: int = 1,
@@ -218,6 +220,24 @@ class RequirementService:
                     "items": [],
                 }
             base_query = base_query.filter(SentEmail.req_id.in_(matched_req_ids))
+
+        # 需求分类过滤：精确匹配 ext.category（唯一真相源 pmwb_requirement_category.name）
+        if category:
+            cat_ids = {
+                row[0]
+                for row in db.query(PmwbRequirementExt.req_id)
+                .filter(PmwbRequirementExt.category == category)
+                .all()
+            }
+            if not cat_ids:
+                return {
+                    "total": 0,
+                    "page": page,
+                    "page_size": page_size,
+                    "pages": 0,
+                    "items": [],
+                }
+            base_query = base_query.filter(SentEmail.req_id.in_(cat_ids))
 
         # 子查询获取每个需求的最新记录 ID
         subq = base_query.subquery()
@@ -365,6 +385,19 @@ class RequirementService:
             return None
         ext = self._get_or_create_ext(db, req_id)
         old_status = ext.status
+        new_status = obj_in.get("status")
+        if new_status is not None and new_status != old_status:
+            from constants.status_registry import get_status
+            cur_def = get_status("requirement", old_status)
+            new_def = get_status("requirement", new_status)
+            # 校验：来源态的 allowed_next 必须包含目标态
+            if cur_def is not None and new_def is not None:
+                if new_status not in (cur_def.allowed_next or ()):
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"不允许从「{cur_def.label}」流转到「{new_def.label}」",
+                    )
         for key, value in obj_in.items():
             if key == "dev_ticket_no":
                 # 需求级开发单号保存在 sent_emails 源表
@@ -375,6 +408,9 @@ class RequirementService:
             if key in ("version_required_date", "delivered_date"):
                 # 允许清空（NULL）；空串归一为 NULL
                 setattr(ext, key, None if value in (None, "") else value)
+            elif key == "category":
+                # 需求分类：允许清空（NULL）；空串归一为 NULL，两端去空白
+                setattr(ext, key, (value or "").strip() or None)
             elif value is not None:
                 setattr(ext, key, value)
         # 环节时间日志：跟踪状态变更 → 记录「启动开发/生产部署」环节进入时间 + 自动开发事件
@@ -476,6 +512,7 @@ class RequirementService:
             req_id=req_id,
             status=obj_in.get("status") or self.DEFAULT_STATUS,
             priority=obj_in.get("priority") or "P2",
+            category=(obj_in.get("category") or "").strip() or None,
             tags=obj_in.get("tags"),
             personal_note=obj_in.get("personal_note"),
             owner_note=obj_in.get("owner_note"),
@@ -522,6 +559,8 @@ class RequirementService:
             "proposed": status_map.get("proposed", 0),
             "accepted": status_map.get("accepted", 0),
             "dev": status_map.get("dev", 0),
+            "partial_live": status_map.get("partial_live", 0),
+            "live_failed": status_map.get("live_failed", 0),
             "closed": status_map.get("closed", 0),
             "paused": status_map.get("paused", 0),
             "involved": involved,

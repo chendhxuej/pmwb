@@ -180,6 +180,30 @@ export function deleteInterfaceDoc(reqId, docId) {
   return request.delete(`/requirements/${reqId}/interface-docs/${docId}`)
 }
 
+// ---------------------------------------------------------------------------
+// 需求分类字典（唯一真相源：工单分类以 pmwb_requirement_category.name 为准）
+// ---------------------------------------------------------------------------
+
+export function getRequirementCategories() {
+  return request.get('/requirements/categories')
+}
+
+export function getRequirementCategoryOptions() {
+  return request.get('/requirements/categories/options')
+}
+
+export function createRequirementCategory(data) {
+  return request.post('/requirements/categories', data)
+}
+
+export function updateRequirementCategory(id, data) {
+  return request.put(`/requirements/categories/${id}`, data)
+}
+
+export function deleteRequirementCategory(id) {
+  return request.delete(`/requirements/categories/${id}`)
+}
+
 export function downloadInterfaceDocUrl(reqId, docId) {
   return `/api/v1/requirements/${encodeURIComponent(reqId)}/interface-docs/${docId}/download`
 }

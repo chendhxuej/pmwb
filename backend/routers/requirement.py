@@ -8,12 +8,15 @@ from db.base import get_db
 from schemas.requirement import (
     EvaluationCreate,
     EvaluationUpdate,
+    RequirementCategoryCreate,
+    RequirementCategoryUpdate,
     RequirementCreate,
     RequirementDeliverableCreate,
     RequirementExtUpdate,
 )
 from schemas.vendor_dev import VendorDevCreate, VendorDevUpdate, VendorManualUpload
 from services import vendor_dev as vendor_dev_service
+from services import requirement_category as category_service
 from services.obsidian_link import (
     add_requirement_deliverable,
     get_requirement_deliverables,
@@ -32,6 +35,7 @@ def list_requirements(
     dev_ticket_no: Optional[str] = Query(None, description="开发单号模糊匹配"),
     status: Optional[str] = Query(None, description="个人跟踪状态"),
     priority: Optional[str] = Query(None, description="优先级"),
+    category: Optional[str] = Query(None, description="需求分类（精确匹配）"),
     system_name: Optional[str] = Query(None, description="系统名称"),
     is_involved: Optional[int] = Query(None, description="是否涉及开发"),
     page: int = Query(1, ge=1, description="页码"),
@@ -46,6 +50,7 @@ def list_requirements(
         dev_ticket_no=dev_ticket_no,
         status=status,
         priority=priority,
+        category=category,
         system_name=system_name,
         is_involved=is_involved,
         page=page,
@@ -79,6 +84,54 @@ def get_stats(db: Session = Depends(get_db)):
 def get_systems(db: Session = Depends(get_db)):
     """获取所有系统名称。"""
     return success(data=requirement_service.get_systems(db))
+
+
+# ---------------------------------------------------------------------------
+# 需求分类字典（唯一真相源：工单分类以 pmwb_requirement_category.name 为准）
+# 注意：这些字面路径必须注册在 GET /{req_id} 之前，否则 "categories" 会被吞成 req_id
+# ---------------------------------------------------------------------------
+
+
+@router.get("/categories")
+def list_categories(db: Session = Depends(get_db)):
+    """分类管理视图：全量（含停用），带工单引用计数。"""
+    return success(data=category_service.list_categories(db))
+
+
+@router.get("/categories/options")
+def list_category_options(db: Session = Depends(get_db)):
+    """分类下拉选项：仅启用，按排序号+名称排序。"""
+    return success(data=category_service.list_options(db))
+
+
+@router.post("/categories")
+def create_category(obj_in: RequirementCategoryCreate, db: Session = Depends(get_db)):
+    """新增分类（名称去重校验）。"""
+    try:
+        data = category_service.create_category(db, obj_in.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data, message=f"分类「{data['name']}」已创建")
+
+
+@router.put("/categories/{cat_id}")
+def update_category(cat_id: int, obj_in: RequirementCategoryUpdate, db: Session = Depends(get_db)):
+    """更新分类；改名时级联更新存量工单的 category（保证统计口径不分裂）。"""
+    try:
+        data = category_service.update_category(db, cat_id, obj_in.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data)
+
+
+@router.delete("/categories/{cat_id}")
+def delete_category(cat_id: int, db: Session = Depends(get_db)):
+    """删除分类：被工单引用时 400 拒绝（提示改用停用）。"""
+    try:
+        data = category_service.delete_category(db, cat_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data, message=f"分类「{data.get('name')}」已删除")
 
 
 @router.get("/{req_id}")

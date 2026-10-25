@@ -87,6 +87,9 @@
               <el-option label="P2" value="P2" />
               <el-option label="P3" value="P3" />
             </el-select>
+            <el-select v-model="reqCategory" placeholder="需求分类" clearable class="w-xs" @change="handleReqSearch">
+              <el-option v-for="c in categoryOptions" :key="c.id" :label="c.name" :value="c.name" />
+            </el-select>
             <el-button @click="loadRequirements"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
           <el-table
@@ -118,6 +121,11 @@
             <el-table-column label="优先级" width="70" align="center">
               <template #default="{ row }">
                 <span class="pm-tag" :class="priorityClass(row.ext?.priority || row.priority)">{{ row.ext?.priority || row.priority || 'P2' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="需求分类" width="110" align="center" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="pm-tag gray">{{ row.ext?.category || '未分类' }}</span>
               </template>
             </el-table-column>
             <el-table-column label="跟踪状态" width="90" align="center">
@@ -438,6 +446,7 @@
           <div class="flex gap-8">
             <StatusBadge module="requirement_delivery" :value="current.ext?.status" />
             <el-tag size="small" :type="priorityType(current.ext?.priority)">{{ current.ext?.priority || 'P2' }}</el-tag>
+            <el-tag v-if="current.ext?.category" size="small" type="info" effect="plain">{{ current.ext.category }}</el-tag>
           </div>
         </div>
       </template>
@@ -494,6 +503,16 @@
                           <el-option label="P0" value="P0" /><el-option label="P1" value="P1" />
                           <el-option label="P2" value="P2" /><el-option label="P3" value="P3" />
                         </el-select>
+                      </el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
+                      <el-form-item label="需求分类">
+                        <div class="cat-select-row">
+                          <el-select v-model="current.category" style="flex:1" clearable placeholder="选择分类">
+                            <el-option v-for="c in categoryOptions" :key="c.id" :label="c.name" :value="c.name" />
+                          </el-select>
+                          <el-button link type="primary" size="small" @click="catManageVisible = true">管理</el-button>
+                        </div>
                       </el-form-item>
                     </div>
                     <div style="grid-column: span 6">
@@ -1316,6 +1335,14 @@
             <el-option label="P2" value="P2" /><el-option label="P3" value="P3" />
           </el-select>
         </el-form-item>
+        <el-form-item label="需求分类">
+          <div class="cat-select-row">
+            <el-select v-model="reqForm.category" style="flex:1" clearable placeholder="选择需求分类">
+              <el-option v-for="c in categoryOptions" :key="c.id" :label="c.name" :value="c.name" />
+            </el-select>
+            <el-button link type="primary" size="small" @click="catManageVisible = true">管理</el-button>
+          </div>
+        </el-form-item>
         <el-form-item label="跟踪状态">
           <el-select v-model="reqForm.status" style="width:100%">
             <el-option label="建议中" value="proposed" /><el-option label="已采纳" value="accepted" />
@@ -1434,6 +1461,9 @@
         </div>
       </template>
     </el-drawer>
+
+    <!-- 需求分类管理弹窗（页内入口，唯一真相源 pmwb_requirement_category） -->
+    <RequirementCategoryManage v-model="catManageVisible" @saved="loadCategoryOptions" />
   </div>
 </template>
 
@@ -1452,6 +1482,7 @@ import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
+import RequirementCategoryManage from '@/components/RequirementCategoryManage.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { knowledgeApi } from '@/api/knowledge.js'
@@ -1467,6 +1498,7 @@ import {
   getStageLogs, updateStageLog, listDevEvents, createDevEvent, updateDevEvent, deleteDevEvent,
   listManuals, uploadManual, deleteManual, downloadManualUrl, previewManualUrl,
   listInterfaceDocs, uploadInterfaceDoc, deleteInterfaceDoc, downloadInterfaceDocUrl,
+  getRequirementCategoryOptions,
 } from '@/api/requirement'
 import {
   listVendorDevs, createVendorDev, updateVendorDev, deleteVendorDev,
@@ -1487,12 +1519,20 @@ const reqIdFilter = ref('')
 const devTicketNoFilter = ref('')
 const reqStatus = ref('')
 const reqPriority = ref('')
+// 需求分类（唯一真相源 pmwb_requirement_category，工单落中文名）
+const reqCategory = ref('')
+const categoryOptions = ref([])
+const catManageVisible = ref(false)
 const reqLoading = ref(false)
 const requirements = ref([])
 const reqTotal = ref(0)
 const reqPage = ref(1)
 const reqPageSize = ref(20)
 const reqStats = ref({})
+
+async function loadCategoryOptions() {
+  try { categoryOptions.value = (await getRequirementCategoryOptions()) || [] } catch (e) { /* ignore */ }
+}
 
 async function loadRequirements() {
   reqLoading.value = true
@@ -1504,6 +1544,7 @@ async function loadRequirements() {
         dev_ticket_no: devTicketNoFilter.value || undefined,
         status: reqStatus.value || undefined,
         priority: reqPriority.value || undefined,
+        category: reqCategory.value || undefined,
         page: reqPage.value,
         page_size: reqPageSize.value,
       }),
@@ -1532,6 +1573,7 @@ const reqForm = reactive({
   system_name: '',
   sa_name: '',
   priority: 'P2',
+  category: '',
   status: 'proposed',
   version_required_date: '',
   delivered_date: '',
@@ -1608,6 +1650,7 @@ function openReqDialog(row) {
     system_name: row.system_name || '',
     sa_name: row.sa_name || '',
     priority: row.ext?.priority || 'P2',
+    category: row.ext?.category || '',
     status: row.ext?.status || 'proposed',
     version_required_date: row.ext?.version_required_date || '',
     delivered_date: row.ext?.delivered_date || '',
@@ -1633,6 +1676,7 @@ function openCreateReqDialog() {
     system_name: '',
     sa_name: '',
     priority: 'P2',
+    category: '',
     status: 'proposed',
     version_required_date: '',
     delivered_date: '',
@@ -1689,6 +1733,7 @@ async function refreshCurrent(reqId) {
     if (res) {
       current.value = res
       current.value.priority = res.ext?.priority || 'P2'
+      current.value.category = res.ext?.category || ''
       current.value.status = res.ext?.status || 'proposed'
       current.value.version_required_date = res.ext?.version_required_date || ''
       current.value.delivered_date = res.ext?.delivered_date || ''
@@ -2355,6 +2400,7 @@ async function openWorkflow(row) {
   current.value = row
   // 把 ext 跟踪字段铺平到 current，方便表单直接绑定
   current.value.priority = row.ext?.priority || 'P2'
+  current.value.category = row.ext?.category || ''
   current.value.status = row.ext?.status || 'proposed'
   current.value.version_required_date = row.ext?.version_required_date || ''
   current.value.delivered_date = row.ext?.delivered_date || ''
@@ -2516,6 +2562,7 @@ async function saveDetail() {
       system_name: current.value.system_name,
       sa_name: current.value.sa_name,
       priority: current.value.priority,
+      category: current.value.category || null,
       status: current.value.status,
       version_required_date: current.value.version_required_date || null,
       delivered_date: current.value.delivered_date || null,
@@ -2985,6 +3032,7 @@ function applyDeepLink() {
 
 onMounted(async () => {
   await loadRequirements()
+  loadCategoryOptions()
   applyDeepLink()
   checkLlmStatus()  // 后台检测 Kimi/LLM 状态，不阻塞主流程
 })
@@ -2996,6 +3044,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pm-tabs { margin-top: 4px }
+/* 需求分类下拉 + 管理按钮 行内布局（弹层与详情表单共用） */
+.cat-select-row { display: flex; align-items: center; gap: 6px; width: 100% }
 .stat-cards { display: flex; gap: 12px; padding: 16px 20px 0; flex-wrap: wrap }
 .stat-card { background: var(--bg-card, var(--el-bg-color)); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 18px; min-width: 110px; flex: 1; display: flex; flex-direction: column; gap: 6px; transition: box-shadow .2s }
 .stat-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.04) }

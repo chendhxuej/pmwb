@@ -27,6 +27,7 @@ class RequirementExtBase(BaseModel):
     domain_code: Optional[str] = Field(None, description="关联业务领域编码")
     personal_note: Optional[str] = Field(None, description="个人备注")
     priority: str = Field("P2", description="个人优先级")
+    category: Optional[str] = Field(None, description="需求分类（中文名，来自 pmwb_requirement_category）")
     owner_note: Optional[str] = Field(None, description="负责人备忘")
     version_required_date: Optional[date] = Field(None, description="版本要求(需求管理要求的上线时间)")
     delivered_date: Optional[date] = Field(None, description="实际交付/上线日期")
@@ -46,6 +47,7 @@ class RequirementExtUpdate(BaseModel):
     domain_code: Optional[str] = None
     personal_note: Optional[str] = None
     priority: Optional[str] = None
+    category: Optional[str] = None
     owner_note: Optional[str] = None
     version_required_date: Optional[date] = None
     delivered_date: Optional[date] = Field(None, description="实际交付/上线日期")
@@ -85,6 +87,7 @@ class RequirementCreate(BaseModel):
     workload: Optional[float] = Field(None, description="工作量评估(人天)")
     status: Optional[str] = Field("proposed", description="个人跟踪状态")
     priority: Optional[str] = Field("P2", description="个人优先级")
+    category: Optional[str] = Field(None, description="需求分类（中文名，来自 pmwb_requirement_category）")
     version_required_date: Optional[date] = Field(None, description="版本要求(期望上线时间)")
     delivered_date: Optional[date] = Field(None, description="实际交付/上线日期")
     tags: Optional[str] = Field(None, description="个人标签，逗号分隔")
@@ -199,3 +202,36 @@ class RequirementDeliverableCreate(BaseModel):
     file_name: str = Field(..., description="交付物文件名")
     local_path: str = Field(..., description="源文件路径（相对 vault 或绝对路径）")
     note: Optional[str] = Field("", description="备注")
+
+
+class RequirementCategoryCreate(BaseModel):
+    """需求分类新增请求体。"""
+
+    name: str = Field(..., min_length=1, max_length=64, description="分类名称（即工单落库值）")
+    sort_order: Optional[int] = Field(0, description="排序号，越小越靠前")
+    remark: Optional[str] = Field(None, max_length=255, description="用途说明")
+
+
+class RequirementCategoryUpdate(BaseModel):
+    """需求分类更新请求体（部分更新，仅传变更字段）。"""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=64, description="分类名称")
+    sort_order: Optional[int] = Field(None, description="排序号")
+    enabled: Optional[bool] = Field(None, description="是否启用")
+    remark: Optional[str] = Field(None, max_length=255, description="用途说明")
+
+
+class RequirementCategoryOut(BaseModel):
+    """需求分类输出。"""
+
+    id: int
+    name: str
+    sort_order: int
+    enabled: bool
+    remark: Optional[str] = None
+    ref_count: int = Field(0, description="被需求工单引用次数（仅列表接口填充）")
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

@@ -355,3 +355,139 @@ def test_delete_manual_requirement_removes_source(client: TestClient, db):
     assert resp2.json()["data"]["removed_source"] is False
     assert db.query(SentEmail).filter(SentEmail.req_id == "REQ-KEEP-001").first() is not None
 
+
+# ---------------------------------------------------------------------------
+# 状态机流转校验 (2026-10-19)
+# ---------------------------------------------------------------------------
+
+def test_update_partial_live_from_dev(client: TestClient, db):
+    """dev → partial_live 合法流转"""
+    _create_sent_email(db, req_id="REQ-SM-001")
+    RequirementExtFactory.create(db, req_id="REQ-SM-001", status="dev")
+    resp = client.put("/api/v1/requirements/REQ-SM-001", json={"status": "partial_live"})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ext"]["status"] == "partial_live"
+
+
+def test_update_live_failed_from_dev(client: TestClient, db):
+    """dev → live_failed 合法流转"""
+    _create_sent_email(db, req_id="REQ-SM-002")
+    RequirementExtFactory.create(db, req_id="REQ-SM-002", status="dev")
+    resp = client.put("/api/v1/requirements/REQ-SM-002", json={"status": "live_failed"})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ext"]["status"] == "live_failed"
+
+
+def test_update_partial_live_to_closed(client: TestClient, db):
+    """partial_live → closed 合法流转（全部上线）"""
+    _create_sent_email(db, req_id="REQ-SM-004")
+    RequirementExtFactory.create(db, req_id="REQ-SM-004", status="partial_live")
+    resp = client.put("/api/v1/requirements/REQ-SM-004", json={"status": "closed"})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ext"]["status"] == "closed"
+
+
+def test_update_partial_live_to_live_failed(client: TestClient, db):
+    """partial_live → live_failed 合法流转（再次失败）"""
+    _create_sent_email(db, req_id="REQ-SM-006")
+    RequirementExtFactory.create(db, req_id="REQ-SM-006", status="partial_live")
+    resp = client.put("/api/v1/requirements/REQ-SM-006", json={"status": "live_failed"})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ext"]["status"] == "live_failed"
+
+
+def test_update_live_failed_to_dev(client: TestClient, db):
+    """live_failed → dev 合法流转（回退重新上线）"""
+    _create_sent_email(db, req_id="REQ-SM-005")
+    RequirementExtFactory.create(db, req_id="REQ-SM-005", status="live_failed")
+    resp = client.put("/api/v1/requirements/REQ-SM-005", json={"status": "dev"})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ext"]["status"] == "dev"
+
+
+def test_update_live_failed_to_closed_rejected(client: TestClient, db):
+    """非法流转拒绝：live_failed → closed 应返回 400（必须回开发重走）"""
+    _create_sent_email(db, req_id="REQ-SM-003")
+    RequirementExtFactory.create(db, req_id="REQ-SM-003", status="live_failed")
+    resp = client.put("/api/v1/requirements/REQ-SM-003", json={"status": "closed"})
+    assert resp.status_code == 400
+    assert "不允许" in resp.json()["detail"]
+
+
+def test_update_closed_to_dev_rejected(client: TestClient, db):
+    """非法流转拒绝：closed 终态 → dev 应返回 400"""
+    _create_sent_email(db, req_id="REQ-SM-007")
+    RequirementExtFactory.create(db, req_id="REQ-SM-007", status="closed")
+    resp = client.put("/api/v1/requirements/REQ-SM-007", json={"status": "dev"})
+    assert resp.status_code == 400
+    assert "不允许" in resp.json()["detail"]
+
+
+def test_stats_contains_new_keys(client: TestClient, db):
+    """/requirements/stats 返回值包含 partial_live/live_failed 键"""
+    _create_sent_email(db, req_id="REQ-ST-001")
+    RequirementExtFactory.create(db, req_id="REQ-ST-001", status="partial_live")
+    _create_sent_email(db, req_id="REQ-ST-002")
+    RequirementExtFactory.create(db, req_id="REQ-ST-002", status="live_failed")
+
+    resp = client.get("/api/v1/requirements/stats")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["partial_live"] == 1
+    assert data["live_failed"] == 1
+    # 存量键不受影响
+    assert "proposed" in data
+    assert "accepted" in data
+    assert "dev" in data
+    assert "closed" in data
+    assert "paused" in data
+
+
+# ---------------------------------------------------------------------------
+# 需求分类（2026-10-25）：工单分类字段落 ext.category，随字典表维护
+# ---------------------------------------------------------------------------
+
+def test_create_manual_requirement_with_category(client: TestClient, db):
+    """手工新建带需求分类 → 落 ext.category。"""
+    resp = client.post(
+        "/api/v1/requirements",
+        json={"req_name": "带分类的手工需求", "category": "业务流程优化"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["ext"]["category"] == "业务流程优化"
+    rid = data["req_id"]
+    # 清理
+    client.delete(f"/api/v1/requirements/{rid}")
+
+
+def test_update_category_and_clear(client: TestClient, db):
+    """分类可随时更新，且允许清空（NULL）。"""
+    _create_sent_email(db, req_id="REQ-CAT-001")
+    RequirementExtFactory.create(db, req_id="REQ-CAT-001", status="proposed")
+
+    resp = client.put("/api/v1/requirements/REQ-CAT-001", json={"category": "一线操作提效"})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ext"]["category"] == "一线操作提效"
+
+    resp2 = client.put("/api/v1/requirements/REQ-CAT-001", json={"category": ""})
+    assert resp2.status_code == 200
+    assert resp2.json()["data"]["ext"]["category"] is None
+
+
+def test_list_filter_by_category(client: TestClient, db):
+    """列表按 category 精确过滤。"""
+    _create_sent_email(db, req_id="REQ-CF-001")
+    RequirementExtFactory.create(db, req_id="REQ-CF-001", status="proposed", category="BC协同")
+    _create_sent_email(db, req_id="REQ-CF-002")
+    RequirementExtFactory.create(db, req_id="REQ-CF-002", status="proposed", category="智能应用")
+
+    resp = client.get("/api/v1/requirements", params={"category": "BC协同"})
+    assert resp.status_code == 200
+    items = resp.json()["data"]["items"]
+    assert [i["req_id"] for i in items] == ["REQ-CF-001"]
+
+    resp2 = client.get("/api/v1/requirements", params={"category": "不存在的分类"})
+    assert resp2.status_code == 200
+    assert resp2.json()["data"]["total"] == 0
+

@@ -95,15 +95,23 @@ def collect(db, start: date, end: date, overdue_days: int = OVERDUE_DAYS_DEFAULT
             "req_name": req_name,
             "clarification": _clamp(r.clarification, _CLARIFICATION_PROMPT_CAP),
             "system_name": (r.system_name or "").strip(),
+            "category": (r.category or "").strip(),
             "status": r.status or "",
         }
         # 权威上线日期：与 AI 周报口径一致（delivered_date 优先，回退开发工单 go_live_date）
         go_live = _to_date(r.delivered_date) or ticket_go_live.get(req_id)
+        # closed（已上线）以需求工单状态为准：日期缺失时状态兜底，绝不进「计划上线」
+        if (r.status or "") == "closed":
+            if go_live and start <= go_live <= end:
+                delivered.append({**base, "go_live": go_live.isoformat()})
+            elif not go_live:
+                delivered.append({**base, "go_live": "未填报"})
+            # 已上线（周期外）不计入计划上线
+            continue
         if go_live and start <= go_live <= end:
             delivered.append({**base, "go_live": go_live.isoformat()})
             continue
         # 尚未上线 + 进入启动开发环节超期
-        # 注：closed 但从未填报上线日期的需求，同样视为未上线，按超期规则正常参与判断
         if go_live:
             continue  # 已上线（周期外）不计入计划上线
         entered = dev_entered.get(req_id)
@@ -130,33 +138,51 @@ SYSTEM_PROMPT = (
     "一般 30~70 字，控制在两句话以内；不罗列技术细节，不照抄澄清原文，不得编造澄清内容中没有的信息；"
     "4) 澄清内容为空时，可依据背景/描述概括，概括不了就写「相关业务能力」；"
     "5) 输出为 Markdown，仅包含指定章节，不要输出其他解释。"
+    "6) 每个章节内需求按「需求分类」归组陈述：同分类的需求相邻陈述（分类内保持给定顺序），"
+    "未标注分类的归入「其他」组。"
 )
+
+
+def _category_stats(items: List[Dict[str, Any]]) -> str:
+    """分类分布摘要（供提示词与降级渲染统计）。"""
+    counter: Dict[str, int] = {}
+    for it in items:
+        cat = (it.get("category") or "").strip() or "未分类"
+        counter[cat] = counter.get(cat, 0) + 1
+    return "、".join(f"{k} {v} 条" for k, v in sorted(counter.items(), key=lambda x: -x[1]))
+
+
+def _sorted_by_category(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """按分类归组排序（组内保持原顺序），未分类殿后——LLM 与规则降级共用同一顺序。"""
+    return sorted(items, key=lambda it: ((it.get("category") or "").strip() == "", (it.get("category") or "").strip()))
 
 
 def build_prompt(data: Dict[str, Any], start: date, end: date, overdue_days: int = OVERDUE_DAYS_DEFAULT):
     """构造需求分析专题的 system/user 提示词。"""
-    delivered = data.get("delivered") or []
-    planned = data.get("planned") or []
+    delivered = _sorted_by_category(data.get("delivered") or [])
+    planned = _sorted_by_category(data.get("planned") or [])
 
     lines: List[str] = [
         f"分析周期：{start.isoformat()} ~ {end.isoformat()}（需求分析专题，默认近7天）。",
         "",
-        f"## 一、近期已上线需求（{len(delivered)} 条）",
+        f"## 一、近期已上线需求（{len(delivered)} 条，分类分布：{_category_stats(delivered) or '无'}）",
     ]
     if delivered:
         for it in delivered:
             lines.append(
-                f"- 需求名称：{it['req_name']}；上线日期：{it.get('go_live', '')}；"
+                f"- 需求名称：{it['req_name']}；需求分类：{it.get('category') or '未分类'}；"
+                f"上线日期：{it.get('go_live', '')}；"
                 f"澄清内容：{it.get('clarification') or '（无）'}"
             )
     else:
         lines.append("（无）")
 
-    lines += ["", f"## 二、计划上线需求（进入启动开发环节已超 {overdue_days} 天且尚未上线，{len(planned)} 条）"]
+    lines += ["", f"## 二、计划上线需求（进入启动开发环节已超 {overdue_days} 天且尚未上线，{len(planned)} 条，分类分布：{_category_stats(planned) or '无'}）"]
     if planned:
         for it in planned:
             lines.append(
-                f"- 需求名称：{it['req_name']}；进入启动开发：{it.get('dev_entered_at', '')}"
+                f"- 需求名称：{it['req_name']}；需求分类：{it.get('category') or '未分类'}；"
+                f"进入启动开发：{it.get('dev_entered_at', '')}"
                 f"（已 {it.get('dev_overdue_days', 0)} 天）；澄清内容：{it.get('clarification') or '（无）'}"
             )
     else:
@@ -172,21 +198,21 @@ def build_prompt(data: Dict[str, Any], start: date, end: date, overdue_days: int
         "",
         "## 计划上线需求",
         "- （每条格式：计划上线 需求名称 生产开发部署，实现了 能力概述。不加中括号。）",
-        "无数据的章节写「本期暂无」。每条一行，保持给定顺序。",
+        "无数据的章节写「本期暂无」。每条一行，按分类归组排序（同分类相邻，未分类殿后）。",
     ]
     return SYSTEM_PROMPT, "\n".join(lines)
 
 
 def render_rule(data: Dict[str, Any], start: date, end: date, overdue_days: int = OVERDUE_DAYS_DEFAULT) -> str:
     """规则降级版：能力=澄清内容首句截取（LLM 不可用时兜底，内容仍可用）。"""
-    delivered = data.get("delivered") or []
-    planned = data.get("planned") or []
+    delivered = _sorted_by_category(data.get("delivered") or [])
+    planned = _sorted_by_category(data.get("planned") or [])
     lines = [
         f"# 需求分析（统计区间：{start.isoformat()} ~ {end.isoformat()}）",
         "",
         f"> 降级说明：大模型不可用，能力概括为规则截取（澄清内容首句），非 AI 高度概括。",
         "",
-        f"## 近期已上线需求（{len(delivered)} 条）",
+        f"## 近期已上线需求（{len(delivered)} 条，分类分布：{_category_stats(delivered) or '无'}）",
     ]
     if delivered:
         for it in delivered:
@@ -194,7 +220,7 @@ def render_rule(data: Dict[str, Any], start: date, end: date, overdue_days: int 
             lines.append(f"- 已上线 {it['req_name']} 生产开发部署，实现了 {cap}。")
     else:
         lines.append("本期暂无。")
-    lines += ["", f"## 计划上线需求（进入启动开发环节已超 {overdue_days} 天，{len(planned)} 条）"]
+    lines += ["", f"## 计划上线需求（进入启动开发环节已超 {overdue_days} 天，{len(planned)} 条，分类分布：{_category_stats(planned) or '无'}）"]
     if planned:
         for it in planned:
             cap = _first_sentence(it.get("clarification")) or "相关业务能力"

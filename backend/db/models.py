@@ -46,6 +46,8 @@ class PmwbRequirementExt(Base):
     domain_code = Column(String(64), comment="关联业务领域编码")
     personal_note = Column(Text, comment="个人备注")
     priority = Column(String(64), default="P2", comment="个人优先级：P0/P1/P2/P3/集团需求/紧急需求等")
+    # 需求分类：直接落 pmwb_requirement_category.name 中文名（唯一真相源见该表注释），空=未分类
+    category = Column(String(64), nullable=True, comment="需求分类（中文名，来自 pmwb_requirement_category）")
     owner_note = Column(Text, comment="负责人备忘")
     version_required_date = Column(Date, comment="版本要求(需求管理要求的上线时间)")
     delivered_date = Column(Date, comment="实际交付/上线日期，由用户在需求编辑界面手工选择填入，非系统状态变更自动采集")
@@ -83,6 +85,7 @@ class PmwbRequirementExt(Base):
 
     __table_args__ = (
         Index("idx_req_status", "status"),
+        Index("idx_req_category", "category"),
         {"comment": "需求管理扩展表"},
     )
 
@@ -1623,6 +1626,29 @@ class PmwbMaterialCategory(Base):
     __table_args__ = (
         Index("ix_mat_cat_parent", "parent_id"),
         {"comment": "业务资料库材料分类树"},
+    )
+
+
+class PmwbRequirementCategory(Base):
+    """需求分类字典（平铺一级，支持增删改与启停）。
+
+    唯一真相源：需求工单（pmwb_requirement_ext.category）以本表 name 为准，
+    随本表增删改而变化——禁在别处另存一份分类枚举（PmwbVendorTeam 教训）。
+    分类值直接落中文名，无 code 列，分析与展示零转译。
+    """
+
+    __tablename__ = "pmwb_requirement_category"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    name = Column(String(64), nullable=False, unique=True, comment="分类名称，即工单落库值")
+    sort_order = Column(Integer, default=0, comment="排序号，越小越靠前")
+    enabled = Column(Boolean, default=True, comment="是否启用，停用后不出现在下拉但存量工单保留展示")
+    remark = Column(String(255), comment="用途说明，便于后续维护")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        {"comment": "需求分类字典"},
     )
 
 

@@ -17,6 +17,7 @@ import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
+from constants import status_registry as _status_registry
 from db.models import (
     PmwbDevTicket,
     PmwbReqVendorDev,
@@ -33,14 +34,6 @@ OVERDUE_DAYS_DEFAULT = 25
 
 _OWNER_SPLIT = re.compile(r"[,，;；、]+")
 _SYS_SPLIT = re.compile(r"[,，、;；]+")
-
-# 厂家开发状态中文（展示用，仅本专题表格）
-_VENDOR_STATUS_LABELS = {
-    "pending": "待开发",
-    "developing": "开发中",
-    "live": "已上线",
-    "completed": "已完成",
-}
 
 # 风险分级规则（写入报告脚注，可核查）
 RISK_HIGHEST, RISK_HIGH, RISK_MID = "极高", "高", "中"
@@ -188,6 +181,7 @@ def collect(db, as_of: date, overdue_days: int = OVERDUE_DAYS_DEFAULT) -> Dict[s
             "system_name": (e.system_name or "").strip() or "—",
             "sa_name": (e.sa_name or "").strip() or "—",
             "priority": (e.priority or "").strip() or "未设",
+            "category": (e.category or "").strip() or "未分类",
             "dev_entered": entered.isoformat(),
             "days": days,
             "dev_source": (log.source or "auto") if log else "auto",
@@ -213,6 +207,8 @@ def collect(db, as_of: date, overdue_days: int = OVERDUE_DAYS_DEFAULT) -> Dict[s
                 names = [n.strip() for n in _SYS_SPLIT.split(it["system_name"]) if n.strip()]
             elif key == "priority":
                 names = [it["priority"]]
+            elif key == "category":
+                names = [it["category"]]
             else:  # month
                 names = [it["dev_entered"][:7]]
             for n in names:
@@ -247,6 +243,7 @@ def collect(db, as_of: date, overdue_days: int = OVERDUE_DAYS_DEFAULT) -> Dict[s
         "by_system": _dist("system"),
         "by_owner": _dist("owner"),
         "by_priority": _dist("priority"),
+        "by_category": _dist("category"),
         "by_month": _dist("month"),
         "buckets": buckets,
     }
@@ -259,9 +256,11 @@ def _vendor_cell(item: Dict[str, Any]) -> str:
     vd = item.get("vendor_dev") or []
     if not vd:
         return "未登记"
+    labels = _status_registry.labels_for("vendor_dev")
     parts = []
     for v in vd:
-        st = _VENDOR_STATUS_LABELS.get(v.get("dev_status") or "", v.get("dev_status") or "—")
+        raw = v.get("dev_status") or ""
+        st = labels.get(raw, raw or "—")
         parts.append(f"{v.get('system_name') or '—'} {st}")
     return "；".join(parts)
 
@@ -310,6 +309,7 @@ def _dist_block(data: Dict[str, Any]) -> str:
         line("按目标系统", data["by_system"]),
         line("按 SA 负责人（共担按人计次）", data["by_owner"]),
         line("按优先级", data["by_priority"]),
+        line("按需求分类", data["by_category"]),
         line("按进入「启动开发」月份", data["by_month"]),
         "- **按滞留时长**：" + "、".join(f"{b['name']} {b['count']} 条" for b in data["buckets"]),
     ]
@@ -431,7 +431,7 @@ def build_prompt(data: Dict[str, Any]) -> tuple[str, str]:
         ver = f"，版本要求 {it['version_required_date']}" if it["version_required_date"] else ""
         ver += f"（逾期 {it['version_overdue_days']} 天）" if it["version_overdue_days"] else ""
         lines.append(
-            f"- {it['req_name']}｜{it['system_name']}｜{it['priority']}｜{it['sa_name']}｜"
+            f"- {it['req_name']}｜{it['system_name']}｜{it['category']}｜{it['priority']}｜{it['sa_name']}｜"
             f"已开发 {it['days']} 天｜风险 {it['risk']}{ver}"
         )
     lines += ["", "请输出研判与建议。"]
