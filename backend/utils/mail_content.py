@@ -176,16 +176,16 @@ SCENE_META: dict[str, dict[str, str]] = {
         "brand_color": "#165dff",
         "intro": "以下高级别工单最新情况同步如下，请知悉。",
     },
-    # 敏感需求（2026-10-25 注册）：复用任务中心清单装配器（TASK_LIST_SCENES）。
+    # 敏感需求（2026-10-25 注册；2026-10-27 模板 v2：需求块×团队块+反馈占位区）。
     "sensitive_req_urge": {
         "title": "敏感需求督办",
         "brand_color": "#f53f3f",
-        "intro": "以下敏感需求（P0/P1）存在里程碑临期/超期，请按倒排计划优先推进并反馈进展：",
+        "intro": "以下敏感需求已临期/超期，请各团队对照进展与计划，在对应反馈区回复最新进展、风险时间点或求助事宜：",
     },
     "sensitive_req_notify": {
         "title": "敏感需求同步",
         "brand_color": "#165dff",
-        "intro": "以下敏感需求倒排跟踪进展同步如下，请知悉。",
+        "intro": "以下敏感需求各团队最新进展与倒排计划同步如下，请知悉。",
     },
     # 客诉措施督办（2026-10-27 注册）：复用任务中心清单装配器（TASK_LIST_SCENES）。
     "complaint_action_urge": {
@@ -501,6 +501,118 @@ def render_task_center_section(
     return "\n\n---\n\n".join(blocks)
 
 
+# ---------------------------------------------------------------------------
+# 敏感需求督办邮件模板 v2（2026-10-27）：需求块 × 团队块 + 反馈占位区
+# ---------------------------------------------------------------------------
+# 不共用 render_task_center_section（被 7 个场景共享，禁动本体）；
+# 由 _compose_body_md 的 TASK_LIST_SCENES 分支按 scene 分流到本函数。
+SENSITIVE_REQ_SCENES = {"sensitive_req_urge", "sensitive_req_notify"}
+
+_BADGE_RED = '<span style="color:#f53f3f;font-weight:600;">{}</span>'
+_BADGE_ORANGE = '<span style="color:#ff7d00;font-weight:600;">{}</span>'
+
+
+def _md_cell(v: Any) -> str:
+    """markdown 表格单元格转义：竖线与换行会破坏表格结构。"""
+    return str(v if v is not None else "").replace("|", "\\|").replace("\r\n", " ").replace("\n", " ").strip()
+
+
+def render_sensitive_req_section(
+    req_blocks: Any, send_type: str, today: Any = None
+) -> str:
+    """敏感需求督办/同步邮件正文（模板 v2）。
+
+    每个需求一块：H3 标题（含超期/临期 badge）+ 基础信息 7 列表
+    （需求文号/开发单号/需求登记时间/开发启动时间/上线要求/级别/需求状态）
+    + 按团队分块的 5 阶段里程碑表 + 该团队专属反馈占位区
+    （锚点行固定格式「【{团队名}·进展反馈】」，blockquote 承载，回复引用不丢）。
+
+    req_blocks 结构见 services/sensitive_req.py::_structured_req_blocks。
+    """
+    if not isinstance(req_blocks, list) or not req_blocks:
+        return ""
+
+    blocks: list[str] = []
+    for b in req_blocks:
+        if not isinstance(b, dict):
+            continue
+        idx = b.get("index") or (len(blocks) + 1)
+        title = (b.get("title") or "（无标题）").strip()
+        if b.get("is_overdue"):
+            badge = " " + _BADGE_RED.format("【超期】")
+        elif b.get("is_due_soon"):
+            badge = " " + _BADGE_ORANGE.format("【临期】")
+        else:
+            badge = ""
+        heading = f"### {idx}. {title}{badge}"
+
+        info_cells = [
+            _md_cell(b.get("req_id") or "—"),
+            _md_cell(b.get("dev_ticket_no") or "未填写"),
+            _md_cell(b.get("registered_at") or "—"),
+            _md_cell(b.get("dev_started_at") or "未采集"),
+            _md_cell(b.get("due_date") or "未填"),
+            _md_cell(b.get("level") or "—"),
+            _md_cell(b.get("status_label") or "—"),
+        ]
+        # 两行 4 列（2026-10-27 实机验证：7 列窄客户端下表头折行、日期被折断）
+        info_table = (
+            "| 需求文号 | 开发单号 | 需求登记时间 | 开发启动时间 |\n"
+            "| --- | --- | --- | --- |\n"
+            f"| {info_cells[0]} | {info_cells[1]} | {info_cells[2]} | {info_cells[3]} |\n"
+            "\n"
+            "| 上线要求 | 级别 | 需求状态 | 里程碑进度 |\n"
+            "| --- | --- | --- | --- |\n"
+            f"| {info_cells[4]} | {info_cells[5]} | {info_cells[6]} | "
+            f"{b.get('milestone_done', 0)}/{b.get('milestone_total', 0)} 完成 |"
+        )
+
+        parts: list[str] = [heading, "", "**基础信息**", "", info_table, "", "**各团队进展与计划**", ""]
+
+        teams = b.get("teams") or []
+        if not b.get("has_teams"):
+            parts.append("未识别到活跃团队。")
+        for t in teams:
+            if not isinstance(t, dict):
+                continue
+            tname = (t.get("team") or t.get("team_name") or "—").strip()
+            parts.append(
+                f"#### {tname}（{t.get('dev_status_label') or '—'}｜处理人：{t.get('owner') or '未分配'}）"
+            )
+            parts.append("")
+            if not t.get("has_milestones"):
+                parts.append("暂无倒排里程碑，请直接在反馈区补充当前进展与计划。")
+                parts.append("")
+            else:
+                rows: list[str] = []
+                for m in t.get("milestones", []):
+                    status = m.get("status_label") or "—"
+                    if m.get("is_overdue"):
+                        status += " " + _BADGE_RED.format(f"【超期 {m.get('overdue_days', 0)} 天】")
+                    elif m.get("is_due_soon"):
+                        status += " " + _BADGE_ORANGE.format("【临期】")
+                    rows.append(
+                        f"| {_md_cell(m.get('stage_label'))} | {_md_cell(m.get('owner'))} "
+                        f"| {_md_cell(m.get('planned_start') or '—')} "
+                        f"| {_md_cell(m.get('planned_end') or '—')} "
+                        f"| {_md_cell(m.get('actual_display') or '—')} | {status} |"
+                    )
+                parts.append("| 阶段 | 责任人 | 计划开始 | 计划完成 | 实际完成 | 状态 |")
+                parts.append("| --- | --- | --- | --- | --- | --- |")
+                parts.extend(rows)
+                parts.append("")
+            # 团队专属反馈占位区（锚点行固定格式，便于回复定位与后续自动汇总）
+            parts.append(f"> 【{tname}·进展反馈】")
+            parts.append("> 1. 最新进展：")
+            parts.append("> 2. 风险时间点：")
+            parts.append("> 3. 求助事宜：")
+            parts.append("")
+
+        blocks.append("\n".join(parts))
+
+    return "\n\n---\n\n".join(blocks)
+
+
 def _render_fields_table(scene: str, values: dict) -> str:
     """结构化字段表（表格项 = 非 in_body 字段）。"""
     rows: list[str] = []
@@ -551,7 +663,36 @@ def _compose_body_md(scene: str, values: dict, body_md: Optional[str]) -> str:
     tc_skip_keys: set[str] = set()
     if scene in TASK_LIST_SCENES:
         tasks_val = (values or {}).get("tasks")
-        if isinstance(tasks_val, list) and tasks_val:
+        # 敏感需求场景分流（模板 v2 2026-10-27）：有 req_blocks 时走
+        # 需求块×团队块专用装配 render_sensitive_req_section（不动共享函数本体）；
+        # 无 req_blocks 的存量调用回退旧清单路径，向后兼容。
+        if scene in SENSITIVE_REQ_SCENES:
+            req_blocks_val = (values or {}).get("req_blocks")
+            if isinstance(req_blocks_val, list) and req_blocks_val:
+                send_type = "urge" if "urge" in scene else "notify"
+                section_md = render_sensitive_req_section(req_blocks_val, send_type)
+                # 用户编辑接管判断：body_md 保留任一需求 title → 跳过追加避免重复
+                block_titles = [
+                    b.get("title") for b in req_blocks_val
+                    if isinstance(b, dict) and b.get("title")
+                ]
+                md_has_any_block = any(t and t in md for t in block_titles)
+                if section_md and not md_has_any_block:
+                    md = (md + "\n\n" if md else "") + section_md
+                tc_skip_keys.add("tasks")
+                tc_skip_keys.add("req_blocks")
+            elif isinstance(tasks_val, list) and tasks_val:
+                send_type = "urge" if "urge" in scene else "notify"
+                section_md = render_task_center_section(tasks_val, send_type)
+                task_titles = [
+                    t.get("title") for t in tasks_val
+                    if isinstance(t, dict) and t.get("title")
+                ]
+                md_has_any_task = any(t and t in md for t in task_titles)
+                if section_md and not md_has_any_task:
+                    md = (md + "\n\n" if md else "") + section_md
+                tc_skip_keys.add("tasks")
+        elif isinstance(tasks_val, list) and tasks_val:
             send_type = "urge" if "urge" in scene else "notify"
             section_md = render_task_center_section(tasks_val, send_type)
             # 检测 md 是否含任意一条任务 title：保留→跳过追加；全部删空→重拼完整卡片。

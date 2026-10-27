@@ -17,7 +17,7 @@
 安全：EmailCenterClient.send_email 一律 monkeypatch 为假实现，绝不真发。
 """
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -30,6 +30,8 @@ from db.models import (
     EmailRecord,
     PmwbRequirementEvaluation,
     PmwbRequirementExt,
+    PmwbRequirementStageLog,
+    PmwbReqVendorDev,
     PmwbSensitiveReqMilestone,
     PmwbSensitiveReqTrack,
     SentEmail,
@@ -371,6 +373,110 @@ def _seed_for_mail(db):
     db.commit()
     _ms(db, "REQ-A", team="CRM", stage="dev", planned_end=TODAY - timedelta(days=1), owner="李四")
     sensitive_req_service.sync(db)
+
+
+def _seed_for_mail_v2(db):
+    """模板 v2 种子：双团队 + vendor_dev + 开发单号 + 登记时间 + dev 环节时间。"""
+    _ext(db, "REQ-A", priority="P0", status="dev")
+    db.add(SentEmail(
+        req_id="REQ-A", req_name="一网通融合开通流程升级",
+        dev_ticket_no="DEV-20261001",
+        created_at=datetime(2026, 10, 12, 9, 0, 0),
+    ))
+    _eval(db, "REQ-A", system_name="CRM", sa_name="张三")
+    _eval(db, "REQ-A", system_name="订单中心", sa_name="陈山")
+    db.add(PmwbReqVendorDev(
+        req_id="REQ-A", system_name="CRM", team_name="CRM 团队",
+        sa_name="张三", dev_status="developing",
+    ))
+    db.add(PmwbRequirementStageLog(
+        req_id="REQ-A", stage="dev", entered_at=datetime(2026, 10, 20, 10, 0, 0),
+        source="auto",
+    ))
+    # CRM：评估已完成 + 开发超期 1 天；订单中心：方案制定临期
+    _ms(db, "REQ-A", team="CRM", stage="evaluate",
+        planned_end=TODAY - timedelta(days=10), status="done",
+        actual_end=TODAY - timedelta(days=10))
+    _ms(db, "REQ-A", team="CRM", stage="dev",
+        planned_end=TODAY - timedelta(days=1), owner="李四")
+    _ms(db, "REQ-A", team="订单中心", stage="plan",
+        planned_end=TODAY + timedelta(days=2), status="doing")
+    sensitive_req_service.sync(db)
+
+
+def test_draft_v2_req_blocks_structure(db):
+    """模板 v2：需求块基础信息 7 项 + 团队块 5 阶段 + 反馈占位区（2026-10-27）。"""
+    _seed_for_mail_v2(db)
+    refs = [{"source": "sensitive_req", "source_id": "REQ-A"}]
+    draft = sensitive_req_service.draft(db, refs, "urge", "", "李四")
+
+    body = draft["body_md"]
+    # 基础信息 7 项
+    for token in (
+        "需求文号", "开发单号", "需求登记时间", "开发启动时间", "上线要求", "级别", "需求状态",
+        "DEV-20261001", "2026-10-12", "2026-10-20",  # 单号/登记时间/开发启动时间
+        "**各团队进展与计划**",
+    ):
+        assert token in body, f"缺少 {token}"
+    # 团队块：开发状态中文 + 处理人（vendor_dev.sa_name 优先）
+    assert "#### CRM（开发中｜处理人：张三）" in body
+    assert "#### 订单中心（—｜处理人：陈山）" in body
+    # 里程碑行：超期徽章 + 实际完成回显
+    assert "【超期 1 天】" in body
+    assert "需求评估" in body and "方案制定" in body
+    # 反馈占位区（每团队一个锚点 + 固定三项）
+    assert "【CRM·进展反馈】" in body
+    assert "【订单中心·进展反馈】" in body
+    assert body.count("1. 最新进展：") == 2
+    assert body.count("2. 风险时间点：") == 2
+    assert body.count("3. 求助事宜：") == 2
+    # 返回体带 req_blocks（前端可不消费）
+    assert draft["req_blocks"] and draft["req_blocks"][0]["dev_ticket_no"] == "DEV-20261001"
+
+
+def test_draft_v2_subject_prefix(db):
+    """主题前缀：sensitive_req 场景应为【敏感需求督办】/【敏感需求同步】（多任务也不退化为任务催办）。"""
+    _seed_for_mail_v2(db)
+    _ext(db, "REQ-B", priority="P1", status="dev")
+    _eval(db, "REQ-B", system_name="CRM", sa_name="张三")
+    sensitive_req_service.sync(db)
+
+    single = sensitive_req_service.draft(
+        db, [{"source": "sensitive_req", "source_id": "REQ-A"}], "urge", "", "李四")
+    assert single["subject"].startswith("【敏感需求督办】")
+
+    multi = sensitive_req_service.draft(
+        db,
+        [{"source": "sensitive_req", "source_id": "REQ-A"},
+         {"source": "sensitive_req", "source_id": "REQ-B"}],
+        "urge", "", "李四")
+    assert multi["subject"].startswith("【敏感需求督办】")
+    assert "您有 2 项敏感需求需跟进" in multi["subject"]
+
+    notify = sensitive_req_service.draft(
+        db, [{"source": "sensitive_req", "source_id": "REQ-A"}], "notify", "", "李四")
+    assert notify["subject"].startswith("【敏感需求同步】")
+
+
+def test_draft_v2_no_teams_fallback(db):
+    """无活跃团队（无团队评估）→ 降级文案，不产团队子块/反馈锚点。"""
+    _seed_for_mail(db)  # 无 _eval
+    refs = [{"source": "sensitive_req", "source_id": "REQ-A"}]
+    draft = sensitive_req_service.draft(db, refs, "urge", "", "李四")
+    assert "未识别到活跃团队" in draft["body_md"]
+    assert "·进展反馈】" not in draft["body_md"]
+    # 开发单号缺失降级
+    assert "未填写" in draft["body_md"]
+
+
+def test_draft_v2_user_body_takeover(db):
+    """用户编辑接管：body_md 保留需求 title 时不重复追加 req_blocks 段。"""
+    _seed_for_mail_v2(db)
+    refs = [{"source": "sensitive_req", "source_id": "REQ-A"}]
+    draft = sensitive_req_service.draft(
+        db, refs, "urge", "各位：请重点关注一网通融合开通流程升级，本周内闭环。", "李四")
+    assert "本周内闭环" in draft["body_md"]
+    assert "基础信息" not in draft["body_md"]  # 接管后不追加结构化段落
 
 
 def test_draft_and_dry_run_preview(db, monkeypatch):

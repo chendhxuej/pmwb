@@ -38,6 +38,7 @@ from db.models import (
     PmwbSensitiveReqMilestone,
     PmwbSensitiveReqTrack,
     PmwbRequirementEvaluation,
+    PmwbReqVendorDev,
     SentEmail,
     now_cn,
 )
@@ -50,7 +51,7 @@ from schemas.sensitive_req import (
     SensitiveReqTrackUpdateRequest,
 )
 from services.mail_dispatch import _render_mail, dispatch_email
-from services.vendor_dev import active_team_systems
+from services.vendor_dev import active_team_systems, active_team_systems_batch
 from utils.owners import split_owners
 from utils.validators import split_and_validate_emails
 
@@ -818,6 +819,166 @@ class SensitiveReqService:
             })
         return out
 
+    def _structured_req_blocks(self, db: Session, refs: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        """督办邮件模板 v2 的需求块装配（2026-10-27）。
+
+        结构 = 需求块（基础信息 7 项）× 团队块（dev_status/处理人/5 阶段里程碑）。
+        约束：6 次批量查询 + 内存分组，禁 N+1；单条取数失败跳过该块
+        （与 _structured_tasks 现行为一致）；团队骨架 = active_team_systems 唯一源。
+        """
+        ids: List[str] = []
+        for ref in refs:
+            rid = _norm_req_id(ref.get("source_id"))
+            if rid and rid not in ids:
+                ids.append(rid)
+        if not ids:
+            return []
+        today = now_cn().date()
+
+        # ── 批量预载 ──────────────────────────────────────────────
+        sent_map: Dict[str, SentEmail] = {}
+        for s in db.query(SentEmail).filter(SentEmail.req_id.in_(ids)).all():
+            rid = _norm_req_id(s.req_id)
+            cur = sent_map.get(rid)
+            # 同 req_id 多行取最早 created_at（与 _load_name_index 口径对齐）
+            if cur is None or (s.created_at and (not cur.created_at or s.created_at < cur.created_at)):
+                sent_map[rid] = s
+        ext_map = {
+            e.req_id: e
+            for e in db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id.in_(ids)).all()
+        }
+        track_map = {
+            r.req_id: r
+            for r in db.query(PmwbSensitiveReqTrack).filter(PmwbSensitiveReqTrack.req_id.in_(ids)).all()
+        }
+        slog_by_req: Dict[str, Dict[str, PmwbRequirementStageLog]] = {}
+        for lg in db.query(PmwbRequirementStageLog).filter(
+            PmwbRequirementStageLog.req_id.in_(ids)
+        ).all():
+            slog_by_req.setdefault(_norm_req_id(lg.req_id), {})[lg.stage] = lg
+        miles_by: Dict[Tuple[str, str], List[PmwbSensitiveReqMilestone]] = {}
+        for ms in db.query(PmwbSensitiveReqMilestone).filter(
+            PmwbSensitiveReqMilestone.req_id.in_(ids)
+        ).order_by(
+            PmwbSensitiveReqMilestone.team_system_name, PmwbSensitiveReqMilestone.id
+        ).all():
+            miles_by.setdefault((ms.req_id, ms.team_system_name), []).append(ms)
+        vdev_by: Dict[Tuple[str, str], PmwbReqVendorDev] = {
+            (v.req_id, v.system_name): v
+            for v in db.query(PmwbReqVendorDev).filter(PmwbReqVendorDev.req_id.in_(ids)).all()
+        }
+        teams_by = active_team_systems_batch(db, ids)
+        names = self._load_name_index(db)
+
+        blocks: List[Dict[str, Any]] = []
+        for idx, rid in enumerate(ids, 1):
+            ext = ext_map.get(rid)
+            track = track_map.get(rid)
+            if ext is None or track is None:
+                continue  # 无 ext/track 的编号跳过（同 _structured_tasks 降级口径）
+
+            # 事实时间 hints（复用 _stage_log_hints 映射口径，仅批量预载版）
+            logs = slog_by_req.get(rid, {})
+            hints: Dict[str, Optional[date]] = {
+                "evaluate": logs["evaluate"].left_at.date() if (logs.get("evaluate") and logs["evaluate"].left_at) else None,
+                "plan": None,
+                "test": None,
+                "deploy": ext.delivered_date,
+            }
+            dev_log = logs.get("dev")
+            hints["dev"] = dev_log.left_at.date() if (dev_log and dev_log.left_at) else None
+
+            # 团队块（骨架=活跃团队唯一源，历史行不展示）
+            team_blocks: List[Dict[str, Any]] = []
+            for t in teams_by.get(rid, []):
+                tname = t["system_name"]
+                vd = vdev_by.get((rid, tname))
+                dev_status = (vd.dev_status if vd else "") or ""
+                vd_status = status_registry.get_status("vendor_dev", dev_status) if dev_status else None
+                ms_rows = [
+                    self._compose_milestone(ms, hints.get(ms.stage), today)
+                    for ms in miles_by.get((rid, tname), [])
+                ]
+                dev_ms_owner = next(
+                    (m["owner"] for m in ms_rows if m["stage"] == "dev" and m["owner"]), ""
+                )
+                owner = (
+                    (vd.sa_name if vd and vd.sa_name else "")
+                    or (t.get("sa_name") or "")
+                    or dev_ms_owner
+                    or "未分配"
+                )
+                team_blocks.append({
+                    "team": tname,
+                    "team_name": (vd.team_name if vd else "") or tname,
+                    "dev_status": dev_status,
+                    "dev_status_label": vd_status.label if vd_status else (dev_status or "—"),
+                    "owner": owner,
+                    "milestones": [
+                        {
+                            "stage": m["stage"],
+                            "stage_label": m["stage_label"],
+                            "owner": m["owner"] or "未填",
+                            "planned_start": m["planned_start"].isoformat() if m["planned_start"] else "",
+                            "planned_end": m["planned_end"].isoformat() if m["planned_end"] else "",
+                            "actual_end": m["actual_end"].isoformat() if m["actual_end"] else "",
+                            "actual_display": (
+                                m["actual_end"].isoformat()
+                                if m["actual_end"]
+                                else (m["actual_hint"].isoformat() if m["actual_hint"] else "")
+                            ),
+                            "status": m["status"],
+                            "status_label": m["status_label"],
+                            "is_overdue": m["is_overdue"],
+                            "overdue_days": m["overdue_days"],
+                            "is_due_soon": m["is_due_soon"],
+                            "risk_note": m["risk_note"],
+                        }
+                        for m in ms_rows
+                    ],
+                    "has_milestones": bool(ms_rows),
+                })
+
+            req_overdue = any(t["is_overdue"] for tb in team_blocks for t in tb["milestones"])
+            req_due_soon = (
+                any(t["is_due_soon"] for tb in team_blocks for t in tb["milestones"])
+                and not req_overdue
+            )
+            ms_total = sum(len(tb["milestones"]) for tb in team_blocks)
+            ms_done = sum(
+                1 for tb in team_blocks for m in tb["milestones"] if m["status"] == "done"
+            )
+            deadline_missed = bool(
+                ext.version_required_date
+                and ext.version_required_date < today
+                and ext.status != "closed"
+                and track.track_status != "resolved"
+            )
+            tr_status = status_registry.get_status(TRACK_DOMAIN, track.track_status)
+            sent = sent_map.get(rid)
+
+            blocks.append({
+                "index": idx,
+                "req_id": rid,
+                "title": ext.req_name or (names.get(rid) or "（无标题）"),
+                "dev_ticket_no": (sent.dev_ticket_no if sent else "") or "未填写",
+                "registered_at": (sent.created_at.strftime("%Y-%m-%d") if (sent and sent.created_at) else "—"),
+                "dev_started_at": (
+                    dev_log.entered_at.strftime("%Y-%m-%d")
+                    if (dev_log and dev_log.entered_at) else "未采集"
+                ),
+                "due_date": ext.version_required_date.isoformat() if ext.version_required_date else "未填",
+                "level": levels.priority_label(ext.priority) if ext.priority else (track.level_code or "—"),
+                "status_label": tr_status.label if tr_status else track.track_status,
+                "is_overdue": req_overdue or deadline_missed,
+                "is_due_soon": req_due_soon,
+                "milestone_done": ms_done,
+                "milestone_total": ms_total,
+                "teams": team_blocks,
+                "has_teams": bool(team_blocks),
+            })
+        return blocks
+
     def draft(
         self, db: Session, refs: List[Dict[str, str]], send_type: str,
         body: Optional[str], recipient_name: Optional[str],
@@ -827,12 +988,13 @@ class SensitiveReqService:
 
         scene = "sensitive_req_urge" if send_type == "urge" else "sensitive_req_notify"
         tasks = self._structured_tasks(db, refs)
+        req_blocks = self._structured_req_blocks(db, refs)
         md = build_mail_body_md(
-            scene=scene, fields={"tasks": tasks}, body_md=body,
+            scene=scene, fields={"tasks": tasks, "req_blocks": req_blocks}, body_md=body,
             recipient_name=recipient_name or "",
         )
         subject = format_task_center_subject(scene, tasks, recipient_name or "")
-        return {"body_md": md, "subject": subject, "tasks": tasks}
+        return {"body_md": md, "subject": subject, "tasks": tasks, "req_blocks": req_blocks}
 
     def send(self, db: Session, obj_in: SensitiveReqSendRequest) -> Dict[str, Any]:
         """发送敏感需求督办/同步邮件（ref_type=sensitive_req）。
@@ -849,6 +1011,14 @@ class SensitiveReqService:
         tasks = tdata.get("tasks") if isinstance(tdata.get("tasks"), list) else None
         if not tasks:
             tasks = self._structured_tasks(db, refs)
+        req_blocks = (
+            tdata.get("req_blocks")
+            if isinstance(tdata.get("req_blocks"), list)
+            else None
+        )
+        if not req_blocks:
+            # tdata 未带（用户未走 draft 直发）时服务端重算，保证预览=实发同源
+            req_blocks = self._structured_req_blocks(db, refs)
         recipient_name = tdata.get("recipient_name") or ""
         if not recipient_name:
             names: List[str] = []
@@ -861,15 +1031,18 @@ class SensitiveReqService:
 
         variables: Dict[str, Any] = {
             "tasks": tasks,
+            "req_blocks": req_blocks,
             "sendType": tdata.get("sendType") or obj_in.send_type,
             "recipient_name": recipient_name,
             "body": obj_in.body or tdata.get("body") or "",
         }
 
+        mail_fields = {"tasks": tasks, "req_blocks": req_blocks}
+
         if obj_in.dry_run:
             rendered = _render_mail(
                 scene=scene, variables=variables,
-                fields={"tasks": tasks} if tasks else None,
+                fields=mail_fields,
                 subject=obj_in.subject, recipient_name=recipient_name,
             )
             return {"success": True, "preview": True,
@@ -895,7 +1068,7 @@ class SensitiveReqService:
         result = dispatch_email(
             db=db, to=resolved_to, cc=resolved_cc or None,
             subject=obj_in.subject, scene=scene, variables=variables,
-            fields={"tasks": tasks} if tasks else None,
+            fields=mail_fields,
             raw_content=obj_in.body, recipient_name=recipient_name,
             email_type=email_type, req_id=ref_key,
             req_name=(tasks[0]["title"] if tasks else "敏感需求督办")[:255],

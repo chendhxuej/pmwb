@@ -233,7 +233,11 @@ def format_task_center_subject(
         return ""
     is_urge = "urge" in (scene or "")
     is_high_level = (scene or "").startswith("high_level")
-    if is_high_level:
+    is_sensitive_req = (scene or "").startswith("sensitive_req")
+    if is_sensitive_req:
+        prefix = "【敏感需求督办】" if is_urge else "【敏感需求同步】"
+        noun = "项敏感需求需跟进"
+    elif is_high_level:
         prefix = "【高级别工单督办】" if is_urge else "【高级别工单同步】"
         noun = "项高级别工单需跟进"
     else:

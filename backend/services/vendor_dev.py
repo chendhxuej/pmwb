@@ -13,8 +13,11 @@
   3. **状态只前进不回退**（幂等 upsert）：插件同步只会把厂家推进到 ``live``，
      已经 ``completed`` 的厂家不会被覆盖回 ``live``。``completed`` 只能由人工确认。
 
-状态取值见 constants/status_registry.py 的 ``vendor_dev`` 域：
-pending(待开发)/developing(开发中)/live(已上线)/completed(已完成)。
+状态取值见 constants/status_registry.py 的 ``vendor_dev`` 域（7 态，与需求工单状态对齐）：
+pending(待开发)/developing(开发中)/partial_live(部分上线)/live(已上线)/
+live_failed(上线失败)/paused(已暂停)/completed(已完成)。
+**该域 free_transition=True：状态任意互转，不按 allowed_next 拦截**
+（2026-10-21 老大要求放开，厂家实际节奏不受系统预设约束）。
 """
 
 from __future__ import annotations
@@ -101,6 +104,15 @@ def active_team_systems(db: Session, req_id: str) -> List[Dict[str, Any]]:
         .filter(PmwbRequirementEvaluation.req_id == req_id)
         .all()
     )
+    return _filter_active_teams(evals)
+
+
+def _filter_active_teams(evals: List[PmwbRequirementEvaluation]) -> List[Dict[str, Any]]:
+    """active_team_systems 的过滤核心（供批量版复用，口径唯一）。
+
+    剔除 workload=0/NULL、按 system_name 去重（sa_name 取首个非空、workload 取最大）、
+    按 system_name 排序。
+    """
     sa_map: Dict[str, str] = {}
     wl_map: Dict[str, float] = {}
     for ev in evals:
@@ -126,6 +138,28 @@ def active_team_systems(db: Session, req_id: str) -> List[Dict[str, Any]]:
         }
         for s in sorted(sa_map.keys())
     ]
+
+
+def active_team_systems_batch(
+    db: Session, req_ids: List[str]
+) -> Dict[str, List[Dict[str, Any]]]:
+    """批量版 active_team_systems：一次 in_ 查询 + 内存按 req_id 分组（防 N+1）。
+
+    口径与单个版完全一致（同一 _filter_active_teams），返回 {req_id: [团队...]}，
+    未出现在结果中的 req_id 视为无活跃团队。
+    """
+    ids = [_norm(r) for r in (req_ids or []) if _norm(r)]
+    if not ids:
+        return {}
+    evals = (
+        db.query(PmwbRequirementEvaluation)
+        .filter(PmwbRequirementEvaluation.req_id.in_(ids))
+        .all()
+    )
+    grouped: Dict[str, List[PmwbRequirementEvaluation]] = {}
+    for ev in evals:
+        grouped.setdefault(_norm(ev.req_id), []).append(ev)
+    return {rid: _filter_active_teams(evs) for rid, evs in grouped.items()}
 
 
 def _ensure_evaluations_seeded(db: Session, req_id: str) -> None:
@@ -446,7 +480,13 @@ def create_vendor_dev(db: Session, req_id: str, obj_in: Dict[str, Any]) -> Dict[
 
 
 def update_vendor_dev(db: Session, vendor_dev_id: int, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """更新厂家行；改状态走注册表流转校验，置 completed 时触发完成联动。"""
+    """更新厂家行；改状态走注册表校验，置 completed 时触发完成联动。
+
+    状态校验（2026-10-21 放开流转）：
+      - 先校验**合法性**（必须在该域 7 态内）；
+      - 再校验**流转**：仅当域未放开（``free_transition=False``）时才按 allowed_next 拦，
+        vendor_dev 已放开 → 任意状态互转（含 completed 退回开发中）。
+    """
     row = db.query(PmwbReqVendorDev).filter(PmwbReqVendorDev.id == vendor_dev_id).first()
     if not row:
         return None
@@ -456,13 +496,15 @@ def update_vendor_dev(db: Session, vendor_dev_id: int, obj_in: Dict[str, Any]) -
         new_status = _norm(new_status)
         cur = _norm(row.dev_status) or DEFAULT_DEV_STATUS
         if new_status != cur:
-            allowed = status_registry.allowed_next(VENDOR_DEV_DOMAIN, cur)
-            if allowed and new_status not in allowed:
-                raise ValueError(
-                    f"不允许从「{status_label(cur)}」流转到「{status_label(new_status)}」"
-                )
+            # 合法性优先，避免非法值被误报成「不允许流转」
             if not status_registry.get_status(VENDOR_DEV_DOMAIN, new_status):
                 raise ValueError(f"非法的厂家开发状态：{new_status}")
+            if not status_registry.is_free_transition(VENDOR_DEV_DOMAIN):
+                allowed = status_registry.allowed_next(VENDOR_DEV_DOMAIN, cur)
+                if allowed and new_status not in allowed:
+                    raise ValueError(
+                        f"不允许从「{status_label(cur)}」流转到「{status_label(new_status)}」"
+                    )
         row.dev_status = new_status
 
     for key in ("team_name", "sa_name", "dev_ticket_no"):
@@ -523,8 +565,19 @@ def _maybe_finalize(db: Session, req_id: str) -> Optional[Dict[str, Any]]:
             return None  # 仍有活跃厂家未完成
 
     ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == req_id).first()
-    # 幂等：已上线就不再重复写
+    # 幂等：已上线就不再重复写状态；但 delivered_date 缺失时补记当周周四（2026-10-23 修复）
     if ext and _norm(ext.status) == "closed":
+        if ext.delivered_date is None:
+            delivered = week_thursday(now_cn().date())
+            from services.requirement import requirement_service
+
+            requirement_service.update_ext(db, req_id, {"delivered_date": delivered})
+            return {
+                "finalized": False,
+                "skipped": True,
+                "reason": "需求已处于「已上线」但缺实际上线日，已补记当周周四",
+                "delivered_date": delivered.strftime("%Y-%m-%d"),
+            }
         return {
             "finalized": False,
             "skipped": True,
