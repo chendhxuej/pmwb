@@ -1,0 +1,73 @@
+import request from './request'
+
+// 客诉专题分析 API（后端 prefix=/api/v1/complaint，routers/complaint.py）
+export const complaintApi = {
+  // ── 台账 ──
+  listTickets(params) {
+    return request.get('/complaint/tickets', { params })
+  },
+  getTicket(id) {
+    return request.get(`/complaint/tickets/${id}`)
+  },
+  // 人工校正分类（classify_by 置 manual，reclassify 不覆盖）
+  correctCategory(id, data) {
+    return request.put(`/complaint/tickets/${id}/category`, data)
+  },
+  listClusters(week) {
+    return request.get('/complaint/clusters', { params: week ? { week } : {} })
+  },
+
+  // ── 分类字典 ──
+  listCategories() {
+    return request.get('/complaint/categories')
+  },
+  toggleCategory(id, enabled) {
+    return request.put(`/complaint/categories/${id}/enabled`, { enabled })
+  },
+
+  // ── 措施台账 ──
+  listActions() {
+    return request.get('/complaint/actions')
+  },
+  createAction(data) {
+    return request.post('/complaint/actions', data)
+  },
+  updateAction(actionNo, data) {
+    return request.put(`/complaint/actions/${actionNo}`, data)
+  },
+  // 标记措施生效并绑定基线（生效日前 N 周该场景周均单量）
+  goLive(actionNo, goLiveDate) {
+    return request.post(`/complaint/actions/${actionNo}/go-live`, { go_live_date: goLiveDate })
+  },
+  // 结算验证中的措施（到观察期自动定论 effective/ineffective）
+  verifyActions() {
+    return request.post('/complaint/actions/verify')
+  },
+  // 督办邮件：默认 dry_run；confirmSend=true 真发（仅限用户显式点击）
+  urgePreview(data) {
+    return request.post('/complaint/actions/urge-preview', data)
+  },
+
+  // ── 指标与周报 ──
+  getMetrics(week) {
+    return request.get('/complaint/metrics', { params: week ? { week } : {} })
+  },
+  genReport(data) {
+    return request.post('/complaint/reports', data)
+  },
+  reportDownloadUrl(week, ext = 'html') {
+    return `/api/v1/complaint/reports/${week}/download?ext=${ext}`
+  },
+
+  // ── 每周导入（multipart，withReport=true 导入后直接出周报）──
+  importWeekly(file, withReport, withPdf = true) {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('with_report', String(withReport))
+    form.append('with_pdf', String(withPdf))
+    return request.post('/complaint/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000,
+    })
+  },
+}

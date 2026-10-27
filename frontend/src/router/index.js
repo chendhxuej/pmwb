@@ -93,6 +93,32 @@ const routes = [
             component: () => import('@/views/WorkOrderView.vue'),
             meta: { title: '热点投诉', category: 'complaint' },
           },
+          // ── 客诉专题分析（2026-10-27 服务化整合；注意与热点投诉 complaint 区分命名）──
+          {
+            path: 'complaint-center',
+            redirect: '/operation/complaint-center/dashboard',
+            meta: { title: '客诉专题', icon: 'DataAnalysis' },
+            children: [
+              {
+                path: 'dashboard',
+                name: 'ComplaintDashboard',
+                component: () => import('@/views/complaint/ComplaintDashboard.vue'),
+                meta: { title: '压降看板' },
+              },
+              {
+                path: 'tickets',
+                name: 'ComplaintTicketLedger',
+                component: () => import('@/views/complaint/ComplaintTicketLedger.vue'),
+                meta: { title: '工单台账' },
+              },
+              {
+                path: 'actions',
+                name: 'ComplaintActionLedger',
+                component: () => import('@/views/complaint/ComplaintActionLedger.vue'),
+                meta: { title: '措施台账' },
+              },
+            ],
+          },
           // ── 一线调研已升级为一级模块，此处仅保留旧深链重定向 ──
           {
             path: 'research',
