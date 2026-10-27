@@ -538,6 +538,94 @@ def test_send_requires_recipient_validation(db, monkeypatch):
 
 
 # ─────────────────────────────────────────────────────────────
+# 7.1 模板 v2 三项修复（2026-10-27 老大反馈）
+# ─────────────────────────────────────────────────────────────
+def test_draft_v2_dev_ticket_latest_nonempty(db):
+    """开发单号口径 = 该需求最新一条非空 dev_ticket_no（与需求基础信息一致）。"""
+    _ext(db, "REQ-A", priority="P0", status="dev")
+    # 早登记行无单号；后补登行有单号（id 更大）
+    db.add(SentEmail(req_id="REQ-A", req_name="一网通融合开通流程升级"))
+    db.commit()
+    db.add(SentEmail(
+        req_id="REQ-A", req_name="一网通融合开通流程升级",
+        dev_ticket_no="DEV-20261025", created_at=datetime(2026, 10, 25, 9, 0, 0),
+    ))
+    db.commit()
+    _eval(db, "REQ-A", system_name="CRM", sa_name="张三")
+    _ms(db, "REQ-A", team="CRM", stage="dev", planned_end=TODAY, owner="李四")
+    sensitive_req_service.sync(db)
+
+    draft = sensitive_req_service.draft(
+        db, [{"source": "sensitive_req", "source_id": "REQ-A"}], "urge", "", "李四")
+    block = draft["req_blocks"][0]
+    assert block["dev_ticket_no"] == "DEV-20261025"
+    assert "DEV-20261025" in draft["body_md"]
+    # 登记时间仍取最早 created_at（无 created_at 行 → 用有时间的行兜底显示）
+    assert block["registered_at"] not in ("", None)
+
+
+def test_draft_v2_urge_excludes_dev_done_teams(db):
+    """urge 督办只发还未完成开发的团队；notify 同步保留全量团队。"""
+    _seed_for_mail_v2(db)
+    db.add(PmwbReqVendorDev(
+        req_id="REQ-A", system_name="BOSS", team_name="BOSS 团队",
+        sa_name="陈增明", dev_status="completed",
+    ))
+    _eval(db, "REQ-A", system_name="BOSS", sa_name="陈增明", workload=5.0)
+    db.commit()
+
+    urge = sensitive_req_service.draft(
+        db, [{"source": "sensitive_req", "source_id": "REQ-A"}], "urge", "", "")
+    urge_teams = [t["team"] for b in urge["req_blocks"] for t in b["teams"]]
+    assert "BOSS" not in urge_teams  # 已完成开发 → 剔除
+    assert "CRM" in urge_teams
+
+    notify = sensitive_req_service.draft(
+        db, [{"source": "sensitive_req", "source_id": "REQ-A"}], "notify", "", "")
+    notify_teams = [t["team"] for b in notify["req_blocks"] for t in b["teams"]]
+    assert "BOSS" in notify_teams  # 同步保留全量
+
+    # BOSS 无里程碑且 dev_status=completed → urge 反馈锚点只剩 2 个团队
+    assert urge["body_md"].count("·进展反馈】") == 2
+    assert notify["body_md"].count("·进展反馈】") == 3
+
+
+def test_draft_v2_recipients_all_stage_owners(db):
+    """收件人候选 = 各团队全部环节涉及人去重（不止当前卡点/处理人）。"""
+    _seed_for_mail_v2(db)
+    # 再补一个 evaluate 环节不同责任人的里程碑（CRM）
+    _ms(db, "REQ-A", team="CRM", stage="test", planned_end=TODAY + timedelta(days=5),
+        owner="王五")
+    draft = sensitive_req_service.draft(
+        db, [{"source": "sensitive_req", "source_id": "REQ-A"}], "urge", "", "")
+    rcpts = draft["recipients"]
+    assert "李四" in rcpts and "王五" in rcpts
+    assert rcpts.count("李四") == 1  # 去重
+
+
+def test_send_autofill_recipients_from_blocks(db, monkeypatch):
+    """to 为空时自动用全部环节涉及人作收件人（姓名→邮箱解析，解析不出保持原样）。"""
+    _seed_for_mail_v2(db)
+    monkeypatch.setattr(
+        "services.mail_dispatch.dispatch_email",
+        lambda db, **kw: {"success": True, "record_id": 9528, "message": "ok"},
+    )
+    monkeypatch.setattr(
+        task_center_service, "resolve_contacts",
+        lambda names: {"张三": "zhangsan@example.com", "李四": "lisi@example.com"},
+    )
+    req = SensitiveReqSendRequest(
+        tasks=[{"source": "sensitive_req", "source_id": "REQ-A"}],
+        to="",  # 前端未传 → 服务端自动补全
+        send_type="urge",
+        confirm_send=True,
+    )
+    res = sensitive_req_service.send(db, req)
+    assert res["success"] is True
+    assert res["unresolved"] == []  # 张三/李四 都解析成功
+
+
+# ─────────────────────────────────────────────────────────────
 # 8. 跟踪态流转 & 详情
 # ─────────────────────────────────────────────────────────────
 def test_track_transition_validation(db):

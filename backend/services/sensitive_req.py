@@ -819,12 +819,22 @@ class SensitiveReqService:
             })
         return out
 
-    def _structured_req_blocks(self, db: Session, refs: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    # 开发已完成的厂家态（urge 督办不再发给这些团队；partial_live 部分上线仍须督办）
+    _DEV_DONE_STATUSES = ("completed", "live")
+
+    def _structured_req_blocks(
+        self, db: Session, refs: List[Dict[str, str]],
+        only_active_teams: bool = False,
+    ) -> List[Dict[str, Any]]:
         """督办邮件模板 v2 的需求块装配（2026-10-27）。
 
         结构 = 需求块（基础信息 7 项）× 团队块（dev_status/处理人/5 阶段里程碑）。
         约束：6 次批量查询 + 内存分组，禁 N+1；单条取数失败跳过该块
         （与 _structured_tasks 现行为一致）；团队骨架 = active_team_systems 唯一源。
+
+        only_active_teams=True（urge 督办口径）：剔除已完成开发的团队
+        （vendor_dev.dev_status ∈ completed/live；无 vendor_dev 行则该团队
+        里程碑全 done 视为完成）。
         """
         ids: List[str] = []
         for ref in refs:
@@ -836,11 +846,21 @@ class SensitiveReqService:
         today = now_cn().date()
 
         # ── 批量预载 ──────────────────────────────────────────────
+        sent_rows: List[SentEmail] = (
+            db.query(SentEmail).filter(SentEmail.req_id.in_(ids)).all()
+        )
         sent_map: Dict[str, SentEmail] = {}
-        for s in db.query(SentEmail).filter(SentEmail.req_id.in_(ids)).all():
+        ticket_map: Dict[str, str] = {}
+        for s in sorted(sent_rows, key=lambda x: x.id, reverse=True):
+            rid = _norm_req_id(s.req_id)
+            # 开发单号权威口径（与 requirement.py 回填一致）：id 倒序首个非空
+            tno = (s.dev_ticket_no or "").strip()
+            if tno and rid not in ticket_map:
+                ticket_map[rid] = tno
+        for s in sent_rows:
             rid = _norm_req_id(s.req_id)
             cur = sent_map.get(rid)
-            # 同 req_id 多行取最早 created_at（与 _load_name_index 口径对齐）
+            # 登记时间口径：同 req_id 多行取最早 created_at（与 _load_name_index 口径对齐）
             if cur is None or (s.created_at and (not cur.created_at or s.created_at < cur.created_at)):
                 sent_map[rid] = s
         ext_map = {
@@ -890,6 +910,7 @@ class SensitiveReqService:
 
             # 团队块（骨架=活跃团队唯一源，历史行不展示）
             team_blocks: List[Dict[str, Any]] = []
+            req_recipients: List[str] = []  # 该需求全部环节涉及人（urge 收件人候选）
             for t in teams_by.get(rid, []):
                 tname = t["system_name"]
                 vd = vdev_by.get((rid, tname))
@@ -899,6 +920,13 @@ class SensitiveReqService:
                     self._compose_milestone(ms, hints.get(ms.stage), today)
                     for ms in miles_by.get((rid, tname), [])
                 ]
+                if only_active_teams:
+                    dev_done = (
+                        dev_status in self._DEV_DONE_STATUSES
+                        or (not vd and ms_rows and all(m["status"] == "done" for m in ms_rows))
+                    )
+                    if dev_done:
+                        continue  # urge 督办只发还未完成开发的团队
                 dev_ms_owner = next(
                     (m["owner"] for m in ms_rows if m["stage"] == "dev" and m["owner"]), ""
                 )
@@ -908,6 +936,11 @@ class SensitiveReqService:
                     or dev_ms_owner
                     or "未分配"
                 )
+                for m in ms_rows:
+                    for o in str(m["owner"] or "").replace("、", ",").split(","):
+                        o = o.strip()
+                        if o and o != "未填" and o not in req_recipients:
+                            req_recipients.append(o)
                 team_blocks.append({
                     "team": tname,
                     "team_name": (vd.team_name if vd else "") or tname,
@@ -956,12 +989,13 @@ class SensitiveReqService:
             )
             tr_status = status_registry.get_status(TRACK_DOMAIN, track.track_status)
             sent = sent_map.get(rid)
+            dev_ticket_no = ticket_map.get(rid) or (sent.dev_ticket_no if sent else "") or ""
 
             blocks.append({
                 "index": idx,
                 "req_id": rid,
                 "title": ext.req_name or (names.get(rid) or "（无标题）"),
-                "dev_ticket_no": (sent.dev_ticket_no if sent else "") or "未填写",
+                "dev_ticket_no": dev_ticket_no or "未填写",
                 "registered_at": (sent.created_at.strftime("%Y-%m-%d") if (sent and sent.created_at) else "—"),
                 "dev_started_at": (
                     dev_log.entered_at.strftime("%Y-%m-%d")
@@ -976,6 +1010,7 @@ class SensitiveReqService:
                 "milestone_total": ms_total,
                 "teams": team_blocks,
                 "has_teams": bool(team_blocks),
+                "recipients": req_recipients,
             })
         return blocks
 
@@ -987,14 +1022,33 @@ class SensitiveReqService:
         from utils.mail_content import build_mail_body_md
 
         scene = "sensitive_req_urge" if send_type == "urge" else "sensitive_req_notify"
+        is_urge = send_type == "urge"
         tasks = self._structured_tasks(db, refs)
-        req_blocks = self._structured_req_blocks(db, refs)
+        # urge 督办只发还未完成开发的团队；notify 同步保留全量团队
+        req_blocks = self._structured_req_blocks(
+            db, refs, only_active_teams=is_urge
+        )
+        # 收件人候选 = 各需求全部环节涉及人去重（urge 口径下已随团队过滤）
+        recipients: List[str] = []
+        for b in req_blocks:
+            for n in b.get("recipients") or []:
+                if n and n not in recipients:
+                    recipients.append(n)
+        if not recipient_name:
+            if len(recipients) > 8:
+                recipient_name = "、".join(recipients[:8]) + f"等{len(recipients)}人"
+            else:
+                recipient_name = "、".join(recipients)
         md = build_mail_body_md(
             scene=scene, fields={"tasks": tasks, "req_blocks": req_blocks}, body_md=body,
             recipient_name=recipient_name or "",
         )
         subject = format_task_center_subject(scene, tasks, recipient_name or "")
-        return {"body_md": md, "subject": subject, "tasks": tasks, "req_blocks": req_blocks}
+        return {
+            "body_md": md, "subject": subject, "tasks": tasks,
+            "req_blocks": req_blocks, "recipients": recipients,
+            "recipient_name": recipient_name or "",
+        }
 
     def send(self, db: Session, obj_in: SensitiveReqSendRequest) -> Dict[str, Any]:
         """发送敏感需求督办/同步邮件（ref_type=sensitive_req）。
@@ -1017,17 +1071,23 @@ class SensitiveReqService:
             else None
         )
         if not req_blocks:
-            # tdata 未带（用户未走 draft 直发）时服务端重算，保证预览=实发同源
-            req_blocks = self._structured_req_blocks(db, refs)
+            # tdata 未带（用户未走 draft 直发）时服务端重算，保证预览=实发同源；
+            # urge 口径同样只发还未完成开发的团队
+            req_blocks = self._structured_req_blocks(
+                db, refs, only_active_teams=(obj_in.send_type == "urge")
+            )
+        # 收件人候选（与 draft 同源）：各需求全部环节涉及人去重
+        auto_recipients: List[str] = []
+        for b in req_blocks:
+            for n in b.get("recipients") or []:
+                if n and n not in auto_recipients:
+                    auto_recipients.append(n)
         recipient_name = tdata.get("recipient_name") or ""
         if not recipient_name:
-            names: List[str] = []
-            for t in tasks:
-                for n in str(t.get("owner", "")).replace("、", ",").split(","):
-                    n = n.strip()
-                    if n and n not in ("我", "未分配") and n not in names:
-                        names.append(n)
-            recipient_name = "、".join(names[:5])
+            if len(auto_recipients) > 8:
+                recipient_name = "、".join(auto_recipients[:8]) + f"等{len(auto_recipients)}人"
+            else:
+                recipient_name = "、".join(auto_recipients)
 
         variables: Dict[str, Any] = {
             "tasks": tasks,
@@ -1049,7 +1109,13 @@ class SensitiveReqService:
                     "body": rendered["rendered_body"], "subject": rendered["subject"]}
 
         from services.task_center import task_center_service
-        resolved_to, unresolved_to = task_center_service._resolve_recipients_for_send(obj_in.to or "")
+        # 收件人兜底：前端未传 to 时，自动用全部环节涉及人（姓名串，由
+        # _resolve_recipients_for_send 解析成邮箱；解析不出的保持原样并记 unresolved）
+        raw_to = obj_in.to or ""
+        if not raw_to.strip():
+            # 解析器按 , ; ，；空白切分，用逗号拼接
+            raw_to = ",".join(auto_recipients)
+        resolved_to, unresolved_to = task_center_service._resolve_recipients_for_send(raw_to)
         resolved_cc, unresolved_cc = task_center_service._resolve_recipients_for_send(obj_in.cc or "")
         bad: List[str] = []
         for addr in resolved_to + resolved_cc:

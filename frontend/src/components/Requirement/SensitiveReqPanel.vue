@@ -689,6 +689,7 @@ async function doCompose(rows) {
   composeLoading.value = true
   pendingRefs = rows.map((r) => ({ source: 'sensitive_req', source_id: r.req_id }))
   const structured = structuralize(rows)
+  // 兜底：draft 接口失败时仍按任务 owner 带出收件人
   composeTo.value = [
     ...new Set(
       structured.flatMap((t) =>
@@ -702,9 +703,16 @@ async function doCompose(rows) {
     recipient_name: composeTo.value.join('、'),
   }
   try {
-    const res = await requestSensitiveReqDraft(
-      pendingRefs, 'urge', '', composeTo.value.join('、')
-    )
+    const res = await requestSensitiveReqDraft(pendingRefs, 'urge', '', '')
+    // 收件人 = 后端按 urge 口径（还未完成开发的团队）全部环节涉及人去重
+    if (res && Array.isArray(res.recipients) && res.recipients.length) {
+      composeTo.value = res.recipients
+    }
+    composeVariables.value = {
+      tasks: structured,
+      sendType: 'urge',
+      recipient_name: (res && res.recipient_name) || composeTo.value.join('、'),
+    }
     composeBody.value = (res && res.body_md) || ''
     composeSubject.value = (res && res.subject) || ''
   } catch (e) {
