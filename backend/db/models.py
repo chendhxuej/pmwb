@@ -1932,7 +1932,9 @@ class PmwbComplaintTicket(Base):
     cluster_key = Column(String(64), comment="批量异常簇标识（场景@发现日），非批量簇为空")
     is_batch = Column(Integer, nullable=False, default=0, comment="是否属批量异常簇：1 是 0 否")
     is_recur = Column(Integer, nullable=False, default=0, comment="是否措施上线后同类复发：1 是 0 否")
-    linked_issue_no = Column(String(64), comment="关联运营工单号（改进措施载体）")
+    problem_no = Column(String(64), comment="归属共性问题编号（唯一归因键，唯一写入点 problems.assign_tickets）")
+    # 已废弃：不写不读；工单关联唯一来源 = pmwb_complaint_action.issue_no
+    linked_issue_no = Column(String(64), comment="（已废弃）关联运营工单号")
 
     source_file = Column(String(255), comment="源文件名（溯源）")
     import_batch = Column(String(64), comment="导入批次号")
@@ -1946,6 +1948,7 @@ class PmwbComplaintTicket(Base):
         Index("idx_ct_l1", "category_l1"),
         Index("idx_ct_l2", "category_l2"),
         Index("idx_ct_cluster", "cluster_key"),
+        Index("idx_ct_problem", "problem_no"),
         {"comment": "客诉工单明细（压降分析数据底座）"},
     )
 
@@ -1994,4 +1997,91 @@ class PmwbComplaintAction(Base):
         Index("idx_ca_l2", "category_l2"),
         Index("idx_ca_issue", "issue_id"),
         {"comment": "客诉改进措施台账（有效性验证）"},
+    )
+
+
+class PmwbComplaintProblem(Base):
+    """客诉共性问题台账（闭环管理主体：问题=实体、场景=维度、簇=证据、工单=措施载体）。
+
+    设计要点：
+      - 唯一归因键 problem_no：工单归属（ticket.problem_no）、措施关联（多对多表）、
+        报表汇总、台账下钻全用它；cluster_key 仅作检测证据，不再承担归因；
+      - 一级识别=规则引擎 problems.scan_candidates（R1 批量簇/R2 场景TOP/R3 激增/R4 复发），
+        候选须人工确认（confirm）后方可关联措施；
+      - 归并口径：同 category_l2 且 status∈(candidate,open,resolving) 至多一条（应用层保证）；
+      - 周轨迹字段由 recompute 每周导入后重算，闭环建议以 quiet_weeks/措施状态为准。
+    """
+
+    __tablename__ = "pmwb_complaint_problem"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    problem_no = Column(String(64), nullable=False, unique=True, comment="问题编号（CPB-2026W44-01）")
+    title = Column(String(255), nullable=False, comment="问题标题（规则自动生成，可人工改）")
+    category_l1 = Column(String(64), comment="一级问题性质（快照）")
+    category_l2 = Column(String(64), nullable=False, comment="二级问题场景（归并锚点）")
+
+    source_type = Column(
+        String(32), nullable=False, default="candidate",
+        comment="主触发规则：batch_cluster/top_scene/surge/recur/manual",
+    )
+    rule_hits = Column(String(128), comment="全部命中规则（逗号分隔，证据不参与分支）")
+    evidence = Column(Text, comment="证据快照 JSON（week/cnt/wow/簇/样本单号，只读）")
+    status = Column(
+        String(32), nullable=False, default="candidate",
+        comment="状态：candidate/open/resolving/closed/ignored/merged（见 status_registry）",
+    )
+
+    first_week = Column(String(16), nullable=False, comment="首见周（ISO）")
+    last_week = Column(String(16), comment="末见周（每周导入回写）")
+    active_weeks = Column(Integer, nullable=False, default=0, server_default="0", comment="连续在办周数（有单+1，断周清零）")
+    quiet_weeks = Column(Integer, nullable=False, default=0, server_default="0", comment="连续零复发周数（闭环建议用）")
+    week_cnt = Column(Integer, nullable=False, default=0, server_default="0", comment="最近一周该场景单量")
+    peak_cnt = Column(Integer, nullable=False, default=0, server_default="0", comment="生命周期单周峰值")
+    total_cnt = Column(Integer, nullable=False, default=0, server_default="0", comment="生命周期累计单量（按周累加）")
+    recur_cnt = Column(Integer, nullable=False, default=0, server_default="0", comment="累计复发单量（is_recur 口径）")
+    recur_weeks = Column(Integer, nullable=False, default=0, server_default="0", comment="连续复发周数")
+    reopen_flag = Column(Integer, nullable=False, default=0, server_default="0", comment="1=已闭环问题再次出现（建议重开）")
+
+    owner = Column(String(255), comment="问题责任人（多负责人逗号分隔，与措施同口径）")
+    confirm_by = Column(String(64), comment="候选确认人")
+    confirm_at = Column(DateTime, comment="候选确认时间")
+    conclusion = Column(String(500), comment="闭环结论（closed 必填）")
+    closed_week = Column(String(16), comment="闭环周")
+    closed_at = Column(DateTime, comment="闭环时间")
+    merged_into = Column(String(64), comment="合并目标 problem_no（仅 merged 有值）")
+    note = Column(Text, comment="备注")
+    created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        Index("idx_cp_status", "status"),
+        Index("idx_cp_l2", "category_l2"),
+        Index("idx_cp_week", "last_week"),
+        Index("idx_cp_source", "source_type"),
+        {"comment": "客诉共性问题台账（闭环管理主体）"},
+    )
+
+
+class PmwbComplaintProblemAction(Base):
+    """共性问题↔改进措施 多对多关联（软关联，无 DB 外键）。
+
+    - 一问题多措施、一措施可服务多问题；is_primary 标记主措施
+      （闭环建议按它算目标，同问题至多一条，应用层保证）；
+    - 删除问题/措施时由服务层清理关联行。
+    """
+
+    __tablename__ = "pmwb_complaint_problem_action"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    problem_no = Column(String(64), nullable=False, comment="问题编号")
+    action_no = Column(String(64), nullable=False, comment="措施编号")
+    is_primary = Column(Integer, nullable=False, default=0, comment="主措施标记：1 是 0 否")
+    linked_by = Column(String(64), comment="关联操作人")
+    linked_at = Column(DateTime, nullable=False, default=now_cn, comment="关联时间")
+    note = Column(String(255), comment="关联说明")
+
+    __table_args__ = (
+        UniqueConstraint("problem_no", "action_no", name="uk_cpp_linked"),
+        Index("idx_cpp_action", "action_no"),
+        {"comment": "共性问题↔改进措施多对多关联"},
     )

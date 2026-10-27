@@ -470,6 +470,37 @@ _COMPLAINT_ACTION = DomainDef(
     description="客诉改进措施台账状态：planned→in_progress→verifying→effective/ineffective",
 )
 
+_COMPLAINT_PROBLEM = DomainDef(
+    key="complaint_problem",
+    label="客诉共性问题",
+    statuses=(
+        StatusDef("candidate", "待确认", "info", "pending",
+                  allowed_next=("open", "ignored", "merged")),
+        StatusDef("open", "待处置", "danger", "pending", required_fields=("owner",),
+                  allowed_next=("resolving", "closed", "ignored")),
+        StatusDef("resolving", "闭环推进中", "primary", "in_progress", required_fields=("owner",),
+                  allowed_next=("closed", "open", "ignored")),
+        StatusDef("closed", "已闭环", "success", "done", is_terminal=True,
+                  required_fields=("conclusion",),
+                  allowed_next=("resolving",)),  # 复发重开必经推进态（重新挂措施）
+        StatusDef("ignored", "已忽略", "neutral", "blocked", is_terminal=True,
+                  allowed_next=("open",)),  # 可反悔
+        StatusDef("merged", "已合并", "neutral", "blocked", is_terminal=True,
+                  allowed_next=()),
+    ),
+    label_aliases={
+        "": "candidate",
+        "待确认": "candidate",
+        "待处置": "open",
+        "闭环推进中": "resolving",
+        "已闭环": "closed",
+        "已忽略": "ignored",
+        "已合并": "merged",
+    },
+    description="客诉共性问题台账：candidate→open→resolving→closed；复发 closed→resolving 重开。"
+                "不入任务中心（可执行单元是措施），故不加入 SOURCE_DOMAIN",
+)
+
 
 REGISTRY: Dict[str, DomainDef] = {
     d.key: d
@@ -496,6 +527,7 @@ REGISTRY: Dict[str, DomainDef] = {
         _SENSITIVE_REQ_TRACK,
         _SENSITIVE_MILESTONE,
         _COMPLAINT_ACTION,
+        _COMPLAINT_PROBLEM,
     )
 }
 
