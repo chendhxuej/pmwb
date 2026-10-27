@@ -1869,3 +1869,129 @@ class PmwbSensitiveReqMilestone(Base):
         Index("idx_sr_ms_end", "planned_end"),
         {"comment": "敏感需求倒排里程碑（需求×团队×阶段）"},
     )
+
+
+class PmwbComplaintCategory(Base):
+    """客诉问题分类字典（两级；唯一真相源，禁在脚本/前端另存枚举）。
+
+    设计要点：
+      - level=1 一级问题性质（7 类，锁定不轻易改）；level=2 二级问题场景（可扩展）；
+      - 二级用 parent_name 指向一级 name，落库值即中文名（零转译，同 requirement_category）；
+      - keywords 为该场景识别正则，由 scripts/complaint/classify.py 读取执行——
+        改字典即改口径，脚本内不出现第二份关键词；
+      - sort_order 同时决定匹配优先级（先具体后笼统），小者优先。
+    """
+
+    __tablename__ = "pmwb_complaint_category"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    level = Column(Integer, nullable=False, default=1, comment="层级：1=一级性质 2=二级场景")
+    parent_name = Column(String(64), comment="上级分类名称（level=2 必填，指向 level=1 的 name）")
+    name = Column(String(64), nullable=False, comment="分类名称（落库值，无 code，零转译）")
+    keywords = Column(Text, comment="场景识别关键词（正则，用 | 分隔；level=2 生效）")
+    sort_order = Column(Integer, nullable=False, default=100, comment="排序=匹配优先级，小者优先")
+    enabled = Column(Integer, nullable=False, default=1, comment="是否启用：1 启用 0 停用")
+    note = Column(String(255), comment="口径说明（判定边界）")
+    created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        UniqueConstraint("level", "name", name="uk_cc_level_name"),
+        Index("idx_cc_parent", "parent_name"),
+        {"comment": "客诉问题分类字典（两级，唯一真相源）"},
+    )
+
+
+class PmwbComplaintTicket(Base):
+    """客诉工单明细（小信工单导出，逐单入库；压降分析的唯一数据底座）。
+
+    与运营工单的关系：本表记录客诉事实与问题定性，改进措施落 pmwb_operation_issue，
+    通过 linked_issue_no 形成父子关联（一处督办、全链路可查）。
+    """
+
+    __tablename__ = "pmwb_complaint_ticket"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    ticket_no = Column(String(64), nullable=False, unique=True, comment="小信工单号（去重键）")
+    week = Column(String(16), comment="归属自然周（ISO，如 2026-W44；按创建时间归属）")
+    created_time = Column(DateTime, comment="工单创建时间")
+    city = Column(String(64), comment="申告地市")
+    channel = Column(String(64), comment="渠道")
+    appeal_category = Column(String(64), comment="申告类别（原始）")
+    biz_attr = Column(String(64), comment="工单属性（原始）")
+    content = Column(Text, comment="工单内容")
+    solution_history = Column(Text, comment="解决方案历史（处置链路）")
+    handler = Column(String(255), comment="处理人")
+    handle_unit = Column(String(255), comment="处理单位")
+    dispatch_count = Column(Integer, default=1, comment="派单次数")
+    status = Column(String(32), comment="工单状态")
+
+    category_l1 = Column(String(64), comment="一级问题性质（落字典 name）")
+    category_l2 = Column(String(64), comment="二级问题场景（落字典 name）")
+    classify_by = Column(String(16), default="auto", comment="分类来源：auto=规则命中 / manual=人工校正")
+    cluster_key = Column(String(64), comment="批量异常簇标识（场景@发现日），非批量簇为空")
+    is_batch = Column(Integer, nullable=False, default=0, comment="是否属批量异常簇：1 是 0 否")
+    is_recur = Column(Integer, nullable=False, default=0, comment="是否措施上线后同类复发：1 是 0 否")
+    linked_issue_no = Column(String(64), comment="关联运营工单号（改进措施载体）")
+
+    source_file = Column(String(255), comment="源文件名（溯源）")
+    import_batch = Column(String(64), comment="导入批次号")
+    remark = Column(String(500), comment="备注/人工校正说明")
+    created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        Index("idx_ct_week", "week"),
+        Index("idx_ct_created", "created_time"),
+        Index("idx_ct_l1", "category_l1"),
+        Index("idx_ct_l2", "category_l2"),
+        Index("idx_ct_cluster", "cluster_key"),
+        {"comment": "客诉工单明细（压降分析数据底座）"},
+    )
+
+
+class PmwbComplaintAction(Base):
+    """客诉改进措施台账（与运营工单父子关联，负责有效性验证）。
+
+    职责边界：措施内容与督办状态以运营工单为准，本表不重复维护，只记录
+    「针对哪个客诉场景、措施上线前基线多少、目标降幅多少、观察几周、实际降多少」，
+    解决"措施做了没有、有没有用"这一闭环盲区。
+    """
+
+    __tablename__ = "pmwb_complaint_action"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    action_no = Column(String(64), nullable=False, unique=True, comment="措施编号（CACT-2026W44-01）")
+    title = Column(String(255), nullable=False, comment="措施标题")
+    category_l1 = Column(String(64), comment="针对的一级问题性质")
+    category_l2 = Column(String(64), comment="针对的二级问题场景（有效性按此场景统计）")
+
+    issue_id = Column(Integer, comment="关联运营工单ID（父子关联）")
+    issue_no = Column(String(64), comment="关联运营工单号")
+    req_id = Column(String(64), comment="关联需求编号（需开发改造时）")
+
+    owner = Column(String(255), comment="责任人")
+    due_date = Column(Date, comment="要求完成日期")
+    acceptance = Column(Text, comment="验收标准（必填，可验证）")
+
+    baseline_cnt = Column(Float, comment="措施上线前 4 周该场景周均单量（基线）")
+    target_drop_pct = Column(Float, default=50.0, comment="目标降幅（%，默认 50）")
+    go_live_date = Column(Date, comment="措施生效日期（有效性观察起点）")
+    verify_weeks = Column(Integer, default=4, comment="观察周数（默认 4 周）")
+
+    last_week_cnt = Column(Float, comment="最近一周该场景单量")
+    actual_drop_pct = Column(Float, comment="实际降幅（%）")
+    status = Column(
+        String(32), nullable=False, default="planned",
+        comment="状态：planned/in_progress/verifying/effective/ineffective/cancelled（见 status_registry）",
+    )
+    note = Column(Text, comment="备注/未达标原因")
+    created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        Index("idx_ca_status", "status"),
+        Index("idx_ca_l2", "category_l2"),
+        Index("idx_ca_issue", "issue_id"),
+        {"comment": "客诉改进措施台账（有效性验证）"},
+    )

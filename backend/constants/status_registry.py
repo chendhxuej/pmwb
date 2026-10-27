@@ -441,6 +441,36 @@ _SENSITIVE_MILESTONE = DomainDef(
 # ─────────────────────────────────────────────────────────────
 # 注册表本体
 # ─────────────────────────────────────────────────────────────
+_COMPLAINT_ACTION = DomainDef(
+    key="complaint_action",
+    label="客诉改进措施",
+    statuses=(
+        StatusDef("planned", "待启动", "info", "pending",
+                  allowed_next=("in_progress", "cancelled")),
+        StatusDef("in_progress", "推进中", "warning", "in_progress", required_fields=("owner",),
+                  allowed_next=("verifying", "cancelled", "planned")),
+        StatusDef("verifying", "验证中", "primary", "in_progress", required_fields=("owner", "go_live_date"),
+                  allowed_next=("effective", "ineffective", "in_progress")),
+        StatusDef("effective", "已验证有效", "success", "done", is_terminal=True,
+                  allowed_next=("verifying",)),
+        StatusDef("ineffective", "验证未达标", "danger", "blocked",
+                  allowed_next=("in_progress", "cancelled")),
+        StatusDef("cancelled", "已取消", "neutral", "blocked", is_terminal=True,
+                  allowed_next=("planned",)),
+    ),
+    label_aliases={
+        "": "planned",
+        "待启动": "planned",
+        "推进中": "in_progress",
+        "验证中": "verifying",
+        "已验证有效": "effective",
+        "验证未达标": "ineffective",
+        "已取消": "cancelled",
+    },
+    description="客诉改进措施台账状态：planned→in_progress→verifying→effective/ineffective",
+)
+
+
 REGISTRY: Dict[str, DomainDef] = {
     d.key: d
     for d in (
@@ -465,6 +495,7 @@ REGISTRY: Dict[str, DomainDef] = {
         _VENDOR_DEV,
         _SENSITIVE_REQ_TRACK,
         _SENSITIVE_MILESTONE,
+        _COMPLAINT_ACTION,
     )
 }
 
