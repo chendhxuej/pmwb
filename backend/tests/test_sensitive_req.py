@@ -655,3 +655,64 @@ def test_detail_composes_lanes_and_hints(db):
         m for m in detail["milestones"] if m["team_system_name"] == "CRM" and m["stage"] == "deploy"
     )
     assert deploy_row["actual_hint"] == TODAY.isoformat()  # ext.delivered_date 只读引用（JSON 序列化为字符串）
+
+
+# ─────────────────────────────────────────────────────────────
+# 9. 超期风险标记联动（R5:dev_overdue，2026-10-27）
+# ─────────────────────────────────────────────────────────────
+def test_sync_pulls_risk_flag_req(db):
+    """非高级别 + overdue_risk=1 → 入池，judge_reason=R5:dev_overdue，同等 active 待遇。"""
+    _ext(db, "REQ-R5-A", priority="P2", overdue_risk=1)
+    stats = sensitive_req_service.sync(db)
+    assert stats["added"] == 1
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-R5-A").first()
+    assert row.track_status == "active" and row.is_sensitive == 1
+    assert row.judge_reason == "R5:dev_overdue"
+    assert row.level_code is None  # 非级别命中，无级别码
+
+
+def test_sync_reason_r1_wins_over_r5(db):
+    """级别与超期风险同时命中 → judge_reason 仍 R1（单值优先级，不拼接）。"""
+    _ext(db, "REQ-R5-B", priority="P0", overdue_risk=1)
+    sensitive_req_service.sync(db)
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-R5-B").first()
+    assert row.judge_reason == "R1:P0"
+
+
+def test_dismiss_then_risk_flag_never_revives(db):
+    """dismiss 永不复活：先移出，后打超期风险标，sync 不再纳入。"""
+    _ext(db, "REQ-R5-C", priority="P0")
+    sensitive_req_service.sync(db)
+    sensitive_req_service.update_track(
+        db, "REQ-R5-C", SensitiveReqTrackUpdateRequest(manual_override="dismiss")
+    )
+    ext = db.query(PmwbRequirementExt).filter_by(req_id="REQ-R5-C").first()
+    ext.priority = "P2"
+    ext.overdue_risk = 1
+    db.commit()
+    stats = sensitive_req_service.sync(db)
+    assert stats["added"] == 0
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-R5-C").first()
+    assert row.manual_override == "dismiss" and row.track_status == "dropped"
+
+
+def test_clear_risk_flag_demotes_r5_req(db):
+    """清标 → 下次 sync 非敏感退池（demoted→dropped）。"""
+    _ext(db, "REQ-R5-D", priority="P2", overdue_risk=1)
+    sensitive_req_service.sync(db)
+    assert db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-R5-D").first().is_sensitive == 1
+    ext = db.query(PmwbRequirementExt).filter_by(req_id="REQ-R5-D").first()
+    ext.overdue_risk = 0
+    db.commit()
+    stats = sensitive_req_service.sync(db)
+    assert stats["demoted"] == 1
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-R5-D").first()
+    assert row.is_sensitive == 0 and row.track_status == "dropped"
+
+
+def test_r5_req_closed_resolves(db):
+    """R5 需求已上线（closed）→ resolved。"""
+    _ext(db, "REQ-R5-E", priority="P2", overdue_risk=1, status="closed", delivered_date=TODAY)
+    sensitive_req_service.sync(db)
+    row = db.query(PmwbSensitiveReqTrack).filter_by(req_id="REQ-R5-E").first()
+    assert row.track_status == "resolved" and row.judge_reason == "R5:dev_overdue"

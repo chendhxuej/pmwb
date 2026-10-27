@@ -131,10 +131,11 @@
           <span :class="{ 'srp-overdue-text': (row.urge_count || 0) > 0 }">{{ row.urge_count || 0 }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="140" fixed="right">
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" size="small" @click="openDetail(row.req_id)">详情</el-button>
           <el-button link type="danger" size="small" @click="openSuperviseOne(row)">督办</el-button>
+          <el-button link type="warning" size="small" @click="dismissTrack(row)">移出</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -392,7 +393,7 @@
  *    draft 拿结构化清单透传 variables，保证预览=实发。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
@@ -406,6 +407,7 @@ import {
   requestSensitiveReqDraft,
   sendSensitiveReqEmail,
   syncSensitiveReqs,
+  updateSensitiveReqTrack,
 } from '@/api/sensitiveReq.js'
 
 const STAGE_LABELS = {
@@ -750,8 +752,21 @@ async function onSent() {
 }
 
 /* ── 跟踪态人工操作 ───────────────────────────────────── */
-// 移出池入口保留在任务中心/高级别工单页；本面板如需可在操作列加 dismissTrack(row)
-// （updateSensitiveReqTrack(row.req_id, { manual_override: 'dismiss' })）。
+// 手工移出跟踪池（2026-10-27）：manual_override='dismiss' 永不复活——
+// 之后即使级别再命中或重打超期风险标，sync 也不会自动纳入（仅可人工重新纳入）。
+async function dismissTrack(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认将需求「${row.req_name || row.req_id}」移出敏感跟踪池？移出后自动规则不再将其纳入（即使重新满足条件也不会自动恢复）。`,
+      '移出敏感跟踪',
+      { type: 'warning', confirmButtonText: '移出', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  await updateSensitiveReqTrack(row.req_id, { manual_override: 'dismiss', operator: 'pmwb' })
+  ElMessage.success(`需求「${row.req_id}」已移出敏感跟踪池`)
+  selection.value = []
+  await Promise.all([loadList(), loadStats()])
+}
 
 defineExpose({
   openDetail,

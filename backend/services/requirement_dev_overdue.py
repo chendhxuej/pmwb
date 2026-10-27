@@ -6,6 +6,7 @@
 2. **计时起点**：`pmwb_requirement_stage_log` 中 `stage='dev'` 的 `entered_at`
    （进入「启动开发」环节日期），与 `workload_analysis._dev_months`、
    `requirement_analysis.collect` 同源。
+   公共口径入口：`dev_entered_map` / `dev_days_map`（需求列表 dev_days_gt 检索复用）。
 3. **超期**：基准日与启动开发日的自然日差 **> 阈值**（默认 25 天，生成时可手工修改）。
 4. **渲染纪律**：明细表/分布/统计**全部确定性渲染**，绝不由 LLM 生成；
    LLM 只写「四、研判与建议」章节，不可用时用规则文案兜底 —— 保证数据永不失真。
@@ -83,6 +84,66 @@ def _md_table(headers: List[str], rows: List[List[str]]) -> str:
 # ---------------------------------------------------------------------------
 # 数据采集
 # ---------------------------------------------------------------------------
+def _dev_log_map(db, req_ids: Optional[List[str]] = None) -> Dict[str, PmwbRequirementStageLog]:
+    """启动开发 stage_log 映射（stage='dev'，uk_req_stage 唯一约束 → 一需求一条）。
+
+    dev_entered_map / dev_days_map / collect 的共同底层，禁另造第二份算法。
+    """
+    q = db.query(PmwbRequirementStageLog).filter(PmwbRequirementStageLog.stage == DEV_STAGE)
+    if req_ids is not None:
+        ids = [r for r in req_ids if r]
+        if not ids:
+            return {}
+        q = q.filter(PmwbRequirementStageLog.req_id.in_(ids))
+    return {log.req_id: log for log in q.all()}
+
+
+def dev_entered_map(db, req_ids: Optional[List[str]] = None) -> Dict[str, date]:
+    """启动开发进入日期映射：stage_log stage='dev' 的 entered_at 取日期。
+
+    需求列表 dev_days_gt 检索与 dev_days_map 的同源入口。
+    """
+    out: Dict[str, date] = {}
+    for rid, log in _dev_log_map(db, req_ids).items():
+        d = _to_date(log.entered_at)
+        if d:
+            out[rid] = d
+    return out
+
+
+def dev_days_map(db, as_of: Optional[date] = None) -> Dict[str, int]:
+    """「开发中且未上线」需求的已开发天数映射（自然日差，与 collect 完全同源）。
+
+    需求列表 dev_days_gt 检索与敏感池 R5 判定的同源入口，禁另造第二份算法。
+    口径：ext.status='dev' + 未上线（delivered_date 空且开发工单 go_live_date 全空，
+    与 collect 未上线判定一致）+ stage_log stage='dev' 有 entered_at。
+    """
+    if as_of is None:
+        as_of = date.today()
+    exts = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.status == DEV_STATUS).all()
+    req_ids = [e.req_id for e in exts if e.req_id]
+    entered_map = dev_entered_map(db, req_ids)
+
+    # 开发工单上线日期（取最晚，与 collect / requirement_analysis 同口径）
+    go_live_map: Dict[str, date] = {}
+    if req_ids:
+        for t in db.query(PmwbDevTicket).filter(PmwbDevTicket.req_id.in_(req_ids)).all():
+            d = _to_date(t.go_live_date)
+            if d and (t.req_id not in go_live_map or d > go_live_map[t.req_id]):
+                go_live_map[t.req_id] = d
+
+    out: Dict[str, int] = {}
+    for e in exts:
+        rid = e.req_id or ""
+        if _to_date(e.delivered_date) or go_live_map.get(rid):
+            continue
+        entered = entered_map.get(rid)
+        if not entered:
+            continue
+        out[rid] = (as_of - entered).days
+    return out
+
+
 def collect(db, as_of: date, overdue_days: int = OVERDUE_DAYS_DEFAULT) -> Dict[str, Any]:
     """采集「开发中且未上线」需求，筛出超期对象并附多维统计。"""
     try:
@@ -95,18 +156,8 @@ def collect(db, as_of: date, overdue_days: int = OVERDUE_DAYS_DEFAULT) -> Dict[s
     exts = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.status == DEV_STATUS).all()
     req_ids = [e.req_id for e in exts if e.req_id]
 
-    # 启动开发进入时间（uk_req_stage 唯一约束 → 一需求一条）
-    dev_map: Dict[str, Any] = {}
-    if req_ids:
-        for log in (
-            db.query(PmwbRequirementStageLog)
-            .filter(
-                PmwbRequirementStageLog.stage == DEV_STAGE,
-                PmwbRequirementStageLog.req_id.in_(req_ids),
-            )
-            .all()
-        ):
-            dev_map[log.req_id] = log
+    # 启动开发进入时间（uk_req_stage 唯一约束 → 一需求一条；与 dev_days_map 同源）
+    dev_map: Dict[str, Any] = _dev_log_map(db, req_ids)
 
     # 开发工单上线日期（取最晚，与 requirement_analysis 同口径）
     go_live_map: Dict[str, date] = {}

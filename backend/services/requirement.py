@@ -6,7 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, PmwbUserStory, PmwbDevTicket, SentEmail
+from db.models import now_cn
 from schemas.common import PaginationParams, PaginationResponse
+from services.requirement_dev_overdue import dev_days_map
 from utils.dateflags import relative_status
 
 
@@ -100,6 +102,9 @@ class RequirementService:
                 "sa_name": ext.sa_name,
                 "created_at": ext.created_at,
                 "updated_at": ext.updated_at,
+                "overdue_risk": bool(ext.overdue_risk),
+                "overdue_risk_at": ext.overdue_risk_at,
+                "overdue_risk_note": ext.overdue_risk_note,
             }
         return data
 
@@ -138,6 +143,7 @@ class RequirementService:
         category: Optional[str] = None,
         system_name: Optional[str] = None,
         is_involved: Optional[int] = None,
+        dev_days_gt: Optional[int] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> PaginationResponse[Dict[str, Any]]:
@@ -239,6 +245,24 @@ class RequirementService:
                 }
             base_query = base_query.filter(SentEmail.req_id.in_(cat_ids))
 
+        # 开发天数过滤：口径唯一源 requirement_dev_overdue.dev_days_map
+        # （开发中 + 未上线 + 有启动开发日期，自然日差严格大于 N，与 dev 超期专题同源）。
+        # 与「跟踪状态=开发中」组合为 AND 交集（多段 in_ 自动 AND）；day_map 同时用于
+        # 当页「开发天数」列展示，保证筛选与展示不出现两份口径。
+        day_map: Dict[str, int] = dev_days_map(db)
+        if dev_days_gt is not None:
+            day_ids = {rid for rid, days in day_map.items() if days > dev_days_gt}
+            if not day_ids:
+                # 无匹配时直接返回空分页，避免无意义的子查询
+                return {
+                    "total": 0,
+                    "page": page,
+                    "page_size": page_size,
+                    "pages": 0,
+                    "items": [],
+                }
+            base_query = base_query.filter(SentEmail.req_id.in_(day_ids))
+
         # 子查询获取每个需求的最新记录 ID
         subq = base_query.subquery()
 
@@ -331,6 +355,7 @@ class RequirementService:
             d["eval_systems"] = ",".join(systems) if systems else "—"
             d["eval_workload"] = agg.get("review_total") if agg.get("review_total") is not None else d.get("workload")
             d["tracking_status"] = self._aggregate_tracking(tickets, vr, today)
+            d["dev_days"] = day_map.get(item.req_id)
             merged.append(d)
         return PaginationResponse.create(
             total=total,
@@ -423,6 +448,48 @@ class RequirementService:
         db.commit()
         db.refresh(ext)
         return self._merge_ext(item, ext)
+
+    def set_risk_flag(
+        self, db: Session, req_ids: List[str], action: str, note: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """超期风险标记批量打标/取消（独立端点，不动 RequirementExtUpdate 白名单）。
+
+        - 单个打标 = 传一个 req_id，与批量共用同一实现（单一真相源）
+        - ext 不存在时创建（status 走模型默认 'proposed'，勿传空串污染状态口径）
+        - set：overdue_risk=1 + 打标时间；clear：overdue_risk=0、时间清空，**备注保留**便于追溯
+        - 不校验跟踪状态：打标是人工意志，允许对任意需求打标（口径筛选是机器口径，二者解耦）
+        - 仅对 sent_emails 需求宇宙内的 req_id 生效，宇宙外的进 skipped，避免制造孤儿 ext
+        """
+        if action not in ("set", "clear"):
+            raise ValueError("action 仅支持 set/clear")
+        seen: set = set()
+        uniq: List[str] = []
+        for rid in req_ids or []:
+            rid = (rid or "").strip()
+            if rid and rid not in seen:
+                seen.add(rid)
+                uniq.append(rid)
+        updated, skipped = 0, []
+        for rid in uniq:
+            exists = db.query(SentEmail.id).filter(SentEmail.req_id == rid).first()
+            if not exists:
+                skipped.append(rid)
+                continue
+            ext = db.query(PmwbRequirementExt).filter(PmwbRequirementExt.req_id == rid).first()
+            if not ext:
+                ext = PmwbRequirementExt(req_id=rid)
+                db.add(ext)
+            if action == "set":
+                ext.overdue_risk = 1
+                ext.overdue_risk_at = now_cn()
+                if note is not None and str(note).strip():
+                    ext.overdue_risk_note = str(note).strip()[:256]
+            else:
+                ext.overdue_risk = 0
+                ext.overdue_risk_at = None
+            updated += 1
+        db.commit()
+        return {"updated": updated, "skipped": skipped}
 
     def delete_requirement(self, db: Session, req_id: str) -> Dict[str, Any]:
         """删除需求的工作台数据。

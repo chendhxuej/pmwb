@@ -21,6 +21,11 @@ export function getRequirementStats() {
   return request.get('/requirements/stats')
 }
 
+// 超期风险标记批量打标/取消（单个打标 = reqIds 传一项；action: 'set' | 'clear'）
+export function setRequirementRiskFlag(reqIds, action, note) {
+  return request.put('/requirements/risk-flag/batch', { req_ids: reqIds, action, note })
+}
+
 export function getRequirementSystems() {
   return request.get('/requirements/meta/systems')
 }

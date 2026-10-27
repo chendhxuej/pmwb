@@ -13,6 +13,7 @@ from schemas.requirement import (
     RequirementCreate,
     RequirementDeliverableCreate,
     RequirementExtUpdate,
+    RiskFlagBatchIn,
 )
 from schemas.vendor_dev import VendorDevCreate, VendorDevUpdate, VendorManualUpload
 from services import vendor_dev as vendor_dev_service
@@ -38,6 +39,9 @@ def list_requirements(
     category: Optional[str] = Query(None, description="需求分类（精确匹配）"),
     system_name: Optional[str] = Query(None, description="系统名称"),
     is_involved: Optional[int] = Query(None, description="是否涉及开发"),
+    dev_days_gt: Optional[int] = Query(
+        None, ge=1, description="已开发天数严格大于 N（口径：开发中且未上线，与 dev 超期专题同源）"
+    ),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=1000, description="每页条数"),
     db: Session = Depends(get_db),
@@ -53,6 +57,7 @@ def list_requirements(
         category=category,
         system_name=system_name,
         is_involved=is_involved,
+        dev_days_gt=dev_days_gt,
         page=page,
         page_size=page_size,
     )
@@ -132,6 +137,19 @@ def delete_category(cat_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return success(data=data, message=f"分类「{data.get('name')}」已删除")
+
+
+@router.put("/risk-flag/batch")
+def batch_risk_flag(obj_in: RiskFlagBatchIn, db: Session = Depends(get_db)):
+    """超期风险标记批量打标/取消（单个打标 = 传一个 req_id）。
+
+    注意：字面路径注册在 GET /{req_id} 之前（沿袭 categories 注册顺序教训）。
+    """
+    try:
+        data = requirement_service.set_risk_flag(db, obj_in.req_ids, obj_in.action, obj_in.note)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data)
 
 
 @router.get("/{req_id}")

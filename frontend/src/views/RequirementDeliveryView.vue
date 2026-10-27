@@ -90,7 +90,22 @@
             <el-select v-model="reqCategory" placeholder="需求分类" clearable class="w-xs" @change="handleReqSearch">
               <el-option v-for="c in categoryOptions" :key="c.id" :label="c.name" :value="c.name" />
             </el-select>
+            <el-input-number
+              v-model="reqDevDaysGt"
+              :min="1"
+              :controls="false"
+              placeholder="开发天数 >"
+              style="width: 120px"
+              @change="handleReqSearch"
+            />
             <el-button @click="loadRequirements"><el-icon><Refresh /></el-icon> 刷新</el-button>
+            <div class="toolbar-spacer"></div>
+            <template v-if="reqSelection.length">
+              <el-button type="danger" plain size="small" @click="batchSetRiskFlag">
+                标记超期风险（{{ reqSelection.length }}）
+              </el-button>
+              <el-button size="small" @click="batchClearRiskFlag">取消标记</el-button>
+            </template>
           </div>
           <el-table
             v-loading="reqLoading"
@@ -98,8 +113,10 @@
             stripe
             class="req-table"
             scrollbar-always-on
+            @selection-change="onReqSelectionChange"
             @row-click="openWorkflow"
           >
+            <el-table-column type="selection" width="42" />
             <el-table-column prop="req_id" label="需求编号" width="150" show-overflow-tooltip>
               <template #default="{ row }">
                 <span>{{ row.req_id }}</span>
@@ -133,15 +150,39 @@
                 <StatusBadge module="requirement_delivery" :value="row.ext?.status" />
               </template>
             </el-table-column>
+            <el-table-column label="超期风险" width="90" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.ext?.overdue_risk" type="danger" size="small"
+                        :title="row.ext?.overdue_risk_at ? `打标时间 ${row.ext.overdue_risk_at}` : '人工标记超期风险'">
+                  超期风险
+                </el-tag>
+                <span v-else class="text-muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="开发天数" width="90" align="center">
+              <template #default="{ row }">
+                <span class="font-mono" :class="{ 'dev-days-hot': (row.dev_days || 0) > 25 }">
+                  {{ row.dev_days != null ? row.dev_days : '—' }}
+                </span>
+              </template>
+            </el-table-column>
             <el-table-column label="工作量(人天)" width="110" align="center">
               <template #default="{ row }">
                 <span class="font-mono">{{ row.eval_workload != null ? row.eval_workload : '—' }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="dev_ticket_no" label="开发单号" width="140" show-overflow-tooltip />
-            <el-table-column label="操作" width="170" align="center" fixed="right">
+            <el-table-column label="操作" width="220" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click.stop="openReqDialog(row)">编辑</el-button>
+                <el-button
+                  link
+                  :type="row.ext?.overdue_risk ? 'success' : 'danger'"
+                  size="small"
+                  @click.stop="toggleRiskFlag(row)"
+                >
+                  {{ row.ext?.overdue_risk ? '取消风险' : '标超期' }}
+                </el-button>
                 <el-dropdown trigger="click" @command="(cmd) => openSupervise(row, cmd)">
                   <el-button link type="warning" size="small">督办<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
                   <template #dropdown>
@@ -1490,7 +1531,7 @@ import StatusBadge from '@/components/Common/StatusBadge.vue'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import {
   getRequirements, getRequirement, createRequirement, updateRequirement, deleteRequirement,
-  getRequirementStats,
+  getRequirementStats, setRequirementRiskFlag,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
   deleteRequirementAttachment, generateUserStories, getUserStories,
@@ -1521,6 +1562,8 @@ const reqStatus = ref('')
 const reqPriority = ref('')
 // 需求分类（唯一真相源 pmwb_requirement_category，工单落中文名）
 const reqCategory = ref('')
+// 开发天数检索：仅统计「开发中且未上线且有启动开发日期」的需求（口径与后端 dev_days_map 同源），N 自定义
+const reqDevDaysGt = ref(null)
 const categoryOptions = ref([])
 const catManageVisible = ref(false)
 const reqLoading = ref(false)
@@ -1529,6 +1572,8 @@ const reqTotal = ref(0)
 const reqPage = ref(1)
 const reqPageSize = ref(20)
 const reqStats = ref({})
+// 表格多选（批量打超期风险标记）
+const reqSelection = ref([])
 
 async function loadCategoryOptions() {
   try { categoryOptions.value = (await getRequirementCategoryOptions()) || [] } catch (e) { /* ignore */ }
@@ -1545,6 +1590,7 @@ async function loadRequirements() {
         status: reqStatus.value || undefined,
         priority: reqPriority.value || undefined,
         category: reqCategory.value || undefined,
+        dev_days_gt: reqDevDaysGt.value || undefined,
         page: reqPage.value,
         page_size: reqPageSize.value,
       }),
@@ -1561,6 +1607,35 @@ async function loadRequirements() {
 function handleReqSearch() {
   reqPage.value = 1
   loadRequirements()
+}
+
+/* ─────── 超期风险标记（批量/单个共用 batch 接口，单一实现） ─────── */
+function onReqSelectionChange(rows) {
+  reqSelection.value = rows || []
+}
+
+async function applyRiskFlag(reqIds, action) {
+  const label = action === 'set' ? '标记为超期风险' : '取消超期风险标记'
+  const tip = action === 'set'
+    ? `确认将选中的 ${reqIds.length} 条需求${label}？标记后将纳入「敏感需求跟踪」池。`
+    : `确认取消选中 ${reqIds.length} 条需求的超期风险标记？取消后下次同步将自动移出敏感跟踪池。`
+  try {
+    await ElMessageBox.confirm(tip, '超期风险标记', { type: 'warning' })
+  } catch { return }
+  const res = await setRequirementRiskFlag(reqIds, action)
+  const skipped = res?.skipped?.length ? `，${res.skipped.length} 条编号无效已跳过` : ''
+  ElMessage.success(`已${label} ${res?.updated ?? 0} 条${skipped}`)
+  await loadRequirements()
+}
+
+function batchSetRiskFlag() {
+  applyRiskFlag(reqSelection.value.map((r) => r.req_id), 'set')
+}
+function batchClearRiskFlag() {
+  applyRiskFlag(reqSelection.value.map((r) => r.req_id), 'clear')
+}
+function toggleRiskFlag(row) {
+  applyRiskFlag([row.req_id], row.ext?.overdue_risk ? 'clear' : 'set')
 }
 
 /* 需求编辑/新建 */
@@ -3063,6 +3138,9 @@ onBeforeUnmount(() => {
 /* 手工新建需求标识（与插件抓取的邮件行区分，见 sent_emails.origin） */
 .origin-tag { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 16px; color: var(--text-secondary, #64748b); background: var(--bg-app, #f2f4f7); border: 1px solid var(--border-subtle, #e5e7eb); vertical-align: middle }
 .req-table :deep(.el-table__row) { cursor: pointer }
+/* 开发天数超 25 天（与 dev 超期专题默认阈值一致）标红提示 */
+.dev-days-hot { color: var(--danger, #f56c6c); font-weight: 600 }
+.toolbar-spacer { flex: 1 }
 
 .wf-head { display: flex; align-items: center; justify-content: space-between; width: 100% }
 .wf-req-id { font-size: 12px; color: var(--text-muted) }

@@ -68,6 +68,13 @@ class PmwbRequirementExt(Base):
     process_changed = Column(
         Integer, default=0, comment="本需求是否涉及业务流程变更(1是)，用于主笔记业务流程区保守回写"
     )
+    # 超期风险标记：需求列表人工打标（检索开发中滞留需求后批量/单个标记），
+    # sensitive_req.sync 将 overdue_risk=1 的需求纳入敏感跟踪池（judge_reason=R5:dev_overdue）。
+    overdue_risk = Column(
+        Integer, default=0, comment="手工超期风险标记(1是)，敏感跟踪池按此纳入(R5:dev_overdue)"
+    )
+    overdue_risk_at = Column(DateTime, comment="超期风险打标时间")
+    overdue_risk_note = Column(String(256), comment="超期风险打标备注（取消标记时保留便于追溯）")
     # kc4-4：需求直挂交付物（去开发工单中间层）
     # JSON 数组: [{"file_name":"xxx.pdf","local_path":"/uploads/...","note":"操作手册","archived_at":null}, ...]
     deliverables = Column(

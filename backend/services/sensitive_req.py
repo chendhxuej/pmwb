@@ -12,7 +12,9 @@
   2. **上线要求时间（倒排终点）权威源 = pmwb_requirement_ext.version_required_date**
      （老大拍板），本服务不另存 deadline 字段，杜绝第二真相源；
   3. **敏感判定唯一源 = constants/levels.py::is_high_level**（P0/P1/集团需求/紧急需求），
-     本文件只调用不复写；
+     本文件只调用不复写；**补充（2026-10-27）**：人工「超期风险」标记
+     （ext.overdue_risk，需求列表打标）与级别命中同等入池待遇，
+     judge_reason 单值优先级 R4:lock > R1:级别 > R5:dev_overdue，不拼接；
   4. **团队唯一源 = services/vendor_dev.py::active_team_systems()**
      （团队评估 workload>0 的系统），禁另造团队清单；
   5. **环节事实时间只读引用** stage_log 与 ext.delivered_date，里程碑 actual_end
@@ -338,7 +340,10 @@ class SensitiveReqService:
             if override == "dismiss":
                 continue  # 人工移出：永不复活
 
-            is_high = levels.is_high_level(ext.priority)
+            # 纳入判定（单一真相源）：级别命中（levels.py 唯一实现）
+            # 或 人工「超期风险」标记（ext.overdue_risk，需求列表打标）→ 同等入池待遇
+            risk_flag = bool(getattr(ext, "overdue_risk", 0))
+            is_high = levels.is_high_level(ext.priority) or risk_flag
 
             # ── 非敏感：已有行降级退池（lock 保池）─────────────
             if not is_high and override != "lock":
@@ -350,17 +355,24 @@ class SensitiveReqService:
                     stats["demoted"] += 1
                 continue
 
+            # judge_reason 单值优先级：lock > 级别命中(R1) > 超期风险(R5)，不拼接
             code = levels.normalize_priority(ext.priority)
-            reason = f"R4:lock" if override == "lock" else (
-                f"R1:{code}" if code else f"R1:{levels.priority_label(ext.priority)}"
-            )
+            level_hit = levels.is_high_level(ext.priority)
+            if override == "lock":
+                reason = f"R4:lock"
+            elif level_hit:
+                reason = f"R1:{code}" if code else f"R1:{levels.priority_label(ext.priority)}"
+            else:
+                reason = f"R5:dev_overdue"
+            # level_code 仅级别命中时保留（R5 单独命中时置空，级别语义以 judge_reason 为准）
+            track_level_code = code if level_hit else None
 
             if row is None:
                 row = PmwbSensitiveReqTrack(
                     req_id=req_id,
                     is_sensitive=1,
                     judge_reason=reason,
-                    level_code=code,
+                    level_code=track_level_code,
                     manual_override=override,
                     track_status="active",
                     urge_count=0,
@@ -374,7 +386,7 @@ class SensitiveReqService:
             else:
                 row.is_sensitive = 1
                 row.judge_reason = reason
-                row.level_code = code
+                row.level_code = track_level_code
                 row.last_seen_at = started
                 row.updated_at = started
                 stats["updated"] += 1

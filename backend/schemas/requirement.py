@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -235,3 +235,14 @@ class RequirementCategoryOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RiskFlagBatchIn(BaseModel):
+    """超期风险标记批量打标请求体（独立端点，不动 RequirementExtUpdate 白名单）。
+
+    单个打标 = req_ids 传一项；action=set 打标 / clear 取消（备注保留便于追溯）。
+    """
+
+    req_ids: List[str] = Field(..., min_length=1, description="需求文号列表（单个打标传一项）")
+    action: Literal["set", "clear"] = Field(..., description="set=标记 / clear=取消")
+    note: Optional[str] = Field(None, max_length=256, description="打标备注（仅 set 生效）")
