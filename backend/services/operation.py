@@ -329,7 +329,61 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
             "handler_count": sum(1 for h in handlers if not h["unassigned"]),
             "unassigned_total": sum(h["total"] for h in handlers if h["unassigned"]),
             "handlers": handlers,
+            # 2026-10-27：客诉专题责任人负荷（压降体系并入统一口径；只追加键不改旧键，
+            # OwnerMatrix 向后兼容）。责任人拆分沿用 split_owners 单一实现。
+            "complaint": self._complaint_handler_stats(db),
         }
+
+    @staticmethod
+    def _complaint_handler_stats(db: Session) -> dict:
+        """客诉工单责任人负荷（pmwb_complaint_ticket）。
+
+        供客诉专题页与责任人矩阵关联分析：区分「客诉单多」与「总负荷高」，
+        判断是人手不够还是能力/权限问题。
+        """
+        from sqlalchemy import text as _text
+
+        from services.complaint.config import TERMINAL_STATUSES
+
+        ph = ", ".join(f":t{i}" for i in range(len(TERMINAL_STATUSES)))
+        tparams = {f"t{i}": s for i, s in enumerate(TERMINAL_STATUSES)}
+
+        cnt_rows = db.execute(_text(
+            f"SELECT handler, COUNT(*) AS cnt, "
+            f"SUM(CASE WHEN status NOT IN ({ph}) THEN 1 ELSE 0 END) AS open_cnt, "
+            f"SUM(CASE WHEN is_batch = 1 THEN 1 ELSE 0 END) AS batch_cnt, "
+            f"SUM(CASE WHEN is_recur = 1 THEN 1 ELSE 0 END) AS recur_cnt "
+            f"FROM pmwb_complaint_ticket GROUP BY handler"
+        ), tparams).fetchall()
+        l2_rows = db.execute(_text(
+            "SELECT handler, category_l2, COUNT(*) AS cnt FROM pmwb_complaint_ticket "
+            "WHERE category_l2 IS NOT NULL AND category_l2 <> '' "
+            "GROUP BY handler, category_l2"
+        )).fetchall()
+
+        handlers: Dict[str, dict] = {}
+        for handler, cnt, open_cnt, batch_cnt, recur_cnt in cnt_rows:
+            for name in (split_owners(handler) or ["未指派"]):
+                b = handlers.setdefault(
+                    name, {"name": name, "total": 0, "open_cnt": 0,
+                           "batch_cnt": 0, "recur_cnt": 0, "_l2": {}}
+                )
+                b["total"] += int(cnt or 0)
+                b["open_cnt"] += int(open_cnt or 0)
+                b["batch_cnt"] += int(batch_cnt or 0)
+                b["recur_cnt"] += int(recur_cnt or 0)
+        for handler, l2, cnt in l2_rows:
+            for name in (split_owners(handler) or ["未指派"]):
+                if name in handlers:
+                    handlers[name]["_l2"][l2] = handlers[name]["_l2"].get(l2, 0) + int(cnt or 0)
+
+        out = []
+        for b in handlers.values():
+            top = sorted(b.pop("_l2").items(), key=lambda kv: -kv[1])[:3]
+            b["top_l2"] = [{"name": k, "cnt": v} for k, v in top]
+            out.append(b)
+        out.sort(key=lambda x: (-x["total"], x["name"]))
+        return {"handlers": out, "handler_count": sum(1 for h in out if h["name"] != "未指派")}
 
     def update_status(self, db: Session, id: int, status: str, resolve_date: datetime = None):
         obj = self.get(db, id)

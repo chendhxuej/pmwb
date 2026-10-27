@@ -122,6 +122,44 @@
           </div>
         </div>
       </section>
+
+      <!-- 处理人负荷（并入运营监控统一口径 /operation/stats/by-handler 的 complaint 键） -->
+      <section class="card">
+        <div class="card-header">
+          <h3>处理人负荷（客诉口径，与运营监控统一统计）</h3>
+          <el-button size="small" text type="primary" @click="$router.push('/operation/overview')">
+            责任人矩阵 →
+          </el-button>
+        </div>
+        <div class="card-body">
+          <el-table v-if="handlerRows.length" :data="handlerRows" size="small">
+            <el-table-column prop="name" label="处理人" width="110" />
+            <el-table-column prop="total" label="累计经手" width="90" align="center">
+              <template #default="{ row }"><b>{{ row.total }}</b></template>
+            </el-table-column>
+            <el-table-column prop="open_cnt" label="未结单" width="80" align="center">
+              <template #default="{ row }">
+                <span :class="{ 'cnt-danger': row.open_cnt > 0 }">{{ row.open_cnt }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="batch_cnt" label="批量簇内" width="86" align="center" />
+            <el-table-column prop="recur_cnt" label="复发" width="64" align="center" />
+            <el-table-column label="主要场景 TOP3" min-width="220">
+              <template #default="{ row }">
+                <el-tag
+                  v-for="t in row.top_l2"
+                  :key="t.name"
+                  size="small"
+                  type="info"
+                  style="margin-right: 4px"
+                >{{ t.name }}×{{ t.cnt }}</el-tag>
+                <span v-if="!row.top_l2.length">—</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else description="暂无客诉处理人数据" :image-size="60" />
+        </div>
+      </section>
     </div>
 
     <el-empty v-else-if="!loading" description="暂无客诉数据：请先上传小信工单导出 xlsx" />
@@ -140,11 +178,13 @@ import ChartPie from '@/components/Charts/ChartPie.vue'
 import ChartLine from '@/components/Charts/ChartLine.vue'
 import ComplaintUploadDialog from './components/ComplaintUploadDialog.vue'
 import { complaintApi } from '@/api/complaint'
+import { operationApi } from '@/api/operation'
 
 const router = useRouter()
 const loading = ref(false)
 const uploadVisible = ref(false)
 const metrics = ref({})
+const handlerRows = ref([])
 
 const subTitle = computed(() =>
   metrics.value.week
@@ -208,6 +248,13 @@ async function loadAll() {
     metrics.value = {}
   } finally {
     loading.value = false
+  }
+  // 处理人负荷：读 /operation/stats/by-handler 顶层 complaint 键（统一口径）
+  try {
+    const byHandler = await operationApi.getStatsByHandler()
+    handlerRows.value = byHandler?.complaint?.handlers || []
+  } catch (e) {
+    handlerRows.value = []
   }
 }
 
