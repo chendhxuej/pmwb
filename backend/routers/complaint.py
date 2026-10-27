@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
+from services.mail_dispatch import dispatch_email
 from schemas.complaint import (
     ActionCreateIn,
     ActionUpdateIn,
@@ -29,6 +30,7 @@ from schemas.complaint import (
     CategoryEnabledIn,
     GoLiveIn,
     ReportGenIn,
+    UrgePreviewIn,
 )
 from services.complaint import (
     actions as complaint_actions,
@@ -298,8 +300,95 @@ def download_report(week: str, ext: str = Query("html", pattern="^(html|pdf)$"))
     return FileResponse(path, media_type=media, filename=path.name)
 
 
-# ── 每周导入 ─────────────────────────────────────────────────
-@router.post("/import")
+# ── 督办邮件 ─────────────────────────────────────────────────
+@router.post("/actions/urge-preview")
+def urge_preview(body: UrgePreviewIn, db: Session = Depends(get_db)):
+    """客诉措施督办邮件：默认 dry_run（落库不真发）；真发须 confirm_send=True
+    且由前端显式点击触发（邮件铁律：AI/脚本自测一律 dry_run）。
+
+    收件对象 = 到期/超期（due_date < 今天）且状态属 planned/in_progress/ineffective
+    的措施责任人，按人聚合清单走任务中心清单装配器渲染。
+    """
+    from datetime import date as _date
+    from utils.owners import split_owners
+
+    from services.complaint import urge_candidates
+    from services.task_center import task_center_service
+
+    candidates = urge_candidates(db)
+    if body.owner:
+        want = {o for o in split_owners(body.owner)}
+        candidates = [c for c in candidates
+                      if want & set(split_owners(c.get("owner") or ""))]
+    if not candidates:
+        return success({"sent": [], "skipped": "无到期/超期未完结的客诉措施"})
+
+    today = _date.today()
+    by_owner: dict = {}
+    for c in candidates:
+        owners = split_owners(c.get("owner") or "") or ["未指派"]
+        for o in owners:
+            flags: dict = {"is_overdue": False, "is_due_soon": False}
+            due = c.get("due_date")
+            if due:
+                d = due if isinstance(due, _date) else _date.fromisoformat(str(due)[:10])
+                if d < today:
+                    flags["is_overdue"] = True
+                elif (d - today).days <= 3:
+                    flags["is_due_soon"] = True
+            by_owner.setdefault(o, []).append({
+                "title": f"[{c['action_no']}] {c.get('title') or ''}",
+                "source_label": "客诉措施",
+                "owner": o,
+                "created_at": "",
+                "due_date": str(due)[:10] if due else "",
+                "status_label": c.get("status") or "",
+                "priority": "P1",
+                "description": (
+                    f"针对场景：{c.get('category_l2') or '—'}；"
+                    f"基线/目标：{c.get('baseline_cnt') if c.get('baseline_cnt') is not None else '—'}"
+                    f" / 降{c.get('target_drop_pct') or 50}%；"
+                    f"上周单量：{c.get('last_week_cnt') if c.get('last_week_cnt') is not None else '—'}；"
+                    f"关联工单：{c.get('issue_no') or '—'}"
+                ),
+                **flags,
+            })
+
+    results = []
+    for owner, tasks in by_owner.items():
+        if owner == "未指派":
+            results.append({"owner": owner, "skipped": "措施未指派责任人，无法督办"})
+            continue
+        resolved = task_center_service.resolve_contacts([owner])
+        to_addr = resolved.get(owner)
+        if not to_addr:
+            results.append({"owner": owner, "skipped": f"收件人邮箱解析失败（{owner}）"})
+            continue
+        r = dispatch_email(
+            db=db, to=[to_addr],
+            subject=body.subject,
+            scene="complaint_action_urge",
+            variables={"tasks": tasks, "recipient_name": owner},
+            fields={"tasks": tasks},
+            recipient_name=owner,
+            email_type="pmwb_complaint_urge",
+            req_id=";".join(t["title"].split("]")[0][1:] for t in tasks[:5])[:64],
+            req_name=f"客诉措施督办（{len(tasks)} 项）",
+            ref_type="complaint_action",
+            ref_id=tasks[0]["title"].split("]")[0][1:],
+            raise_on_error=False,
+            confirm_send=body.confirm_send,
+        )
+        results.append({
+            "owner": owner, "to": to_addr, "task_cnt": len(tasks),
+            "dry_run": bool(r.get("dry_run")), "success": r.get("success"),
+            "record_id": r.get("record_id"),
+            "subject": r.get("subject"),
+        })
+    return success({"sent": results, "total_candidates": len(candidates)})
+
+
+# ── 每周导入 ─────────────────────────────────────────────────@router.post("/import")
 async def import_weekly(
     db: Session = Depends(get_db),
     file: UploadFile = File(..., description="小信工单导出 xlsx"),

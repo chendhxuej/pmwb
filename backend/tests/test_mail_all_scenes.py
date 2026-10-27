@@ -103,6 +103,27 @@ SAMPLES = {
         {"tasks": TASKS_HTML},
         ["商客专区运营方案"],
     ),
+    # 客诉措施督办（2026-10-27）：结构化 tasks 走 render_task_center_section
+    "complaint_action_urge": (
+        {
+            "tasks": [{
+                "title": "[CACT-2026W44-01] 电视账号同步专项",
+                "source_label": "客诉措施",
+                "owner": "吴胜捷",
+                "created_at": "",
+                "due_date": "2026-11-10",
+                "status_label": "推进中",
+                "priority": "P1",
+                "description": (
+                    "针对场景：电视与机顶盒账号未同步；"
+                    "基线/目标：23 / 降50%；上周单量：19；关联工单：COMP-20261027-101"
+                ),
+                "is_overdue": False,
+                "is_due_soon": False,
+            }],
+        },
+        ["CACT-2026W44-01", "电视账号同步专项", "吴胜捷", "2026-11-10", "客诉措施"],
+    ),
     "meeting_notice": (
         {
             "meetingTopic": "商客专区运营周会",

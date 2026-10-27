@@ -47,3 +47,10 @@ class GoLiveIn(BaseModel):
 class ReportGenIn(BaseModel):
     week: Optional[str] = Field(None, description="周次（默认库内最新周）")
     with_pdf: bool = Field(True, description="是否导出 PDF（失败自动降级仅 HTML）")
+
+
+class UrgePreviewIn(BaseModel):
+    """客诉措施督办邮件（默认 dry_run；真发须前端显式 confirm_send=True）。"""
+    owner: Optional[str] = Field(None, description="仅督办指定责任人（空=全部超期措施）")
+    subject: Optional[str] = Field(None, description="自定义主题（默认场景主题）")
+    confirm_send: bool = Field(False, description="确认真发（False 仅 dry_run 落库验证）")

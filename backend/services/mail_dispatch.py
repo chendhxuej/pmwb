@@ -136,6 +136,13 @@ SCENES: dict[str, MailScene] = {
         default_subject="【敏感需求同步】{recipient_name}",
         fallback_template="## 敏感需求同步\n\n以下敏感需求倒排进展同步，请知悉。",
     ),
+    # 客诉措施督办（2026-10-27 注册）：复用任务中心清单装配器（TASK_LIST_SCENES）。
+    "complaint_action_urge": MailScene(
+        "complaint_action_urge", email_type="pmwb_complaint_urge", source="complaint",
+        raw=False, renderer=True,
+        default_subject="【客诉措施督办】{recipient_name}",
+        fallback_template="## 客诉措施督办\n\n以下客诉改进措施已到期/超期，请尽快推进并反馈进展。",
+    ),
     "plugin": MailScene("plugin", email_type="xqemail_plugin", source="plugin"),
     # supervise 场景：3210 模板已由 T-A 建设（supervise_urge/supervise_sync type）
     # supervise 场景：正文改由 PMWB 装配器渲染（renderer=True），
