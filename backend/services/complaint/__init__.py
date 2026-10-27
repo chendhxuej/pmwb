@@ -14,7 +14,8 @@ scripts/complaint/*.py 仅保留 argparse CLI 薄封装，禁止出现第二份�
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -62,8 +63,9 @@ def update_status(db: Session, action_no: str, target: str,
     if missing:
         raise ValueError(f"进入该状态缺必填字段：{', '.join(missing)}")
 
-    sets = ["status = :target", "updated_at = NOW()"]
-    params: Dict = {"target": target, "no": action_no}
+    sets: List[str] = ["status = :target", "updated_at = :now_ts"]
+    params: Dict = {"target": target, "no": action_no,
+                    "now_ts": datetime.now()}
     if payload.get("owner"):
         sets.append("owner = :owner")
         params["owner"] = payload["owner"]

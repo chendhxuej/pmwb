@@ -14,6 +14,7 @@ from db.models import Base  # noqa: F401
 from routers import (
     active_optimization,
     basic_data,
+    complaint,
     dashboard,
     dev_ticket,
     health,
@@ -113,6 +114,7 @@ app.include_router(health.router, prefix="/api/v1", tags=["健康检查"])
 app.include_router(basic_data.router, prefix="/api/v1", tags=["基础数据"])
 app.include_router(keywork.router, prefix="/api/v1", tags=["重点工作"])
 app.include_router(operation.router, prefix="/api/v1", tags=["业务运营监控"])
+app.include_router(complaint.router, prefix="/api/v1", tags=["客诉专题分析"])
 app.include_router(research.router, prefix="/api/v1", tags=["一线调研"])
 app.include_router(meeting_action.router, prefix="/api/v1", tags=["会议行动项"])
 app.include_router(meeting.router, prefix="/api/v1", tags=["会议管理"])

@@ -115,11 +115,12 @@ def add(db: Session, l2: str, title: str, owner: str, due: Optional[date],
              status, created_at, updated_at)
         VALUES
             (:no, :title, :l1, :l2, :iid, :ino, :owner, :due, :acc, :target, :vw,
-             'planned', NOW(), NOW())
+             'planned', :now_ts, :now_ts)
     """), {
         "no": action_no, "title": title, "l1": l1, "l2": l2,
         "iid": issue_id, "ino": issue_no, "owner": owner, "due": due,
         "acc": acceptance, "target": C.DEFAULT_TARGET_DROP_PCT, "vw": C.DEFAULT_VERIFY_WEEKS,
+        "now_ts": datetime.now(),
     })
     db.commit()
     return {"action_no": action_no, "issue_id": issue_id, "issue_no": issue_no, "l1": l1}
@@ -174,9 +175,10 @@ def verify(db: Session) -> List[Dict]:
         db.execute(text("""
             UPDATE pmwb_complaint_action
             SET baseline_cnt = :b, last_week_cnt = :l, actual_drop_pct = :d,
-                status = :st, updated_at = NOW()
+                status = :st, updated_at = :now_ts
             WHERE id = :i
-        """), {"b": baseline, "l": last_cnt, "d": drop, "st": new_status, "i": a["id"]})
+        """), {"b": baseline, "l": last_cnt, "d": drop, "st": new_status, "i": a["id"],
+               "now_ts": datetime.now()})
         results.append({"action_no": a["action_no"], "l2": l2, "baseline": baseline,
                         "last_week": last_cnt, "drop": drop, "status": new_status})
     db.commit()
@@ -186,9 +188,10 @@ def verify(db: Session) -> List[Dict]:
 def mark_go_live(db: Session, action_no: str, go_live: date) -> None:
     db.execute(text("""
         UPDATE pmwb_complaint_action
-        SET go_live_date = :g, baseline_cnt = :b, status = 'verifying', updated_at = NOW()
+        SET go_live_date = :g, baseline_cnt = :b, status = 'verifying', updated_at = :now_ts
         WHERE action_no = :no
-    """), {"g": go_live, "b": baseline_for(db, _l2_of(db, action_no), go_live), "no": action_no})
+    """), {"g": go_live, "b": baseline_for(db, _l2_of(db, action_no), go_live), "no": action_no,
+           "now_ts": datetime.now()})
     db.commit()
 
 

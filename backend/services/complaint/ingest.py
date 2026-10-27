@@ -176,56 +176,74 @@ def refresh_derived(db: Session, weeks: Optional[Sequence[str]] = None,
     批量簇：同二级场景 + 同自然日单量 >= 阈值 → cluster_key='场景@日期'；
     复发：措施台账该场景已有生效日期，且工单创建时间在其之后 → is_recur=1。
     先清零再打标，避免历史标记残留。
+
+    实现说明：聚合在 Python 侧完成后逐单更新（SQL 方言可移植，
+    被 API /correct-category 在测试库 SQLite 上调用；周数据量 ≤ 千级，性能无虞）。
     """
-    params: Dict = {"threshold": threshold}
-    f_plain = ""   # 无别名表过滤条件
-    f_alias = ""   # 别名 t 的过滤条件
+    f_week = ""
+    params: Dict = {}
     if weeks:
         for i, w in enumerate(weeks):
             params[f"w{i}"] = w
         in_list = ",".join(f":w{i}" for i in range(len(weeks)))
-        f_plain = f" AND week IN ({in_list})"
-        f_alias = f" AND t.week IN ({in_list})"
+        f_week = f" AND week IN ({in_list})"
 
-    # 1) 批量异常簇
-    db.execute(text(
-        f"UPDATE pmwb_complaint_ticket SET cluster_key = NULL, is_batch = 0 WHERE 1 = 1{f_plain}"
-    ), params)
-    db.execute(text(f"""
-        UPDATE pmwb_complaint_ticket t
-        JOIN (
-            SELECT category_l2, DATE(created_time) AS d, COUNT(*) AS c
-            FROM pmwb_complaint_ticket
-            WHERE category_l2 IS NOT NULL AND category_l2 <> ''{f_plain}
-            GROUP BY category_l2, DATE(created_time)
-            HAVING COUNT(*) >= :threshold
-        ) g ON g.category_l2 = t.category_l2 AND g.d = DATE(t.created_time)
-        SET t.cluster_key = CONCAT(g.category_l2, '@', g.d), t.is_batch = 1
-    """), params)
+    rows = db.execute(text(
+        "SELECT id, category_l2, created_time FROM pmwb_complaint_ticket "
+        "WHERE 1 = 1" + f_week
+    ), params).fetchall()
 
-    # 2) 措施上线后同类复发
+    # 1) 批量异常簇：清零 → 按场景+自然日计数打标
     db.execute(text(
-        f"UPDATE pmwb_complaint_ticket SET is_recur = 0 WHERE 1 = 1{f_plain}"
+        "UPDATE pmwb_complaint_ticket SET cluster_key = NULL, is_batch = 0 WHERE 1 = 1" + f_week
     ), params)
-    db.execute(text(f"""
-        UPDATE pmwb_complaint_ticket t
-        JOIN pmwb_complaint_action a
-          ON a.category_l2 = t.category_l2
-         AND a.go_live_date IS NOT NULL
-         AND t.created_time >= a.go_live_date
-         AND a.status IN ('verifying', 'effective', 'ineffective')
-        SET t.is_recur = 1
-        WHERE 1 = 1{f_alias}
-    """), params)
+
+    from collections import Counter
+    day_counter: Counter = Counter()
+    for _tid, l2, created in rows:
+        if l2 and created:
+            day_counter[(l2, created.date())] += 1
+
+    cluster_updates = []
+    for tid, l2, created in rows:
+        if l2 and created and day_counter[(l2, created.date())] >= threshold:
+            cluster_updates.append(
+                {"id": tid, "ck": f"{l2}@{created.date().isoformat()}"})
+    if cluster_updates:
+        db.execute(text(
+            "UPDATE pmwb_complaint_ticket SET cluster_key = :ck, is_batch = 1 WHERE id = :id"
+        ), cluster_updates)
+
+    # 2) 措施上线后同类复发：清零 → 生效措施匹配同场景打标
+    db.execute(text(
+        "UPDATE pmwb_complaint_ticket SET is_recur = 0 WHERE 1 = 1" + f_week
+    ), params)
+    go_lives = db.execute(text(
+        "SELECT category_l2, go_live_date FROM pmwb_complaint_action "
+        "WHERE go_live_date IS NOT NULL "
+        "AND status IN ('verifying', 'effective', 'ineffective')"
+    )).fetchall()
+    recur_map: Dict[str, list] = {}
+    for l2, g in go_lives:
+        recur_map.setdefault(l2 or "", []).append(g)
+
+    recur_updates = []
+    for tid, l2, created in rows:
+        if l2 and created:
+            for g in recur_map.get(l2, []):
+                g_dt = g if isinstance(g, datetime) else datetime.combine(g, datetime.min.time())
+                if created >= g_dt:
+                    recur_updates.append({"id": tid})
+                    break
+    if recur_updates:
+        db.execute(text(
+            "UPDATE pmwb_complaint_ticket SET is_recur = 1 WHERE id = :id"
+        ), recur_updates)
+
     db.commit()
 
-    clusters = db.execute(text(
-        f"SELECT COUNT(DISTINCT cluster_key) FROM pmwb_complaint_ticket "
-        f"WHERE cluster_key IS NOT NULL{f_plain}"
-    ), params).scalar() or 0
-    recur = db.execute(text(
-        f"SELECT COUNT(*) FROM pmwb_complaint_ticket WHERE is_recur = 1{f_plain}"
-    ), params).scalar() or 0
+    clusters = sum(1 for k in day_counter.values() if k >= threshold)
+    recur = len(recur_updates)
     return {"clusters": int(clusters), "recur": int(recur)}
 
 
