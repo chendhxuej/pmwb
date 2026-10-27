@@ -3,11 +3,12 @@
  * 运行：cd frontend && node tests/e2e/verify_complaint.cjs
  * 前置：后端 8000 + 前端 5173 已启动。
  * 覆盖：
- *   1. /operation/complaint-center/dashboard 看板渲染（KPI/图表/批量簇表）
+ *   1. /operation/complaint-center/dashboard 看板渲染（KPI/图表/批量簇表/共性问题卡）
  *   2. /operation/complaint-center/tickets 台账渲染 + 人工校正后 classify_by=manual
- *   3. /operation/complaint-center/actions 措施台账渲染 + 登记对话框
- *   4. 任务中心来源下拉出现「客诉措施」且列表可查询
- *   5. 全程无页面 JS 错误
+ *   3. /operation/complaint-center/actions 措施台账渲染 + 登记对话框 + 所属问题列
+ *   4. 任务中心来源下拉出现「客诉措施」且列表可查询（仍 9 来源）
+ *   5. 问题台账子页可达 + 周报下载 HTML 图表可渲染（单文件自包含回归）
+ *   6. 全程无页面 JS 错误
  */
 const puppeteer = require('puppeteer-core');
 
@@ -51,6 +52,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         hasPie: !!document.querySelector('.chart-pie canvas, .chart-pie svg'),
         hasLine: !!document.querySelector('.chart-line canvas, .chart-line svg'),
         hasClusterTable: t.includes('批量数据异常专题'),
+        hasProblemCard: t.includes('共性问题闭环'),
+        hasProblemEntry: t.includes('进入问题台账'),
+        navHasProblems: t.includes('问题台账'),
         empty: t.includes('暂无客诉数据'),
       };
     });
@@ -62,6 +66,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       check('性质结构图已渲染(canvas)', dash.hasPie);
       check('趋势图已渲染(canvas)', dash.hasLine);
       check('批量簇专题卡存在', dash.hasClusterTable);
+      check('共性问题闭环卡存在', dash.hasProblemCard && dash.hasProblemEntry);
     }
 
     // ── 2. 工单台账 ──
@@ -171,6 +176,86 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     });
     check('客诉措施来源列表接口可达', listResp.code === 0 && typeof listResp.total === 'number',
       `total=${listResp.total}`);
+
+    // ── 5. 问题台账页 + 周报下载 HTML 图表自包含回归 ──
+    await page.goto(`${BASE}/operation/complaint-center/problems`, {
+      waitUntil: 'networkidle2', timeout: 45000,
+    });
+    await sleep(1200);
+    const prob = await page.evaluate(() => {
+      const t = document.body.innerText;
+      return {
+        title: document.querySelector('.pm-page-header__title')?.innerText || '',
+        hasKpi: document.querySelectorAll('.kpi-num').length >= 5,
+        hasCandidateZone: t.includes('候选问题'),
+        hasLedger: t.includes('问题台账'),
+        hasScan: t.includes('扫描候选'),
+      };
+    });
+    check('问题台账标题渲染', prob.title === '共性问题台账', `title=${prob.title}`);
+    check('问题台账 KPI ≥5', prob.hasKpi);
+    check('候选确认区存在', prob.hasCandidateZone);
+    check('台账区/扫描入口存在', prob.hasLedger && prob.hasScan);
+
+    // 措施台账出现「所属问题」列（登记对话框含所属问题选择器）
+    await page.goto(`${BASE}/operation/complaint-center/actions`, {
+      waitUntil: 'networkidle2', timeout: 45000,
+    });
+    await sleep(1000);
+    const hasProblemCol = await page.evaluate(() =>
+      document.body.innerText.includes('所属问题'));
+    check('措施台账「所属问题」列存在', hasProblemCol);
+
+    // 周报下载：单文件自包含，本地打开 canvas ≥ 2（修复外链 assets 断裂回归）
+    const week = await page.evaluate(async () => {
+      const r = await fetch('/api/v1/complaint/metrics');
+      const j = await r.json();
+      return j.data?.week || '';
+    });
+    if (week) {
+      const http = require('http');
+      const html = await new Promise((resolve) => {
+        http.get(`http://127.0.0.1:8000/api/v1/complaint/reports/${week}/download?ext=html`,
+          (res) => {
+            let buf = '';
+            res.on('data', (c) => (buf += c));
+            res.on('end', () => resolve(buf));
+          }).on('error', () => resolve(''));
+      });
+      const os = require('os');
+      const tmp = require('path').join(os.tmpdir(), `verify_report_${week}.html`);
+      fs.writeFileSync(tmp, html);
+      const p2 = await browser.newPage();
+      await p2.goto('file:///' + tmp.replace(/\\/g, '/'), { waitUntil: 'networkidle2', timeout: 30000 });
+      await sleep(1000);
+      const chartCnt = await p2.evaluate(() => document.querySelectorAll('.chart canvas').length);
+      check('周报下载 HTML 图表可渲染(canvas≥2)', chartCnt >= 2, `canvas=${chartCnt}`);
+      await p2.close();
+      fs.unlinkSync(tmp);
+    } else {
+      check('周报下载 HTML 图表（无数据周跳过）', true);
+    }
+
+    // /import 端点可用性：用已归档文件幂等重传（BOMC 去重，不产生新数据）
+    const archive = 'D:/项目/个人工作台系统/data/complaint/2026-W43/小信工单上周全部明细_20261027091922.xlsx';
+    if (fs.existsSync(archive)) {
+      const imp = await page.evaluate(async (b64) => {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const fd = new FormData();
+        fd.append('file', new Blob([bytes]), 'reupload.xlsx');
+        fd.append('with_report', 'false');
+        const r = await fetch('/api/v1/complaint/import', { method: 'POST', body: fd });
+        const j = await r.json();
+        return { status: r.status, code: j.code, inserted: j.data?.ingest?.inserted };
+      }, fs.readFileSync(archive).toString('base64'));
+      check('xlsx 上传端点可用（幂等重传）',
+        imp.status === 200 && imp.code === 0 && imp.inserted === 0,
+        `status=${imp.status} inserted=${imp.inserted}`);
+    } else {
+      check('xlsx 上传端点（无归档文件跳过）', true);
+    }
 
     check('全程无页面 JS 错误', jsErrors.length === 0, jsErrors.slice(0, 2).join(' / '));
   } catch (e) {
