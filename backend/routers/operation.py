@@ -104,9 +104,28 @@ def create_issue(obj_in: OperationIssueCreate, db: Session = Depends(get_db)):
 
 @router.put("/issues/{issue_id}")
 def update_issue(issue_id: int, obj_in: OperationIssueUpdate, db: Session = Depends(get_db)):
-    """更新问题。"""
-    obj = operation_issue_service.update(db, issue_id, obj_in.model_dump(exclude_unset=True))
-    return success(data=obj)
+    """更新问题。
+
+    状态字段收口：不再随编辑整字典透传（历史缺陷可任意跳态绕过注册表），
+    改为先走 update_status（经 status_registry operation 域白名单校验，
+    并触发客诉措施下游联动），其余字段仍走通用 update。
+    """
+    data_in = obj_in.model_dump(exclude_unset=True)
+    status = data_in.pop("status", None)
+    if status:
+        from constants import status_registry
+        obj = operation_issue_service.get(db, issue_id)
+        if obj:
+            allowed = status_registry.allowed_next("operation", obj.status)
+            if status not in allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"状态流转不合法：{obj.status} → {status}（允许：{allowed or '无'}）",
+                )
+            operation_issue_service.update_status(db, issue_id, status)
+    if data_in:
+        operation_issue_service.update(db, issue_id, data_in)
+    return success(data=operation_issue_service.get(db, issue_id))
 
 
 @router.delete("/issues/{issue_id}")

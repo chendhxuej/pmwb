@@ -386,9 +386,15 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
         return {"handlers": out, "handler_count": sum(1 for h in out if h["name"] != "未指派")}
 
     def update_status(self, db: Session, id: int, status: str, resolve_date: datetime = None):
+        """运营工单状态唯一写入口（注册表校验在路由/任务中心层）。
+
+        提交后触发客诉措施下游联动（after_issue_status：工单解决 → 措施进验证），
+        联动失败只告警不阻断工单本身；非 complaint_weekly 来源静默跳过。
+        """
         obj = self.get(db, id)
         if not obj:
             return None
+        old = obj.status
         obj.status = status
         if resolve_date:
             obj.resolve_date = resolve_date
@@ -396,6 +402,12 @@ class OperationIssueService(BaseService[PmwbOperationIssue]):
             obj.resolve_date = datetime.now()
         db.commit()
         db.refresh(obj)
+        if old != status:
+            try:
+                from services.complaint.problems import after_issue_status
+                after_issue_status(db, obj, old, status)
+            except Exception as e:
+                print(f"[WARN] 工单→客诉措施联动异常: {e}")
         return obj
 
 

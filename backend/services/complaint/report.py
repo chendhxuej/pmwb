@@ -17,6 +17,23 @@ from services.complaint import config as C
 
 ECHARTS_SRC = Path(r"D:\项目\个人工作台系统\frontend\node_modules\echarts\dist\echarts.min.js")
 
+_ECHARTS_INLINE: Dict[str, str] = {}
+
+
+def _echarts_tag() -> str:
+    """图表库内联标签：周报 HTML 通过下载端点只回传单文件，
+    外链 assets/echarts.min.js 在本地打开时缺失导致图表全空白（2026-10-27 事故），
+    故内联为单文件自包含；读不到 JS 时降级保留外链（服务端 PDF 链路仍可用）。"""
+    if "js" not in _ECHARTS_INLINE:
+        try:
+            _ECHARTS_INLINE["js"] = ECHARTS_SRC.read_text(encoding="utf-8").replace(
+                "</script", "<\\/script")  # 防 HTML 提前闭合（JS 字符串内 \/ 等价 /）
+        except OSError:
+            _ECHARTS_INLINE["js"] = ""
+    if _ECHARTS_INLINE["js"]:
+        return f"<script>{_ECHARTS_INLINE['js']}</script>"
+    return '<script src="assets/echarts.min.js"></script>'
+
 
 def _pct(v: Optional[float], dash: str = "—") -> str:
     return dash if v is None else f"{v}%"
@@ -33,7 +50,7 @@ def _wow_text(m: Dict) -> str:
     return f'<span class="tag {cls}">{arrow} {abs(v)}%</span> 上周 {m["prev_total"]} 单'
 
 
-def _conclusions(m: Dict) -> List[str]:
+def _conclusions(m: Dict, problems: Optional[List[Dict]] = None) -> List[str]:
     """按数据生成结论（不写死话术）。"""
     out: List[str] = []
     tot = m["total"]
@@ -75,6 +92,15 @@ def _conclusions(m: Dict) -> List[str]:
                    f'说明前期措施未真正见效，需回退核查。')
     else:
         out.append('<b>复发预警</b>：本周无"措施生效后同类再现"工单（当前措施台账为空或未到验证期）。')
+
+    # 共性问题闭环洞察（problems 为空时优雅降级，CLI 旧调用不破）
+    if problems is not None:
+        cand = sum(1 for p in problems if p["status"] == "candidate")
+        inflight = sum(1 for p in problems if p["status"] in ("open", "resolving"))
+        reopen = sum(1 for p in problems if p["reopen_flag"])
+        out.append(f'<b>共性问题</b>：本周新增候选问题 {cand} 个（未确认）、在办 {inflight} 个'
+                   + (f'、{reopen} 个已闭环问题再次出现待重开' if reopen else '')
+                   + '。台账见「客诉专题 → 问题台账」。')
     return out
 
 
@@ -88,7 +114,7 @@ def _rows(items: List[Dict], cols: List[tuple]) -> str:
     return "".join(out)
 
 
-def render_html(m: Dict) -> str:
+def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     l1 = m["by_l1"]
     pie_data = [{"value": x["cnt"], "name": x["name"]} for x in l1]
     trend_weeks = [t["week"].split("-")[1] for t in m["trend"]]
@@ -97,10 +123,11 @@ def render_html(m: Dict) -> str:
     daily_keys = [k[5:] for k in m["daily"].keys()]
     daily_vals = list(m["daily"].values())
 
-    concl = "".join(f"<li>{c}</li>" for c in _conclusions(m))
+    concl = "".join(f"<li>{c}</li>" for c in _conclusions(m, problems))
 
     action_rows = _rows(m["actions"], [
         ("措施编号", lambda a: f'<b>{a["action_no"]}</b>'),
+        ("所属问题", lambda a: (f'<b>{a["problem_no"]}</b>' if a.get("problem_no") else "—")),
         ("针对场景", lambda a: a["category_l2"] or "—"),
         ("责任人", lambda a: a["owner"] or "—"),
         ("要求完成", lambda a: str(a["due_date"] or "—")),
@@ -108,10 +135,28 @@ def render_html(m: Dict) -> str:
         ("基线/目标", lambda a: f'{a["baseline_cnt"] or "—"} / 降{a["target_drop_pct"] or 50}%'),
         ("状态", lambda a: a["status"]),
     ]) if m["actions"] else (
-        '<tr><td colspan="7" style="color:#98a6ba;text-align:center">'
+        '<tr><td colspan="8" style="color:#98a6ba;text-align:center">'
         '本周尚未登记改进措施——请将结论中的 P0/P1 项落为运营工单并登记到措施台账，'
         '否则下周无法回答"措施做了没有、有没有用"</td></tr>'
     )
+
+    # 共性问题台账表（7.1，problems 为空时显示空态行）
+    problem_rows = _rows(problems or [], [
+        ("问题编号", lambda p: f'<b>{p["problem_no"]}</b>'),
+        ("场景", lambda p: p.get("category_l2") or "—"),
+        ("状态", lambda p: p.get("status") or "—"),
+        ("首见周", lambda p: p.get("first_week") or "—"),
+        ("在办周", lambda p: str(p.get("active_weeks") if p.get("active_weeks") is not None else "—")),
+        ("当周/累计", lambda p: f'{p.get("week_cnt") if p.get("week_cnt") is not None else "—"} / {p.get("total_cnt") or 0}'),
+        ("复发", lambda p: f'<b style="color:#c0392b">{p["recur_cnt"]}</b>' if p.get("recur_cnt") else "0"),
+        ("措施(有效/总数)", lambda p: f'{p.get("effective_cnt") or 0} / {p.get("action_cnt") or 0}'),
+        ("闭环结论", lambda p: p.get("conclusion") or "—"),
+    ]) if problems is not None else '<tr><td colspan="9" style="color:#98a6ba;text-align:center">—</td></tr>'
+    _p_stat = (
+        f'待确认 {sum(1 for p in problems if p["status"] == "candidate")}｜'
+        f'在办 {sum(1 for p in problems if p["status"] in ("open", "resolving"))}｜'
+        f'已闭环 {sum(1 for p in problems if p["status"] == "closed")}'
+    ) if problems is not None else ""
 
     cluster_rows = _rows(m["batch"]["clusters"], [
         ("场景", lambda c: f'<b>{c["l2"]}</b>'),
@@ -124,6 +169,7 @@ def render_html(m: Dict) -> str:
     ])
 
     e = m["efficiency"]
+    echarts_tag = _echarts_tag()
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -230,9 +276,17 @@ def render_html(m: Dict) -> str:
   </div>
 
   <div class="card">
-    <h2>七、措施跟踪与复发监测</h2>
+    <h2>七、措施跟踪与共性问题闭环</h2>
+    <div class="note">共性问题台账：{_p_stat or '候选 → 入账 → 挂措施 → 周验证 → 闭环确认（详见问题台账页）'}</div>
     <table>
-      <thead><tr><th>措施编号</th><th>针对场景</th><th>责任人</th><th>要求完成</th><th>生效日</th><th>基线/目标</th><th>状态</th></tr></thead>
+      <thead><tr><th>问题编号</th><th>场景</th><th>状态</th><th>首见周</th><th>在办周</th>
+        <th>当周/累计</th><th>复发</th><th>措施(有效/总数)</th><th>闭环结论</th></tr></thead>
+      <tbody>{problem_rows}</tbody>
+    </table>
+    <h2 style="margin-top:18px">措施台账</h2>
+    <table>
+      <thead><tr><th>措施编号</th><th>所属问题</th><th>针对场景</th><th>责任人</th><th>要求完成</th>
+        <th>生效日</th><th>基线/目标</th><th>状态</th></tr></thead>
       <tbody>{action_rows}</tbody>
     </table>
     <div class="note">复发判定：措施台账中该场景已过生效日，本周仍出现同类工单 →
@@ -250,7 +304,7 @@ def render_html(m: Dict) -> str:
    分类口径唯一来源：pmwb_complaint_category 字典表｜{m['week']}</div>
 </div>
 
-<script src="assets/echarts.min.js"></script>
+{echarts_tag}
 <script>
 echarts.init(document.getElementById('pie')).setOption({{
   tooltip:{{trigger:'item',formatter:'{{b}}：{{c}} 单（{{d}}%）'}},
@@ -277,7 +331,8 @@ echarts.init(document.getElementById('trend')).setOption({{
 </html>"""
 
 
-def write_report(m: Dict, out_dir: Optional[Path] = None) -> Path:
+def write_report(m: Dict, out_dir: Optional[Path] = None,
+                 problems: Optional[List[Dict]] = None) -> Path:
     """写出 HTML 与图表资源，返回 HTML 路径。"""
     out_dir = Path(out_dir or C.REPORT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -288,5 +343,5 @@ def write_report(m: Dict, out_dir: Optional[Path] = None) -> Path:
         shutil.copy2(ECHARTS_SRC, target_js)
 
     html_path = out_dir / f"客诉周报_{m['week']}.html"
-    html_path.write_text(render_html(m), encoding="utf-8")
+    html_path.write_text(render_html(m, problems), encoding="utf-8")
     return html_path

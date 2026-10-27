@@ -91,7 +91,8 @@ def _create_issue(db: Session, l1: str, l2: str, title: str, owner: str,
 
 
 def add(db: Session, l2: str, title: str, owner: str, due: Optional[date],
-        acceptance: str, create_issue: bool, desc: str = "") -> Dict:
+        acceptance: str, create_issue: bool, desc: str = "",
+        problem_nos: Optional[List[str]] = None) -> Dict:
     row = db.execute(text(
         "SELECT parent_name FROM pmwb_complaint_category WHERE level = 2 AND name = :n"
     ), {"n": l2}).scalar()
@@ -123,7 +124,21 @@ def add(db: Session, l2: str, title: str, owner: str, due: Optional[date],
         "now_ts": datetime.now(),
     })
     db.commit()
-    return {"action_no": action_no, "issue_id": issue_id, "issue_no": issue_no, "l1": l1}
+
+    # 关联共性问题（多对多；个别关联失败不阻断措施登记，收集 warnings）
+    warnings: List[str] = []
+    if problem_nos:
+        from services.complaint.problems import link_action
+        for pno in problem_nos:
+            try:
+                r = link_action(db, pno, action_no, linked_by=owner,
+                                note="登记措施时关联")
+                if r.get("warning"):
+                    warnings.append(r["warning"])
+            except ValueError as e:
+                warnings.append(f"问题 {pno} 关联失败：{e}")
+    return {"action_no": action_no, "issue_id": issue_id, "issue_no": issue_no,
+            "l1": l1, "warnings": warnings}
 
 
 def baseline_for(db: Session, l2: str, go_live: date, weeks: int = C.BASELINE_WEEKS) -> float:
@@ -146,7 +161,11 @@ def week_count(db: Session, l2: str, week: str) -> int:
 
 
 def verify(db: Session) -> List[Dict]:
-    """结算验证中的措施：更新基线/最近一周单量/实际降幅，到观察期满自动定论。"""
+    """结算验证中的措施：更新基线/最近一周单量/实际降幅，到观察期满自动定论。
+
+    状态变化一律经 services.complaint.update_status（注册表校验 + 工单联动钩子）；
+    状态不变时仅刷新有效性指标。个别流转缺必填（如 owner）不阻断其余措施结算。
+    """
     rows = db.execute(text("""
         SELECT id, action_no, category_l2, go_live_date, verify_weeks, baseline_cnt, target_drop_pct, status
         FROM pmwb_complaint_action
@@ -172,27 +191,39 @@ def verify(db: Session) -> List[Dict]:
         if elapsed_weeks >= (a["verify_weeks"] or C.DEFAULT_VERIFY_WEEKS) and drop is not None:
             new_status = "effective" if drop >= (a["target_drop_pct"] or C.DEFAULT_TARGET_DROP_PCT) else "ineffective"
 
-        db.execute(text("""
-            UPDATE pmwb_complaint_action
-            SET baseline_cnt = :b, last_week_cnt = :l, actual_drop_pct = :d,
-                status = :st, updated_at = :now_ts
-            WHERE id = :i
-        """), {"b": baseline, "l": last_cnt, "d": drop, "st": new_status, "i": a["id"],
-               "now_ts": datetime.now()})
+        metrics_payload = {"baseline_cnt": baseline, "last_week_cnt": last_cnt,
+                           "actual_drop_pct": drop}
+        error = ""
+        if new_status != a["status"]:
+            from services.complaint import update_status  # 唯一写入口（懒加载防循环）
+            try:
+                update_status(db, a["action_no"], new_status, metrics_payload)
+            except ValueError as e:
+                error = str(e)
+        if error or new_status == a["status"]:
+            db.execute(text("""
+                UPDATE pmwb_complaint_action
+                SET baseline_cnt = :b, last_week_cnt = :l, actual_drop_pct = :d,
+                    updated_at = :now_ts
+                WHERE id = :i
+            """), {"b": baseline, "l": last_cnt, "d": drop, "i": a["id"],
+                   "now_ts": datetime.now()})
         results.append({"action_no": a["action_no"], "l2": l2, "baseline": baseline,
-                        "last_week": last_cnt, "drop": drop, "status": new_status})
+                        "last_week": last_cnt, "drop": drop,
+                        "status": new_status if not error else a["status"],
+                        **({"error": error} if error else {})})
     db.commit()
     return results
 
 
 def mark_go_live(db: Session, action_no: str, go_live: date) -> None:
-    db.execute(text("""
-        UPDATE pmwb_complaint_action
-        SET go_live_date = :g, baseline_cnt = :b, status = 'verifying', updated_at = :now_ts
-        WHERE action_no = :no
-    """), {"g": go_live, "b": baseline_for(db, _l2_of(db, action_no), go_live), "no": action_no,
-           "now_ts": datetime.now()})
-    db.commit()
+    """标记生效并绑基线（状态流转收敛到 services.complaint.update_status 唯一入口，
+    自动触发工单单步推进联动）。"""
+    from services.complaint import update_status  # 懒加载防循环
+    update_status(db, action_no, "verifying", {
+        "go_live_date": str(go_live),
+        "baseline_cnt": baseline_for(db, _l2_of(db, action_no), go_live),
+    })
 
 
 def _l2_of(db: Session, action_no: str) -> str:
@@ -203,10 +234,15 @@ def _l2_of(db: Session, action_no: str) -> str:
 
 def list_actions(db: Session) -> List[Dict]:
     rows = db.execute(text("""
-        SELECT action_no, category_l1, category_l2, title, owner, due_date, go_live_date,
-               baseline_cnt, target_drop_pct, last_week_cnt, actual_drop_pct, status, issue_no
-        FROM pmwb_complaint_action
-        ORDER BY FIELD(status,'ineffective','verifying','in_progress','planned','effective','cancelled'), due_date
+        SELECT a.action_no, a.category_l1, a.category_l2, a.title, a.owner, a.due_date,
+               a.go_live_date, a.baseline_cnt, a.target_drop_pct, a.last_week_cnt,
+               a.actual_drop_pct, a.status, a.issue_no,
+               (SELECT l.problem_no FROM pmwb_complaint_problem_action l
+                 WHERE l.action_no = a.action_no ORDER BY l.id LIMIT 1) AS problem_no,
+               (SELECT COUNT(*) FROM pmwb_complaint_problem_action l
+                 WHERE l.action_no = a.action_no) AS problem_cnt
+        FROM pmwb_complaint_action a
+        ORDER BY FIELD(a.status,'ineffective','verifying','in_progress','planned','effective','cancelled'), a.due_date
     """)).mappings().all()
     return [dict(r) for r in rows]
 

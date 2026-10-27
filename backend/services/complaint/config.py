@@ -44,6 +44,17 @@ DEFAULT_TARGET_DROP_PCT = 50.0   # 目标降幅（%）
 DEFAULT_VERIFY_WEEKS = 4         # 连续观察周数
 BASELINE_WEEKS = 4               # 基线取措施上线前 N 周均值
 
+# ── 共性问题识别（problems.py 唯一读取处；R1 日阈值复用 BATCH_DAILY_THRESHOLD） ──
+PROBLEM_BATCH_WEEK_MIN = 8       # R1 批量簇：除日阈值外，当周该场景累计 >= 8 单
+PROBLEM_TOP_SCENE_N = 3          # R2 场景TOP：取当周场景 TOP N
+PROBLEM_TOP_SCENE_MIN = 8        # R2 且单量 >= 8（防小基数误报）
+PROBLEM_SURGE_PCT = 100.0        # R3 环比激增：环比 >= 100%
+PROBLEM_SURGE_MIN = 5            # R3 且当周绝对量 >= 5
+PROBLEM_CLOSE_QUIET_WEEKS = 2    # 闭环建议：连续 N 周零复发
+PROBLEM_ACTIVE_MAX_WEEKS = 12    # 在办超 N 周 → 台账/周报标"长期未闭环"
+# 多规则同命中时的主规则强度序（高→低）
+PROBLEM_SOURCE_STRENGTH = ("batch_cluster", "surge", "top_scene", "recur")
+
 # ── 接口 ──────────────────────────────────────────────────────
 API_BASE = "http://127.0.0.1:8000/api/v1"
 

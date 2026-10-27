@@ -9,7 +9,7 @@ import re
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -626,13 +626,27 @@ class TaskCenterService:
         = action_no（非数字主键，_source_row/_split_sid 已按前缀特判）。
         """
         from db.models import PmwbComplaintAction
+        from db.models import PmwbComplaintProblem as _Problem
 
         rows = db.query(PmwbComplaintAction).all()
+        # 所属共性问题（一措施可挂多问题，展示首问题号；问题不入任务中心，仅详情可见）
+        links = db.execute(text(
+            "SELECT l.action_no, p.problem_no, p.status "
+            "FROM pmwb_complaint_problem_action l "
+            "JOIN pmwb_complaint_problem p ON p.problem_no = l.problem_no "
+            "ORDER BY l.id"
+        )).fetchall()
+        problem_of: dict = {}
+        for _ano, _pno, _pst in links:
+            problem_of.setdefault(_ano, []).append((_pno, _pst))
+        _p_labels = status_registry.labels_for("complaint_problem")
         items: List[TaskItem] = []
         for r in rows:
             status_u = status_registry.to_unified("complaint_action", r.status)
             due = r.due_date
             flags = flag_due_date(due, status_u, due_soon_days=DUE_SOON_DAYS)
+            p_links = problem_of.get(r.action_no) or []
+            p_label = "、".join(pno for pno, _ in p_links) if p_links else "—"
             items.append(TaskItem(
                 task_id=f"complaint_action:{r.action_no}",
                 source="complaint_action",
@@ -655,6 +669,9 @@ class TaskCenterService:
                     "上周单量": str(r.last_week_cnt) if r.last_week_cnt is not None else "—",
                     "实际降幅": f"{r.actual_drop_pct}%" if r.actual_drop_pct is not None else "—",
                     "关联工单": r.issue_no or "—",
+                    "所属共性问题": p_label,
+                    "问题状态": "、".join(
+                        _p_labels.get(pst, pst) for _, pst in p_links) if p_links else "—",
                 },
                 **flags,
             ))

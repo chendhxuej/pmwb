@@ -66,6 +66,57 @@ def latest_week(db: Session) -> str:
     return row or ""
 
 
+# ── 证据口径抽提（共性问题识别 problems.py 与 collect 共用，防第二份实现） ──
+def scene_week_counts(db: Session, week: str) -> Dict[str, int]:
+    """某自然周各二级场景单量 {l2: cnt}（周单量唯一实现）。"""
+    start, end = week_bounds(week)
+    rows = db.execute(text(
+        "SELECT category_l2, COUNT(*) AS cnt FROM pmwb_complaint_ticket "
+        "WHERE category_l2 IS NOT NULL AND category_l2 <> '' "
+        "AND created_time >= :s AND created_time < :e "
+        "GROUP BY category_l2"
+    ), {"s": start, "e": end}).fetchall()
+    return {r[0]: int(r[1]) for r in rows}
+
+
+def scene_wow(db: Session, week: str) -> Dict[str, Dict]:
+    """某自然周各二级场景环比 {l2: {cur, prev, wow}}（环比唯一实现）。"""
+    pw = prev_week(week)
+    cur = scene_week_counts(db, week)
+    prev = scene_week_counts(db, pw)
+    out: Dict[str, Dict] = {}
+    for l2 in set(cur) | set(prev):
+        c, p = cur.get(l2, 0), prev.get(l2, 0)
+        wow = round((c - p) / p * 100, 1) if p else None
+        out[l2] = {"cur": c, "prev": p, "wow": wow}
+    return out
+
+
+def daily_clusters(db: Session, weeks: Optional[List[str]] = None) -> List[Dict]:
+    """批量簇聚合唯一实现：读取派生字段 cluster_key（由 ingest.refresh_derived 打标），
+    按 cluster_key 聚合返回 [{key, l2, date, cnt, tickets}]。
+    problems.R1 判定与周报批量专题共用；调用方须先完成 refresh_derived。
+    """
+    f_week = ""
+    params: Dict = {}
+    if weeks:
+        for i, w in enumerate(weeks):
+            params[f"w{i}"] = w
+        in_list = ",".join(f":w{i}" for i in range(len(weeks)))
+        f_week = f" AND week IN ({in_list})"
+    rows = db.execute(text(
+        "SELECT ticket_no, category_l2, cluster_key FROM pmwb_complaint_ticket "
+        "WHERE cluster_key IS NOT NULL AND cluster_key <> ''" + f_week
+    ), params).fetchall()
+    clusters: Dict[str, Dict] = {}
+    for no, l2, ck in rows:
+        c = clusters.setdefault(ck, {"key": ck, "l2": l2, "date": ck.split("@")[-1],
+                                     "cnt": 0, "tickets": []})
+        c["cnt"] += 1
+        c["tickets"].append(no)
+    return sorted(clusters.values(), key=lambda x: -x["cnt"])
+
+
 # ── 文本判定 ──────────────────────────────────────────────────
 def _opinion_count(solution: str) -> int:
     return len(_OPINION_RE.findall(solution or ""))
@@ -110,17 +161,15 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
         "WHERE created_time >= :s AND created_time < :e"
     ), {"s": p_start, "e": p_end}).scalar() or 0
 
-    # 结构
+    # 结构（二级场景单量走唯一实现，防第二份口径）
     by_l1: Dict[str, int] = {}
-    by_l2: Dict[str, int] = {}
     by_city: Dict[str, int] = {}
     by_handler: Dict[str, int] = {}
     for r in rows:
         by_l1[r["category_l1"] or "未分类"] = by_l1.get(r["category_l1"] or "未分类", 0) + 1
-        if r["category_l2"]:
-            by_l2[r["category_l2"]] = by_l2.get(r["category_l2"], 0) + 1
         by_city[r["city"] or "未知"] = by_city.get(r["city"] or "未知", 0) + 1
         by_handler[r["handler"] or "未分配"] = by_handler.get(r["handler"] or "未分配", 0) + 1
+    by_l2: Dict[str, int] = scene_week_counts(db, week)
 
     l2_to_l1 = {r[0]: r[1] for r in db.execute(text(
         "SELECT name, parent_name FROM pmwb_complaint_category WHERE level = 2"
@@ -226,10 +275,12 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
 
     # 措施台账
     actions = db.execute(text("""
-        SELECT action_no, title, category_l2, owner, due_date, go_live_date, status,
-               baseline_cnt, target_drop_pct, last_week_cnt, actual_drop_pct, issue_no
-        FROM pmwb_complaint_action
-        ORDER BY FIELD(status,'ineffective','verifying','in_progress','planned','effective','cancelled'), due_date
+        SELECT a.action_no, a.title, a.category_l2, a.owner, a.due_date, a.go_live_date, a.status,
+               a.baseline_cnt, a.target_drop_pct, a.last_week_cnt, a.actual_drop_pct, a.issue_no,
+               (SELECT l.problem_no FROM pmwb_complaint_problem_action l
+                 WHERE l.action_no = a.action_no ORDER BY l.id LIMIT 1) AS problem_no
+        FROM pmwb_complaint_action a
+        ORDER BY FIELD(a.status,'ineffective','verifying','in_progress','planned','effective','cancelled'), a.due_date
     """)).mappings().all()
     action_by_status: Dict[str, int] = {}
     for a in actions:

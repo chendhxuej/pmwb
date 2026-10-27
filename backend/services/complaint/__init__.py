@@ -21,7 +21,16 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from constants import status_registry
-from services.complaint import actions, classify, config, ingest, metrics, pipeline, report  # noqa: F401
+from services.complaint import (  # noqa: F401
+    actions,
+    classify,
+    config,
+    ingest,
+    metrics,
+    pipeline,
+    problems,
+    report,
+)
 from services.complaint.config import BATCH_DAILY_THRESHOLD, RETENTION_DAYS  # noqa: F401
 
 
@@ -75,7 +84,13 @@ def update_status(db: Session, action_no: str, target: str,
     if payload.get("note") is not None:
         sets.append("note = :note")
         params["note"] = payload["note"]
-    if target == "verifying" and payload.get("go_live_date") and not row.get("go_live_date"):
+    # 有效性五件套白名单（verify 结算收敛到本函数后经此落库）
+    for k in ("baseline_cnt", "last_week_cnt", "actual_drop_pct"):
+        if payload.get(k) is not None:
+            sets.append(f"{k} = :{k}")
+            params[k] = payload[k]
+    if target == "verifying" and payload.get("go_live_date") and not row.get("go_live_date") \
+            and payload.get("baseline_cnt") is None:
         # 首次进入验证期：绑定基线（生效日前 N 周该场景周均单量）
         from datetime import date as _date
         try:
@@ -83,15 +98,22 @@ def update_status(db: Session, action_no: str, target: str,
         except ValueError:
             g = None
         if g:
-            row["baseline_cnt"] = actions.baseline_for(db, row["category_l2"], g)
+            baseline = actions.baseline_for(db, row["category_l2"], g)
             sets.append("baseline_cnt = :baseline")
-            params["baseline"] = row["baseline_cnt"]
+            params["baseline"] = baseline
 
+    old_status = row["status"]
     db.execute(text(
         f"UPDATE pmwb_complaint_action SET {', '.join(sets)} WHERE action_no = :no"
     ), params)
     db.commit()
-    return get_action(db, action_no)
+    result = get_action(db, action_no)
+    # 措施→运营工单状态联动（go-live 单步推进 / effective 置 resolved）
+    try:
+        problems.after_action_status(db, action_no, old_status, target)
+    except Exception as e:  # 联动失败不阻断主流转
+        print(f"[WARN] 措施→工单联动异常: {e}")
+    return result
 
 
 def urge_candidates(db: Session) -> list:
