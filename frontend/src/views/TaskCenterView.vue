@@ -437,6 +437,7 @@ const SOURCE_LABELS = {
   requirement_urge: '需求催办',
   active_optimization: '主动优化',
   sensitive_req: '敏感需求',
+  complaint_action: '客诉措施',
 }
 
 // 当前来源：优先地址栏 ?source=（总览下钻自动设置检索条件），其次旧二级路由 meta.source（现已废弃恒空）；空 = 全部任务。
@@ -455,6 +456,7 @@ const pageTitle = computed(() =>
 const pageSubtitle = computed(() => {
   if (activeSource.value === 'requirement_urge') return '待催办需求（团队评估环节，按 SA 分组催办）'
   if (activeSource.value === 'sensitive_req') return '敏感需求（P0/P1 倒排跟踪，需求×团队×阶段督办）'
+  if (activeSource.value === 'complaint_action') return '客诉改进措施（压降闭环：基线→生效→降幅验证）'
   if (activeSource.value) return '该来源任务列表（在办口径，不含已完成/挂起）'
   return '需求催办 / 邮件中心 / 运营监控 —— 三端任务聚合（在办口径）'
 })

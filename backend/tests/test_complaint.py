@@ -243,3 +243,40 @@ def test_clusters_empty(client: TestClient, db):
     resp = client.get("/api/v1/complaint/clusters")
     assert resp.status_code == 200
     assert resp.json()["data"]["clusters"] == []
+
+
+# ─────────────────────────────────────────────────────────────
+# 5. 任务中心集成（8→9 来源）
+# ─────────────────────────────────────────────────────────────
+def test_task_center_collects_complaint_action(db):
+    from schemas.task_center import TASK_SOURCES
+    from services.task_center import task_center_service
+
+    assert "complaint_action" in TASK_SOURCES
+    _make_action(db, owner="吴胜捷", status="in_progress")
+    items = task_center_service._collect(db, ["complaint_action"])
+    assert len(items) == 1
+    it = items[0]
+    assert it.task_id == "complaint_action:CACT-2026W44-01"
+    assert it.source_id == "CACT-2026W44-01"
+    assert it.status == "in_progress"
+    assert it.owner == "吴胜捷"
+    assert it.detail["针对场景"] == "电视与机顶盒账号未同步"
+    assert it.source_url.startswith("/operation/complaint-center/actions")
+
+
+def test_task_center_status_change_complaint_action(client: TestClient, db):
+    """任务中心统一端点就地改状态：校验链 + 服务层副作用（绑基线）。"""
+    _make_action(db, owner="吴胜捷")
+    # 非法流转拒绝
+    resp = client.patch("/api/v1/task-center/tasks/complaint_action/CACT-2026W44-01/status",
+                        json={"status": "effective"})
+    assert resp.status_code in (400, 422)
+    # 合法流转：planned → in_progress
+    resp = client.patch("/api/v1/task-center/tasks/complaint_action/CACT-2026W44-01/status",
+                        json={"status": "in_progress"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["raw_status"] == "in_progress"
+    db.expire_all()
+    row = db.query(PmwbComplaintAction).filter_by(action_no="CACT-2026W44-01").first()
+    assert row.status == "in_progress"

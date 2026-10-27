@@ -23,6 +23,7 @@ const STATUS_LABELS = { pending: '待处理', in_progress: '进行中', done: '�
 const MATRIX_STATUSES = ['pending', 'in_progress'];
 // 2026-10-15：key_work（重点工作）已移出任务来源，来源数组随之后收为 7 项
 // 2026-10-25：新增 sensitive_req（敏感需求跟踪）为第 8 项
+// 2026-10-27：新增 complaint_action（客诉改进措施）为第 9 项
 const SOURCES = [
   { key: 'todo', label: '个人待办', slug: 'todo' },
   { key: 'operation_issue', label: '运营问题', slug: 'operation-issue' },
@@ -32,6 +33,7 @@ const SOURCES = [
   { key: 'requirement_urge', label: '需求催办', slug: 'requirement-urge' },
   { key: 'active_optimization', label: '主动优化', slug: 'active-optimization' },
   { key: 'sensitive_req', label: '敏感需求', slug: 'sensitive-req' },
+  { key: 'complaint_action', label: '客诉措施', slug: 'complaint-action' },
 ];
 
 const log = [];

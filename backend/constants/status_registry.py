@@ -511,6 +511,8 @@ SOURCE_DOMAIN: Dict[str, str] = {
     "requirement_urge": "requirement_urge",
     # 2026-10-25：敏感需求任务来源 → 本地跟踪态域（raw_status=track_status）
     "sensitive_req": "sensitive_req_track",
+    # 2026-10-27：客诉改进措施 → 措施台账状态域
+    "complaint_action": "complaint_action",
     "key_work": "keywork",   # 占位，实际由 _KEYWORK_PREFIX 解析
 }
 

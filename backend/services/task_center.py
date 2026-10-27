@@ -614,8 +614,49 @@ class TaskCenterService:
                     ),
                     "督办次数": str(row.urge_count or 0),
                 },
-                is_overdue=bool(overdue_ms),
-                is_due_soon=bool(due_soon_ms),
+            is_overdue=bool(overdue_ms),
+            is_due_soon=bool(due_soon_ms),
+        ))
+        return items
+
+    def collect_complaint_action(self, db: Session) -> List[TaskItem]:
+        """客诉改进措施（2026-10-27）：pmwb_complaint_action 全量入列（对齐
+        collect_operation_issue 全量模式，终态由统一态映射呈现，保障就地
+        改状态后 get_detail 回读不丢）。状态域 complaint_action，source_id
+        = action_no（非数字主键，_source_row/_split_sid 已按前缀特判）。
+        """
+        from db.models import PmwbComplaintAction
+
+        rows = db.query(PmwbComplaintAction).all()
+        items: List[TaskItem] = []
+        for r in rows:
+            status_u = status_registry.to_unified("complaint_action", r.status)
+            due = r.due_date
+            flags = flag_due_date(due, status_u, due_soon_days=DUE_SOON_DAYS)
+            items.append(TaskItem(
+                task_id=f"complaint_action:{r.action_no}",
+                source="complaint_action",
+                source_label=SOURCE_LABELS["complaint_action"],
+                source_id=r.action_no,
+                title=f"[{r.action_no}] {r.title or ''}",
+                status=status_u,
+                status_label=STATUS_LABELS[status_u],
+                raw_status=r.status or "",
+                owner=r.owner or "",
+                priority="P1",
+                due_date=due,
+                created_at=r.created_at.date() if r.created_at else None,
+                source_url=f"/operation/complaint-center/actions?action_no={r.action_no}",
+                detail={
+                    "措施编号": r.action_no,
+                    "针对场景": r.category_l2 or "—",
+                    "要求完成": due.isoformat() if due else "未填",
+                    "基线/目标": f"{r.baseline_cnt if r.baseline_cnt is not None else '—'} / 降{r.target_drop_pct or 50}%",
+                    "上周单量": str(r.last_week_cnt) if r.last_week_cnt is not None else "—",
+                    "实际降幅": f"{r.actual_drop_pct}%" if r.actual_drop_pct is not None else "—",
+                    "关联工单": r.issue_no or "—",
+                },
+                **flags,
             ))
         return items
 
@@ -635,6 +676,8 @@ class TaskCenterService:
         "active_optimization": "collect_active_optimization",
         # 2026-10-25：敏感需求跟踪（P0/P1 倒排督办），req 粒度，仅「在跟池」入列
         "sensitive_req": "collect_sensitive_req",
+        # 2026-10-27：客诉改进措施（压降闭环），action_no 粒度，全量入列
+        "complaint_action": "collect_complaint_action",
     }
 
     def collect_with_report(
@@ -904,12 +947,20 @@ class TaskCenterService:
         "handler": "处理人",
         "vendor_handlers": "厂家责任人",
         "assignee": "负责人",
+        "owner": "责任人",
+        "go_live_date": "生效日",
     }
 
     @staticmethod
     def _split_sid(source_id: str) -> str:
-        """key_work 的 source_id 形如 task-12 / milestone-3；其余为纯 id。"""
-        return source_id.split("-", 1)[1] if "-" in source_id else source_id
+        """key_work 的 source_id 形如 task-12 / milestone-3；其余为纯 id。
+
+        仅当首段为 key_work 前缀时才切分；CACT-xxx 等带连字符的业务单号原样返回。
+        """
+        first = (source_id or "").split("-", 1)[0]
+        if first in ("task", "milestone", "month", "week") and "-" in (source_id or ""):
+            return source_id.split("-", 1)[1]
+        return source_id or ""
 
     def _source_row(self, db: Session, source: str, source_id: str):
         """按 source(+source_id) 取回源表 ORM 行（用于读原值 / 字段校验）。"""
@@ -925,6 +976,13 @@ class TaskCenterService:
         )
 
         rid = self._split_sid(source_id)
+        # 2026-10-27：客诉措施 source_id = action_no（非数字主键，先于 int 转换特判）
+        if source == "complaint_action":
+            from db.models import PmwbComplaintAction
+
+            return db.query(PmwbComplaintAction).filter(
+                PmwbComplaintAction.action_no == rid
+            ).first()
         try:
             rid_i = int(rid)
         except (TypeError, ValueError):
@@ -999,6 +1057,16 @@ class TaskCenterService:
             from services.active_optimization import active_optimization_service
 
             active_optimization_service.update(db, int(raw_id), {"status": target})
+            return
+        if domain == "complaint_action":
+            from services import complaint as complaint_service
+
+            try:
+                complaint_service.update_status(
+                    db, raw_id, target, {"note": payload.note or ""}
+                )
+            except ValueError as e:
+                raise ValidationException(str(e))
             return
         if domain == "meeting_action":
             from services.meeting import meeting_service

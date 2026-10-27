@@ -24,6 +24,7 @@ TASK_SOURCES = [
     "requirement_urge",    # 待催办需求（sent_emails 派生）
     "active_optimization", # 主动优化建议
     "sensitive_req",       # 敏感需求跟踪（P0/P1 倒排督办，2026-10-25）
+    "complaint_action",    # 客诉改进措施（pmwb_complaint_action，2026-10-27）
 ]
 
 SOURCE_LABELS = {
@@ -35,6 +36,7 @@ SOURCE_LABELS = {
     "requirement_urge": "需求催办",
     "active_optimization": "主动优化",
     "sensitive_req": "敏感需求",
+    "complaint_action": "客诉措施",
 }
 
 # 统一状态标签（统一态 bus 的中文名，源自注册表 UNIFIED_LABELS）
