@@ -123,6 +123,24 @@
         </div>
       </section>
 
+      <!-- 共性问题闭环 -->
+      <section class="card">
+        <div class="card-header">
+          <h3>共性问题闭环（候选 → 入账 → 挂措施 → 周验证 → 闭环）</h3>
+          <el-button size="small" text type="primary" @click="$router.push('/operation/complaint-center/problems')">
+            进入问题台账 →
+          </el-button>
+        </div>
+        <div class="card-body">
+          <div class="pm-stat-grid pm-stat-grid--4">
+            <div v-for="s in problemStatItems" :key="s.label" class="pm-stat">
+              <div class="pm-stat__top" :style="{ color: s.color }">{{ s.cnt }}</div>
+              <div class="pm-stat__label">{{ s.label }}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- 处理人负荷（并入运营监控统一口径 /operation/stats/by-handler 的 complaint 键） -->
       <section class="card">
         <div class="card-header">
@@ -240,6 +258,17 @@ const actionStatItems = computed(() => {
   ]
 })
 
+const problemRows = ref([])
+const problemStatItems = computed(() => {
+  const inflight = problemRows.value.filter(r => ['open', 'resolving'].includes(r.status))
+  return [
+    { label: '待确认候选', cnt: problemRows.value.filter(r => r.status === 'candidate').length, color: 'var(--warning)' },
+    { label: '在办问题', cnt: inflight.length, color: 'var(--accent)' },
+    { label: '闭环后待重开', cnt: problemRows.value.filter(r => r.reopen_flag).length, color: 'var(--danger)' },
+    { label: '已闭环', cnt: problemRows.value.filter(r => r.status === 'closed').length, color: 'var(--success)' },
+  ]
+})
+
 async function loadAll() {
   loading.value = true
   try {
@@ -255,6 +284,13 @@ async function loadAll() {
     handlerRows.value = byHandler?.complaint?.handlers || []
   } catch (e) {
     handlerRows.value = []
+  }
+  // 共性问题闭环概览
+  try {
+    const pd = await complaintApi.listProblems({ page_size: 200 })
+    problemRows.value = pd?.items || []
+  } catch (e) {
+    problemRows.value = []
   }
 }
 

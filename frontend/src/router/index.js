@@ -117,6 +117,12 @@ const routes = [
                 component: () => import('@/views/complaint/ComplaintActionLedger.vue'),
                 meta: { title: '措施台账' },
               },
+              {
+                path: 'problems',
+                name: 'ComplaintProblemLedger',
+                component: () => import('@/views/complaint/ProblemLedger.vue'),
+                meta: { title: '问题台账' },
+              },
             ],
           },
           // ── 一线调研已升级为一级模块，此处仅保留旧深链重定向 ──

@@ -70,4 +70,44 @@ export const complaintApi = {
       timeout: 300000,
     })
   },
+
+  // ── 共性问题台账（闭环管理）──
+  listProblems(params) {
+    return request.get('/complaint/problems', { params })
+  },
+  listCandidates() {
+    return request.get('/complaint/problems/candidates')
+  },
+  scanProblems(week, dryRun = true) {
+    return request.post('/complaint/problems/scan', null, {
+      params: { ...(week ? { week } : {}), dry_run: dryRun },
+    })
+  },
+  createProblem(data) {
+    return request.post('/complaint/problems', data)
+  },
+  getProblem(problemNo) {
+    return request.get(`/complaint/problems/${problemNo}`)
+  },
+  updateProblem(problemNo, data) {
+    return request.put(`/complaint/problems/${problemNo}`, data)
+  },
+  changeProblemStatus(problemNo, data) {
+    return request.patch(`/complaint/problems/${problemNo}/status`, data)
+  },
+  confirmProblem(problemNo, data) {
+    return request.post(`/complaint/problems/${problemNo}/confirm`, data)
+  },
+  linkProblemAction(problemNo, data) {
+    return request.post(`/complaint/problems/${problemNo}/actions`, data)
+  },
+  unlinkProblemAction(problemNo, actionNo) {
+    return request.delete(`/complaint/problems/${problemNo}/actions/${actionNo}`)
+  },
+  closureSuggestions() {
+    return request.get('/complaint/problems/closure-suggestions')
+  },
+  problemsUrge(data) {
+    return request.post('/complaint/problems/urge-preview', data)
+  },
 }

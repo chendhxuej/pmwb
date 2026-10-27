@@ -44,6 +44,13 @@
         <el-switch v-model="form.create_issue" />
         <span class="switch-tip">同时在运营监控创建 P1 工单做督办载体（父子关联）</span>
       </el-form-item>
+      <el-form-item v-if="!isEdit" label="所属问题">
+        <el-select v-model="form.problem_nos" multiple filterable clearable
+          placeholder="关联共性问题（可多选，仅已入账问题）" style="width: 100%">
+          <el-option v-for="p in problemOptions" :key="p.problem_no"
+            :label="`${p.problem_no} ${p.title}`" :value="p.problem_no" />
+        </el-select>
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">取消</el-button>
@@ -66,10 +73,12 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 
 const saving = ref(false)
 const categories = ref([])
+const problems = ref([])
 const isEdit = computed(() => !!props.action)
 
 const form = reactive({
   l2: '', title: '', owner: '', due_date: '', acceptance: '', desc: '', create_issue: true,
+  problem_nos: [],
 })
 
 watch(() => props.modelValue, async (open) => {
@@ -77,6 +86,10 @@ watch(() => props.modelValue, async (open) => {
   try {
     categories.value = await complaintApi.listCategories()
   } catch (e) { /* request 已提示 */ }
+  try {
+    const pd = await complaintApi.listProblems({ status: 'open,resolving', page_size: 200 })
+    problems.value = pd?.items || []
+  } catch (e) { problems.value = [] }
   if (props.action) {
     Object.assign(form, {
       l2: props.action.category_l2 || '',
@@ -86,11 +99,15 @@ watch(() => props.modelValue, async (open) => {
       acceptance: props.action.acceptance || '',
       desc: props.action.note || '',
       create_issue: false,
+      problem_nos: [],
     })
   } else {
-    Object.assign(form, { l2: '', title: '', owner: '', due_date: '', acceptance: '', desc: '', create_issue: true })
+    Object.assign(form, { l2: '', title: '', owner: '', due_date: '', acceptance: '', desc: '', create_issue: true, problem_nos: [] })
   }
 })
+
+// 仅已入账问题可关联（候选须先在问题台账确认）
+const problemOptions = computed(() => problems.value)
 
 // 二级场景按一级性质分组展示（group 标记用于渲染分组头）
 const l2Groups = computed(() => {
@@ -134,8 +151,10 @@ async function save() {
   }
   saving.value = true
   try {
-    const r = await complaintApi.createAction({ ...form })
-    ElMessage.success(`已登记措施 ${r.action_no}${r.issue_no ? `，并创建运营工单 ${r.issue_no}` : ''}`)
+    const payload = { ...form, problem_nos: form.problem_nos || [] }
+    const r = await complaintApi.createAction(payload)
+    const warn = (r.warnings || []).join('；')
+    ElMessage.success(`已登记措施 ${r.action_no}${r.issue_no ? `，并创建运营工单 ${r.issue_no}` : ''}${warn ? `；提示：${warn}` : ''}`)
     emit('saved')
     emit('update:modelValue', false)
   } catch (e) { /* request 已提示 */ } finally {

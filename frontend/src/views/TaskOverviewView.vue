@@ -148,6 +148,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Document, Check, Warning, Search, Tools, Calendar, Bell, MagicStick, Timer,
+  DataAnalysis,
 } from '@element-plus/icons-vue'
 import OwnerMatrix from '@/components/Common/OwnerMatrix.vue'
 import TaskBatchSuperviseDialog from '@/components/Common/TaskBatchSuperviseDialog.vue'
@@ -177,6 +178,7 @@ const SOURCE_META = [
   { key: 'requirement_urge', label: '需求催办', icon: Bell, tone: 'warning', slug: 'requirement-urge' },
   { key: 'active_optimization', label: '主动优化', icon: MagicStick, tone: 'success', slug: 'active-optimization' },
   { key: 'sensitive_req', label: '敏感需求', icon: Timer, tone: 'danger', slug: 'sensitive-req' },
+  { key: 'complaint_action', label: '客诉措施', icon: DataAnalysis, tone: 'danger', slug: 'complaint-action' },
 ]
 
 // 摘要 chips 用的来源简称（控制宽度）
@@ -189,6 +191,7 @@ const SOURCE_SHORT = {
   requirement_urge: '催办',
   active_optimization: '优化',
   sensitive_req: '敏感',
+  complaint_action: '客诉',
 }
 
 // 矩阵文案：与运营监控「责任人分布」区分开（维度是任务来源而非工单类别）

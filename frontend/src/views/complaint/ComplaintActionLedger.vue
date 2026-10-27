@@ -36,12 +36,27 @@
       <el-table-column label="状态" width="112" align="center">
         <template #default="{ row }">
           <el-tag :type="statusTone(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          <el-tooltip v-if="(row.note || '').includes('待补')" content="工单已解决，待补生效日/责任人后进入验证">
+            <span class="warn-mark">⚠</span>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column label="关联工单" width="130">
         <template #default="{ row }">
           <el-link v-if="row.issue_no" type="primary" size="small" @click="goIssue(row)">
             {{ row.issue_no }}
+          </el-link>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="所属问题" width="140">
+        <template #default="{ row }">
+          <el-link
+            v-if="row.problem_no"
+            type="warning" size="small"
+            @click="$router.push(`/operation/complaint-center/problems?problem_no=${row.problem_no}`)"
+          >
+            {{ row.problem_no }}<template v-if="row.problem_cnt > 1"> +{{ row.problem_cnt - 1 }}</template>
           </el-link>
           <span v-else>—</span>
         </template>
@@ -307,6 +322,11 @@ onMounted(load)
 }
 .drop-bad {
   color: var(--danger);
+}
+.warn-mark {
+  margin-left: 4px;
+  color: var(--warning);
+  cursor: help;
 }
 .gl-tip,
 .urge-tip {

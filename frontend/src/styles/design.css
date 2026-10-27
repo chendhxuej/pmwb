@@ -258,6 +258,7 @@ body {
 .pm-stat-grid--4 { --pm-stat-cols: 4 }
 .pm-stat-grid--5 { --pm-stat-cols: 5 }
 .pm-stat-grid--6 { --pm-stat-cols: 6 }
+.pm-stat-grid--7 { --pm-stat-cols: 7 }
 
 /* ── 指标卡本体（蓝本：TodoView .stat-tile / OperationView .cat-tile） ── */
 .pm-stat {
@@ -417,7 +418,8 @@ body {
   .pm-stat-grid--3,
   .pm-stat-grid--4,
   .pm-stat-grid--5,
-  .pm-stat-grid--6 { --pm-stat-cols: 2 }
+  .pm-stat-grid--6,
+  .pm-stat-grid--7 { --pm-stat-cols: 2 }
   .pm-col-4, .pm-col-5, .pm-col-7, .pm-col-8 { grid-column: span 12 }
 }
 @media (max-width: 960px) {
@@ -425,7 +427,8 @@ body {
   .pm-stat-grid--3,
   .pm-stat-grid--4,
   .pm-stat-grid--5,
-  .pm-stat-grid--6 { --pm-stat-cols: 1 }
+  .pm-stat-grid--6,
+  .pm-stat-grid--7 { --pm-stat-cols: 1 }
   .pm-col-3, .pm-col-6 { grid-column: span 12 }
 }
 
