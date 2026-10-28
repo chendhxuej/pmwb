@@ -14,6 +14,12 @@ export function getMailScenes() {
   return request.get(`${BASE}/scenes`)
 }
 
+// 自动抄送规则（唯一真相源在后端 AUTO_CC_RULES）
+// 返回 { rules: { 触发姓名: 抄送姓名 } }，供撰写弹窗收件人命中时自动预填抄送
+export function getAutoCcRules() {
+  return request.get(`${BASE}/auto-cc-rules`)
+}
+
 // 统一邮件发送入口（全场景收口）
 // 请求体：{ to, cc?, subject?, scene?, rawContent?|body?, variables?, templateId?, templateData? }
 // confirm_send 固定为 true：代表用户在页面上的显式发送操作（后端 dry_run 护栏据此放行真发）

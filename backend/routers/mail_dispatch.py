@@ -16,7 +16,13 @@ from core.response import success
 from db.base import get_db
 from db.models import EmailRecord
 from sqlalchemy.orm import Session
-from services.mail_dispatch import SCENES, dispatch_email, _render_mail
+from services.mail_dispatch import (
+    AUTO_CC_RULES,
+    SCENES,
+    _resolve_name_email,
+    dispatch_email,
+    _render_mail,
+)
 from utils.email import EmailCenterClient
 from utils.mail_content import FIELDS_TABLE_HIDDEN_SCENES, get_scene_meta, scene_schema
 from utils.markdown_mail import inject_signature_inline, markdown_to_email_html
@@ -84,6 +90,23 @@ def list_mail_scenes():
             "fields": scene_schema(key),
         })
     return success(data={"items": items})
+
+
+@router.get("/auto-cc-rules")
+def get_auto_cc_rules():
+    """下发自动抄送规则（唯一真相源 services.mail_dispatch.AUTO_CC_RULES）。
+
+    供前端撰写弹窗（MailComposeDialog）在收件人命中触发姓名时自动预填抄送，
+    保证「预览环节所见即所发」；实际发送仍由 dispatch_email 收口兜底，双保险。
+    rules={触发姓名: 抄送姓名}；trigger_emails={触发姓名: 其邮箱}（后端解析并缓存），
+    前端收件人可能是邮箱形态（如 value-key=email 的工单督办弹窗），需按邮箱命中。
+    """
+    trigger_emails = {}
+    for name in AUTO_CC_RULES:
+        email = _resolve_name_email(name)
+        if email:
+            trigger_emails[name] = email
+    return success(data={"rules": dict(AUTO_CC_RULES), "trigger_emails": trigger_emails})
 
 
 @router.post("/preview")

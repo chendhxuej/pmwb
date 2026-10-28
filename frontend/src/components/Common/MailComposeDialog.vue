@@ -319,7 +319,7 @@ import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Plus, Delete, Edit } from '@element-plus/icons-vue'
 import StaffSelect from '@/components/Common/StaffSelect.vue'
-import { getMailScenes, previewEmail, sendEmail } from '@/api/mailDispatch.js'
+import { getMailScenes, previewEmail, sendEmail, getAutoCcRules } from '@/api/mailDispatch.js'
 import {
   getSceneTemplates,
   addTemplate,
@@ -382,6 +382,51 @@ const extraMsg = ref('')
 // 场景 schema 缓存：{ [sceneKey]: { title, brandColor, fields: [...] } }
 let scenesCache = null
 const scenesMap = ref({})
+
+// 自动抄送规则缓存（唯一真相源在后端 AUTO_CC_RULES，经 /mail-dispatch/auto-cc-rules 下发）
+// { rules: {触发姓名: 抄送姓名}, trigger_emails: {触发姓名: 其邮箱} }
+let autoCcRulesCache = null
+
+async function ensureAutoCcRules() {
+  if (autoCcRulesCache) return autoCcRulesCache
+  try {
+    const res = await getAutoCcRules()
+    autoCcRulesCache = res?.rules
+      ? res
+      : res?.data || { rules: {}, trigger_emails: {} }
+  } catch (e) {
+    console.warn('[MailComposeDialog] 自动抄送规则拉取失败：', e)
+    autoCcRulesCache = { rules: {}, trigger_emails: {} }
+  }
+  return autoCcRulesCache
+}
+
+/**
+ * 自动抄送预填：收件人命中规则触发姓名（或其邮箱——工单督办等弹窗 value-key=email，
+ * 收件人是邮箱形态）时，把抄送姓名填入抄送框（所见即所发）。
+ * 实际发送仍由后端 dispatch_email 收口兜底（解析/去重都在后端）。
+ * 仅在收件人变化或弹窗打开时应用；用户手动删掉抄送后不强制回填（尊重人工修改）。
+ */
+function applyAutoCcRules(cache) {
+  if (!cache || !cache.rules) return
+  const toEntries = normalizeRecipients(to.value)
+  if (!toEntries.length) return
+  const ccEntries = normalizeRecipients(cc.value)
+  const additions = []
+  for (const [trigger, ccName] of Object.entries(cache.rules)) {
+    const trigEmail = String(cache.trigger_emails?.[trigger] || '').toLowerCase()
+    const hit = toEntries.some(
+      (e) => e.includes(trigger) || (trigEmail && e.toLowerCase() === trigEmail),
+    )
+    if (!hit) continue
+    const exists =
+      ccEntries.some((e) => e.includes(ccName)) || toEntries.some((e) => e.includes(ccName))
+    if (!exists && !additions.includes(ccName)) additions.push(ccName)
+  }
+  if (additions.length) {
+    cc.value = [...cc.value, ...additions]
+  }
+}
 
 const fieldList = computed(() => {
   if (props.fieldSchema && props.fieldSchema.length) return props.fieldSchema
@@ -455,6 +500,9 @@ watch(
       if (props.scene && !(props.fieldSchema && props.fieldSchema.length)) {
         await ensureScenes()
       }
+      // 自动抄送预填（规则后端下发，内部有缓存）
+      applyAutoCcRules(await ensureAutoCcRules())
+      lastAutoCcToSig = autoCcToSig()
       refreshPreview(true)
     }
   },
@@ -495,6 +543,8 @@ watch(
   ],
   () => {
     if (props.modelValue) {
+      // 收件人变化时重新应用自动抄送（仅 to 变化才应用；删抄送不回填）
+      maybeApplyAutoCc()
       refreshPreview(true)
     }
   },
@@ -567,6 +617,23 @@ function buildVariables() {
     variables.body = body.value
   }
   return variables
+}
+
+// 自动抄送预填的收件人签名：只有收件人真正变化才应用规则，
+// 避免用户手动删掉自动抄送后（cc 变化触发深 watch）被立刻回填
+let lastAutoCcToSig = ''
+
+function autoCcToSig() {
+  return JSON.stringify(normalizeRecipients(to.value))
+}
+
+/** 收件人变化时应用自动抄送（规则已缓存才生效；打开弹窗时会拉取并应用一次） */
+function maybeApplyAutoCc() {
+  if (!autoCcRulesCache) return
+  const sig = autoCcToSig()
+  if (sig === lastAutoCcToSig) return
+  applyAutoCcRules(autoCcRulesCache)
+  lastAutoCcToSig = sig
 }
 
 function buildPreviewPayload() {
