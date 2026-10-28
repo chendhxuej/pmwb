@@ -176,6 +176,9 @@
             <span class="srp-meta-label">上线要求</span>
             <span class="srp-meta-val font-mono" :class="{ 'srp-deadline-missed': detail.deadline_missed }">
               {{ detail.version_required_date || '未填' }}
+              <el-button link type="primary" size="small" class="srp-vr-edit" @click="openVrEdit">
+                {{ detail.version_required_date ? '修改' : '去设置' }}
+              </el-button>
             </span>
           </div>
           <div class="srp-meta-item">
@@ -199,7 +202,8 @@
           </div>
         </div>
         <div v-if="!detail.version_required_date" class="pm-notice srp-notice-warn">
-          该需求未填写「版本要求上线时间」，请先到需求列表补填后再倒排。
+          该需求未填写「版本要求上线时间」，设置后即可生成倒排建议。
+          <el-button link type="primary" size="small" @click="openVrEdit">立即设置</el-button>
         </div>
 
         <!-- 团队泳道 -->
@@ -379,6 +383,26 @@
       :custom-send="sendFn"
       @success="onSent"
     />
+
+    <!-- ════════ 设置「版本要求上线时间」（倒排终点，权威源 ext.version_required_date） ════════ -->
+    <el-dialog v-model="vrEditVisible" title="设置版本要求上线时间" width="380px" append-to-body>
+      <div class="srp-vr-hint text-muted">
+        该时间作为 5 阶段倒排的终点，保存后即可生成倒排建议。
+      </div>
+      <el-date-picker
+        v-model="vrDraft"
+        type="date"
+        placeholder="选择日期"
+        value-format="YYYY-MM-DD"
+        class="srp-vr-picker"
+      />
+      <template #footer>
+        <el-button size="small" @click="vrEditVisible = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="vrSaving" :disabled="!vrDraft" @click="saveVr">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -409,6 +433,7 @@ import {
   syncSensitiveReqs,
   updateSensitiveReqTrack,
 } from '@/api/sensitiveReq.js'
+import { updateRequirement } from '@/api/requirement.js'
 
 const STAGE_LABELS = {
   evaluate: '需求评估',
@@ -529,6 +554,34 @@ async function openDetail(reqId) {
     detailVisible.value = false
   } finally {
     detailLoading.value = false
+  }
+}
+
+/* ── 设置「版本要求上线时间」─────────────────────────── */
+// 倒排终点权威源 = ext.version_required_date，复用 PUT /requirements/{req_id} 更新，不另存
+const vrEditVisible = ref(false)
+const vrSaving = ref(false)
+const vrDraft = ref('')
+
+function openVrEdit() {
+  vrDraft.value = detail.value.version_required_date || ''
+  vrEditVisible.value = true
+}
+
+async function saveVr() {
+  if (!vrDraft.value) return
+  vrSaving.value = true
+  try {
+    await updateRequirement(detail.value.req_id, { version_required_date: vrDraft.value })
+    ElMessage.success('版本要求上线时间已保存')
+    vrEditVisible.value = false
+    await openDetail(detail.value.req_id) // 刷新详情：警告条消失、生成按钮恢复可用
+    loadList()
+    loadStats()
+  } catch (e) {
+    ElMessage.error('保存失败：' + (e?.response?.data?.message || e.message || '未知错误'))
+  } finally {
+    vrSaving.value = false
   }
 }
 
@@ -807,6 +860,9 @@ onMounted(async () => {
 .srp-meta-label { font-size: 12px; color: var(--text-muted); }
 .srp-meta-val { font-size: 13px; color: var(--text-primary); font-weight: 500; }
 .srp-notice-warn { font-size: 12.5px; }
+.srp-vr-edit { margin-left: 4px; font-size: 12px; }
+.srp-vr-hint { font-size: 12.5px; margin-bottom: 10px; }
+.srp-vr-picker { width: 100%; }
 .srp-lane { display: flex; flex-direction: column; gap: 6px; }
 .srp-lane-head { display: flex; align-items: baseline; gap: 10px; }
 .srp-lane-team { font-size: 13px; font-weight: 600; color: var(--text-primary); }
