@@ -575,3 +575,146 @@ def test_resolve_contact_emails_contacts_priority(monkeypatch):
     monkeypatch.setattr(ms.master_service_client, "list_staffs", _boom)
     resolved = client.resolve_contact_emails(["吴胜捷"])
     assert resolved["吴胜捷"] == "from-contacts@x.com"
+
+
+# ── 自动抄送规则（AUTO_CC_RULES：吴雨霜→抄送尹学永）──────────────────────
+
+WYS_EMAIL = "wuyushuang@js.chinamobile.com"
+YXY_EMAIL = "yinxueyong@js.chinamobile.com"
+
+
+def _setup_name_resolution(monkeypatch, mapping):
+    """按姓名解析邮箱的通用 fake：通讯录返回 mapping，主数据兜底同表。"""
+
+    def fake_search(self, keyword):
+        email = mapping.get(keyword)
+        return [{"name": keyword, "email": email}] if email else []
+
+    def fake_list_staffs(org_id=None, keyword=None):
+        email = mapping.get(keyword)
+        return [{"name": keyword, "email": email}] if email else []
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "search_contacts", fake_search)
+    import utils.master_service as ms
+
+    monkeypatch.setattr(ms.master_service_client, "list_staffs", fake_list_staffs)
+
+
+def test_auto_cc_appended_when_recipient_name_hit(monkeypatch):
+    """收件人姓名含「吴雨霜」→ 自动追加抄送尹学永，原收件人不变。"""
+    mail_dispatch._name_email_cache.clear()
+    _setup_name_resolution(monkeypatch, {"吴雨霜": WYS_EMAIL, "尹学永": YXY_EMAIL})
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    res = mail_dispatch.dispatch_email(
+        to=["a@b.com"],
+        recipient_name="吴雨霜",
+        subject="s",
+        body="x",
+        confirm_send=True,
+    )
+    assert res["success"] is True
+    assert captured["to"] == ["a@b.com"]  # 原收件人不变
+    assert captured["cc"] == [YXY_EMAIL]  # 仅追加抄送
+
+
+def test_auto_cc_appended_when_email_hit(monkeypatch):
+    """收件人邮箱 = 吴雨霜邮箱（纯邮箱无姓名）→ 同样追加抄送。"""
+    mail_dispatch._name_email_cache.clear()
+    _setup_name_resolution(monkeypatch, {"吴雨霜": WYS_EMAIL, "尹学永": YXY_EMAIL})
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    mail_dispatch.dispatch_email(
+        to=[WYS_EMAIL], subject="s", body="x", confirm_send=True
+    )
+    assert captured["cc"] == [YXY_EMAIL]
+
+
+def test_auto_cc_appended_when_name_in_to_list(monkeypatch):
+    """to 列表里直接写姓名（混合姓名+邮箱）→ 命中并追加。"""
+    mail_dispatch._name_email_cache.clear()
+    _setup_name_resolution(monkeypatch, {"尹学永": YXY_EMAIL})
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    mail_dispatch.dispatch_email(
+        to=["吴雨霜", "b@b.com"], subject="s", body="x", confirm_send=True
+    )
+    assert captured["to"] == ["吴雨霜", "b@b.com"]
+    assert captured["cc"] == [YXY_EMAIL]
+
+
+def test_auto_cc_not_hit_keeps_cc_empty(monkeypatch):
+    """收件人与吴雨霜无关 → 不加抄送（cc 为空）。"""
+    mail_dispatch._name_email_cache.clear()
+    _setup_name_resolution(monkeypatch, {"尹学永": YXY_EMAIL})
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    mail_dispatch.dispatch_email(to=["a@b.com"], subject="s", body="x", confirm_send=True)
+    assert not captured.get("cc")
+
+
+def test_auto_cc_no_duplicate_when_already_present(monkeypatch):
+    """尹学永已在收件人或抄送中 → 不重复追加。"""
+    mail_dispatch._name_email_cache.clear()
+    _setup_name_resolution(monkeypatch, {"吴雨霜": WYS_EMAIL, "尹学永": YXY_EMAIL})
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    # 已在抄送
+    mail_dispatch.dispatch_email(
+        to=["a@b.com"], cc=[YXY_EMAIL], subject="s", body="x", confirm_send=True
+    )
+    assert captured["cc"] == [YXY_EMAIL]
+    # 已在收件人
+    mail_dispatch.dispatch_email(
+        to=[YXY_EMAIL, WYS_EMAIL], subject="s", body="x", confirm_send=True
+    )
+    assert captured["cc"] in (None, [])  # 追加后为空 → cc=cc_list or None
+
+
+def test_auto_cc_resolution_failure_skips_without_breaking(monkeypatch):
+    """尹学永邮箱解析失败 → 跳过追加但不阻断发信。"""
+    mail_dispatch._name_email_cache.clear()
+    _setup_name_resolution(monkeypatch, {"吴雨霜": WYS_EMAIL})  # 尹学永解析不到
+    captured = {}
+
+    def fake_send(self, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(mail_dispatch.EmailCenterClient, "send_email", fake_send)
+    res = mail_dispatch.dispatch_email(
+        to=["a@b.com"], recipient_name="吴雨霜", subject="s", body="x", confirm_send=True
+    )
+    assert res["success"] is True
+    assert not captured.get("cc")
+
+
+def test_auto_cc_rule_registry_single_source():
+    """规则唯一真相源存在且形如 {触发姓名: 抄送姓名}。"""
+    assert isinstance(mail_dispatch.AUTO_CC_RULES, dict)
+    assert mail_dispatch.AUTO_CC_RULES.get("吴雨霜") == "尹学永"

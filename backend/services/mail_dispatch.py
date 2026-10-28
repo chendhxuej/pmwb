@@ -214,6 +214,105 @@ def _norm_list(v) -> list[str]:
     return [str(x).strip() for x in v if str(x).strip()]
 
 
+# ── 自动抄送规则（唯一真相源）────────────────────────────────────────────
+# 覆盖所有经 dispatch_email 的邮件（PMWB 全部邮件触点均收口于此门面，含待办提醒、
+# 督办、会议、周报、客诉、敏感需求、插件等全部场景，dry_run 同样生效）。
+# 语义：收件人（邮箱列表 / 收件人姓名 / recipient_name）命中 key 姓名时，自动把
+# value 姓名解析成邮箱追加到抄送；原收件人、正文、主题一律不变，仅追加 cc。
+# 新增规则只改这张表。解析失败仅记日志，不阻断发信。
+AUTO_CC_RULES: dict[str, str] = {
+    "吴雨霜": "尹学永",
+}
+
+_NAME_EMAIL_TTL = 300  # 姓名→邮箱解析缓存秒数（与 pmwb_org 映射缓存同风格）
+_name_email_cache: dict[str, tuple[float, Optional[str]]] = {}
+
+
+def _resolve_name_email(name: str) -> Optional[str]:
+    """姓名→邮箱：3210 通讯录优先，人员主数据回退（与 resolve_contact_emails 同口径，带 TTL 缓存）。"""
+    import time
+
+    now = time.time()
+    cached = _name_email_cache.get(name)
+    if cached and now - cached[0] < _NAME_EMAIL_TTL:
+        return cached[1]
+    email: Optional[str] = None
+    try:
+        for item in EmailCenterClient().search_contacts(name) or []:
+            if (item.get("name") or "").strip() == name and (item.get("email") or "").strip():
+                email = item["email"].strip()
+                break
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("自动抄送：通讯录解析 %s 失败: %s", name, exc)
+    if not email:
+        try:
+            from utils.master_service import master_service_client
+
+            for s in master_service_client.list_staffs(keyword=name) or []:
+                if (s.get("name") or "").strip() == name and (s.get("email") or "").strip():
+                    email = s["email"].strip()
+                    break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("自动抄送：人员主数据解析 %s 失败: %s", name, exc)
+    _name_email_cache[name] = (now, email)
+    return email
+
+
+def _apply_auto_cc_rules(
+    to_list: list[str], cc_list: list[str], recipient_name: Optional[str]
+) -> list[str]:
+    """命中 AUTO_CC_RULES 时返回追加后的抄送列表；未命中原样返回。任何异常不阻断发信。"""
+    try:
+        to_lower = {t.lower() for t in to_list if "@" in t}
+        cc_lower = {c.lower() for c in cc_list if "@" in c}
+
+        # 命中判定 1：姓名（recipient_name / to 里直接写姓名，分隔符容错 ，、）
+        name_texts: list[str] = [recipient_name or ""]
+        name_texts.extend(to_list)
+        name_hit = False
+        for text in name_texts:
+            if not text:
+                continue
+            for part in str(text).replace("，", ",").replace("、", ",").split(","):
+                part = part.strip()
+                if part and any(trigger in part for trigger in AUTO_CC_RULES):
+                    name_hit = True
+                    break
+            if name_hit:
+                break
+
+        # 命中判定 2：收件人邮箱 = 触发人邮箱（姓名→邮箱缓存解析）
+        if not name_hit:
+            for trigger in AUTO_CC_RULES:
+                t_email = _resolve_name_email(trigger)
+                if t_email and t_email.lower() in to_lower:
+                    name_hit = True
+                    break
+        if not name_hit:
+            return cc_list
+
+        appended = list(cc_list)
+        for trigger, cc_name in AUTO_CC_RULES.items():
+            cc_email = _resolve_name_email(cc_name)
+            if not cc_email:
+                logger.warning(
+                    "自动抄送：规则 %s→%s 生效但 %s 邮箱解析失败，本次跳过",
+                    trigger, cc_name, cc_name,
+                )
+                continue
+            # 已在收件人 / 抄送 / 同一人 → 不重复加
+            if cc_email.lower() in to_lower or cc_email.lower() in cc_lower:
+                continue
+            appended.append(cc_email)
+            logger.info(
+                "自动抄送规则生效：收件人含「%s」，追加抄送 %s <%s>", trigger, cc_name, cc_email
+            )
+        return appended
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("自动抄送规则执行异常（不影响发信）: %s", exc)
+        return cc_list
+
+
 def format_task_center_subject(
     scene: str, tasks: Any, recipient_name: Optional[str] = None
 ) -> str:
@@ -490,6 +589,8 @@ def dispatch_email(
 
     to_list = _norm_list(to)
     cc_list = _norm_list(cc)
+    # 自动抄送规则（唯一真相源见 AUTO_CC_RULES）：命中即追加 cc，原收件人/内容不变
+    cc_list = _apply_auto_cc_rules(to_list, cc_list, recipient_name)
 
     rendered = _render_mail(
         scene=scene,
