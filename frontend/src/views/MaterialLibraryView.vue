@@ -14,37 +14,17 @@
       </template>
     </PageHeader>
 
-    <div class="material-layout">
-      <!-- 左侧：分类树 -->
-      <aside class="material-aside">
-        <div class="aside-head">
-          <span>材料分类</span>
-          <el-button link type="primary" size="small" @click="categoryManageVisible = true">
-            <el-icon><Setting /></el-icon> 管理
-          </el-button>
-        </div>
-        <el-tree
-          ref="treeRef"
-          class="material-tree"
-          :data="treeData"
-          :props="{ label: 'name', children: 'children' }"
-          node-key="id"
-          :expand-on-click-node="false"
-          highlight-current
-          default-expand-all
-          @node-click="onTreeNodeClick"
-        >
-          <template #default="{ node, data }">
-            <span class="tree-node">
-              <span>{{ data.name }}</span>
-              <span class="tree-count" :class="{ 'is-empty': !data.material_count }">{{ data.material_count ?? '—' }}</span>
-            </span>
-          </template>
-        </el-tree>
-      </aside>
+    <!-- 顶部：材料分类横向卡片导航（一级卡片行 + 二级胶囊行联动） -->
+    <MaterialCategoryNav
+      :categories="categories"
+      :category-id="categoryId"
+      :uncategorized-count="uncategorizedCount"
+      @update:category-id="onNavCategory"
+      @manage="categoryManageVisible = true"
+    />
 
-      <!-- 右侧：筛选 + 列表 -->
-      <section class="material-main">
+    <!-- 筛选 + 列表 -->
+    <section class="material-main">
         <div class="table-toolbar">
           <el-input
             v-model="keyword"
@@ -195,7 +175,6 @@
           @current-change="onPage"
         />
       </section>
-    </div>
 
     <!-- 预览抽屉 -->
     <el-drawer v-model="previewVisible" :title="previewTitle" size="60%" destroy-on-close>
@@ -298,6 +277,7 @@ import {
   getCategories, inlineMaterialUrl, downloadMaterialUrl,
 } from '@/api/material.js'
 import MaterialCategoryManage from '@/views/MaterialCategoryManage.vue'
+import MaterialCategoryNav from '@/components/Material/MaterialCategoryNav.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 
 const keyword = ref('')
@@ -417,8 +397,10 @@ const uncategorizedCount = ref(0)
 
 function handleSearch() { page.value = 1; selectedIds.value = []; loadMaterials() }
 function onPage(p) { page.value = p; selectedIds.value = []; loadMaterials() }
-function onTreeNodeClick(node) {
-  categoryId.value = node.id === 0 ? null : node.id
+// 分类导航点击：同值忽略（防重复请求），异值才重查
+function onNavCategory(id) {
+  if (categoryId.value === id || (categoryId.value == null && id == null)) return
+  categoryId.value = id
   handleSearch()
 }
 
@@ -603,7 +585,20 @@ async function submitUpload() {
   finally { uploading.value = false }
 }
 
-function onCategorySaved() { loadCategories() }
+// 分类增删改后：刷新分类 → 校正选中态（被删分类回退到父级/全部）→ 重查列表
+async function onCategorySaved() {
+  const cur = categories.value.find((c) => c.id === categoryId.value)
+  const parentFallback = cur ? cur.parent_id : null
+  await loadCategories()
+  const id = categoryId.value
+  if (id != null && id !== -1 && !categories.value.some((c) => c.id === id)) {
+    const fb = parentFallback != null && categories.value.some((c) => c.id === parentFallback)
+      ? parentFallback : null
+    categoryId.value = fb
+    ElMessage.warning(fb == null ? '原分类已删除，已切换到「全部」' : '原分类已删除，已切换到其上级分类')
+  }
+  handleSearch()
+}
 
 function formatTime(ts) {
   if (!ts) return '—'
@@ -616,25 +611,7 @@ onMounted(() => { loadMaterials(); loadCategories() })
 </script>
 
 <style scoped>
-.material-layout { display: flex; gap: 16px; align-items: flex-start; }
-.material-aside {
-  width: 260px; flex: 0 0 260px;
-  background: var(--el-fill-color-blank, #fff);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 10px; padding: 12px;
-  position: sticky; top: 12px;
-}
-.aside-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 8px; }
-.material-tree { --el-tree-node-hover-bg-color: var(--el-fill-color-light); }
-.tree-node { display: flex; justify-content: space-between; width: 100%; align-items: center; padding: 2px 0; }
-.tree-count {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 20px; height: 18px; padding: 0 5px; border-radius: 9px;
-  background: var(--el-fill-color); color: var(--el-text-color-secondary);
-  font-size: 11px; margin-left: 8px; transition: all 0.2s;
-}
-.tree-count:not(.is-empty) { background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-weight: 600; }
-.material-main { flex: 1; min-width: 0; }
+.material-main { min-width: 0; }
 .table-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .material-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
