@@ -47,7 +47,7 @@
                 <span>团队评估记录（{{ (evaluationsMap[row.req_id] || []).length || row.eval_count || 0 }} 个团队）</span>
                 <el-button type="primary" size="small" @click="handleAddEval(row)">新增评估</el-button>
               </div>
-              <el-table :data="evaluationsMap[row.req_id] || []" size="small" border>
+              <el-table ref="pmTbl2" :data="evaluationsMap[row.req_id] || []" size="small" border>
                 <el-table-column prop="sa_name" label="评估SA" width="90" show-overflow-tooltip />
                 <el-table-column prop="system_name" label="负责系统" width="110" show-overflow-tooltip />
                 <el-table-column prop="workload" label="工作量(人天)" width="110" align="center" />
@@ -76,7 +76,7 @@
                 <span class="expand-hint">版本要求：{{ row.ext?.version_required_date || '未设置' }}</span>
               </div>
               <div class="ticket-scroll">
-                <el-table
+                <el-table ref="pmTbl3"
                   :data="ticketMap[row.req_id] || []"
                   size="small"
                   border

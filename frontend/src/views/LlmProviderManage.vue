@@ -18,7 +18,7 @@
       </div>
     </el-alert>
 
-    <el-table :data="list" v-loading="loading" border stripe style="width: 100%">
+    <el-table ref="pmTbl1" :data="list" v-loading="loading" border stripe style="width: 100%">
       <el-table-column prop="name" label="名称" min-width="160" />
       <el-table-column label="类型" width="150">
         <template #default="{ row }">{{ typeLabel(row.provider_type) }}</template>

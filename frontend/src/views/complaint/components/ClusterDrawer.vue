@@ -26,7 +26,7 @@
       </div>
 
       <h4 class="sub-title">簇内工单明细</h4>
-      <el-table v-loading="loading" :data="tickets" size="small" border>
+      <el-table ref="pmTbl1" v-loading="loading" :data="tickets" size="small" border>
         <el-table-column prop="ticket_no" label="BOMC 流水号" width="150" show-overflow-tooltip />
         <el-table-column prop="created_time" label="创建时间" width="150">
           <template #default="{ row }">{{ (row.created_time || '').replace('T', ' ').slice(0, 16) }}</template>

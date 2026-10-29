@@ -34,7 +34,7 @@
             <el-button size="small" type="primary" plain @click="openCreateChild(group)">＋ 新增子类</el-button>
           </div>
         </template>
-        <el-table :data="group.children" stripe size="small" :row-class-name="rowClass">
+        <el-table ref="pmTbl1" :data="group.children" stripe size="small" :row-class-name="rowClass">
           <el-table-column prop="domain_code" label="编码" width="170" show-overflow-tooltip />
           <el-table-column prop="domain_name" label="名称" width="130" />
           <el-table-column label="关联数" width="200" align="center">

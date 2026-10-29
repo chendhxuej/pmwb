@@ -129,7 +129,7 @@
       <el-empty v-else description="暂无状态变更记录" />
 
       <el-divider content-position="left">交付物</el-divider>
-      <el-table v-if="detailDeliverables.length" :data="detailDeliverables" border size="small">
+      <el-table ref="pmTbl1" v-if="detailDeliverables.length" :data="detailDeliverables" border size="small">
         <el-table-column prop="deliverable_type" label="类型" width="100">
           <template #default="{ row }">
             {{ deliverableTypeLabel(row.deliverable_type) }}

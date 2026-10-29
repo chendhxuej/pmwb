@@ -406,6 +406,48 @@ body {
   font-weight: 600;
 }
 
+/* ── 表头不折行：列宽再窄也不允许表头被压成两行（列宽拖拽的前提） ── */
+.el-table__header th.el-table__cell .cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 列宽拖拽（utils/tableColumnResize.js 的视觉层）
+   热区是表头右缘 8px 透明区，事件走委托，不往 th 里插 DOM。
+   悬停时右缘出现 1px 提示线，提示「这里可以拖」。 ── */
+.el-table__header th.el-table__cell.pm-col-edge::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  right: 0;
+  width: 1px;
+  background: var(--accent);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+body.pm-col-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.pm-col-resizing .el-table__header th.el-table__cell {
+  cursor: col-resize !important;
+}
+
+.pm-col-guide {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--accent);
+  opacity: 0.75;
+  z-index: 3000;
+  pointer-events: none;
+}
+
 /* ── 响应式：1400 / 1100 / 960 三档（必须排在所有 .pm-stat-grid--* 之后） ── */
 @media (max-width: 1400px) {
   .pm-stat-grid { gap: 12px }

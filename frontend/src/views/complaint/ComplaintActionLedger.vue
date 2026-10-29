@@ -10,7 +10,7 @@
       </template>
     </PageHeader>
 
-    <el-table v-loading="loading" :data="rows" size="default" border stripe>
+    <el-table ref="pmTbl1" v-loading="loading" :data="rows" size="default" border stripe>
       <el-table-column prop="action_no" label="措施编号" width="158">
         <template #default="{ row }"><b>{{ row.action_no }}</b></template>
       </el-table-column>

@@ -1,6 +1,6 @@
 <template>
   <div class="data-table">
-    <el-table
+    <el-table ref="pmTbl1"
       v-loading="loading"
       :data="data"
       :row-key="rowKey"

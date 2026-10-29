@@ -6,7 +6,7 @@
         <el-icon><Refresh /></el-icon> 同步人员中台
       </el-button>
     </div>
-    <el-table :data="list" v-loading="loading" stripe border>
+    <el-table ref="pmTbl1" :data="list" v-loading="loading" stripe border>
       <el-table-column label="姓名" prop="name" min-width="120" />
       <el-table-column label="邮箱" prop="email" min-width="200" />
       <el-table-column label="手机" prop="phone" width="140" />

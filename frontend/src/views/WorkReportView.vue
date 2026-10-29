@@ -27,7 +27,7 @@
           </template>
         </PageHeader>
 
-        <el-table :data="filteredList" v-loading="loading" border stripe style="width: 100%">
+        <el-table ref="pmTbl1" :data="filteredList" v-loading="loading" border stripe style="width: 100%">
           <el-table-column prop="id" label="ID" width="70" />
           <el-table-column prop="report_type_label" label="类型" width="90" />
           <el-table-column label="标题" min-width="220" show-overflow-tooltip>

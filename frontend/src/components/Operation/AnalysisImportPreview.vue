@@ -41,7 +41,7 @@
           <el-option v-for="c in WORK_ORDER_CATEGORIES" :key="c.key" :label="c.label" :value="c.key" />
         </el-select>
       </div>
-      <el-table :data="rows" size="small" border max-height="320">
+      <el-table ref="pmTbl1" :data="rows" size="small" border max-height="320">
         <el-table-column type="index" label="#" width="44" />
         <el-table-column label="任务内容" min-width="220">
           <template #default="{ row }">

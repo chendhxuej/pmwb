@@ -32,7 +32,7 @@
               <el-icon><Plus /></el-icon><span>新增组织</span>
             </el-button>
           </div>
-          <el-table
+          <el-table ref="pmTbl1"
             v-loading="orgLoading"
             :data="filteredOrgs"
             class="pc-table"
@@ -124,7 +124,7 @@
               <el-icon><Plus /></el-icon><span>新增身份</span>
             </el-button>
           </div>
-          <el-table
+          <el-table ref="pmTbl2"
             v-loading="roleLoading"
             :data="filteredRoles"
             class="pc-table"
@@ -187,7 +187,7 @@
               <el-icon><Plus /></el-icon><span>新增人员</span>
             </el-button>
           </div>
-          <el-table
+          <el-table ref="pmTbl3"
             v-loading="staffLoading"
             :data="staffs"
             class="pc-table"

@@ -89,7 +89,7 @@
             </div>
           </div>
 
-          <el-table
+          <el-table ref="pmTbl1"
             v-loading="staffLoading"
             :data="staffs"
             class="admin-staff-table"

@@ -82,7 +82,7 @@
           <el-empty v-if="!relLoading && !related.sub_notes.length" description="暂无子笔记" />
         </el-tab-pane>
         <el-tab-pane label="需求" name="requirements">
-          <el-table :data="related.requirements" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => goTo('requirement', row.code)">
+          <el-table ref="pmTbl1" :data="related.requirements" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => goTo('requirement', row.code)">
             <el-table-column prop="code" label="需求编号" width="160" />
             <el-table-column prop="title" label="需求名称" min-width="220" show-overflow-tooltip />
             <el-table-column prop="status" label="状态" width="100" />
@@ -90,7 +90,7 @@
           <el-empty v-if="!relLoading && !related.requirements.length" description="暂无关联需求" />
         </el-tab-pane>
         <el-tab-pane label="会议" name="meetings">
-          <el-table :data="related.meetings" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => row.obsidian_path ? openNote(row.obsidian_path) : goTo('meeting', row.code)">
+          <el-table ref="pmTbl2" :data="related.meetings" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => row.obsidian_path ? openNote(row.obsidian_path) : goTo('meeting', row.code)">
             <el-table-column prop="code" label="会议编号" width="160" />
             <el-table-column prop="title" label="会议主题" min-width="220" show-overflow-tooltip />
             <el-table-column prop="sub_title" label="时间" width="120" />
@@ -103,7 +103,7 @@
           <el-empty v-if="!relLoading && !related.meetings.length" description="暂无关联会议" />
         </el-tab-pane>
         <el-tab-pane label="运营工单" name="issues">
-          <el-table :data="related.issues" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => goTo('issue', row.code)">
+          <el-table ref="pmTbl3" :data="related.issues" size="small" max-height="420" v-loading="relLoading" @row-click="(row) => goTo('issue', row.code)">
             <el-table-column prop="code" label="工单编号" width="150" />
             <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
             <el-table-column prop="category" label="大类" width="100" />
@@ -112,7 +112,7 @@
           <el-empty v-if="!relLoading && !related.issues.length" description="暂无关联运营工单" />
         </el-tab-pane>
         <el-tab-pane label="关联时间线" name="timeline">
-          <el-table :data="related.timeline" size="small" max-height="420" v-loading="relLoading">
+          <el-table ref="pmTbl4" :data="related.timeline" size="small" max-height="420" v-loading="relLoading">
             <el-table-column label="来源" width="110">
               <template #default="{ row }">
                 <el-tag size="small">{{ sourceLabel(row.source_type) }}</el-tag>

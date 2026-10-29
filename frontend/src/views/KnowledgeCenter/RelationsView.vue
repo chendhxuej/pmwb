@@ -57,7 +57,7 @@
           </el-button>
         </div>
         <div class="batch-table-wrap">
-          <el-table
+          <el-table ref="pmTbl1"
             v-loading="batchLoading"
             :data="batchRows"
             size="small"

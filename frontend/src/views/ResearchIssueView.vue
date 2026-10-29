@@ -50,7 +50,7 @@
       </div>
 
     <!-- 工单列表 -->
-    <el-table
+    <el-table ref="pmTbl1"
       :data="tableData"
       v-loading="loading"
       stripe

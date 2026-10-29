@@ -46,7 +46,7 @@
     </el-card>
 
     <el-card shadow="never" class="table-card" v-loading="loading">
-      <el-table :data="tableData" stripe>
+      <el-table ref="pmTbl1" :data="tableData" stripe>
         <el-table-column prop="meeting_title" label="会议主题" min-width="180" show-overflow-tooltip />
         <el-table-column label="行动项" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">{{ row.title || row.content }}</template>

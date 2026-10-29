@@ -51,7 +51,7 @@
         <h3>候选问题（每周分析自动识别，须人工确认后方可关联措施）</h3>
       </div>
       <div class="card-body">
-        <el-table v-if="candidates.length" :data="candidates" size="default" border>
+        <el-table ref="pmTbl1" v-if="candidates.length" :data="candidates" size="default" border>
           <el-table-column prop="problem_no" label="编号" width="150">
             <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
           </el-table-column>
@@ -87,7 +87,7 @@
         </el-select>
       </div>
       <div class="card-body">
-        <el-table v-loading="loading" :data="filteredRows" size="default" border stripe>
+        <el-table ref="pmTbl2" v-loading="loading" :data="filteredRows" size="default" border stripe>
           <el-table-column prop="problem_no" label="问题编号" width="150">
             <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
           </el-table-column>
@@ -167,7 +167,7 @@
         <el-empty v-else description="暂无轨迹数据" :image-size="48" />
 
         <h4 class="sec-title">关联措施（{{ detail.actions.length }}）</h4>
-        <el-table :data="detail.actions" size="small" border>
+        <el-table ref="pmTbl3" :data="detail.actions" size="small" border>
           <el-table-column prop="action_no" label="措施编号" width="140">
             <template #default="{ row }">
               <b>{{ row.action_no }}</b>

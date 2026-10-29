@@ -7,7 +7,7 @@
       </el-button>
     </div>
 
-    <el-table :data="categories" size="small" class="rc-table" empty-text="暂无分类，点击右上角新增">
+    <el-table ref="pmTbl1" :data="categories" size="small" class="rc-table" empty-text="暂无分类，点击右上角新增">
       <el-table-column prop="name" label="分类名称" min-width="120">
         <template #default="{ row }">
           <span class="rc-name">{{ row.name }}</span>

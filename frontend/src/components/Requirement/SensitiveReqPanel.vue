@@ -212,7 +212,7 @@
             <span class="srp-lane-team">{{ team }}</span>
             <span class="srp-lane-progress text-muted">{{ laneProgress(rows) }}</span>
           </div>
-          <el-table :data="rows" size="small" class="pm-table">
+          <el-table ref="pmTbl2" :data="rows" size="small" class="pm-table">
             <el-table-column label="阶段" width="90">
               <template #default="{ row }">
                 <span class="srp-stage-label">{{ row.stage_label }}</span>
@@ -282,7 +282,7 @@
       <el-button size="small" class="srp-mb8" :loading="suggestionLoading" @click="applySuggestion">
         按模板重新生成（覆盖当前编辑）
       </el-button>
-      <el-table :data="editorItems" size="small" max-height="440" class="pm-table">
+      <el-table ref="pmTbl3" :data="editorItems" size="small" max-height="440" class="pm-table">
         <el-table-column label="团队" width="150">
           <template #default="{ row }">
             <el-input v-model="row.team_system_name" size="small" />

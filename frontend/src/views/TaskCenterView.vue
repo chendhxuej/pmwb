@@ -63,7 +63,7 @@
             </el-button>
           </div>
         </template>
-        <el-table :data="group.items" size="small" border stripe>
+        <el-table ref="pmTbl1" :data="group.items" size="small" border stripe>
           <el-table-column prop="req_id" label="需求编号" width="200" show-overflow-tooltip />
           <el-table-column prop="req_name" label="需求名称" min-width="220" show-overflow-tooltip />
           <el-table-column prop="system_name" label="负责系统" width="140" show-overflow-tooltip />
@@ -131,7 +131,7 @@
         </el-button>
       </div>
 
-      <el-table
+      <el-table ref="pmTbl2"
         v-loading="loading"
         :data="tasks"
         size="small"

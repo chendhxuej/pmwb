@@ -48,7 +48,7 @@
     </el-form>
 
     <!-- 表格 -->
-    <el-table :data="tableData" v-loading="loading" stripe border style="width: 100%">
+    <el-table ref="pmTbl1" :data="tableData" v-loading="loading" stripe border style="width: 100%">
       <el-table-column label="时间" prop="sentAt" width="160" />
       <el-table-column label="来源" width="90">
         <template #default="{ row }">

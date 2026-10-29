@@ -61,7 +61,7 @@
         <input ref="importFileRef" type="file" accept=".xlsx" style="display:none" @change="handleImportFile" />
       </div>
 
-      <el-table
+      <el-table ref="pmTbl1"
         v-loading="loading"
         :data="list"
         stripe
@@ -193,7 +193,7 @@
             <span class="pm-section-title">工作目标 / 指标</span>
             <el-button size="small" type="primary" @click="openGoalDialog()"><el-icon><Plus /></el-icon> 新增目标</el-button>
           </div>
-          <el-table :data="detail?.goals || []" border stripe size="small">
+          <el-table ref="pmTbl2" :data="detail?.goals || []" border stripe size="small">
             <el-table-column prop="seq" label="序号" width="60" />
             <el-table-column prop="indicator" label="指标" min-width="120" />
             <el-table-column prop="target_value" label="目标值" width="110" />
@@ -231,7 +231,7 @@
             <span class="pm-section-title">任务里程碑</span>
             <el-button size="small" type="primary" @click="openMilestoneDialog()"><el-icon><Plus /></el-icon> 新增里程碑</el-button>
           </div>
-          <el-table :data="detail?.milestones || []" border stripe size="small">
+          <el-table ref="pmTbl3" :data="detail?.milestones || []" border stripe size="small">
             <el-table-column prop="name" label="里程碑" min-width="160" />
             <el-table-column prop="due_date" label="计划完成" width="130" />
             <el-table-column label="状态" width="140">
@@ -257,7 +257,7 @@
             <span class="pm-section-title">团队成员及分工</span>
             <el-button size="small" type="primary" @click="openMemberDialog()"><el-icon><Plus /></el-icon> 添加成员</el-button>
           </div>
-          <el-table :data="detail?.members || []" border stripe size="small">
+          <el-table ref="pmTbl4" :data="detail?.members || []" border stripe size="small">
             <el-table-column prop="name" label="姓名" width="120" />
             <el-table-column prop="role" label="角色" width="140" />
             <el-table-column prop="division_desc" label="分工说明" min-width="180" show-overflow-tooltip />
@@ -275,7 +275,7 @@
             <span class="pm-section-title">月度计划</span>
             <el-button size="small" type="primary" @click="openMonthlyDialog()"><el-icon><Plus /></el-icon> 新增月计划</el-button>
           </div>
-          <el-table :data="detail?.monthly_plans || []" border stripe size="small">
+          <el-table ref="pmTbl5" :data="detail?.monthly_plans || []" border stripe size="small">
             <el-table-column prop="month" label="月份" width="110" />
             <el-table-column prop="task_date" label="创建日期" width="110" />
             <el-table-column prop="title" label="任务标题" min-width="140" show-overflow-tooltip />
@@ -305,7 +305,7 @@
             <span class="pm-section-title">周计划</span>
             <el-button size="small" type="primary" @click="openWeeklyDialog()"><el-icon><Plus /></el-icon> 新增周计划</el-button>
           </div>
-          <el-table :data="detail?.weekly_plans || []" border stripe size="small">
+          <el-table ref="pmTbl6" :data="detail?.weekly_plans || []" border stripe size="small">
             <el-table-column prop="task_date" label="创建日期" width="110" />
             <el-table-column prop="title" label="任务标题" min-width="140" show-overflow-tooltip />
             <el-table-column prop="content" label="任务描述" min-width="180" show-overflow-tooltip />
@@ -373,7 +373,7 @@
             <span class="pm-section-title">成员代办任务</span>
             <el-button size="small" type="primary" @click="openTaskDialog()"><el-icon><Plus /></el-icon> 新增待办</el-button>
           </div>
-          <el-table :data="detail?.member_tasks || []" border stripe size="small">
+          <el-table ref="pmTbl7" :data="detail?.member_tasks || []" border stripe size="small">
             <el-table-column prop="title" label="任务" min-width="180" show-overflow-tooltip />
             <el-table-column label="负责人" width="150">
               <template #default="{ row }">
@@ -430,7 +430,7 @@
             </div>
           </div>
           <div class="paste-hint">点击上方按钮上传，或点击按钮区域后按 Ctrl+V 粘贴截图/文件</div>
-          <el-table :data="detail?.deliverables || []" border stripe size="small">
+          <el-table ref="pmTbl8" :data="detail?.deliverables || []" border stripe size="small">
             <el-table-column prop="file_name" label="文件名" min-width="200" show-overflow-tooltip />
             <el-table-column prop="file_size" label="大小(字节)" width="110" />
             <el-table-column prop="uploaded_by" label="上传人" width="100" />
@@ -557,7 +557,7 @@
 
                     <!-- D. 成员待办 -->
                     <el-collapse-item title="D. 成员待办（进展 + 新增）" name="memberTask">
-                      <el-table v-if="inFlightItems(g.task_items).length" :data="inFlightItems(g.task_items)" border stripe size="small" class="feedback-task-table">
+                      <el-table ref="pmTbl9" v-if="inFlightItems(g.task_items).length" :data="inFlightItems(g.task_items)" border stripe size="small" class="feedback-task-table">
                         <el-table-column prop="label" label="任务" min-width="140" show-overflow-tooltip />
                         <el-table-column label="负责人" width="110">
                           <template #default="{ row }">{{ ownerLabel(row.assignee) || '未指派' }}</template>

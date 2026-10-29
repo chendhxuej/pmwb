@@ -3,7 +3,7 @@
     <div class="toolbar">
       <el-button type="primary" @click="onCreate">新建账号</el-button>
     </div>
-    <el-table :data="list" v-loading="loading" stripe border>
+    <el-table ref="pmTbl1" :data="list" v-loading="loading" stripe border>
       <el-table-column label="发件人名称" prop="senderName" min-width="140" />
       <el-table-column label="邮箱地址" prop="email" min-width="200" />
       <el-table-column label="SMTP 服务器" prop="smtpHost" min-width="160" />

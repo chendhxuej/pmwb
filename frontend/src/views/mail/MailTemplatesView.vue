@@ -3,7 +3,7 @@
     <div class="toolbar">
       <el-button type="primary" @click="onCreate">新建模板</el-button>
     </div>
-    <el-table :data="list" v-loading="loading" stripe border>
+    <el-table ref="pmTbl1" :data="list" v-loading="loading" stripe border>
       <el-table-column label="模板名称" prop="name" min-width="160" />
       <el-table-column label="主题" prop="subject" min-width="200" show-overflow-tooltip />
       <el-table-column label="变量" prop="variables" width="200" show-overflow-tooltip>

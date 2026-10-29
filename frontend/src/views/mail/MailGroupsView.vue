@@ -3,7 +3,7 @@
     <div class="toolbar">
       <el-button type="primary" @click="onCreate">新建分组</el-button>
     </div>
-    <el-table :data="list" v-loading="loading" stripe border>
+    <el-table ref="pmTbl1" :data="list" v-loading="loading" stripe border>
       <el-table-column label="分组名称" prop="name" min-width="200" />
       <el-table-column label="描述" prop="description" min-width="300" show-overflow-tooltip />
       <el-table-column label="操作" width="140" fixed="right">

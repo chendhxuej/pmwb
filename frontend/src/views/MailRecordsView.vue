@@ -11,7 +11,7 @@
       </template>
     </PageHeader>
 
-    <el-table v-loading="loading" :data="tableData" border stripe style="width: 100%">
+    <el-table ref="pmTbl1" v-loading="loading" :data="tableData" border stripe style="width: 100%">
       <el-table-column prop="created_at" label="发送时间" width="180" sortable />
       <el-table-column prop="subject" label="主题" min-width="220" show-overflow-tooltip />
       <el-table-column prop="recipient" label="收件人" width="200" show-overflow-tooltip />

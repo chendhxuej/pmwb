@@ -8,7 +8,7 @@
         <span class="dict-title">两级分类字典（keywords 正则即口径）</span>
         <el-button size="small" text :icon="Refresh" @click="load">刷新</el-button>
       </div>
-      <el-table v-loading="loading" :data="rows" size="small" max-height="420">
+      <el-table ref="pmTbl1" v-loading="loading" :data="rows" size="small" max-height="420">
         <el-table-column prop="level" label="级" width="44" align="center">
           <template #default="{ row }">
             <el-tag :type="row.level === 1 ? 'primary' : 'info'" size="small">L{{ row.level }}</el-tag>

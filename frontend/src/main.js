@@ -15,6 +15,7 @@ import EnlargeInput from './components/Common/EnlargeInput.vue'
 import { countup } from './composables/countup.js'
 import { loadStatusMeta, subscribeStatusMeta } from './api/statusMeta.js'
 import { hydrateStatusMeta } from './constants/statusConfig.js'
+import installTableColumnResize from './utils/tableColumnResize.js'
 import './styles/design.css'
 
 // Element Plus week picker 依赖 dayjs isoWeek 插件
@@ -33,6 +34,9 @@ app.directive('countup', countup)
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
+
+// 全站表格列宽：拖拽调整 + 本地持久化 + 双击复位（详见 utils/tableColumnResize.js）
+installTableColumnResize(app)
 
 // 状态元数据（状态注册表）预加载：唯一真相源在后端，hydrate 后
 // 全站徽标 label/tone、筛选下拉、流转下拉、总览矩阵自动以注册表为准。

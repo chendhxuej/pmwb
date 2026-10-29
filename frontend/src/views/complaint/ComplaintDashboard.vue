@@ -73,7 +73,7 @@
             </el-tag>
           </div>
           <div class="card-body">
-            <el-table :data="metrics.batch.clusters" size="small" empty-text="本周未出现同场景单日 ≥5 单的批量簇">
+            <el-table ref="pmTbl1" :data="metrics.batch.clusters" size="small" empty-text="本周未出现同场景单日 ≥5 单的批量簇">
               <el-table-column prop="l2" label="场景" min-width="150" show-overflow-tooltip />
               <el-table-column prop="date" label="发现日" width="100" />
               <el-table-column prop="cnt" label="单量" width="64" align="center">
@@ -150,7 +150,7 @@
           </el-button>
         </div>
         <div class="card-body">
-          <el-table v-if="handlerRows.length" :data="handlerRows" size="small">
+          <el-table ref="pmTbl2" v-if="handlerRows.length" :data="handlerRows" size="small">
             <el-table-column prop="name" label="处理人" width="110" />
             <el-table-column prop="total" label="累计经手" width="90" align="center">
               <template #default="{ row }"><b>{{ row.total }}</b></template>

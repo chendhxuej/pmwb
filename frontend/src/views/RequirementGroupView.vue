@@ -14,7 +14,7 @@
       集团需求（个人优先级标记为「集团需求」）。点击「导出 xlsx」可导出当前全部集团需求台账。
     </div>
 
-    <el-table v-loading="loading" :data="tableData" border stripe style="width: 100%">
+    <el-table ref="pmTbl1" v-loading="loading" :data="tableData" border stripe style="width: 100%">
       <el-table-column prop="req_id" label="需求编号" width="180" show-overflow-tooltip />
       <el-table-column prop="req_name" label="需求名称" min-width="220" show-overflow-tooltip />
       <el-table-column prop="proposer" label="提出人" width="90" />

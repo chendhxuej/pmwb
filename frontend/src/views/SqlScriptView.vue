@@ -35,7 +35,7 @@
 
     <!-- 列表 -->
     <div class="ss-card">
-      <el-table
+      <el-table ref="pmTbl1"
         v-loading="loading"
         :data="pagedItems"
         class="ss-table"
@@ -174,7 +174,7 @@
 
         <div class="ss-d-section">
           <div class="ss-d-h">输出字段样例<span class="ss-d-count">{{ detail.output_fields?.length || 0 }} 个</span></div>
-          <el-table v-if="detail.output_fields && detail.output_fields.length" :data="detail.output_fields" size="small" class="ss-field-table">
+          <el-table ref="pmTbl2" v-if="detail.output_fields && detail.output_fields.length" :data="detail.output_fields" size="small" class="ss-field-table">
             <el-table-column prop="name" label="字段名" min-width="120">
               <template #default="{ row }"><span class="ss-mono">{{ row.name }}</span></template>
             </el-table-column>

@@ -37,7 +37,7 @@
       <el-button type="primary" plain :icon="Search" @click="load">查询</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="rows" size="default" border stripe>
+    <el-table ref="pmTbl1" v-loading="loading" :data="rows" size="default" border stripe>
       <el-table-column prop="ticket_no" label="BOMC 流水号" width="150" show-overflow-tooltip />
       <el-table-column prop="created_time" label="创建时间" width="150">
         <template #default="{ row }">{{ (row.created_time || '').replace('T', ' ').slice(0, 16) }}</template>

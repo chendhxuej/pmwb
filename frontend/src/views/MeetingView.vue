@@ -210,7 +210,7 @@
             </el-select>
           </div>
         </div>
-        <el-table
+        <el-table ref="pmTbl1"
           :data="pagedListMeetings"
           v-loading="loading"
           @row-click="(row) => openDetail(row.id)"
@@ -274,7 +274,7 @@
             <div class="card-sub">{{ currentUser }} 作为组织者或参会人</div>
           </div>
         </div>
-        <el-table
+        <el-table ref="pmTbl2"
           :data="pagedMineMeetings"
           v-loading="loading"
           @row-click="(row) => openDetail(row.id)"

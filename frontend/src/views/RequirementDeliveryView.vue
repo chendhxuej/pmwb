@@ -107,7 +107,7 @@
               <el-button size="small" @click="batchClearRiskFlag">取消标记</el-button>
             </template>
           </div>
-          <el-table
+          <el-table ref="pmTbl1"
             v-loading="reqLoading"
             :data="requirements"
             stripe
@@ -247,7 +247,7 @@
             <el-button @click="loadStorySearch"><el-icon><Refresh /></el-icon> 刷新</el-button>
             <span class="text-muted" style="margin-left:auto;font-size:12px">默认全局展示，按创建时间倒序</span>
           </div>
-          <el-table
+          <el-table ref="pmTbl2"
             v-loading="usLoading"
             :data="usList"
             stripe
@@ -370,7 +370,7 @@
             </el-select>
             <el-button @click="loadActiveOpts"><el-icon><Refresh /></el-icon> 刷新</el-button>
           </div>
-          <el-table v-loading="activeOptLoading" :data="activeOpts" class="req-table pm-table" stripe scrollbar-always-on @row-click="openActiveOptDetail">
+          <el-table ref="pmTbl3" v-loading="activeOptLoading" :data="activeOpts" class="req-table pm-table" stripe scrollbar-always-on @row-click="openActiveOptDetail">
             <el-table-column label="优先级" width="72" align="center">
               <template #default="{ row }">
                 <el-tag size="small" :type="priorityType(row.priority)" effect="dark">{{ row.priority || 'P2' }}</el-tag>
@@ -672,7 +672,7 @@
             </el-button>
           </div>
           <div class="pm-table-wrap">
-            <el-table :data="evaluations" v-loading="evalLoading" size="small" border>
+            <el-table ref="pmTbl4" :data="evaluations" v-loading="evalLoading" size="small" border>
               <el-table-column prop="system_name" label="涉及系统" width="140" />
               <el-table-column prop="sa_name" label="SA 负责人" width="110" />
               <el-table-column prop="workload" label="工作量(人天)" width="120" align="center" />
@@ -1100,7 +1100,7 @@
                   状态下拉已放开流转限制，可任意调整（含从「已完成」退回）；
                   仅当所有活跃厂家都置为「已完成」时才联动需求上线。
                 </div>
-                <el-table :data="vendorDevs" v-loading="vendorDevLoading" size="small" border>
+                <el-table ref="pmTbl5" :data="vendorDevs" v-loading="vendorDevLoading" size="small" border>
                   <el-table-column label="厂家 / 系统" min-width="170">
                     <template #default="{ row }">
                       <b>{{ row.system_name }}</b>
@@ -1168,7 +1168,7 @@
             title="人员中台不可达，当前无法读取映射配置（已降级为只按团队评估匹配）"
             class="mb-12"
           />
-          <el-table :data="vendorMapping" v-loading="vendorMappingLoading" size="small" border max-height="300">
+          <el-table ref="pmTbl6" :data="vendorMapping" v-loading="vendorMappingLoading" size="small" border max-height="300">
             <el-table-column prop="org_name" label="组织 / 团队" width="150" />
             <el-table-column label="类型" width="90">
               <template #default="{ row }">

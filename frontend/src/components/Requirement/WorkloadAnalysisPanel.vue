@@ -184,7 +184,7 @@
             <span class="pm-card-sub">展开行可看月度分摊</span>
           </div>
           <div class="card-body wla-table-body">
-            <el-table :data="data.by_sa" size="small" border stripe row-key="name" max-height="300">
+            <el-table ref="pmTbl1" :data="data.by_sa" size="small" border stripe row-key="name" max-height="300">
               <el-table-column type="expand">
                 <template #default="{ row }">
                   <div class="wla-expand">
@@ -214,7 +214,7 @@
             <span class="pm-card-sub">{{ sysList.length }} 个系统</span>
           </div>
           <div class="card-body wla-table-body">
-            <el-table :data="sysList" size="small" border stripe row-key="name" max-height="300">
+            <el-table ref="pmTbl2" :data="sysList" size="small" border stripe row-key="name" max-height="300">
               <el-table-column prop="name" label="负责系统" min-width="130" show-overflow-tooltip />
               <el-table-column prop="req_count" label="需求数" width="76" align="center" />
               <el-table-column label="工作量(人天)" width="108" align="center">
@@ -236,7 +236,7 @@
             <span class="pm-card-sub">共 {{ data.requirements.total }} 条</span>
           </div>
           <div class="card-body wla-table-body">
-            <el-table :data="data.requirements.items" size="small" border stripe row-key="req_id">
+            <el-table ref="pmTbl3" :data="data.requirements.items" size="small" border stripe row-key="req_id">
               <el-table-column label="需求文号" min-width="150">
                 <template #default="{ row }">
                   <span class="link-text font-mono" @click="$emit('open-requirement', row.req_id)">
@@ -299,7 +299,7 @@
             <span class="pm-card-sub">无「启动开发」环节时间，未纳入月度统计</span>
           </div>
           <div class="card-body wla-table-body">
-            <el-table :data="unmonthRows" size="small" border stripe row-key="req_id">
+            <el-table ref="pmTbl4" :data="unmonthRows" size="small" border stripe row-key="req_id">
               <el-table-column prop="req_id" label="需求文号" min-width="150" />
               <el-table-column prop="req_name" label="需求名称" min-width="180" show-overflow-tooltip />
               <el-table-column label="工作量(人天)" width="120" align="center">
