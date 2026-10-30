@@ -116,6 +116,18 @@ function pct(cur) {
   return data.value.total ? Math.round((cur / data.value.total) * 1000) / 10 : 0
 }
 
+// 一级 4 类问题性质 → tag 颜色（整改归口视觉区分）
+const L1_TAG = {
+  系统问题: 'danger',
+  流程优化: 'warning',
+  投诉咨询: 'info',
+  数据问题: 'success',
+}
+
+function l1TagType(l1) {
+  return L1_TAG[l1] || 'info'
+}
+
 function flagText(it) {
   if (it.flag === 'new') return '新进'
   const arrow = it.flag === 'up' ? '↑' : (it.flag === 'down' ? '↓' : '→')

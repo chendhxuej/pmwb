@@ -81,17 +81,27 @@
           <el-descriptions-item label="二级场景">{{ detail.category_l2 || '—' }}</el-descriptions-item>
         </el-descriptions>
 
-        <div v-if="detail.ai_confidence !== null && detail.ai_confidence !== undefined" class="ai-block">
+        <!-- AI 分析块：始终展示归类来源，历史单无置信度时如实说明（不静默省略） -->
+        <div class="ai-block">
           <div class="ai-title">
             🤖 大模型分析
-            <span class="conf" :class="detail.ai_confidence >= 0.75 ? 'conf-hi' : 'conf-low'">
+            <span
+              v-if="detail.ai_confidence !== null && detail.ai_confidence !== undefined"
+              class="conf"
+              :class="detail.ai_confidence >= 0.75 ? 'conf-hi' : 'conf-low'"
+            >
               置信度 {{ detail.ai_confidence.toFixed(2) }}
             </span>
-            <el-tag size="small" :type="detail.classify_by === 'ai_low' ? 'warning' : 'success'">
-              {{ detail.classify_by === 'manual' ? '人工校正' : (detail.classify_by === 'ai_low' ? '待人工确认' : 'AI 归类') }}
+            <el-tag size="small" :type="classifyTagType(detail.classify_by)">
+              {{ classifyText(detail.classify_by) }}
             </el-tag>
           </div>
-          <div class="ai-evidence">{{ detail.ai_evidence || '（无依据摘录）' }}</div>
+          <div class="ai-evidence">
+            {{ detail.ai_evidence
+              || (detail.classify_by === 'manual' ? '（人工校正，AI 判断依据未留存）'
+                : detail.classify_by === 'auto' || !detail.classify_by ? '（待 AI 分析：下次归类任务自动补齐，也可在工单明细页手动重跑）'
+                : '（无依据摘录）') }}
+          </div>
         </div>
 
         <div class="sec"><h4>投诉内容</h4><pre class="pre">{{ detail.content || '（无）' }}</pre></div>
@@ -188,6 +198,15 @@ function fmtTime(v) {
 
 function l1TagType(l1) {
   return { '系统问题': 'danger', '流程优化': 'warning', '数据问题': 'info', '投诉咨询': 'success' }[l1] || 'info'
+}
+
+// 归类来源展示（AI 归类 / 待人工确认 / 人工校正 / 待分析）
+function classifyText(by) {
+  return { ai: 'AI 归类', ai_low: '待人工确认', manual: '人工校正' }[by] || '待分析'
+}
+
+function classifyTagType(by) {
+  return { ai: 'success', ai_low: 'warning', manual: 'primary' }[by] || 'info'
 }
 </script>
 
