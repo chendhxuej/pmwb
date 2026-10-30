@@ -81,7 +81,11 @@ export const complaintApi = {
   },
 
   // ── 共性问题台账（闭环管理）──
-  listProblems(params) {
+  // 热点投诉 TOP 榜（近一周按二级场景统计+环比标注）
+  getHotspots(params) {
+    return request.get('/complaint/hotspots', { params })
+  },
+    listProblems(params) {
     return request.get('/complaint/problems', { params })
   },
   listCandidates() {

@@ -211,6 +211,20 @@ def list_clusters(week: Optional[str] = Query(None), db: Session = Depends(get_d
 
 
 # ── 分类字典 ─────────────────────────────────────────────────
+@router.get("/hotspots")
+def get_hotspots(
+    db: Session = Depends(get_db),
+    week: Optional[str] = Query(None, description="周次，空=最新周"),
+    top_n: int = Query(10, ge=1, le=30),
+):
+    """热点投诉 TOP 榜：近一周新增工单按二级场景统计，环比 new/up/flat/down + 闭环反弹检测。
+
+    所有单量可经 /tickets?week=&l2= 下钻工单明细。
+    """
+    from services.complaint.hotspots import weekly_hotspots
+    return success(weekly_hotspots(db, week=week, top_n=top_n))
+
+
 @router.get("/classify-status")
 def get_classify_status(db: Session = Depends(get_db)):
     """归类状态统计：AI 归类率 / 低置信待人工确认数 / 待分析数。"""

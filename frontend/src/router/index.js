@@ -88,9 +88,10 @@ const routes = [
             meta: { title: '临时交办任务', category: 'task' },
           },
           {
+            // 旧热点投诉入口：2026-10-30 整合进客诉专题热点模块（热点口径全局唯一）
             path: 'complaint',
             name: 'WOComplaint',
-            component: () => import('@/views/WorkOrderView.vue'),
+            redirect: '/operation/complaint-center/hotspots',
             meta: { title: '热点投诉', category: 'complaint' },
           },
           // ── 客诉专题分析（2026-10-27 服务化整合；注意与热点投诉 complaint 区分命名）──
@@ -104,6 +105,12 @@ const routes = [
                 name: 'ComplaintDashboard',
                 component: () => import('@/views/complaint/ComplaintDashboard.vue'),
                 meta: { title: '压降看板' },
+              },
+              {
+                path: 'hotspots',
+                name: 'ComplaintHotspots',
+                component: () => import('@/views/complaint/ComplaintHotspots.vue'),
+                meta: { title: '热点投诉' },
               },
               {
                 path: 'tickets',
