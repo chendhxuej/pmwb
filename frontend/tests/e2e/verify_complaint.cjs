@@ -56,6 +56,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         hasProblemEntry: t.includes('进入问题台账'),
         navHasProblems: t.includes('问题台账'),
         empty: t.includes('暂无客诉数据'),
+        // v3.0：周切换器 + KPI 下钻（全链路数量可下钻）
+        hasWeekSelect: !!document.querySelector('.pm-page-header .el-select, .page-header .el-select'),
+        kpiClickable: document.querySelectorAll('.kpi-clickable').length,
       };
     });
     check('看板标题渲染', dash.title === '客诉压降看板', `title=${dash.title}`);
@@ -67,6 +70,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       check('趋势图已渲染(canvas)', dash.hasLine);
       check('批量簇专题卡存在', dash.hasClusterTable);
       check('共性问题闭环卡存在', dash.hasProblemCard && dash.hasProblemEntry);
+      check('周切换器存在（默认当前周，可切往期）', dash.hasWeekSelect);
+      check('KPI 数量可下钻（≥4 卡可点）', dash.kpiClickable >= 4, `clickable=${dash.kpiClickable}`);
     }
 
     // ── 2. 工单台账 ──

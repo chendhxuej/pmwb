@@ -94,7 +94,8 @@ const routes = [
             redirect: '/operation/complaint-center/hotspots',
             meta: { title: '热点投诉', category: 'complaint' },
           },
-          // ── 客诉专题分析（2026-10-27 服务化整合；注意与热点投诉 complaint 区分命名）──
+          // ── 客诉专题分析（2026-10-30 v3.0 五模块信息架构：投诉现状 → 热点投诉 → 问题台账
+          //    → 措施跟踪 → 工单明细；默认落点 dashboard，旧热点入口 complaint 已重定向至 hotspots）──
           {
             path: 'complaint-center',
             redirect: '/operation/complaint-center/dashboard',
@@ -113,22 +114,22 @@ const routes = [
                 meta: { title: '热点投诉' },
               },
               {
-                path: 'tickets',
-                name: 'ComplaintTicketLedger',
-                component: () => import('@/views/complaint/ComplaintTicketLedger.vue'),
-                meta: { title: '工单台账' },
+                path: 'problems',
+                name: 'ComplaintProblemLedger',
+                component: () => import('@/views/complaint/ProblemLedger.vue'),
+                meta: { title: '问题台账' },
               },
               {
                 path: 'actions',
                 name: 'ComplaintActionLedger',
                 component: () => import('@/views/complaint/ComplaintActionLedger.vue'),
-                meta: { title: '措施台账' },
+                meta: { title: '措施跟踪' },
               },
               {
-                path: 'problems',
-                name: 'ComplaintProblemLedger',
-                component: () => import('@/views/complaint/ProblemLedger.vue'),
-                meta: { title: '问题台账' },
+                path: 'tickets',
+                name: 'ComplaintTicketLedger',
+                component: () => import('@/views/complaint/ComplaintTicketLedger.vue'),
+                meta: { title: '工单明细' },
               },
             ],
           },
