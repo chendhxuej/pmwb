@@ -88,50 +88,22 @@ const routes = [
             meta: { title: '临时交办任务', category: 'task' },
           },
           {
-            // 旧热点投诉入口：2026-10-30 整合进客诉专题热点模块（热点口径全局唯一）
+            // 旧热点投诉入口：2026-10-30 整合进客诉专题热点模块（热点口径全局唯一）；
+            // hidden——菜单不再单列，统一从一级「客诉专题 → 热点投诉」进入
             path: 'complaint',
             name: 'WOComplaint',
-            redirect: '/operation/complaint-center/hotspots',
-            meta: { title: '热点投诉', category: 'complaint' },
+            redirect: '/complaint-center/hotspots',
+            meta: { title: '热点投诉', category: 'complaint', hidden: true },
           },
-          // ── 客诉专题分析（2026-10-30 v3.0 五模块信息架构：投诉现状 → 热点投诉 → 问题台账
-          //    → 措施跟踪 → 工单明细；默认落点 dashboard，旧热点入口 complaint 已重定向至 hotspots）──
+          // ── 客诉专题分析：2026-10-30 升级为独立一级模块（见顶级 complaint-center），
+          //    此处仅保留旧深链 /operation/complaint-center/** 重定向兼容 ──
           {
-            path: 'complaint-center',
-            redirect: '/operation/complaint-center/dashboard',
-            meta: { title: '客诉专题', icon: 'DataAnalysis' },
-            children: [
-              {
-                path: 'dashboard',
-                name: 'ComplaintDashboard',
-                component: () => import('@/views/complaint/ComplaintDashboard.vue'),
-                meta: { title: '压降看板' },
-              },
-              {
-                path: 'hotspots',
-                name: 'ComplaintHotspots',
-                component: () => import('@/views/complaint/ComplaintHotspots.vue'),
-                meta: { title: '热点投诉' },
-              },
-              {
-                path: 'problems',
-                name: 'ComplaintProblemLedger',
-                component: () => import('@/views/complaint/ProblemLedger.vue'),
-                meta: { title: '问题台账' },
-              },
-              {
-                path: 'actions',
-                name: 'ComplaintActionLedger',
-                component: () => import('@/views/complaint/ComplaintActionLedger.vue'),
-                meta: { title: '措施跟踪' },
-              },
-              {
-                path: 'tickets',
-                name: 'ComplaintTicketLedger',
-                component: () => import('@/views/complaint/ComplaintTicketLedger.vue'),
-                meta: { title: '工单明细' },
-              },
-            ],
+            path: 'complaint-center/:pathMatch(.*)*',
+            name: 'ComplaintCenterLegacy',
+            redirect: (to) => ({
+              path: '/complaint-center/' + (to.params.pathMatch || 'dashboard'),
+            }),
+            meta: { hidden: true },
           },
           // ── 一线调研已升级为一级模块，此处仅保留旧深链重定向 ──
           {
@@ -145,6 +117,47 @@ const routes = [
             name: 'ProductionMonitor',
             component: () => import('@/views/ProductionMonitorPlaceholder.vue'),
             meta: { title: '生产监控', icon: 'Monitor', badge: '建设中' },
+          },
+        ],
+      },
+      // ── 客诉专题：原「运营监控」子模块，2026-10-30 升级为独立一级模块（v3.0）──
+      // 五模块信息架构：投诉现状 → 热点投诉 → 问题台账 → 措施跟踪 → 工单明细；
+      // 提级后侧边栏直接展示五子页；旧路径 /operation/complaint-center/** 由上方重定向兼容。
+      {
+        path: 'complaint-center',
+        component: () => import('@/views/MeetingLayout.vue'),
+        redirect: '/complaint-center/dashboard',
+        meta: { title: '客诉专题', icon: 'DataAnalysis' },
+        children: [
+          {
+            path: 'dashboard',
+            name: 'ComplaintDashboard',
+            component: () => import('@/views/complaint/ComplaintDashboard.vue'),
+            meta: { title: '投诉现状' },
+          },
+          {
+            path: 'hotspots',
+            name: 'ComplaintHotspots',
+            component: () => import('@/views/complaint/ComplaintHotspots.vue'),
+            meta: { title: '热点投诉' },
+          },
+          {
+            path: 'problems',
+            name: 'ComplaintProblemLedger',
+            component: () => import('@/views/complaint/ProblemLedger.vue'),
+            meta: { title: '问题台账' },
+          },
+          {
+            path: 'actions',
+            name: 'ComplaintActionLedger',
+            component: () => import('@/views/complaint/ComplaintActionLedger.vue'),
+            meta: { title: '措施跟踪' },
+          },
+          {
+            path: 'tickets',
+            name: 'ComplaintTicketLedger',
+            component: () => import('@/views/complaint/ComplaintTicketLedger.vue'),
+            meta: { title: '工单明细' },
           },
         ],
       },
