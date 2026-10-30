@@ -203,9 +203,15 @@ function toggle(item) {
 
 function remove(rid) {
   selected.value = selected.value.filter((x) => x !== rid)
+  syncIfTrigger()
 }
 function clearAll() {
   selected.value = []
+  syncIfTrigger()
+}
+/** 触发器上的删除/清空需即时同步 modelValue；弹窗内保持事务性（点「确定」才生效） */
+function syncIfTrigger() {
+  if (!visible.value) emit('update:modelValue', [...selected.value])
 }
 function confirm() {
   emit('update:modelValue', [...selected.value])

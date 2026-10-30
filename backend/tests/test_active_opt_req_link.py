@@ -227,10 +227,16 @@ def test_legacy_column_backfill(client, db):
     db.refresh(opt)
     assert opt.req_id == "X1"  # 回填首条，供旧邮件模板使用
 
-    # 清空关联后不清空历史列（规避 update 无法清空字段的历史坑）
+    # 清空关联后必须同步清空历史列：否则前端 optReqIds() 会从
+    # req_id 回落，复活已删除的文号（2026-10-30 修复「关联需求删不掉」）
     client.put(f"{BASE}/{opt.id}/req-links", json={"req_ids": []})
     db.refresh(opt)
-    assert opt.req_id == "X1"
+    assert opt.req_id is None
+
+    # 重新关联后历史列恢复回填
+    client.put(f"{BASE}/{opt.id}/req-links", json={"req_ids": ["X2"]})
+    db.refresh(opt)
+    assert opt.req_id == "X2"
 
 
 def test_email_variables_multi(client, db):

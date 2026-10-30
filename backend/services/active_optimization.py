@@ -206,7 +206,8 @@ class ActiveOptimizationService:
             db.rollback()
             raise ValidationException("关联需求文号写入冲突（疑似重复关联），请重试")
 
-        # 回填历史列 req_id：取剩余首条，**绝不清空**（service.update 无法清空字段的历史坑）
+        # 回填历史列 req_id：取剩余首条；全部删除时同步清空历史列，
+        # 否则前端 optReqIds() 会从 req_id 回落复活已删文号（2026-10-30 修复）
         remain = [
             r.req_id
             for r in db.query(PmwbActiveOptimizationReq)
@@ -214,8 +215,7 @@ class ActiveOptimizationService:
             .order_by(PmwbActiveOptimizationReq.id.asc())
             .all()
         ]
-        if remain:
-            obj.req_id = remain[0]
+        obj.req_id = remain[0] if remain else None
         db.commit()
         db.refresh(obj)
 
