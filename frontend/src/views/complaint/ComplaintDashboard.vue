@@ -44,10 +44,10 @@
           <div class="kpi-num" :class="metrics.recur.cnt ? 'red' : 'green'">{{ metrics.recur.cnt }}</div>
           <div class="kpi-label">措施后复发（单）</div>
         </div>
-        <div class="card kpi-card kpi-clickable" title="点击查看待人工确认工单" @click="drill({ classify_by: 'ai_low' }, 'AI 低置信待人工确认工单')">
-          <div class="kpi-num" :class="classify.ai_low ? 'amber' : 'green'">{{ classify.rate }}%</div>
-          <div class="kpi-label">AI 归类率</div>
-          <div class="kpi-sub">{{ classify.ai_low ? `${classify.ai_low} 条待确认` : '无需人工确认' }}</div>
+        <div class="card kpi-card kpi-clickable" :title="classifyTitle" @click="drillClassify">
+          <div class="kpi-num" :class="(classify.ai_rate || 0) >= 90 ? 'green' : 'amber'">{{ classify.ai_rate ?? 0 }}%</div>
+          <div class="kpi-label">AI 分析覆盖率</div>
+          <div class="kpi-sub">{{ classifySub }}</div>
         </div>
       </div>
 
@@ -219,7 +219,25 @@ const selectedWeek = ref('')
 const drillVisible = ref(false)
 const drillFilters = ref({})
 const drillTitle = ref('投诉工单下钻')
-const classify = ref({ rate: 100, ai_low: 0 })
+const classify = ref({ ai_rate: 0, ai_low: 0, need_analyze: 0, need_review: 0, total: 0 })
+
+// AI 分析覆盖率卡：主指标为 ai_rate（有大模型结论的单占比），副文案说明待办
+const classifySub = computed(() => {
+  const c = classify.value
+  if (c.need_review) return `${c.need_review} 条待人工确认`
+  if (c.need_analyze) return `${c.need_analyze} 条待 AI 分析`
+  return c.total ? '全部已完成 AI 分析' : '暂无工单'
+})
+const classifyTitle = computed(() => {
+  const c = classify.value
+  return `点击下钻：${c.need_review ? 'AI 低置信待确认工单' : (c.need_analyze ? '待 AI 分析工单' : '全部工单')}`
+})
+function drillClassify() {
+  const c = classify.value
+  if (c.need_review) return drill({ classify_by: 'ai_low' }, 'AI 低置信待人工确认工单')
+  if (c.need_analyze) return drill({ classify_by: 'auto' }, '待 AI 分析工单')
+  return drill({}, '全部投诉工单')
+}
 const handlerRows = ref([])
 
 const subTitle = computed(() =>
@@ -337,7 +355,7 @@ async function loadAll() {
   try {
     classify.value = await complaintApi.classifyStatus()
   } catch (e) {
-    classify.value = { rate: 100, ai_low: 0 }
+    classify.value = { ai_rate: 0, ai_low: 0, need_analyze: 0, need_review: 0, total: 0 }
   }
   // 处理人负荷：读 /operation/stats/by-handler 顶层 complaint 键（统一口径）
   try {

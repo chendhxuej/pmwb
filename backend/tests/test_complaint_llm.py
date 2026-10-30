@@ -215,6 +215,10 @@ def test_classify_status_counts(db):
     assert st["total"] == 4 and st["ai"] == 1 and st["ai_low"] == 1
     assert st["manual"] == 1 and st["unclassified"] == 1
     assert st["rate"] == 75.0
+    # 口径分离：ai_rate 只认大模型结论（ai+ai_low），人工校正与待分析不计入
+    assert st["ai_rate"] == 50.0, st
+    assert st["need_analyze"] == 1, st   # 仅待分析 1 条（manual 已归类，不需 AI 再分析）
+    assert st["need_review"] == 1, st
 
 
 # ─────────────────────────────────────────────────────────────

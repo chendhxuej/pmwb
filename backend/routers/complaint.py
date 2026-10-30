@@ -60,7 +60,7 @@ def list_tickets(
     l1: Optional[str] = Query(None, description="一级性质"),
     l2: Optional[str] = Query(None, description="二级场景"),
     is_batch: Optional[int] = Query(None, ge=0, le=1),
-    classify_by: Optional[str] = Query(None, description="auto / manual"),
+    classify_by: Optional[str] = Query(None, description="归类来源：ai（AI归类）/ ai_low（待人工确认）/ manual（人工校正）/ auto（待分析）"),
     handler: Optional[str] = Query(None, description="处理人（精确）"),
     problem_no: Optional[str] = Query(None, description="按归属共性问题下钻"),
     is_recur: Optional[int] = Query(None, ge=0, le=1, description="措施后复发下钻"),

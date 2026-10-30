@@ -262,7 +262,14 @@ def run_llm_classify(db: Session, force: bool = False,
 
 
 def classify_status(db: Session) -> Dict[str, Any]:
-    """归类状态统计（看板 AI 归类率 / 人工确认队列数据源）。"""
+    """归类状态统计（看板 AI 归类率 / 人工确认队列数据源）。
+
+    口径必须分开，否则误导：
+      - rate      已归类率（有 l1 即算，含人工校正与历史迁移单）→ 分类完整度
+      - ai_rate   **AI 分析覆盖率** = (ai + ai_low)/total → 看板主指标
+      - need_analyze  待 AI 分析（无 AI 结论且非人工校正）
+      - need_review   待人工确认（ai_low）
+    """
     total = db.execute(text(
         "SELECT COUNT(*) FROM pmwb_complaint_ticket")).scalar() or 0
     by = dict(db.execute(text(
@@ -273,12 +280,23 @@ def classify_status(db: Session) -> Dict[str, Any]:
         "WHERE classify_by != 'manual' AND (category_l1 IS NULL OR category_l1 = '')"
     )).scalar() or 0
     classified = total - unclassified
+
+    ai = int(by.get(C.LLM_CLASSIFY_BY, 0))
+    ai_low = int(by.get(C.LLM_LOW_CONF_BY, 0))
+    manual = int(by.get(C.CLASSIFY_MANUAL_BY, 0))
+    legacy_auto = int(by.get("auto", 0))
+    ai_covered = ai + ai_low
+    need_analyze = max(0, total - ai_covered - manual)
+
     return {
         "total": int(total),
-        "ai": int(by.get(C.LLM_CLASSIFY_BY, 0)),
-        "ai_low": int(by.get(C.LLM_LOW_CONF_BY, 0)),
-        "manual": int(by.get(C.CLASSIFY_MANUAL_BY, 0)),
-        "legacy_auto": int(by.get("auto", 0)),
+        "ai": ai,
+        "ai_low": ai_low,
+        "manual": manual,
+        "legacy_auto": legacy_auto,
         "unclassified": int(unclassified),
         "rate": round(classified / total * 100, 1) if total else 100.0,
+        "ai_rate": round(ai_covered / total * 100, 1) if total else 0.0,
+        "need_analyze": need_analyze,
+        "need_review": ai_low,
     }
