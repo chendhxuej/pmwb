@@ -55,6 +55,15 @@ PROBLEM_ACTIVE_MAX_WEEKS = 12    # 在办超 N 周 → 台账/周报标"长期�
 # 多规则同命中时的主规则强度序（高→低）
 PROBLEM_SOURCE_STRENGTH = ("batch_cluster", "surge", "top_scene", "recur")
 
+# ── LLM 主导归类（llm_classify.py 唯一读取处；无关键词规则硬匹配） ──
+LLM_CONF_THRESHOLD = 0.75    # 置信度 >= 阈值自动归类；< 阈值进人工确认队列（classify_by='ai_low'）
+LLM_BATCH_SIZE = 20          # 每次 LLM 调用分析的工单条数（批量合并控 token 成本）
+LLM_TEXT_LIMIT = 1500        # 单工单送入 LLM 的内容+处理过程总字数上限（防超长）
+LLM_FEWSHOT_PER_GROUP = 2    # few-shot：人工校正样例每组（一级,二级）取最近 N 条
+LLM_CLASSIFY_BY = "ai"       # LLM 归类成功的 classify_by 值
+LLM_LOW_CONF_BY = "ai_low"   # LLM 低置信待人工确认的 classify_by 值
+CLASSIFY_MANUAL_BY = "manual"  # 人工校正（唯一不受重跑覆盖的值）
+
 # ── 接口 ──────────────────────────────────────────────────────
 API_BASE = "http://127.0.0.1:8000/api/v1"
 

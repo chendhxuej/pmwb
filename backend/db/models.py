@@ -1940,6 +1940,8 @@ class PmwbComplaintTicket(Base):
     is_batch = Column(Integer, nullable=False, default=0, comment="是否属批量异常簇：1 是 0 否")
     is_recur = Column(Integer, nullable=False, default=0, comment="是否措施上线后同类复发：1 是 0 否")
     problem_no = Column(String(64), comment="归属共性问题编号（唯一归因键，唯一写入点 problems.assign_tickets）")
+    ai_confidence = Column(Float, comment="AI 归类置信度（0~1，LLM 主导分析输出；人工校正/规则为空）")
+    ai_evidence = Column(Text, comment="AI 判断依据摘录（LLM 分析输出，可追溯）")
     # 已废弃：不写不读；工单关联唯一来源 = pmwb_complaint_action.issue_no
     linked_issue_no = Column(String(64), comment="（已废弃）关联运营工单号")
 

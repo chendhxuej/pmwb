@@ -1,19 +1,24 @@
-"""客诉工单入库 —— 导出文件归档 → 解析 → 去重入库 → 分类 → 批量簇/复发标记。
+"""客诉工单入库 —— 导出文件归档 → 解析 → 去重入库 → LLM 归类 → 批量簇/复发标记。
 
 用法（在 backend 目录下执行）：
     python -m scripts.complaint.ingest "D:\\path\\小信工单上周全部明细.xlsx"
     python -m scripts.complaint.ingest <file> --dry-run     # 只解析不入库
 
-设计要点：
+设计要点（方案 v3.0）：
   - 原始文件按自然周归档到 data/complaint/YYYY-Www/，永久留底可溯源；
   - ticket_no（BOMC流水号）唯一去重，重复导入天然幂等；
-  - 分类走字典表规则，classify_by 标记 auto，人工校正后改 manual（校正不被覆盖）；
-  - 批量簇/复发为派生字段，每次导入后整表重算，保证口径一致。
+  - **不定期上传**：week 由工单创建时间派生（仅作分析视角），与导入频率解耦；
+  - 分类走 **LLM 主导**（llm_classify.py，无规则硬匹配）：新工单先落"待分析"
+    （category_l1 空），导入完成后后台线程触发 LLM 归类，完成后自动重算
+    批量簇/复发与共性问题识别；
+  - 人工校正 classify_by='manual' 永不被覆盖；
+  - 批量簇/复发为派生字段，归类完成后按涉及周重算，保证口径一致。
 """
 
 from __future__ import annotations
 
 import shutil
+import threading
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -23,7 +28,6 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.complaint import config as C
-from services.complaint.classify import load_dictionary
 
 
 # ── 工具 ──────────────────────────────────────────────────────
@@ -86,7 +90,34 @@ def archive_source(path: Path, week: str) -> Path:
 
 
 # ── 入库 ──────────────────────────────────────────────────────
-def ingest_file(db: Session, path: Path, import_batch: str = "") -> Dict:
+def _bg_llm_classify(weeks: Sequence[str]) -> None:
+    """后台线程：LLM 归类 + 派生重算 + 共性问题识别（独立会话，异常全吞记日志）。
+
+    线程内 SessionLocal 延迟导入（避免测试环境误连真实库）。
+    """
+    import logging
+
+    from db.base import SessionLocal
+    from services.complaint.llm_classify import run_llm_classify
+    from services.complaint.problems import after_import
+
+    logger = logging.getLogger(__name__)
+    try:
+        with SessionLocal() as s:
+            res = run_llm_classify(s, force=False)
+            logger.info("导入后 LLM 归类完成：%s", res)
+            ws = [w for w in weeks if w]
+            refresh_derived(s, weeks=ws)
+            try:
+                after_import(s, weeks=ws)
+            except Exception:  # noqa: BLE001
+                logger.exception("导入后共性问题识别失败")
+    except Exception:  # noqa: BLE001
+        logger.exception("导入后 LLM 归类线程异常")
+
+
+def ingest_file(db: Session, path: Path, import_batch: str = "",
+                run_llm: bool = True) -> Dict:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
@@ -96,7 +127,7 @@ def ingest_file(db: Session, path: Path, import_batch: str = "") -> Dict:
     if missing:
         raise ValueError(f"导出文件缺少必需列：{missing}；实际表头={header}")
 
-    dic = load_dictionary(db)
+    dic = None  # 规则引擎已废弃（LLM 主导），保留变量位防下游误用
     existing = {r[0] for r in db.execute(text("SELECT ticket_no FROM pmwb_complaint_ticket"))}
 
     batch = import_batch or datetime.now().strftime("%Y%m%d%H%M%S")
@@ -121,7 +152,8 @@ def ingest_file(db: Session, path: Path, import_batch: str = "") -> Dict:
 
         content = _s(row.get(C.COL_CONTENT), 20000)
         solution = _s(row.get(C.COL_SOLUTION), 20000)
-        l1, l2, _hit = dic.classify(content, solution)
+        # LLM 主导：新工单先落待分析（l1/l2 空），导入完成后后台线程统一归类
+        l1, l2 = "", ""
 
         dispatch_raw = row.get(C.COL_DISPATCH)
         try:
@@ -155,6 +187,15 @@ def ingest_file(db: Session, path: Path, import_batch: str = "") -> Dict:
 
     derived = refresh_derived(db, weeks=sorted(w for w in weeks if w))
 
+    # LLM 主导归类：导入成功后后台线程触发（失败不影响导入本身，工单保持待分析）
+    llm_thread = None
+    if run_llm and inserted > 0:
+        llm_thread = threading.Thread(
+            target=_bg_llm_classify, args=(sorted(w for w in weeks if w),),
+            daemon=True, name="complaint-llm-classify",
+        )
+        llm_thread.start()
+
     return {
         "file": path.name,
         "archive": str(archive_path) if archive_path else "",
@@ -165,6 +206,7 @@ def ingest_file(db: Session, path: Path, import_batch: str = "") -> Dict:
         "batch": batch,
         "clusters": derived["clusters"],
         "recur": derived["recur"],
+        "llm_classify_started": bool(llm_thread),
     }
 
 
@@ -248,23 +290,11 @@ def refresh_derived(db: Session, weeks: Optional[Sequence[str]] = None,
 
 
 def reclassify(db: Session) -> Dict:
-    """按当前字典重跑分类（字典调口径后无需重新导入）。
+    """重跑归类（已转 LLM 主导，转发 llm_classify.run_llm_classify）。
 
-    仅覆盖 classify_by='auto' 的工单，人工校正（manual）一律不动。
+    兼容保留旧入口名：force=True 重分析全部非人工校正工单。
     """
-    dic = load_dictionary(db, use_cache=False)
-    rows = db.execute(text(
-        "SELECT id, content, solution_history FROM pmwb_complaint_ticket WHERE classify_by = 'auto'"
-    )).fetchall()
-
-    updated = 0
-    for tid, content, solution in rows:
-        l1, l2, _hit = dic.classify(content or "", solution or "")
-        db.execute(text(
-            "UPDATE pmwb_complaint_ticket SET category_l1 = :l1, category_l2 = :l2 WHERE id = :id"
-        ), {"l1": l1, "l2": l2, "id": tid})
-        updated += 1
-    db.commit()
-    return {"scanned": len(rows), "updated": updated}
+    from services.complaint.llm_classify import run_llm_classify
+    return run_llm_classify(db, force=True)
 
 

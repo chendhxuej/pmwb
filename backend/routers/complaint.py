@@ -102,7 +102,7 @@ def list_tickets(
         SELECT id, ticket_no, week, created_time, city, channel, appeal_category, biz_attr,
                handler, handle_unit, dispatch_count, status, category_l1, category_l2,
                classify_by, cluster_key, is_batch, is_recur, problem_no, remark,
-               content
+               ai_confidence, ai_evidence, content
         FROM pmwb_complaint_ticket WHERE {cond}
         ORDER BY created_time DESC
         LIMIT :limit OFFSET :offset
@@ -171,6 +171,29 @@ def list_clusters(week: Optional[str] = Query(None), db: Session = Depends(get_d
 
 
 # ── 分类字典 ─────────────────────────────────────────────────
+@router.get("/classify-status")
+def get_classify_status(db: Session = Depends(get_db)):
+    """归类状态统计：AI 归类率 / 低置信待人工确认数 / 待分析数。"""
+    from services.complaint.llm_classify import classify_status
+    return success(classify_status(db))
+
+
+@router.post("/llm-classify")
+def run_llm_classify_api(
+    db: Session = Depends(get_db),
+    force: bool = Query(False, description="True=重分析全部非人工校正工单；False=只分析待分析"),
+    limit: Optional[int] = Query(None, ge=1, le=500, description="单次最多分析条数"),
+):
+    """手动触发 LLM 主导归类（同步执行；导入路径自动后台触发，一般无需手动调）。
+
+    无关键词规则硬匹配——每次分析都由大模型完成（字典+人工样例+工单全文）。
+    LLM 不可用时工单保持待分析，绝不降级为规则匹配。
+    """
+    from services.complaint.llm_classify import run_llm_classify
+    res = run_llm_classify(db, force=force, limit=limit)
+    return success(res)
+
+
 @router.get("/categories")
 def list_categories(db: Session = Depends(get_db)):
     """两级分类字典（含停用项，供维护与校正下拉）。"""
@@ -681,16 +704,13 @@ async def import_weekly(
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    from services.complaint.ingest import reclassify
-    rc = reclassify(db)
-
-    # 共性问题闭环：扫描候选 → 回写归因 → 重算周轨迹（本次导入覆盖的周）
-    problems_summary = complaint_problems.after_import(db, weeks=ingest_info.get("weeks"))
+    # LLM 主导归类：ingest_file 已起后台线程（归类→派生重算→共性问题识别），
+    # 此处不同步等待——接口立即返回，前端提示"AI 归类后台进行中"。
 
     result = {
         "ingest": ingest_info,
-        "reclassify": rc,
-        "problems": problems_summary,
+        "llm_classify": {"started": bool(ingest_info.get("llm_classify_started")),
+                          "mode": "background"},
         "report": None,
     }
     if with_report:

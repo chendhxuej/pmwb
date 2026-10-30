@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from services.complaint import config as C
 from services.complaint import metrics, problems, report
-from services.complaint.ingest import ingest_file, reclassify, refresh_derived
+from services.complaint.ingest import ingest_file, refresh_derived
 
 PDF_EXPORT_JS = Path(__file__).resolve().parents[2] / "scripts" / "complaint" / "pdf_export.js"
 
@@ -36,14 +36,22 @@ def export_pdf(html_path: Path, pdf_path: Path) -> bool:
 
 def run(db: Session, file: Optional[str] = None, week: Optional[str] = None,
         pdf: bool = True) -> Dict:
-    """周报流水线主入口。file 为空则不导新数据，仅按库内数据出报告。"""
+    """周报流水线主入口。file 为空则不导新数据，仅按库内数据出报告。
+
+    LLM 主导归类：流水线内**同步**执行（CLI 跑批需等待归类完成后再出报告）；
+    API 导入路径则由 ingest_file 起后台线程异步归类。
+    """
+    from services.complaint.llm_classify import run_llm_classify
+
     info: Dict = {}
     if file:
-        info = ingest_file(db, Path(file))
+        info = ingest_file(db, Path(file), run_llm=False)
         print(f"入库完成：新增 {info['inserted']} 条（跳过重复 {info['skipped_duplicate']}），"
               f"归档 {info['archive']}")
-        rc = reclassify(db)
-        print(f"分类重跑：{rc['scanned']} 条")
+        rc = run_llm_classify(db, force=False)
+        print(f"LLM 归类：更新 {rc['updated']} 条（自动 {rc['auto']}，低置信待人工 {rc['low_conf']}，"
+              f"失败 {rc['failed']}）；{rc['notice']}")
+        refresh_derived(db, weeks=info.get("weeks") or None)
     else:
         refresh_derived(db)
 
