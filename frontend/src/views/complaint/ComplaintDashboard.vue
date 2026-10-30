@@ -13,7 +13,7 @@
 
     <div v-if="metrics.week" class="dashboard-body">
       <!-- KPI 区 -->
-      <div class="pm-stat-grid pm-stat-grid--6">
+      <div class="pm-stat-grid pm-stat-grid--7">
         <div class="card kpi-card kpi-clickable" title="点击下钻工单明细" @click="drill({ week: metrics.week }, '本周投诉工单')">
           <div class="kpi-num blue">{{ metrics.total }}</div>
           <div class="kpi-label">本周总量（单）</div>
@@ -43,6 +43,11 @@
         <div class="card kpi-card kpi-clickable" title="点击下钻复发工单" @click="drill({ week: metrics.week, is_recur: 1 }, '措施后复发工单')">
           <div class="kpi-num" :class="metrics.recur.cnt ? 'red' : 'green'">{{ metrics.recur.cnt }}</div>
           <div class="kpi-label">措施后复发（单）</div>
+        </div>
+        <div class="card kpi-card kpi-clickable" title="点击查看待人工确认工单" @click="drill({ classify_by: 'ai_low' }, 'AI 低置信待人工确认工单')">
+          <div class="kpi-num" :class="classify.ai_low ? 'amber' : 'green'">{{ classify.rate }}%</div>
+          <div class="kpi-label">AI 归类率</div>
+          <div class="kpi-sub">{{ classify.ai_low ? `${classify.ai_low} 条待确认` : '无需人工确认' }}</div>
         </div>
       </div>
 
@@ -214,6 +219,7 @@ const selectedWeek = ref('')
 const drillVisible = ref(false)
 const drillFilters = ref({})
 const drillTitle = ref('投诉工单下钻')
+const classify = ref({ rate: 100, ai_low: 0 })
 const handlerRows = ref([])
 
 const subTitle = computed(() =>
@@ -327,6 +333,12 @@ async function loadAll() {
     loading.value = false
   }
   if (metrics.value.week && !selectedWeek.value) selectedWeek.value = metrics.value.week
+  // AI 归类状态（大模型主导归类率 + 待人工确认数）
+  try {
+    classify.value = await complaintApi.classifyStatus()
+  } catch (e) {
+    classify.value = { rate: 100, ai_low: 0 }
+  }
   // 处理人负荷：读 /operation/stats/by-handler 顶层 complaint 键（统一口径）
   try {
     const byHandler = await operationApi.getStatsByHandler()
@@ -393,6 +405,12 @@ onMounted(loadAll)
   box-shadow: 0 2px 12px rgba(47, 111, 237, 0.18);
   transform: translateY(-1px);
 }
+.kpi-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.kpi-num.amber { color: var(--warning, #ea580c); }
 .cnt-clickable {
   cursor: pointer;
 }

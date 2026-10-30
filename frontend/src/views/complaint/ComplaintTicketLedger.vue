@@ -18,9 +18,11 @@
       <el-select v-model="filters.l2" placeholder="问题场景" clearable filterable style="width: 190px" @change="load">
         <el-option v-for="x in l2Options" :key="x" :label="x" :value="x" />
       </el-select>
-      <el-select v-model="filters.classify_by" placeholder="分类来源" clearable style="width: 118px" @change="load">
-        <el-option label="自动分类" value="auto" />
+      <el-select v-model="filters.classify_by" placeholder="分类来源" clearable style="width: 130px" @change="load">
+        <el-option label="AI 已归类" value="ai" />
+        <el-option label="AI 待人工确认" value="ai_low" />
         <el-option label="人工校正" value="manual" />
+        <el-option label="待分析" value="auto" />
       </el-select>
       <el-select v-model="filters.is_batch" placeholder="批量标记" clearable style="width: 108px" @change="load">
         <el-option label="批量簇内" :value="1" />
@@ -58,11 +60,17 @@
           <span v-else>—</span>
         </template>
       </el-table-column>
-      <el-table-column label="分类来源" width="86" align="center">
+      <el-table-column label="AI 归类" width="118" align="center">
         <template #default="{ row }">
-          <el-tag :type="row.classify_by === 'manual' ? 'warning' : 'info'" size="small">
-            {{ row.classify_by === 'manual' ? '人工' : '自动' }}
+          <el-tag
+            :type="{ ai: 'success', ai_low: 'warning', manual: 'primary' }[row.classify_by] || 'info'"
+            size="small"
+          >
+            {{ { ai: 'AI 归类', ai_low: '待确认', manual: '人工校正', auto: '待分析' }[row.classify_by] || row.classify_by }}
           </el-tag>
+          <div v-if="row.ai_confidence !== null && row.ai_confidence !== undefined" class="conf-line" :class="row.ai_confidence >= 0.75 ? 'conf-hi' : 'conf-low'">
+            {{ row.ai_confidence.toFixed(2) }}
+          </div>
         </template>
       </el-table-column>
       <el-table-column prop="handler" label="处理人" width="92" show-overflow-tooltip />
@@ -91,7 +99,7 @@
     <!-- 人工校正对话框 -->
     <el-dialog v-model="correctVisible" title="人工校正分类" width="480px">
       <el-alert type="warning" :closable="false" show-icon class="correct-tip">
-        校正后该单标记为「人工」，字典重跑分类不会覆盖。
+        校正后该单标记为「人工校正」，AI 重跑归类不会覆盖，且将作为样例回流提升 AI 归类准确率。
       </el-alert>
       <el-form label-width="88px" size="default">
         <el-form-item label="问题性质">
@@ -226,3 +234,12 @@ onMounted(async () => {
   load()
 })
 </script>
+
+<style scoped>
+.conf-line {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.conf-hi { color: var(--success); font-weight: 600; }
+.conf-low { color: var(--warning); font-weight: 600; }
+</style>
