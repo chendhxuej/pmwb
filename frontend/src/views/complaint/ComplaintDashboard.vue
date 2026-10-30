@@ -2,7 +2,10 @@
   <div class="complaint-dashboard">
     <PageHeader title="客诉压降看板" :subtitle="subTitle">
       <template #actions>
-        <el-button :icon="Upload" type="primary" plain @click="uploadVisible = true">上传周报数据</el-button>
+        <el-select v-if="weekOptions.length" v-model="selectedWeek" style="width: 168px" @change="onWeekChange">
+          <el-option v-for="w in weekOptions" :key="w" :label="weekLabel(w)" :value="w" />
+        </el-select>
+        <el-button :icon="Upload" type="primary" plain @click="uploadVisible = true">上传工单数据</el-button>
         <el-button :icon="Download" :disabled="!metrics.week" @click="openReport">查看最新周报</el-button>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
       </template>
@@ -11,7 +14,7 @@
     <div v-if="metrics.week" class="dashboard-body">
       <!-- KPI 区 -->
       <div class="pm-stat-grid pm-stat-grid--6">
-        <div class="card kpi-card">
+        <div class="card kpi-card kpi-clickable" title="点击下钻工单明细" @click="drill({ week: metrics.week }, '本周投诉工单')">
           <div class="kpi-num blue">{{ metrics.total }}</div>
           <div class="kpi-label">本周总量（单）</div>
         </div>
@@ -19,7 +22,7 @@
           <div class="kpi-num" :class="wowClass">{{ wowText }}</div>
           <div class="kpi-label">周环比</div>
         </div>
-        <div class="card kpi-card">
+        <div class="card kpi-card kpi-clickable" title="点击下钻批量簇工单" @click="drill({ week: metrics.week, is_batch: 1 }, '批量异常簇工单')">
           <div class="kpi-num" :class="metrics.batch.cluster_count ? 'red' : 'green'">
             {{ metrics.batch.cluster_count }}
           </div>
@@ -31,13 +34,13 @@
           </div>
           <div class="kpi-label">批量组织修复率</div>
         </div>
-        <div class="card kpi-card">
+        <div class="card kpi-card kpi-clickable" title="点击下钻超期工单" @click="drill({ retention: 1 }, '超期未结单工单')">
           <div class="kpi-num" :class="metrics.efficiency.retention ? 'red' : 'green'">
             {{ metrics.efficiency.retention }}
           </div>
           <div class="kpi-label">超期未结单</div>
         </div>
-        <div class="card kpi-card">
+        <div class="card kpi-card kpi-clickable" title="点击下钻复发工单" @click="drill({ week: metrics.week, is_recur: 1 }, '措施后复发工单')">
           <div class="kpi-num" :class="metrics.recur.cnt ? 'red' : 'green'">{{ metrics.recur.cnt }}</div>
           <div class="kpi-label">措施后复发（单）</div>
         </div>
@@ -48,7 +51,7 @@
         <section class="card pm-col-5">
           <div class="card-header"><h3>问题性质结构（一级）</h3></div>
           <div class="card-body">
-            <ChartPie :data="pieData" donut height="280px" />
+            <ChartPie :data="pieData" donut height="280px" @item-click="p => drill({ week: metrics.week, l1: p.name }, `问题性质「${p.name}」工单`)" />
           </div>
         </section>
         <section class="card pm-col-7">
@@ -58,6 +61,7 @@
               :x-data="trendWeeks"
               :series="trendSeries"
               height="280px"
+              @item-click="onTrendClick"
             />
           </div>
         </section>
@@ -78,7 +82,7 @@
               <el-table-column prop="date" label="发现日" width="100" />
               <el-table-column prop="cnt" label="单量" width="64" align="center">
                 <template #default="{ row }">
-                  <b class="cnt-danger">{{ row.cnt }}</b>
+                  <b class="cnt-danger cnt-clickable" title="点击下钻该场景批量簇工单" @click.stop="drill({ week: metrics.week, l2: row.l2, is_batch: 1 }, `批量簇「${row.l2}」工单`)">{{ row.cnt }}</b>
                 </template>
               </el-table-column>
               <el-table-column prop="cities" label="涉及地市" min-width="110" show-overflow-tooltip />
@@ -153,11 +157,11 @@
           <el-table ref="pmTbl2" v-if="handlerRows.length" :data="handlerRows" size="small">
             <el-table-column prop="name" label="处理人" width="110" />
             <el-table-column prop="total" label="累计经手" width="90" align="center">
-              <template #default="{ row }"><b>{{ row.total }}</b></template>
+              <template #default="{ row }"><b class="cnt-clickable" title="点击下钻该处理人工单" @click.stop="drill({ handler: row.name }, `处理人「${row.name}」工单`)">{{ row.total }}</b></template>
             </el-table-column>
             <el-table-column prop="open_cnt" label="未结单" width="80" align="center">
               <template #default="{ row }">
-                <span :class="{ 'cnt-danger': row.open_cnt > 0 }">{{ row.open_cnt }}</span>
+                <span :class="{ 'cnt-danger': row.open_cnt > 0 }" class="cnt-clickable" title="点击下钻未结单工单" @click.stop="drill({ handler: row.name, unclosed: 1 }, `「${row.name}」未结单工单`)">{{ row.open_cnt }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="batch_cnt" label="批量簇内" width="86" align="center" />
@@ -183,6 +187,9 @@
     <el-empty v-else-if="!loading" description="暂无客诉数据：请先上传小信工单导出 xlsx" />
 
     <ComplaintUploadDialog v-model="uploadVisible" @imported="loadAll" />
+
+    <!-- 统一工单下钻抽屉：所有数量可下钻到工单明细级 -->
+    <TicketDrillDrawer v-model="drillVisible" :filters="drillFilters" :title="drillTitle" />
   </div>
 </template>
 
@@ -195,6 +202,7 @@ import PageHeader from '@/components/Common/PageHeader.vue'
 import ChartPie from '@/components/Charts/ChartPie.vue'
 import ChartLine from '@/components/Charts/ChartLine.vue'
 import ComplaintUploadDialog from './components/ComplaintUploadDialog.vue'
+import TicketDrillDrawer from './components/TicketDrillDrawer.vue'
 import { complaintApi } from '@/api/complaint'
 import { operationApi } from '@/api/operation'
 
@@ -202,6 +210,10 @@ const router = useRouter()
 const loading = ref(false)
 const uploadVisible = ref(false)
 const metrics = ref({})
+const selectedWeek = ref('')
+const drillVisible = ref(false)
+const drillFilters = ref({})
+const drillTitle = ref('投诉工单下钻')
 const handlerRows = ref([])
 
 const subTitle = computed(() =>
@@ -269,15 +281,52 @@ const problemStatItems = computed(() => {
   ]
 })
 
+const weekOptions = computed(() => {
+  const weeks = (metrics.value.trend || []).map(t => t.week)
+  if (metrics.value.week && !weeks.includes(metrics.value.week)) weeks.push(metrics.value.week)
+  return weeks.sort().reverse()
+})
+
+function weekLabel(w) {
+  return w === (metrics.value.trend || []).slice(-1)[0]?.week ? `${w}（最新）` : w
+}
+
+async function onWeekChange(w) {
+  loading.value = true
+  try {
+    metrics.value = await complaintApi.getMetrics(w)
+  } catch (e) {
+    ElMessage.error('切换周失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+function drill(filters, title) {
+  drillFilters.value = { ...filters }
+  drillTitle.value = title || '投诉工单下钻'
+  drillVisible.value = true
+}
+
+function onTrendClick(p) {
+  // 趋势图 x 轴是周简称（W44），反查完整周名并切换
+  const hit = (metrics.value.trend || []).find(t => t.week.endsWith(p.name))
+  if (hit && hit.week !== metrics.value.week) {
+    selectedWeek.value = hit.week
+    onWeekChange(hit.week)
+  }
+}
+
 async function loadAll() {
   loading.value = true
   try {
-    metrics.value = await complaintApi.getMetrics()
+    metrics.value = await complaintApi.getMetrics(selectedWeek.value || undefined)
   } catch (e) {
     metrics.value = {}
   } finally {
     loading.value = false
   }
+  if (metrics.value.week && !selectedWeek.value) selectedWeek.value = metrics.value.week
   // 处理人负荷：读 /operation/stats/by-handler 顶层 complaint 键（统一口径）
   try {
     const byHandler = await operationApi.getStatsByHandler()
@@ -335,6 +384,20 @@ onMounted(loadAll)
 }
 .cnt-danger {
   color: var(--danger);
+}
+.kpi-clickable {
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.kpi-clickable:hover {
+  box-shadow: 0 2px 12px rgba(47, 111, 237, 0.18);
+  transform: translateY(-1px);
+}
+.cnt-clickable {
+  cursor: pointer;
+}
+.cnt-clickable:hover {
+  text-decoration: underline;
 }
 .eff-list {
   display: flex;

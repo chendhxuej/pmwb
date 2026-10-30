@@ -48,6 +48,15 @@ export const complaintApi = {
     return request.post('/complaint/actions/urge-preview', data)
   },
 
+  // LLM 主导归类状态（AI 归类率/待人工确认数）
+  classifyStatus() {
+    return request.get('/complaint/classify-status')
+  },
+  // 手动重跑 LLM 归类（导入路径自动后台触发，一般无需手动调）
+  runLlmClassify(params) {
+    return request.post('/complaint/llm-classify', null, { params })
+  },
+
   // ── 指标与周报 ──
   getMetrics(week) {
     return request.get('/complaint/metrics', { params: week ? { week } : {} })

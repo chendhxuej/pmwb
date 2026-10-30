@@ -63,6 +63,10 @@ def list_tickets(
     classify_by: Optional[str] = Query(None, description="auto / manual"),
     handler: Optional[str] = Query(None, description="处理人（精确）"),
     problem_no: Optional[str] = Query(None, description="按归属共性问题下钻"),
+    is_recur: Optional[int] = Query(None, ge=0, le=1, description="措施后复发下钻"),
+    unclosed: Optional[int] = Query(None, ge=0, le=1, description="1=未结单（非完结状态）下钻"),
+    retention: Optional[int] = Query(None, ge=0, le=1, description="1=超期滞留（创建超N天未完结）下钻"),
+    city: Optional[str] = Query(None, description="地市（精确）"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ):
@@ -93,6 +97,42 @@ def list_tickets(
     if problem_no:
         where.append("problem_no = :pno")
         params["pno"] = problem_no
+    if is_recur is not None:
+        where.append("is_recur = :ir")
+        params["ir"] = is_recur
+    if city:
+        where.append("city = :city")
+        params["city"] = city
+    # 完结口径与 metrics 一致：TERMINAL_STATUSES 之外视为未结单
+    from services.complaint.config import TERMINAL_STATUSES
+    term_params = {f"t{i}": s for i, s in enumerate(TERMINAL_STATUSES)}
+    term_list = ",".join(f":t{i}" for i in range(len(TERMINAL_STATUSES)))
+    if unclosed == 1:
+        where.append(f"(status IS NULL OR status = '' OR status NOT IN ({term_list}))")
+        params.update(term_params)
+    elif unclosed == 0:
+        where.append(f"status IN ({term_list})")
+        params.update(term_params)
+    if retention == 1:
+        from datetime import datetime, timedelta
+        from services.complaint.config import RETENTION_DAYS
+        cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
+        where.append(
+            f"(status IS NULL OR status = '' OR status NOT IN ({term_list})) "
+            "AND created_time IS NOT NULL AND created_time < :ret_cutoff"
+        )
+        params.update(term_params)
+        params["ret_cutoff"] = cutoff
+    elif retention == 0:
+        from datetime import datetime, timedelta
+        from services.complaint.config import RETENTION_DAYS
+        cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
+        where.append(
+            f"(status IN ({term_list}) OR "
+            "(created_time IS NOT NULL AND created_time >= :ret_cutoff2))"
+        )
+        params.update(term_params)
+        params["ret_cutoff2"] = cutoff
 
     cond = " AND ".join(where)
     total = db.execute(text(

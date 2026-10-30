@@ -1,6 +1,6 @@
 <template>
   <div class="chart-line" ref="chartRef" :style="{ height }">
-    <v-chart :option="chartOption" autoresize />
+    <v-chart :option="chartOption" autoresize @click="(p) => emit('itemClick', p)" />
   </div>
 </template>
 
@@ -9,6 +9,8 @@ import { computed } from 'vue'
 import VChart from 'vue-echarts'
 import './chart-setup'
 import { PMWB_COLORS } from './chart-setup'
+
+const emit = defineEmits(['itemClick'])
 
 const props = defineProps({
   data: { type: Array, default: () => [] },
