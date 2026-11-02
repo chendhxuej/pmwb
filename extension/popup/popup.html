@@ -422,6 +422,28 @@
         </div>
         <div class="field-value" id="db-test-result" style="margin-top:8px;font-size:12px;display:none;"></div>
       </div>
+
+      <!-- PMWB 登录账号（后端开启 JWT 鉴权后必需） -->
+      <div class="card">
+        <div class="card-header">
+          <span>🔑 PMWB 登录账号</span>
+          <span class="badge" id="pmwb-auth-badge">未配置</span>
+        </div>
+        <p class="hint">PMWB 已开启登录鉴权，插件访问接口需携带 token。请填写与工作台一致的账号密码（backend/.env 的 AUTH_USERNAME / AUTH_PASSWORD），保存后自动登录并缓存 12 小时。</p>
+        <div class="form-group">
+          <label>用户名</label>
+          <input type="text" class="input" id="pmwb-auth-user" placeholder="例如: chendh">
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" class="input" id="pmwb-auth-pass" placeholder="PMWB 登录密码">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-save-pmwb-auth">💾 保存并测试登录</button>
+          <button class="btn btn-outline" id="btn-clear-pmwb-auth">🗑️ 清除</button>
+        </div>
+        <div class="field-value" id="pmwb-auth-result" style="margin-top:8px;font-size:12px;display:none;"></div>
+      </div>
     </section>
 
     <!-- Toast 提示 -->

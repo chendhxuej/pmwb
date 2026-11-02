@@ -115,6 +115,96 @@ const DEFAULT_DB = {
 // ==================== 后端地址（PMWB 统一托管，原 2525 本地中继已退役）====================
 const RELAY_SERVER = 'http://127.0.0.1:8000/api/v1';
 
+// ==================== PMWB 登录鉴权（适配 AUTH_REQUIRED=true）====================
+// 后端开启 JWT 鉴权后，所有 /api 接口要求 Bearer token。
+// 本模块：① 包装 window.fetch，对 RELAY_SERVER 的请求自动注入 token；
+//        ② token 过期/401 时自动用存储的账号密码重登录并重试一次；
+//        ③ 未配置凭据时返回带引导文案的 401 响应，各调用点无需感知。
+const PMWB_CREDS_KEY = 'pmwb_auth';    // {username, password(加密)}
+const PMWB_TOKEN_KEY = 'pmwb_jwt';     // {token, exp}
+const AUTH_EXEMPT_PATHS = ['/auth/login'];
+let _pmwbToken = null;
+let _pmwbTokenExp = 0;
+let _pmwbLoginPromise = null;
+
+const _origFetch = window.fetch.bind(window);
+
+async function pmwbGetToken(force = false) {
+  if (!force && _pmwbToken && Date.now() < _pmwbTokenExp - 60000) return _pmwbToken;
+  if (!force) {
+    const { [PMWB_TOKEN_KEY]: cache } = await chrome.storage.local.get(PMWB_TOKEN_KEY);
+    if (cache && cache.token && Date.now() < cache.exp - 60000) {
+      _pmwbToken = cache.token;
+      _pmwbTokenExp = cache.exp;
+      return _pmwbToken;
+    }
+  }
+  const { [PMWB_CREDS_KEY]: creds } = await chrome.storage.local.get(PMWB_CREDS_KEY);
+  if (!creds || !creds.username || !creds.password) {
+    const err = new Error('未配置 PMWB 登录账号（设置 → PMWB 登录账号）');
+    err.code = 'PMWB_NOT_CONFIGURED';
+    throw err;
+  }
+  if (!_pmwbLoginPromise) {
+    _pmwbLoginPromise = (async () => {
+      let password = creds.password;
+      try { password = await decrypt(password); } catch (e) { /* 兼容明文 */ }
+      const resp = await _origFetch(`${RELAY_SERVER}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: creds.username, password }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.code === 0 && data.data && data.data.token) {
+        _pmwbToken = data.data.token;
+        _pmwbTokenExp = Date.now() + (data.data.expires_in || 43200) * 1000;
+        await chrome.storage.local.set({ [PMWB_TOKEN_KEY]: { token: _pmwbToken, exp: _pmwbTokenExp } });
+        return _pmwbToken;
+      }
+      const msg = (data && (data.message || data.error)) || `HTTP ${resp.status}`;
+      const err = new Error(msg);
+      err.code = resp.status === 401 ? 'PMWB_BAD_CREDENTIALS' : 'PMWB_LOGIN_FAILED';
+      throw err;
+    })().finally(() => { _pmwbLoginPromise = null; });
+  }
+  return _pmwbLoginPromise;
+}
+
+window.fetch = async (input, init = {}) => {
+  const url = typeof input === 'string' ? input : (input && input.url) || '';
+  if (!url.startsWith(RELAY_SERVER)) return _origFetch(input, init);
+  if (AUTH_EXEMPT_PATHS.some((p) => url.includes(p))) return _origFetch(input, init);
+
+  const doReq = (token) => {
+    const headers = { ...(init.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return _origFetch(input, { ...init, headers });
+  };
+  const fail401 = (msg) => new Response(
+    JSON.stringify({ success: false, error: msg }),
+    { status: 401, headers: { 'Content-Type': 'application/json' } }
+  );
+
+  let token = null;
+  try {
+    token = await pmwbGetToken();
+  } catch (e) {
+    // 未配置凭据/登录失败：回 401 + 引导文案，让上层 toast 可读
+    return fail401('PMWB 鉴权失败：' + e.message);
+  }
+  let resp = await doReq(token);
+  if (resp.status === 401) {
+    try {
+      token = await pmwbGetToken(true);   // token 可能刚过期 → 强制重登录重试一次
+      resp = await doReq(token);
+    } catch (e) {
+      return fail401('PMWB 登录失败：' + e.message);
+    }
+  }
+  return resp;
+};
+
 // 缓存的提取数据
 let _extractedData = null;
 
@@ -125,6 +215,7 @@ let _attachments = [];
 document.addEventListener('DOMContentLoaded', async () => {
   initTabs();
   await loadCurrentPageInfo();
+  await loadPmwbAuth();   // 先加载登录配置（fetch 包装依赖其凭据缓存）
   await loadContacts();
   await loadSmtpConfig();
   await loadDbConfig();
@@ -1881,6 +1972,82 @@ async function clearDbConfig() {
   showToast('🗑️ 数据库设置已清空', 'success');
 }
 
+// ==================== PMWB 登录账号设置 ====================
+async function loadPmwbAuth() {
+  const { [PMWB_CREDS_KEY]: creds } = await chrome.storage.local.get(PMWB_CREDS_KEY);
+  if (creds) {
+    let password = creds.password || '';
+    try { password = await decrypt(password); } catch (e) { /* 兼容明文 */ }
+    document.getElementById('pmwb-auth-user').value = creds.username || '';
+    document.getElementById('pmwb-auth-pass').value = password;
+  }
+  await updatePmwbAuthBadge();
+}
+
+async function savePmwbAuth() {
+  const resultEl = document.getElementById('pmwb-auth-result');
+  const username = document.getElementById('pmwb-auth-user').value.trim();
+  const password = document.getElementById('pmwb-auth-pass').value;
+  if (!username || !password) {
+    showToast('⚠️ 请填写 PMWB 用户名和密码', 'error');
+    return;
+  }
+  resultEl.style.display = 'block';
+  resultEl.style.color = '#e65100';
+  resultEl.textContent = '🔄 正在验证登录...';
+  try {
+    // 先清缓存再验证登录
+    await chrome.storage.local.set({ [PMWB_CREDS_KEY]: { username, password: await encrypt(password) } });
+    _pmwbToken = null;
+    _pmwbTokenExp = 0;
+    await chrome.storage.local.remove(PMWB_TOKEN_KEY);
+    const token = await pmwbGetToken(true);
+    const meResp = await _origFetch(`${RELAY_SERVER}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    const meData = await meResp.json().catch(() => ({}));
+    if (meResp.ok && meData.code === 0) {
+      resultEl.style.color = '#0f9d58';
+      resultEl.textContent = `✅ 登录成功，已连接 PMWB（用户：${meData.data.username}）`;
+      showToast('✅ PMWB 登录账号已保存', 'success');
+    } else {
+      resultEl.style.color = '#d93025';
+      resultEl.textContent = '❌ token 校验异常：' + (meData.message || `HTTP ${meResp.status}`);
+    }
+  } catch (e) {
+    resultEl.style.color = '#d93025';
+    resultEl.textContent = '❌ 登录失败：' + e.message;
+  }
+  await updatePmwbAuthBadge();
+}
+
+async function clearPmwbAuth() {
+  document.getElementById('pmwb-auth-user').value = '';
+  document.getElementById('pmwb-auth-pass').value = '';
+  _pmwbToken = null;
+  _pmwbTokenExp = 0;
+  await chrome.storage.local.remove([PMWB_CREDS_KEY, PMWB_TOKEN_KEY]);
+  document.getElementById('pmwb-auth-result').style.display = 'none';
+  showToast('🗑️ PMWB 登录账号已清除', 'success');
+  await updatePmwbAuthBadge();
+}
+
+async function updatePmwbAuthBadge() {
+  const badge = document.getElementById('pmwb-auth-badge');
+  if (!badge) return;
+  const { [PMWB_CREDS_KEY]: creds } = await chrome.storage.local.get(PMWB_CREDS_KEY);
+  if (!creds || !creds.username) {
+    badge.textContent = '未配置';
+    badge.style.background = '#f5f5f5';
+    badge.style.color = '#666';
+    return;
+  }
+  badge.textContent = '已配置';
+  badge.style.background = '#e8f0fe';
+  badge.style.color = '#1a73e8';
+}
+
 async function testDbConnection() {
   const resultEl = document.getElementById('db-test-result');
   resultEl.style.display = 'block';
@@ -2716,6 +2883,10 @@ function bindEvents() {
   document.getElementById('btn-save-db').addEventListener('click', saveDbConfig);
   document.getElementById('btn-clear-db').addEventListener('click', clearDbConfig);
   document.getElementById('btn-test-db').addEventListener('click', testDbConnection);
+
+  // ========== PMWB 登录账号（mb-1 鉴权适配）==========
+  document.getElementById('btn-save-pmwb-auth').addEventListener('click', savePmwbAuth);
+  document.getElementById('btn-clear-pmwb-auth').addEventListener('click', clearPmwbAuth);
 
   // 需求澄清实时预览
   document.getElementById('requirement-clarify').addEventListener('input', () => {
