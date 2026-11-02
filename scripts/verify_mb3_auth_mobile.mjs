@@ -82,6 +82,18 @@ class CDP {
   async goto(url) {
     await this.send('Page.navigate', { url })
   }
+  async waitFor(sel, timeout = 25000) {
+    // 轮询等待选择器出现（穿透慢链路固定 sleep 会假阴性）
+    const t0 = Date.now()
+    while (Date.now() - t0 < timeout) {
+      const found = await this
+        .eval(`!!document.querySelector(${JSON.stringify(sel)})`)
+        .catch(() => false)
+      if (found) return true
+      await sleep(500)
+    }
+    return false
+  }
   async clickAt(sel) {
     // 说明：无头窗口下 Input.dispatchMouseEvent 偶发不触发 click（焦点/遮挡），
     // 改用真实 DOM element.click()（同样走 Vue 事件链，且断言的是运行态结果）
@@ -133,7 +145,8 @@ async function main() {
     /* ── 1. 登录页真实 DOM ── */
     console.log('\n▶ /login 页面 DOM')
     await cdp.goto(`${BASE}/login`)
-    await sleep(3500)
+    await cdp.waitFor('.login-card')
+    await sleep(1500) // 等 hydration 完成
     const loginDom = await cdp.eval(`({
       card: !!document.querySelector('.login-card'),
       inputs: [...document.querySelectorAll('.login-card input')].map(i => i.placeholder),
@@ -158,7 +171,8 @@ async function main() {
       return true
     })()`)
     await cdp.clickAt('.login-card .el-button')
-    await sleep(3000)
+    await cdp.waitFor('.main-layout', 25000)
+    await sleep(1500)
     const after = await cdp.eval(`({
       path: location.pathname,
       layout: !!document.querySelector('.main-layout'),
