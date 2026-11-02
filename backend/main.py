@@ -6,6 +6,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import settings
@@ -74,9 +76,10 @@ def setup_logging() -> logging.Logger:
 logger = setup_logging()
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """全局 JWT 鉴权（mb-1）。
+    """全局 JWT 鉴权（mb-1/mb-4）。
 
     - AUTH_REQUIRED=False 时直通（本地开发默认）；
+    - 仅拦截 /api/* （前端静态资源必须匿名可加载，否则开鉴权后页面白屏）；
     - 白名单：登录、健康检查、OpenAPI 文档；
     - OPTIONS 放行（CORS 预检由外层 CORSMiddleware 处理）。
     """
@@ -95,6 +98,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
         path = request.url.path
+        # 非 API 路径（SPA 静态资源）不鉴权：数据本身仍由 /api 接口把关
+        if not path.startswith("/api/"):
+            return await call_next(request)
         if any(path.startswith(p) for p in self.EXEMPT_PREFIXES):
             return await call_next(request)
         auth_header = request.headers.get("Authorization", "")
@@ -187,6 +193,32 @@ app.include_router(material.cat_router, prefix="/api/v1", tags=["业务资料库
 app.include_router(high_level.router, prefix="/api/v1", tags=["高级别工单"])
 app.include_router(sensitive_req.router, prefix="/api/v1", tags=["敏感需求跟踪"])
 app.include_router(workload_analysis.router, prefix="/api/v1", tags=["工作量分析"])
+
+
+# ── 前端 SPA 托管（mb-4）：dist 存在时挂在根路径，穿透只映射 8000 即可访问页面 ──
+class SPAStaticFiles(StaticFiles):
+    """history 模式 fallback：未命中的静态路径一律回 index.html，
+    避免刷新 /dashboard 之类深链 404。"""
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+
+
+_dist_dir = (
+    Path(settings.FRONTEND_DIST)
+    if settings.FRONTEND_DIST
+    else Path(__file__).resolve().parent.parent / "frontend" / "dist"
+)
+if _dist_dir.is_dir():
+    app.mount("/", SPAStaticFiles(directory=str(_dist_dir), html=True), name="spa")
+    logger.info("Frontend SPA mounted from %s", _dist_dir)
+else:
+    logger.info("Frontend dist not found (%s), API-only mode", _dist_dir)
 
 
 @app.on_event("startup")

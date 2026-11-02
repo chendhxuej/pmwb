@@ -88,6 +88,9 @@ class Settings(BaseSettings):
     # CORS 白名单收口（mb-2）：本地开发默认 5173；公网/穿透时在 .env 追加穿透域名
     # .env 示例：CORS_ORIGINS=["http://localhost:5173","https://xxx.shelltunnel.com"]
     CORS_ORIGINS: list = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # 前端打包产物目录（mb-4）：留空自动推导为 <项目根>/frontend/dist。
+    # 目录存在时由 8000 直接托管 SPA（穿透只映射 8000 即可访问页面）。
+    FRONTEND_DIST: str = ""
     # 对外可访问基址：用于邮件正文内工单附件下载链接。公网部署时配置 PUBLIC_BASE_URL 覆盖默认值；
     # 留空则回退 http://{BACKEND_HOST}:{BACKEND_PORT}（仅本机/局域网可达，正式发送已真带附件，链接为辅助）。
     PUBLIC_BASE_URL: str = ""
