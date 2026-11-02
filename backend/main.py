@@ -6,9 +6,11 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import settings
 from core.exceptions import PMWBException
+from core.security import decode_token
 from db.base import engine
 from db.models import Base  # noqa: F401
 from routers import (
@@ -21,6 +23,7 @@ from routers import (
     high_level,
     keywork,
     knowledge,
+    auth,
     llm_provider,
     mail_center,
     mail_dispatch,
@@ -70,15 +73,54 @@ def setup_logging() -> logging.Logger:
 
 logger = setup_logging()
 
+class AuthMiddleware(BaseHTTPMiddleware):
+    """全局 JWT 鉴权（mb-1）。
+
+    - AUTH_REQUIRED=False 时直通（本地开发默认）；
+    - 白名单：登录、健康检查、OpenAPI 文档；
+    - OPTIONS 放行（CORS 预检由外层 CORSMiddleware 处理）。
+    """
+
+    EXEMPT_PREFIXES = (
+        "/api/v1/auth/login",
+        "/api/v1/health",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    )
+
+    async def dispatch(self, request: Request, call_next):
+        if not settings.AUTH_REQUIRED:
+            return await call_next(request)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        path = request.url.path
+        if any(path.startswith(p) for p in self.EXEMPT_PREFIXES):
+            return await call_next(request)
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else ""
+        username = decode_token(token)
+        if not username:
+            return JSONResponse(
+                status_code=401,
+                content={"code": 401, "message": "未登录或登录已过期", "data": None},
+            )
+        request.state.auth_user = username
+        return await call_next(request)
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="产品经理个人工作台 API",
 )
 
+# 注意顺序：先加 AuthMiddleware（内层），再加 CORS（外层），保证 OPTIONS 预检不进鉴权
+app.add_middleware(AuthMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -111,6 +153,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(health.router, prefix="/api/v1", tags=["健康检查"])
+app.include_router(auth.router, prefix="/api/v1", tags=["登录鉴权"])
 app.include_router(basic_data.router, prefix="/api/v1", tags=["基础数据"])
 app.include_router(keywork.router, prefix="/api/v1", tags=["重点工作"])
 app.include_router(operation.router, prefix="/api/v1", tags=["业务运营监控"])
@@ -148,6 +191,12 @@ app.include_router(workload_analysis.router, prefix="/api/v1", tags=["工作量�
 
 @app.on_event("startup")
 async def startup_event():
+    # 公网安全门禁：AUTH_REQUIRED 开启但密码未配置时拒绝启动（fail-closed）
+    if settings.AUTH_REQUIRED and not settings.AUTH_PASSWORD:
+        raise RuntimeError(
+            "AUTH_REQUIRED=true 但 AUTH_PASSWORD 未配置，拒绝启动；"
+            "请在 .env 中配置强密码后再开启鉴权"
+        )
     logger.info("PMWB backend started")
     # 幂等创建缺失的数据表（对已有表无副作用；与 Alembic 不冲突）
     Base.metadata.create_all(bind=engine)

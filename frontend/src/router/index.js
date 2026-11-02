@@ -1,8 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import MainLayout from '@/components/Layout/MainLayout.vue'
 import HomeView from '@/views/HomeView.vue'
+import { fetchMe } from '@/api/auth'
 
 const routes = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { title: '登录' },
+  },
   {
     path: '/',
     component: MainLayout,
@@ -441,6 +448,30 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+// ── 登录守卫（mb-3）──
+// 后端 AUTH_REQUIRED=false（本地默认）：/auth/me 返回 code 0，直通不干扰；
+// 开启鉴权后：无 token/过期 → 静默重定向 /login。结果缓存，仅首次进入校验。
+let authChecked = false
+
+router.beforeEach(async (to) => {
+  if (to.path === '/login') return true
+  if (authChecked) return true
+  try {
+    const res = await fetchMe()
+    if (res && res.code === 0) {
+      authChecked = true
+      return true
+    }
+    return { path: '/login', query: { redirect: to.fullPath } }
+  } catch (e) {
+    if (e?.response?.status === 401) {
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+    // 网络异常不拦截登录，进页面后各接口自然报错（避免后端未起时白屏）
+    return true
+  }
 })
 
 export default router

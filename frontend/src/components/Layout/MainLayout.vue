@@ -1,6 +1,10 @@
 <template>
   <el-container class="main-layout">
-    <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar" :class="{ collapsed }">
+    <el-aside
+      :width="collapsed ? '64px' : '220px'"
+      class="sidebar"
+      :class="{ collapsed, 'mobile-open': mobileOpen }"
+    >
       <div class="logo">
         <span v-show="!collapsed" class="logo-mark">PMWB</span>
         <span v-show="collapsed" class="logo-dot">P</span>
@@ -65,17 +69,24 @@
       </nav>
     </el-aside>
 
+    <!-- 移动端抽屉遮罩（样式在 @media ≤768 内，桌面态不会渲染出有效样式） -->
+    <div
+      v-if="mobileOpen"
+      class="mobile-mask"
+      @click="mobileOpen = false"
+    />
+
     <el-container>
       <el-header class="header">
         <div class="header-left">
-          <el-icon class="collapse-icon" @click="toggleCollapsed">
+          <el-icon class="collapse-icon" @click="handleCollapse">
             <Fold v-if="!collapsed" />
             <Expand v-else />
           </el-icon>
           <span class="header-title">{{ appStore.title }}</span>
         </div>
         <div class="header-right">
-          <span class="user-name">产品经理</span>
+          <span class="user-name">{{ authStore.username || '产品经理' }}</span>
         </div>
       </el-header>
       <el-main class="main-content">
@@ -89,9 +100,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores'
+import { useAuthStore } from '@/stores/auth'
 import { Fold, Expand, ArrowDown } from '@element-plus/icons-vue'
 import StaffAdminDrawer from '@/components/Common/StaffAdminDrawer.vue'
 import EnlargeInputDialog from '@/components/Common/EnlargeInputDialog.vue'
@@ -99,7 +111,29 @@ import EnlargeInputDialog from '@/components/Common/EnlargeInputDialog.vue'
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const { collapsed, toggleCollapsed } = appStore
+
+// ── 移动端适配（mb-3）：≤768 侧边栏变 fixed 抽屉，桌面逻辑零改动 ──
+// 用 matchMedia 监听断点（resize 事件在部分场景不触发，如 CDP 视口模拟），
+// matchMedia 的 change 事件由媒体查询求值驱动，覆盖面更全。
+const mobileOpen = ref(false)
+const _mq = window.matchMedia('(max-width: 768px)')
+function onViewportChange() {
+  if (!_mq.matches) mobileOpen.value = false
+}
+_mq.addEventListener('change', onViewportChange)
+window.addEventListener('resize', onViewportChange)
+onBeforeUnmount(() => {
+  _mq.removeEventListener('change', onViewportChange)
+  window.removeEventListener('resize', onViewportChange)
+})
+
+function handleCollapse() {
+  // 点击瞬间实时判定（不依赖事件是否触发过），保证移动端首次点开抽屉必生效
+  if (window.matchMedia('(max-width: 768px)').matches) mobileOpen.value = !mobileOpen.value
+  else toggleCollapsed()
+}
 
 // 侧边栏图标统一中性灰，仅在选中/悬停时点亮为强调蓝（单一蓝系纪律）
 const menuItems = computed(() => {
@@ -178,7 +212,14 @@ watch(() => route.path, ensureActiveExpanded, { immediate: true })
 
 function go(path) {
   if (route.path !== path) router.push(path)
+  // 移动端选中后收起抽屉（实时判定，不依赖事件是否触发过）
+  if (window.matchMedia('(max-width: 768px)').matches) mobileOpen.value = false
 }
+
+// 移动端路由变化自动收起抽屉（含二级菜单展开后自动跳首子页的场景）
+watch(() => route.path, () => {
+  if (window.matchMedia('(max-width: 768px)').matches) mobileOpen.value = false
+})
 </script>
 
 <style scoped>
@@ -424,5 +465,36 @@ function go(path) {
 .main-content {
   background-color: #f5f7fa;
   padding: 0;
+}
+
+/* ── 移动端第四档（mb-3）：≤768 侧边栏变 fixed 抽屉，遮罩交互 ── */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 2001;
+    width: 240px !important;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: none;
+  }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: 0 0 24px rgba(31, 45, 61, 0.18);
+  }
+  .mobile-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(31, 45, 61, 0.4);
+    z-index: 2000;
+  }
+  .header {
+    padding: 0 14px;
+  }
+  .header-title {
+    font-size: 15px;
+  }
 }
 </style>

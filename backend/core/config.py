@@ -78,6 +78,16 @@ class Settings(BaseSettings):
 
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000
+
+    # ===== 登录鉴权（mb-1：公网/穿透访问前置条件）=====
+    # 本地开发默认关闭；公网/穿透开启时 AUTH_REQUIRED 必须置 true，且 AUTH_PASSWORD 必须配置。
+    AUTH_REQUIRED: bool = False
+    AUTH_USERNAME: str = "admin"
+    AUTH_PASSWORD: str = ""  # 禁止硬编码，必须从 .env 读取
+    AUTH_TOKEN_EXPIRE_MINUTES: int = 720  # token 有效期，默认 12h
+    # CORS 白名单收口（mb-2）：本地开发默认 5173；公网/穿透时在 .env 追加穿透域名
+    # .env 示例：CORS_ORIGINS=["http://localhost:5173","https://xxx.shelltunnel.com"]
+    CORS_ORIGINS: list = ["http://localhost:5173", "http://127.0.0.1:5173"]
     # 对外可访问基址：用于邮件正文内工单附件下载链接。公网部署时配置 PUBLIC_BASE_URL 覆盖默认值；
     # 留空则回退 http://{BACKEND_HOST}:{BACKEND_PORT}（仅本机/局域网可达，正式发送已真带附件，链接为辅助）。
     PUBLIC_BASE_URL: str = ""

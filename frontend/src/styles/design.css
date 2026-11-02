@@ -766,3 +766,44 @@ body,
 .w-m  { width: 260px; flex-shrink: 0 }
 .w-xl { width: 420px; flex-shrink: 0 }
 .w-full { width: 100% }
+
+/* ── 移动端第四档 ≤768（mb-3 新增；断点体系 1400/1100/960/768 四档）── */
+@media (max-width: 768px) {
+  /* 指标卡/栅格全部单列 */
+  .pm-stat-grid,
+  .pm-stat-grid--3,
+  .pm-stat-grid--4,
+  .pm-stat-grid--5,
+  .pm-stat-grid--6,
+  .pm-stat-grid--7 { --pm-stat-cols: 1 }
+  .pm-col-3, .pm-col-4, .pm-col-5, .pm-col-6, .pm-col-7, .pm-col-8 { grid-column: 1 / -1 }
+
+  /* EP 对话框/气泡确认宽度自适应，避免横向溢出 */
+  .el-dialog {
+    width: 92
+/* ── 移动端第四档 ≤768（mb-3 新增；断点体系 1400/1100/960/768 四档）── */
+@media (max-width: 768px) {
+  /* 指标卡/栅格全部单列 */
+  .pm-stat-grid,
+  .pm-stat-grid--3,
+  .pm-stat-grid--4,
+  .pm-stat-grid--5,
+  .pm-stat-grid--6,
+  .pm-stat-grid--7 { --pm-stat-cols: 1 }
+  .pm-col-3, .pm-col-4, .pm-col-5, .pm-col-6, .pm-col-7, .pm-col-8 { grid-column: 1 / -1 }
+
+  /* EP 对话框/气泡确认宽度自适应，避免横向溢出 */
+  .el-dialog {
+    width: 92% !important;
+    max-width: 92vw;
+    margin-top: 6vh !important;
+  }
+  .el-message-box { width: 90% !important; max-width: 90vw }
+
+  /* 表格触控体验：单元格内边距压缩，横向滚动交给 el-table 自身 */
+  .el-table .cell { padding: 0 8px }
+  .el-table { font-size: 13px }
+
+  /* 筛选行允许换行堆叠 */
+  .el-form--inline .el-form-item { margin-right: 10px }
+}

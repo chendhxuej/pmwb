@@ -11,6 +11,9 @@ const request = axios.create({
 
 request.interceptors.request.use(
   (config) => {
+    // mb-3：登录态注入。后端 AUTH_REQUIRED=false 时无感知，开启后自动带 token
+    const token = localStorage.getItem('pmwb_token')
+    if (token) config.headers.Authorization = `Bearer ${token}`
     return config
   },
   (error) => {
@@ -32,10 +35,25 @@ request.interceptors.response.use(
     return data
   },
   (error) => {
+    const res = error.response
+    // mb-3：登录过期/无效 → 清 token 踢回登录页（登录接口自身 401 除外，
+    // 否则密码输错会被误跳转）
+    if (
+      res &&
+      res.status === 401 &&
+      !String(res.config?.url || '').includes('/auth/login')
+    ) {
+      localStorage.removeItem('pmwb_token')
+      localStorage.removeItem('pmwb_username')
+      if (!location.pathname.startsWith('/login')) {
+        location.href =
+          '/login?redirect=' + encodeURIComponent(location.pathname + location.search)
+      }
+      return Promise.reject(error)
+    }
     // 关键修复：必须透出后端返回的真实错误文案，而非仅显示 axios 的
     // 通用 "Request failed with status code 4xx"，否则业务校验（如
     // "分类编码已存在"）对用户完全不可见，看起来像无解的 bug。
-    const res = error.response
     let msg = '网络错误'
     if (res) {
       const data = res.data || {}
