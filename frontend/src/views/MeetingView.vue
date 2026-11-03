@@ -1156,14 +1156,6 @@ const handleDeleteTemplate = async (row) => {
   }
 }
 
-// 会议弹窗内改会议类型 → 模板下拉联动刷新
-watch(
-  () => form.meeting_type,
-  () => {
-    if (dialogVisible.value) loadFormTemplates()
-  }
-)
-
 // 会议状态 —— 唯一源 = 后端注册表 meeting 域。
 // 原本地数组写作「计划中 / 没参会」，与 TodoView 等处 <StatusBadge module="meeting">
 // 展示的注册表文案「已计划 / 未参会」不一致；收敛后全站统一。
@@ -1904,6 +1896,15 @@ const defaultForm = {
   domain_code: '',
 }
 const form = reactive({ ...defaultForm })
+
+// 会议弹窗内改会议类型 → 模板下拉联动刷新
+watch(
+  () => form.meeting_type,
+  () => {
+    if (dialogVisible.value) loadFormTemplates()
+  }
+)
+
 
 /* 时间手输：宽容归一化 —— 9 / 9点 / 9点半 / 930 / 1430 / 9:30 → HH:mm；
    归一不了的原样返回，交给校验红字提示 */

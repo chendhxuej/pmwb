@@ -105,8 +105,12 @@ async function main() {
     })
     let id = 0
     const pend = new Map()
+    const jsErrors = []      // 页面抛出的 JS 运行时异常（白屏守护）
     ws.addEventListener('message', (ev) => {
       const m = JSON.parse(ev.data)
+      if (m.method === 'Runtime.exceptionThrown') {
+        jsErrors.push((m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text || '').slice(0, 300))
+      }
       if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id) }
     })
     const send = (method, params = {}) => new Promise((r) => {
@@ -194,7 +198,13 @@ async function main() {
     await sleep(300)
     await clickByText('.el-dialog__footer button', '取消')
 
-    // ── A1 类型管理弹窗 ──
+    // ── A0 白屏守护：核心 DOM 必须渲染 + 全程零 JS 运行时异常 ──
+  const shellOk = await waitFor(`document.querySelectorAll('.cal-cell').length >= 28`, 8000)
+  if (shellOk) ok('A0 会议页核心 DOM 渲染正常（月历单元格就位，非白屏）')
+  else bad('A0 会议页核心 DOM', '月历未渲染——疑似白屏 / JS 异常')
+  if (jsErrors.length === 0) ok('A0 全程无 JS 运行时异常')
+  else bad('A0 JS 运行时异常', jsErrors[0])
+  // ── A1 类型管理弹窗 ──
     await clickByText('button', '类型管理')
     const mgrOpen = await waitFor(`!!document.querySelector('.el-dialog') && [...document.querySelectorAll('.el-dialog__title')].some((t) => t.textContent.includes('会议类型管理'))`)
     if (mgrOpen) {
