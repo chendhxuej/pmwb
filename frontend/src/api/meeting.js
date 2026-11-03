@@ -26,6 +26,23 @@ export const meetingApi = {
     return request.delete(`/meetings/types/${id}`)
   },
 
+  // ── 参会人预制模板（挂会议类型，一键批量填入）──
+  listAttendeeTemplates(params) {
+    return request.get('/meetings/attendee-templates', { params })
+  },
+
+  createAttendeeTemplate(data) {
+    return request.post('/meetings/attendee-templates', data)
+  },
+
+  updateAttendeeTemplate(id, data) {
+    return request.put(`/meetings/attendee-templates/${id}`, data)
+  },
+
+  deleteAttendeeTemplate(id) {
+    return request.delete(`/meetings/attendee-templates/${id}`)
+  },
+
   getMeeting(id) {
     return request.get(`/meetings/${id}`)
   },

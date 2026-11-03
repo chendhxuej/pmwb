@@ -341,3 +341,29 @@ class MeetingTypeDictUpdate(BaseModel):
     enabled: Optional[bool] = Field(None, description="是否启用")
     color: Optional[str] = Field(None, description="展示色")
     remark: Optional[str] = Field(None, max_length=255, description="用途说明")
+
+
+# ---------------------------------------------------------------------------
+# 参会人预制模板（pmwb_meeting_attendee_template，唯一真相源 = services/meeting_attendee_template.py）
+# ---------------------------------------------------------------------------
+
+
+class AttendeeTemplateCreate(BaseModel):
+    """参会人模板新增请求体。"""
+
+    meeting_type: str = Field(..., min_length=1, max_length=64, description="关联会议类型名")
+    name: str = Field(..., min_length=1, max_length=64, description="模板名称")
+    members: List[str] = Field(default_factory=list, description="成员姓名数组")
+    sort_order: Optional[int] = Field(0, description="排序号")
+    remark: Optional[str] = Field(None, max_length=255, description="用途说明")
+
+
+class AttendeeTemplateUpdate(BaseModel):
+    """参会人模板更新请求体（部分更新）。"""
+
+    meeting_type: Optional[str] = Field(None, min_length=1, max_length=64, description="关联会议类型名")
+    name: Optional[str] = Field(None, min_length=1, max_length=64, description="模板名称")
+    members: Optional[List[str]] = Field(None, description="成员姓名数组")
+    sort_order: Optional[int] = Field(None, description="排序号")
+    enabled: Optional[bool] = Field(None, description="是否启用")
+    remark: Optional[str] = Field(None, max_length=255, description="用途说明")

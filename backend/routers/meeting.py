@@ -7,6 +7,8 @@ from core.response import success
 from db.base import get_db
 from db.models import PmwbMeeting, PmwbMeetingAction
 from schemas.meeting import (
+    AttendeeTemplateCreate,
+    AttendeeTemplateUpdate,
     MeetingActionItemOut,
     MeetingCreate,
     MeetingMailSendRequest,
@@ -15,6 +17,8 @@ from schemas.meeting import (
     MeetingUpdate,
 )
 from services.meeting import meeting_service
+from services.meeting_attendee_template import meeting_attendee_template_service
+from services.meeting_attendee_template import meeting_attendee_template_service
 from services.meeting_type import meeting_type_service
 from services.obsidian_link import delete_meeting_minutes, sediment_meeting
 
@@ -67,6 +71,59 @@ def delete_meeting_type(type_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return success(data=data, message=f"类型「{data.get('name')}」已删除")
+
+
+# ---------------------------------------------------------------------------
+# 参会人预制模板：同样属于字面路径，必须注册在 GET /{meeting_id} 之前
+# ---------------------------------------------------------------------------
+
+
+@router.get("/attendee-templates")
+def list_attendee_templates(
+    meeting_type: Optional[str] = Query(None, description="按会议类型过滤"),
+    enabled_only: bool = Query(False, description="仅启用（会议弹窗下拉用）"),
+    db: Session = Depends(get_db),
+):
+    """参会人模板列表：可按会议类型过滤、可仅取启用项。"""
+    return success(
+        data=meeting_attendee_template_service.list_templates(
+            db, meeting_type=meeting_type, enabled_only=enabled_only
+        )
+    )
+
+
+@router.post("/attendee-templates")
+def create_attendee_template(obj_in: AttendeeTemplateCreate, db: Session = Depends(get_db)):
+    """新增参会人模板（同类型下模板名去重）。"""
+    try:
+        data = meeting_attendee_template_service.create_template(db, obj_in.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data, message=f"模板「{data['name']}」已创建")
+
+
+@router.put("/attendee-templates/{template_id}")
+def update_attendee_template(
+    template_id: int, obj_in: AttendeeTemplateUpdate, db: Session = Depends(get_db)
+):
+    """更新参会人模板（部分更新）。"""
+    try:
+        data = meeting_attendee_template_service.update_template(
+            db, template_id, obj_in.model_dump(exclude_unset=True)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data)
+
+
+@router.delete("/attendee-templates/{template_id}")
+def delete_attendee_template(template_id: int, db: Session = Depends(get_db)):
+    """删除参会人模板。"""
+    try:
+        data = meeting_attendee_template_service.delete_template(db, template_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data, message="模板已删除")
 
 
 @router.get("")

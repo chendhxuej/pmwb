@@ -262,7 +262,7 @@ async function main() {
     await clickByText('button', '新增会议')
     await waitFor(`!!document.querySelector('.el-dialog .el-form')`)
     const setHm = (v) => evalJs(`(() => {
-      const hmInput = [...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => (i.placeholder || '').includes('14:30'))
+      const hmInput = [...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => (i.placeholder || '').includes('如 9'))
       if (!hmInput) return 'no-input'
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
       setter.call(hmInput, ${JSON.stringify('PLACEHOLDER_V')})
@@ -272,7 +272,7 @@ async function main() {
       hmInput.dispatchEvent(new Event('blur'))
       return 'ok'
     })()`.replace('PLACEHOLDER_V', v))
-    const getHm = () => evalJs(`[...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => (i.placeholder || '').includes('14:30'))?.value`)
+    const getHm = () => evalJs(`[...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => (i.placeholder || '').includes('如 9'))?.value`)
 
     const cases = [
       ['1430', '14:30'],
@@ -293,7 +293,7 @@ async function main() {
     await sleep(500)
     const err = await evalJs(`(() => {
       const items = [...document.querySelectorAll('.el-dialog .el-form-item')]
-      const item = items.find((i) => [...i.querySelectorAll('.el-input__inner')].some((x) => (x.placeholder || '').includes('14:30')))
+      const item = items.find((i) => [...i.querySelectorAll('.el-input__inner')].some((x) => (x.placeholder || '').includes('如 9')))
       return item?.querySelector('.el-form-item__error')?.textContent.trim() || null
     })()`)
     if (err && err.includes('时间格式不对')) {

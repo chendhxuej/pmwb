@@ -668,7 +668,29 @@
           </el-col>
         </el-row>
         <el-form-item label="参会人">
-          <StaffSelect v-model="attendeeChips" multiple placeholder="选择参会人（支持手输）" />
+          <div class="attendee-row">
+            <StaffSelect
+              v-model="attendeeChips"
+              multiple
+              placeholder="选择参会人（支持手输）"
+              class="attendee-select"
+            />
+            <el-select
+              v-model="tplPick"
+              class="attendee-tpl"
+              placeholder="参会人模板"
+              clearable
+              :disabled="!form.meeting_type"
+              @change="handleApplyTemplate"
+            >
+              <el-option
+                v-for="t in formTemplates"
+                :key="t.id"
+                :label="`${t.name}（${t.member_count} 人）`"
+                :value="t.id"
+              />
+            </el-select>
+          </div>
         </el-form-item>
         <el-form-item label="参会注意点">
           <el-input
@@ -726,7 +748,9 @@
     </el-dialog>
 
     <!-- 会议类型管理弹窗（唯一真相源 = pmwb_meeting_type，即改即存） -->
-    <el-dialog v-model="typeMgrVisible" title="会议类型管理" width="760px" destroy-on-close>
+    <el-dialog v-model="typeMgrVisible" title="会议类型管理" width="820px" destroy-on-close>
+      <el-tabs v-model="typeMgrTab">
+        <el-tab-pane label="会议类型" name="type">
       <div class="type-add-bar">
         <el-input
           v-model="typeNew.name"
@@ -794,6 +818,81 @@
       <div class="type-mgr-tip">
         改名自动级联更新存量会议；被会议引用的类型不可删除，请改用「停用」（停用后新登记不可选，存量会议保留展示）。
       </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="参会人模板" name="attendee">
+          <div class="type-add-bar">
+            <el-select
+              v-model="tplTypeFilter"
+              placeholder="选择会议类型"
+              style="width: 160px"
+              @change="loadTemplateList"
+            >
+              <el-option
+                v-for="t in meetingTypeOptions"
+                :key="t.name"
+                :label="t.name"
+                :value="t.name"
+              />
+            </el-select>
+            <el-input
+              v-model="tplNew.name"
+              placeholder="模板名称（如：需求评审标配组）"
+              maxlength="64"
+              style="width: 220px"
+            />
+            <StaffSelect
+              v-model="tplNew.members"
+              multiple
+              placeholder="选择成员"
+              class="tpl-member-picker"
+            />
+            <el-button
+              type="primary"
+              :disabled="!tplTypeFilter || !tplNew.name.trim()"
+              @click="handleCreateTemplate"
+            >
+              ＋ 新增
+            </el-button>
+          </div>
+          <el-table :data="templateList" size="small" v-loading="tplLoading" empty-text="该类型下暂无模板">
+            <el-table-column label="模板名称" min-width="150">
+              <template #default="{ row }">
+                <el-input v-model="row.name" maxlength="64" @change="handleSaveTemplate(row)" />
+              </template>
+            </el-table-column>
+            <el-table-column label="成员（点击增删，自动保存）" min-width="300">
+              <template #default="{ row }">
+                <StaffSelect v-model="row.members" multiple @change="handleSaveTemplate(row)" />
+              </template>
+            </el-table-column>
+            <el-table-column label="排序" width="100">
+              <template #default="{ row }">
+                <el-input-number
+                  v-model="row.sort_order"
+                  :min="0"
+                  :step="10"
+                  controls-position="right"
+                  @change="handleSaveTemplate(row)"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="启用" width="70" align="center">
+              <template #default="{ row }">
+                <el-switch v-model="row.enabled" @change="handleSaveTemplate(row)" />
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="70" align="center">
+              <template #default="{ row }">
+                <el-button link type="danger" @click="handleDeleteTemplate(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="type-mgr-tip">
+            模板挂在会议类型下：会议弹窗选中类型后，模板下拉只列该类型的启用模板；填入为「追加去重」，不会清掉已手选的人。
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </el-dialog>
 
     <!-- 会议邮件弹窗（通知 / 纪要）：统一发件组件，Markdown 编辑 + 实时 HTML 预览 -->
@@ -870,6 +969,7 @@ const loadMeetingTypeOptions = async () => {
 
 /* ── 会议类型管理弹窗 ── */
 const typeMgrVisible = ref(false)
+const typeMgrTab = ref('type')
 const typeLoading = ref(false)
 const typeList = ref([])
 const typeNew = reactive({ name: '', color: 'blue', sort_order: 0 })
@@ -894,7 +994,11 @@ const loadTypeList = async () => {
   }
 }
 watch(typeMgrVisible, (v) => {
-  if (v) loadTypeList()
+  if (!v) return
+  loadTypeList()
+  // 模板 tab：默认定位到当前会议类型，未选则取第一个类型
+  if (!tplTypeFilter.value) tplTypeFilter.value = form.meeting_type || meetingTypeOptions.value[0]?.name || ''
+  if (tplTypeFilter.value) loadTemplateList()
 })
 
 const handleAddType = async () => {
@@ -942,6 +1046,123 @@ const handleDeleteType = async (row) => {
     ElMessage.error(e?.message || '删除失败')
   }
 }
+
+/* ── 参会人预制模板（挂会议类型，一键批量填入）── */
+const tplLoading = ref(false)
+const templateList = ref([])
+const tplTypeFilter = ref('')
+const tplNew = reactive({ name: '', members: [] })
+const formTemplates = ref([])   // 会议弹窗：当前会议类型下的启用模板
+const tplPick = ref('')         // 会议弹窗：模板下拉选中值（选完即重置，便于重复应用）
+
+const loadTemplateList = async () => {
+  if (!tplTypeFilter.value) {
+    templateList.value = []
+    return
+  }
+  tplLoading.value = true
+  try {
+    const res = await meetingApi.listAttendeeTemplates({ meeting_type: tplTypeFilter.value })
+    templateList.value = res || []
+  } catch (e) {
+    ElMessage.error('加载参会人模板失败')
+  } finally {
+    tplLoading.value = false
+  }
+}
+
+// 会议弹窗：随会议类型联动（改类型即刷新，未选类型则清空）
+const loadFormTemplates = async () => {
+  tplPick.value = ''
+  if (!form.meeting_type) {
+    formTemplates.value = []
+    return
+  }
+  try {
+    const res = await meetingApi.listAttendeeTemplates({
+      meeting_type: form.meeting_type,
+      enabled_only: true,
+    })
+    formTemplates.value = res || []
+  } catch (e) {
+    formTemplates.value = []
+  }
+}
+
+const handleApplyTemplate = (id) => {
+  const tpl = formTemplates.value.find((t) => t.id === id)
+  if (!tpl) return
+  const merged = [...attendeeChips.value]
+  let added = 0
+  ;(tpl.members || []).forEach((name) => {
+    if (!merged.includes(name)) {
+      merged.push(name)
+      added += 1
+    }
+  })
+  attendeeChips.value = merged
+  ElMessage.success(
+    added ? `已填入「${tpl.name}」${added} 人` : `「${tpl.name}」成员均已在名单中`
+  )
+  tplPick.value = '' // 重置，便于再次追加其它模板
+}
+
+const handleCreateTemplate = async () => {
+  const name = (tplNew.name || '').trim()
+  if (!tplTypeFilter.value) return ElMessage.warning('请先选择会议类型')
+  if (!name) return ElMessage.warning('请输入模板名称')
+  try {
+    await meetingApi.createAttendeeTemplate({
+      meeting_type: tplTypeFilter.value,
+      name,
+      members: tplNew.members || [],
+    })
+    ElMessage.success(`模板「${name}」已创建`)
+    tplNew.name = ''
+    tplNew.members = []
+    await Promise.all([loadTemplateList(), loadFormTemplates()])
+  } catch (e) {
+    ElMessage.error(e?.message || '创建失败')
+  }
+}
+
+const handleSaveTemplate = async (row) => {
+  try {
+    await meetingApi.updateAttendeeTemplate(row.id, {
+      name: (row.name || '').trim(),
+      members: row.members || [],
+      sort_order: row.sort_order,
+      enabled: row.enabled,
+    })
+    if (tplTypeFilter.value === form.meeting_type) loadFormTemplates()
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败')
+    await loadTemplateList()
+  }
+}
+
+const handleDeleteTemplate = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除模板「${row.name}」？`, '删除确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await meetingApi.deleteAttendeeTemplate(row.id)
+    ElMessage.success('已删除')
+    await Promise.all([loadTemplateList(), loadFormTemplates()])
+  } catch (e) {
+    ElMessage.error(e?.message || '删除失败')
+  }
+}
+
+// 会议弹窗内改会议类型 → 模板下拉联动刷新
+watch(
+  () => form.meeting_type,
+  () => {
+    if (dialogVisible.value) loadFormTemplates()
+  }
+)
 
 // 会议状态 —— 唯一源 = 后端注册表 meeting 域。
 // 原本地数组写作「计划中 / 没参会」，与 TodoView 等处 <StatusBadge module="meeting">
@@ -1736,7 +1957,10 @@ const handleAdd = () => {
   Object.assign(form, { ...defaultForm, host: currentUser, meeting_id: generateMeetingId() })
   attendeeChips.value = []
   formAgendas.value = []
+  formTemplates.value = []
+  tplPick.value = ''
   dialogVisible.value = true
+  loadFormTemplates()
 }
 
 const handleEdit = (row) => {
@@ -1771,6 +1995,7 @@ const handleEdit = (row) => {
   attendeeChips.value = (row.attendees || []).map((a) => a.name).filter(Boolean)
   formAgendas.value = (row.agendas || []).map((a, i) => ({ seq: i + 1, topic: a.topic || '', conclusion: a.conclusion || '', division: '', background: a.background || '' }))
   dialogVisible.value = true
+  loadFormTemplates()
 }
 
 const handleSubmit = () => {
@@ -2561,6 +2786,25 @@ onMounted(async () => {
 }
 
 /* ── 时间手输提示 ── */
+.attendee-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+.attendee-row .attendee-select {
+  flex: 1;
+  min-width: 0;
+}
+.attendee-row .attendee-tpl {
+  width: 180px;
+  flex: none;
+}
+.tpl-member-picker {
+  flex: 1;
+  min-width: 200px;
+}
+
 .time-hint {
   font-size: 12px;
   color: var(--text-muted);

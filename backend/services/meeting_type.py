@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import PmwbMeeting, PmwbMeetingType
+from db.models import PmwbMeeting, PmwbMeetingAttendeeTemplate, PmwbMeetingType
 
 # 展示色板（与前端 tag 语义类对齐：amber/red/blue/green/purple/gray）
 ALLOWED_COLORS = {"amber", "red", "blue", "green", "purple", "gray"}
@@ -125,6 +125,10 @@ def update_type(db: Session, type_id: int, data: Dict[str, Any]) -> Dict[str, An
                 db.query(PmwbMeeting).filter(
                     PmwbMeeting.meeting_type == old_name
                 ).update({"meeting_type": new_name}, synchronize_session=False)
+                # 参会人模板同样按类型名挂载，必须同步改名，否则模板从下拉消失
+                db.query(PmwbMeetingAttendeeTemplate).filter(
+                    PmwbMeetingAttendeeTemplate.meeting_type == old_name
+                ).update({"meeting_type": new_name}, synchronize_session=False)
     if data.get("sort_order") is not None:
         t.sort_order = data["sort_order"]
     if data.get("enabled") is not None:
@@ -151,6 +155,10 @@ def delete_type(db: Session, type_id: int) -> Dict[str, Any]:
         raise ValueError(
             f"类型「{t.name}」已被 {ref_count} 场会议引用，删除会导致统计口径断裂，请改用「停用」"
         )
+    # 模板是该类型的附属配置（无历史统计价值），随类型一并清理
+    db.query(PmwbMeetingAttendeeTemplate).filter(
+        PmwbMeetingAttendeeTemplate.meeting_type == t.name
+    ).delete(synchronize_session=False)
     db.delete(t)
     db.commit()
     return {"deleted": True, "name": t.name}

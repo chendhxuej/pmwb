@@ -760,6 +760,37 @@ class PmwbMeetingType(Base):
     )
 
 
+class PmwbMeetingAttendeeTemplate(Base):
+    """参会人预制模板（按会议类型挂载，一键批量填入参会人）。
+
+    成员口径：members 存姓名数组（JSON），与 pmwb_meeting_attendee.name 同口径，
+    前端 StaffSelect 直接消费，零转译。
+    """
+
+    __tablename__ = "pmwb_meeting_attendee_template"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    meeting_type = Column(
+        String(64), nullable=False, index=True, comment="关联会议类型名（pmwb_meeting_type.name）"
+    )
+    name = Column(String(64), nullable=False, comment="模板名称")
+    members = Column(Text, comment="成员姓名 JSON 数组，如 [\"张三\",\"李四\"]")
+    sort_order = Column(Integer, default=0, comment="排序号，越小越靠前")
+    enabled = Column(Boolean, default=True, comment="是否启用，停用后不出现在会议弹窗模板下拉")
+    remark = Column(String(255), comment="用途说明")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        {"comment": "会议参会人预制模板"},
+    )
+
+
 class PmwbMeetingAgenda(Base):
     """会议议题表（每个议题记录商讨结论与分工说明）。"""
 
