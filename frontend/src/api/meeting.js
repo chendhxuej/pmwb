@@ -5,6 +5,27 @@ export const meetingApi = {
     return request.get('/meetings', { params })
   },
 
+  // ── 会议类型字典（唯一真相源 = pmwb_meeting_type）──
+  listMeetingTypes() {
+    return request.get('/meetings/types')
+  },
+
+  listMeetingTypeOptions() {
+    return request.get('/meetings/types/options')
+  },
+
+  createMeetingType(data) {
+    return request.post('/meetings/types', data)
+  },
+
+  updateMeetingType(id, data) {
+    return request.put(`/meetings/types/${id}`, data)
+  },
+
+  deleteMeetingType(id) {
+    return request.delete(`/meetings/types/${id}`)
+  },
+
   getMeeting(id) {
     return request.get(`/meetings/${id}`)
   },

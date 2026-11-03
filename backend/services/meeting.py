@@ -96,6 +96,13 @@ class MeetingService(BaseService[PmwbMeeting]):
         actions_data = obj_in.pop("actions", [])
         agendas_data = obj_in.pop("agendas", [])
 
+        # 会议类型唯一真相源校验：必须为字典表中已启用类型
+        from services.meeting_type import meeting_type_service
+
+        mt = obj_in.get("meeting_type")
+        if mt and not meeting_type_service.type_exists(db, mt, enabled_only=True):
+            raise ValidationException(f"会议类型「{mt}」不存在或已停用，请在类型管理中维护")
+
         meeting = self.model(**obj_in)
         db.add(meeting)
         db.flush()
@@ -148,6 +155,13 @@ class MeetingService(BaseService[PmwbMeeting]):
         db_obj = self.get(db, id)
         if not db_obj:
             return None
+
+        # 会议类型唯一真相源校验：变更类型时必须为字典表已有类型（含停用，存量保留）
+        from services.meeting_type import meeting_type_service
+
+        mt = obj_in.get("meeting_type")
+        if mt and mt != db_obj.meeting_type and not meeting_type_service.type_exists(db, mt):
+            raise ValidationException(f"会议类型「{mt}」不存在，请在类型管理中维护")
 
         # 标量字段
         for key, value in obj_in.items():

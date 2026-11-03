@@ -5,6 +5,9 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
+# 会议类型唯一真相源 = pmwb_meeting_type 字典表（services/meeting_type.py），
+# 原MeetingType 枚举已废除（类型值直接落中文名，与需求分类字典表先例一致），
+# 存量枚举类保留仅作历史参考，勿再引用。
 class MeetingType(str, Enum):
     requirement_discussion = "requirement_discussion"
     problem_analysis = "problem_analysis"
@@ -122,7 +125,7 @@ class MeetingAgendaOut(MeetingAgendaBase):
 class MeetingBase(BaseModel):
     meeting_id: str = Field(..., max_length=64, description="会议编号")
     title: str = Field(..., max_length=255, description="会议主题")
-    meeting_type: MeetingType = Field(MeetingType.other, description="会议类型")
+    meeting_type: str = Field("其他", description="会议类型（pmwb_meeting_type.name，唯一真相源）")
     domain_code: Optional[str] = Field(None, max_length=64, description="关联业务领域编码")
     start_time: Optional[datetime] = Field(None, description="开始时间")
     end_time: Optional[datetime] = Field(None, description="结束时间")
@@ -157,7 +160,7 @@ class MeetingCreate(MeetingBase):
 
 class MeetingUpdate(BaseModel):
     title: Optional[str] = Field(None, max_length=255)
-    meeting_type: Optional[MeetingType] = None
+    meeting_type: Optional[str] = None
     domain_code: Optional[str] = Field(None, max_length=64)
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
@@ -314,3 +317,27 @@ class MeetingActionSuperviseResponse(BaseModel):
     ok: bool
     subject: Optional[str] = None
     error: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# 会议类型字典（pmwb_meeting_type，唯一真相源 = services/meeting_type.py）
+# ---------------------------------------------------------------------------
+
+
+class MeetingTypeDictCreate(BaseModel):
+    """会议类型新增请求体。"""
+
+    name: str = Field(..., min_length=1, max_length=64, description="类型名称（即会议落库值）")
+    sort_order: Optional[int] = Field(0, description="排序号，越小越靠前")
+    color: Optional[str] = Field("blue", description="展示色（amber/red/blue/green/purple/gray）")
+    remark: Optional[str] = Field(None, max_length=255, description="用途说明")
+
+
+class MeetingTypeDictUpdate(BaseModel):
+    """会议类型更新请求体（部分更新，仅传变更字段）。"""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=64, description="类型名称")
+    sort_order: Optional[int] = Field(None, description="排序号")
+    enabled: Optional[bool] = Field(None, description="是否启用")
+    color: Optional[str] = Field(None, description="展示色")
+    remark: Optional[str] = Field(None, max_length=255, description="用途说明")

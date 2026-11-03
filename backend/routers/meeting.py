@@ -6,11 +6,67 @@ from sqlalchemy.orm import Session
 from core.response import success
 from db.base import get_db
 from db.models import PmwbMeeting, PmwbMeetingAction
-from schemas.meeting import MeetingActionItemOut, MeetingCreate, MeetingMailSendRequest, MeetingUpdate
+from schemas.meeting import (
+    MeetingActionItemOut,
+    MeetingCreate,
+    MeetingMailSendRequest,
+    MeetingTypeDictCreate,
+    MeetingTypeDictUpdate,
+    MeetingUpdate,
+)
 from services.meeting import meeting_service
+from services.meeting_type import meeting_type_service
 from services.obsidian_link import delete_meeting_minutes, sediment_meeting
 
 router = APIRouter(prefix="/meetings", tags=["会议管理"])
+
+
+# ---------------------------------------------------------------------------
+# 会议类型字典（唯一真相源 = pmwb_meeting_type，services/meeting_type.py）
+# 注意：字面路径必须注册在 GET /{meeting_id} 之前，否则 "types" 会被吞成 meeting_id
+# ---------------------------------------------------------------------------
+
+
+@router.get("/types")
+def list_meeting_types(db: Session = Depends(get_db)):
+    """类型管理视图：全量（含停用），带会议引用计数。"""
+    return success(data=meeting_type_service.list_types(db))
+
+
+@router.get("/types/options")
+def list_meeting_type_options(db: Session = Depends(get_db)):
+    """类型下拉选项：仅启用，按排序号排序，含展示色。"""
+    return success(data=meeting_type_service.list_options(db))
+
+
+@router.post("/types")
+def create_meeting_type(obj_in: MeetingTypeDictCreate, db: Session = Depends(get_db)):
+    """新增类型（名称去重校验）。"""
+    try:
+        data = meeting_type_service.create_type(db, obj_in.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data, message=f"类型「{data['name']}」已创建")
+
+
+@router.put("/types/{type_id}")
+def update_meeting_type(type_id: int, obj_in: MeetingTypeDictUpdate, db: Session = Depends(get_db)):
+    """更新类型；改名时级联更新存量会议的 meeting_type（保证统计口径不分裂）。"""
+    try:
+        data = meeting_type_service.update_type(db, type_id, obj_in.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data)
+
+
+@router.delete("/types/{type_id}")
+def delete_meeting_type(type_id: int, db: Session = Depends(get_db)):
+    """删除类型：被会议引用时 400 拒绝（提示改用停用）。"""
+    try:
+        data = meeting_type_service.delete_type(db, type_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data=data, message=f"类型「{data.get('name')}」已删除")
 
 
 @router.get("")

@@ -15,6 +15,7 @@
             <span class="search-ico">🔍</span>
           </template>
         </el-input>
+        <el-button @click="typeMgrVisible = true">类型管理</el-button>
         <el-button type="primary" @click="handleAdd">＋ 新增会议</el-button>
       </template>
     </PageHeader>
@@ -107,13 +108,21 @@
             @click="openDetail(m.id)"
           >
             <div class="mt-time">
-              <div class="mt-hour">{{ formatTime(m.start_time) }}</div>
+              <div class="mt-hour">
+                <template v-if="isMultiDay(m)">
+                  {{ formatDateMD(m.start_time) }} {{ formatTime(m.start_time) }}
+                </template>
+                <template v-else>{{ formatTime(m.start_time) }}</template>
+              </div>
               <div class="mt-dur">{{ durationText(m) }}</div>
             </div>
             <div class="mt-line" :class="lineCls(m.status)"></div>
             <div class="mt-body">
               <div class="mt-title">{{ m.title }}</div>
               <div class="mt-info"><span>📍 {{ m.location || '—' }}</span></div>
+              <span v-if="isMultiDay(m)" class="mt-tag multi">
+                跨天 {{ formatDateMD(m.start_time) }} ~ {{ formatDateMD(m.end_time) }}
+              </span>
               <span class="mt-tag" :class="typeTagCls(m.meeting_type)">{{
                 typeText(m.meeting_type)
               }}</span>
@@ -195,9 +204,9 @@
             <el-select v-model="filterType" placeholder="全部类型" clearable style="width: 140px">
               <el-option
                 v-for="t in meetingTypeOptions"
-                :key="t.value"
-                :label="t.label"
-                :value="t.value"
+                :key="t.name"
+                :label="t.name"
+                :value="t.name"
               />
             </el-select>
             <el-select v-model="filterStatus" placeholder="全部状态" clearable style="width: 130px">
@@ -552,29 +561,57 @@
           <el-input v-model="form.title" placeholder="如：集团客户拜访准备会" />
         </el-form-item>
         <el-row :gutter="14">
-          <el-col :span="12">
-            <el-form-item label="开始时间" prop="start_time">
+          <el-col :span="7">
+            <el-form-item label="开始日期" prop="start_date">
               <el-date-picker
-                v-model="form.start_time"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                placeholder="选择开始时间"
+                v-model="form.start_date"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="开始日期"
                 style="width: 100%"
               />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="结束时间">
+          <el-col :span="5">
+            <el-form-item label-width="0" prop="start_hm">
+              <el-input
+                v-model="form.start_hm"
+                placeholder="HH:mm"
+                maxlength="5"
+                @blur="form.start_hm = normalizeHm(form.start_hm)"
+              >
+                <template #prepend>时间</template>
+              </el-input>
+            </el-form-item>
+          </el-col>
+          <el-col :span="7">
+            <el-form-item label="结束日期" prop="end_date">
               <el-date-picker
-                v-model="form.end_time"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                placeholder="选填，留空按时长推算"
+                v-model="form.end_date"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="留空同开始日期"
                 style="width: 100%"
               />
+            </el-form-item>
+          </el-col>
+          <el-col :span="5">
+            <el-form-item label-width="0" prop="end_hm">
+              <el-input
+                v-model="form.end_hm"
+                placeholder="HH:mm"
+                maxlength="5"
+                @blur="form.end_hm = normalizeHm(form.end_hm)"
+              >
+                <template #prepend>时间</template>
+              </el-input>
             </el-form-item>
           </el-col>
         </el-row>
+        <div class="time-hint">
+          支持连续多天会议：结束日期与开始日期不同即跨天登记，月历将逐日连续标记；
+          时间可手输 HH:mm（如 1430 自动补为 14:30），结束时间留空按下方时长推算。
+        </div>
         <el-row :gutter="14">
           <el-col :span="12">
             <el-form-item label="会议地点">
@@ -586,9 +623,9 @@
               <el-select v-model="form.meeting_type" style="width: 100%">
                 <el-option
                   v-for="t in meetingTypeOptions"
-                  :key="t.value"
-                  :label="t.label"
-                  :value="t.value"
+                  :key="t.name"
+                  :label="t.name"
+                  :value="t.name"
                 />
               </el-select>
             </el-form-item>
@@ -688,6 +725,77 @@
       </template>
     </el-dialog>
 
+    <!-- 会议类型管理弹窗（唯一真相源 = pmwb_meeting_type，即改即存） -->
+    <el-dialog v-model="typeMgrVisible" title="会议类型管理" width="760px" destroy-on-close>
+      <div class="type-add-bar">
+        <el-input
+          v-model="typeNew.name"
+          placeholder="新类型名称（如：项目评审）"
+          maxlength="64"
+          style="width: 220px"
+          @keyup.enter="handleAddType"
+        />
+        <el-select v-model="typeNew.color" style="width: 120px">
+          <el-option v-for="c in typeColorDefs" :key="c.value" :value="c.value">
+            <span class="type-color-dot" :class="'dot-' + c.value"></span>{{ c.label }}
+          </el-option>
+        </el-select>
+        <el-input-number
+          v-model="typeNew.sort_order"
+          :min="0"
+          :step="10"
+          controls-position="right"
+          style="width: 110px"
+        />
+        <el-button type="primary" @click="handleAddType">＋ 新增</el-button>
+      </div>
+      <el-table :data="typeList" size="small" v-loading="typeLoading">
+        <el-table-column label="类型名称" min-width="170">
+          <template #default="{ row }">
+            <el-input v-model="row.name" maxlength="64" @change="handleSaveType(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="展示色" width="120">
+          <template #default="{ row }">
+            <el-select v-model="row.color" @change="handleSaveType(row)">
+              <el-option v-for="c in typeColorDefs" :key="c.value" :value="c.value">
+                <span class="type-color-dot" :class="'dot-' + c.value"></span>{{ c.label }}
+              </el-option>
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="排序" width="120">
+          <template #default="{ row }">
+            <el-input-number
+              v-model="row.sort_order"
+              :min="0"
+              :step="10"
+              controls-position="right"
+              @change="handleSaveType(row)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="引用" width="70" align="center">
+          <template #default="{ row }">{{ row.ref_count }}</template>
+        </el-table-column>
+        <el-table-column label="启用" width="80" align="center">
+          <template #default="{ row }">
+            <el-switch v-model="row.enabled" @change="handleSaveType(row)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ row }">
+            <el-button link type="danger" :disabled="row.ref_count > 0" @click="handleDeleteType(row)">
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="type-mgr-tip">
+        改名自动级联更新存量会议；被会议引用的类型不可删除，请改用「停用」（停用后新登记不可选，存量会议保留展示）。
+      </div>
+    </el-dialog>
+
     <!-- 会议邮件弹窗（通知 / 纪要）：统一发件组件，Markdown 编辑 + 实时 HTML 预览 -->
     <MailComposeDialog
       v-model="mailVisible"
@@ -748,15 +856,92 @@ const viewDefs = [
   { key: 'mine', label: '我的会议' },
 ]
 
-const meetingTypeOptions = [
-  { value: 'requirement_discussion', label: '需求讨论' },
-  { value: 'problem_analysis', label: '问题分析' },
-  { value: 'internal_regular', label: '内部例会' },
-  { value: 'external_sync', label: '外部对接' },
-  { value: 'party_meeting', label: '党会' },
-  { value: 'group_meeting', label: '集团会议' },
-  { value: 'other', label: '其他' },
+// 会议类型 —— 唯一源 = 后端字典表 pmwb_meeting_type（/meetings/types/options），
+// 类型值直接落中文名；本页不再硬编码类型枚举（原本地数组已废除）。
+const meetingTypeOptions = ref([])
+const loadMeetingTypeOptions = async () => {
+  try {
+    const res = await meetingApi.listMeetingTypeOptions()
+    meetingTypeOptions.value = res || []
+  } catch (e) {
+    /* 静默：下拉失败时保留空选项，类型管理入口可重试 */
+  }
+}
+
+/* ── 会议类型管理弹窗 ── */
+const typeMgrVisible = ref(false)
+const typeLoading = ref(false)
+const typeList = ref([])
+const typeNew = reactive({ name: '', color: 'blue', sort_order: 0 })
+const typeColorDefs = [
+  { value: 'amber', label: '琥珀' },
+  { value: 'red', label: '红' },
+  { value: 'blue', label: '蓝' },
+  { value: 'green', label: '绿' },
+  { value: 'purple', label: '紫' },
+  { value: 'gray', label: '灰' },
 ]
+
+const loadTypeList = async () => {
+  typeLoading.value = true
+  try {
+    const res = await meetingApi.listMeetingTypes()
+    typeList.value = res || []
+  } catch (e) {
+    ElMessage.error('加载类型失败')
+  } finally {
+    typeLoading.value = false
+  }
+}
+watch(typeMgrVisible, (v) => {
+  if (v) loadTypeList()
+})
+
+const handleAddType = async () => {
+  const name = (typeNew.name || '').trim()
+  if (!name) {
+    ElMessage.warning('请输入类型名称')
+    return
+  }
+  try {
+    await meetingApi.createMeetingType({ name, color: typeNew.color, sort_order: typeNew.sort_order })
+    ElMessage.success(`类型「${name}」已创建`)
+    typeNew.name = ''
+    await Promise.all([loadTypeList(), loadMeetingTypeOptions()])
+  } catch (e) {
+    ElMessage.error(e?.message || '创建失败')
+  }
+}
+
+const handleSaveType = async (row) => {
+  try {
+    await meetingApi.updateMeetingType(row.id, {
+      name: (row.name || '').trim(),
+      color: row.color,
+      sort_order: row.sort_order,
+      enabled: row.enabled,
+    })
+    await loadMeetingTypeOptions()
+  } catch (e) {
+    ElMessage.error(e?.message || '保存失败')
+    await loadTypeList()
+  }
+}
+
+const handleDeleteType = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认删除类型「${row.name}」？`, '删除确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await meetingApi.deleteMeetingType(row.id)
+    ElMessage.success('已删除')
+    await Promise.all([loadTypeList(), loadMeetingTypeOptions()])
+  } catch (e) {
+    ElMessage.error(e?.message || '删除失败')
+  }
+}
 
 // 会议状态 —— 唯一源 = 后端注册表 meeting 域。
 // 原本地数组写作「计划中 / 没参会」，与 TodoView 等处 <StatusBadge module="meeting">
@@ -793,21 +978,21 @@ const statusMeta = {
 }
 const statusMetaOf = (s) => statusMeta[s] || { label: s || '—', cls: 'gray' }
 
-const typeTagMap = {
-  requirement_discussion: 'amber',
-  problem_analysis: 'red',
-  internal_regular: 'blue',
-  external_sync: 'green',
-  party_meeting: 'red',
-  group_meeting: 'blue',
-  other: 'gray',
+// 展示色：优先取字典表 color，未知类型按名称稳定散列到色板（保证同类型同色）
+const FALLBACK_COLORS = ['blue', 'amber', 'green', 'purple', 'red', 'gray']
+const colorHash = (s) => {
+  let h = 0
+  for (const ch of String(s || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return FALLBACK_COLORS[h % FALLBACK_COLORS.length]
 }
-const typeTagCls = (t) => typeTagMap[t] || 'blue'
+const typeColorMap = computed(() => {
+  const map = {}
+  for (const t of meetingTypeOptions.value) map[t.name] = t.color || 'blue'
+  return map
+})
+const typeTagCls = (t) => typeColorMap.value[t] || colorHash(t)
 const typeDotClass = (t) => typeTagCls(t)
-const typeText = (t) => {
-  const item = meetingTypeOptions.find((i) => i.value === t)
-  return item ? item.label : t || '其他'
-}
+const typeText = (t) => t || '其他'
 
 const avColors = ['#2f6fed', '#0f9d6b', '#d98a1f', '#7c3aed', '#d9544d', '#3b82f6']
 const avatarChar = (name) => (name ? name.charAt(0) : '?')
@@ -835,11 +1020,23 @@ const formatDateTime = (v) => {
     ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
     : '—'
 }
+/* 多天会议判定：结束日期与开始日期不同即跨天（月历逐日连续标记的口径与此一致） */
+const isMultiDay = (m) => {
+  const s = dateKeyOf(m?.start_time)
+  const e = m?.end_time ? dateKeyOf(m.end_time) : s
+  return !!s && !!e && s !== e
+}
 const durationText = (m) => {
   if (!m || !m.start_time || !m.end_time) return '—'
   const s = toDate(m.start_time)
   const e = toDate(m.end_time)
   if (isNaN(s) || isNaN(e)) return '—'
+  if (isMultiDay(m)) {
+    const dayMs = new Date(e.getFullYear(), e.getMonth(), e.getDate()) - new Date(s.getFullYear(), s.getMonth(), s.getDate())
+    const days = Math.round(dayMs / 86400000) + 1
+    const mins = Math.round((e - s) / 60000)
+    return `跨 ${days} 天 · 共 ${Math.floor(mins / 60)} 小时${mins % 60 ? ' ' + (mins % 60) + ' 分' : ''}`
+  }
   const mins = Math.round((e - s) / 60000)
   if (mins < 60) return mins + ' 分钟'
   return Math.floor(mins / 60) + ' 小时' + (mins % 60 ? ' ' + (mins % 60) + ' 分' : '')
@@ -965,6 +1162,13 @@ const dowLabels = ['一', '二', '三', '四', '五', '六', '日']
 const calTitle = computed(
   () => `${currentDate.value.getFullYear()} 年 ${currentDate.value.getMonth() + 1} 月`
 )
+/* 多天会议：开始日 ~ 结束日之间每一天都连续标记 */
+const meetingCoversDay = (mt, key) => {
+  const sk = dateKeyOf(mt.start_time)
+  if (!sk) return false
+  const ek = mt.end_time ? dateKeyOf(mt.end_time) : sk
+  return key >= sk && key <= ek
+}
 const calendarDays = computed(() => {
   const y = currentDate.value.getFullYear()
   const m = currentDate.value.getMonth()
@@ -981,7 +1185,7 @@ const calendarDays = computed(() => {
       inMonth: d.getMonth() === m,
       isToday: key === todayKey.value,
       key,
-      dayMeetings: meetings.value.filter((mt) => dateKeyOf(mt.start_time) === key),
+      dayMeetings: meetings.value.filter((mt) => meetingCoversDay(mt, key)),
     })
   }
   return days
@@ -992,7 +1196,7 @@ const todayLabel = computed(() => formatDateMD(new Date()))
 const selectedDateKey = ref(todayKey.value)
 const selectedMeetings = computed(() =>
   meetings.value
-    .filter((m) => dateKeyOf(m.start_time) === selectedDateKey.value)
+    .filter((m) => meetingCoversDay(m, selectedDateKey.value))
     .sort((a, b) => (a.start_time < b.start_time ? -1 : 1))
 )
 const selectedDateLabel = computed(() => {
@@ -1460,10 +1664,12 @@ const onComposeSend = async (payload) => {
 const defaultForm = {
   id: null,
   title: '',
-  meeting_type: 'requirement_discussion',
+  meeting_type: '需求讨论',
   status: 'planned',
-  start_time: '',
-  end_time: '',
+  start_date: '',
+  start_hm: '',
+  end_date: '',
+  end_hm: '',
   duration: 60,
   host: currentUser,
   convener: '',
@@ -1478,11 +1684,30 @@ const defaultForm = {
 }
 const form = reactive({ ...defaultForm })
 
+/* 时间手输：HH:mm 校验 + 快捷补全（1430 → 14:30） */
+const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/
+const normalizeHm = (v) => {
+  const s = String(v || '').trim()
+  if (!s) return ''
+  if (HM_RE.test(s)) return s
+  const m = s.match(/^(\d{1,2})([0-5]\d)$/)
+  if (m) return `${m[1].padStart(2, '0')}:${m[2]}`
+  return s
+}
+const validateHm = (required) => (rule, value, callback) => {
+  const v = normalizeHm(value)
+  if (!v) return required ? callback(new Error('请输入时间，如 09:30')) : callback()
+  if (!HM_RE.test(v)) return callback(new Error('格式应为 HH:mm（00:00~23:59），如 14:30'))
+  callback()
+}
+
 const rules = {
   title: [{ required: true, message: '请输入会议主题', trigger: 'blur' }],
   meeting_type: [{ required: true, message: '请选择会议类型', trigger: 'change' }],
   status: [{ required: true, message: '请选择状态', trigger: 'change' }],
-  start_time: [{ required: true, message: '请选择开始时间', trigger: 'change' }],
+  start_date: [{ required: true, message: '请选择开始日期', trigger: 'change' }],
+  start_hm: [{ validator: validateHm(true), trigger: 'blur' }],
+  end_hm: [{ validator: validateHm(false), trigger: 'blur' }],
   host: [{ required: true, message: '请输入组织者', trigger: 'blur' }],
   domain_code: [{ required: true, message: '请选择业务领域', trigger: 'change' }],
 }
@@ -1503,13 +1728,17 @@ const handleAdd = () => {
 
 const handleEdit = (row) => {
   isEdit.value = true
+  const st = row.start_time ? formatLocal(row.start_time) : ''
+  const et = row.end_time ? formatLocal(row.end_time) : ''
   Object.assign(form, {
     id: row.id,
     title: row.title || '',
-    meeting_type: row.meeting_type || 'other',
+    meeting_type: row.meeting_type || '其他',
     status: row.status || 'planned',
-    start_time: row.start_time ? formatLocal(row.start_time) : '',
-    end_time: row.end_time ? formatLocal(row.end_time) : '',
+    start_date: st.slice(0, 10),
+    start_hm: st.slice(11, 16),
+    end_date: et.slice(0, 10),
+    end_hm: et.slice(11, 16),
     duration: 60,
     host: row.host || currentUser,
     convener: row.convener || '',
@@ -1521,9 +1750,9 @@ const handleEdit = (row) => {
     related_ticket_no: row.related_ticket_no || '',
     obsidian_path: row.obsidian_path || '',
   })
-  if (row.start_time && row.end_time) {
-    const s = toDate(row.start_time)
-    const e = toDate(row.end_time)
+  if (st && et) {
+    const s = toDate(st)
+    const e = toDate(et)
     if (!isNaN(s) && !isNaN(e)) form.duration = Math.max(5, Math.round((e - s) / 60000))
   }
   attendeeChips.value = (row.attendees || []).map((a) => a.name).filter(Boolean)
@@ -1534,20 +1763,37 @@ const handleEdit = (row) => {
 const handleSubmit = () => {
   formRef.value.validate(async (valid) => {
     if (!valid) return
-    const start = toDate(form.start_time)
-    if (isNaN(start)) {
-      ElMessage.error('开始时间无效')
+    const startDate = form.start_date || formatLocal(new Date()).slice(0, 10)
+    const startHm = normalizeHm(form.start_hm)
+    const start = toDate(`${startDate} ${startHm || '00:00'}`)
+    if (!start || isNaN(start) || !HM_RE.test(startHm)) {
+      ElMessage.error('开始时间无效，请按 HH:mm 填写')
       return
     }
-    const end = form.end_time
-      ? toDate(form.end_time)
-      : new Date(start.getTime() + form.duration * 60000)
+    // 结束时间规则：填了结束日期或时间 → 结束日期(默认开始日期) + 结束时间(默认开始时刻对齐)；
+    // 全部留空 → 按「时长(分钟)」从开始推算
+    let end
+    if (form.end_date || form.end_hm) {
+      const endDate = form.end_date || startDate
+      const endHm = normalizeHm(form.end_hm) || startHm
+      end = toDate(`${endDate} ${endHm}`)
+    } else {
+      end = new Date(start.getTime() + form.duration * 60000)
+    }
+    if (!end || isNaN(end)) {
+      ElMessage.error('结束时间无效，请按 HH:mm 填写')
+      return
+    }
+    if (end < start) {
+      ElMessage.error('结束时间早于开始时间，请检查日期与时间')
+      return
+    }
     const payload = {
       meeting_id: form.meeting_id,
       title: form.title,
       meeting_type: form.meeting_type,
       status: form.status,
-      start_time: formatLocal(form.start_time),
+      start_time: formatLocal(start),
       end_time: formatLocal(end),
       location: form.location || null,
       host: form.host,
@@ -1589,7 +1835,7 @@ const handleSubmit = () => {
 }
 
 onMounted(async () => {
-  await loadMeetings()
+  await Promise.all([loadMeetings(), loadMeetingTypeOptions()])
   // 深链：?actionId= 定位会议行动项
   const actionId = route.query.actionId
   if (actionId) {
@@ -2299,5 +2545,90 @@ onMounted(async () => {
   font-size: 11.5px;
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+/* ── 时间手输提示 ── */
+.time-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: -6px 0 10px 100px;
+}
+
+/* ── 多天会议标注 ── */
+.mt-tag.multi {
+  background: var(--violet-soft);
+  color: var(--violet);
+  margin-right: 6px;
+}
+
+/* ── 会议类型色（字典表 color → 语义令牌） ── */
+.mt-tag.blue {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.mt-tag.green {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.mt-tag.amber {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.mt-tag.red {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.mt-tag.gray {
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+}
+.mt-tag.purple {
+  background: var(--violet-soft);
+  color: var(--violet);
+}
+
+/* ── 会议类型管理弹窗 ── */
+.type-add-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--border-subtle);
+  margin-bottom: 12px;
+}
+.type-color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.type-color-dot.dot-amber {
+  background: var(--warning);
+}
+.type-color-dot.dot-red {
+  background: var(--danger);
+}
+.type-color-dot.dot-blue {
+  background: var(--accent);
+}
+.type-color-dot.dot-green {
+  background: var(--success);
+}
+.type-color-dot.dot-purple {
+  background: var(--violet);
+}
+.type-color-dot.dot-gray {
+  background: var(--text-muted);
+}
+.type-mgr-tip {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-top: 10px;
 }
 </style>

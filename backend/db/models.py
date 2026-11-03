@@ -691,9 +691,9 @@ class PmwbMeeting(Base):
     meeting_id = Column(String(64), nullable=False, unique=True, comment="会议编号")
     title = Column(String(255), nullable=False, comment="会议主题")
     meeting_type = Column(
-        String(32),
-        default="other",
-        comment="会议类型",
+        String(64),
+        default="其他",
+        comment="会议类型（pmwb_meeting_type.name，唯一真相源）",
     )
     domain_code = Column(String(64), comment="关联业务领域编码")
     start_time = Column(DateTime, comment="开始时间")
@@ -727,6 +727,36 @@ class PmwbMeeting(Base):
         Index("idx_meeting_start_time", "start_time"),
         Index("idx_meeting_related_req", "related_req_id"),
         {"comment": "会议表"},
+    )
+
+
+class PmwbMeetingType(Base):
+    """会议类型字典（唯一真相源：会议的 meeting_type 以本表 name 为准）。
+
+    沿需求分类字典表（pmwb_requirement_category）先例：
+    - 类型值直接落中文名，无独立 code 列，分析与展示零转译；
+    - 改名必须级联 UPDATE pmwb_meeting（保证按类型统计不分裂）；
+    - 删除前校验无会议引用（建议改用停用）；禁在别处另存一份类型枚举。
+    """
+
+    __tablename__ = "pmwb_meeting_type"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    name = Column(String(64), nullable=False, unique=True, comment="类型名称，即会议落库值")
+    sort_order = Column(Integer, default=0, comment="排序号，越小越靠前")
+    enabled = Column(Boolean, default=True, comment="是否启用，停用后不出现在下拉但存量会议保留展示")
+    color = Column(String(16), default="blue", comment="展示色（语义名：amber/red/blue/green/purple/gray）")
+    remark = Column(String(255), comment="用途说明，便于后续维护")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(
+        DateTime,
+        default=now_cn,
+        onupdate=now_cn,
+        comment="更新时间",
+    )
+
+    __table_args__ = (
+        {"comment": "会议类型字典"},
     )
 
 
