@@ -553,7 +553,7 @@
     <el-dialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑会议' : '新增会议'"
-      width="680px"
+      width="760px"
       destroy-on-close
     >
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
@@ -561,7 +561,7 @@
           <el-input v-model="form.title" placeholder="如：集团客户拜访准备会" />
         </el-form-item>
         <el-row :gutter="14">
-          <el-col :span="7">
+          <el-col :span="12">
             <el-form-item label="开始日期" prop="start_date">
               <el-date-picker
                 v-model="form.start_date"
@@ -572,39 +572,39 @@
               />
             </el-form-item>
           </el-col>
-          <el-col :span="5">
-            <el-form-item label-width="0" prop="start_hm">
+          <el-col :span="12">
+            <el-form-item label="时间" label-width="56px" prop="start_hm">
               <el-input
                 v-model="form.start_hm"
-                placeholder="如 9 或 14:30"
+                placeholder="如 9"
                 maxlength="6"
+                style="width: 150px"
                 @blur="form.start_hm = normalizeHm(form.start_hm)"
-              >
-                <template #prepend>时间</template>
-              </el-input>
+              />
             </el-form-item>
           </el-col>
-          <el-col :span="7">
+        </el-row>
+        <el-row :gutter="14">
+          <el-col :span="12">
             <el-form-item label="结束日期" prop="end_date">
               <el-date-picker
                 v-model="form.end_date"
                 type="date"
                 value-format="YYYY-MM-DD"
-                placeholder="留空同开始日期"
+                placeholder="留空=开始日期"
                 style="width: 100%"
               />
             </el-form-item>
           </el-col>
-          <el-col :span="5">
-            <el-form-item label-width="0" prop="end_hm">
+          <el-col :span="12">
+            <el-form-item label="时间" label-width="56px" prop="end_hm">
               <el-input
                 v-model="form.end_hm"
-                placeholder="如 9 或 14:30"
+                placeholder="如 9"
                 maxlength="6"
+                style="width: 150px"
                 @blur="form.end_hm = normalizeHm(form.end_hm)"
-              >
-                <template #prepend>时间</template>
-              </el-input>
+              />
             </el-form-item>
           </el-col>
         </el-row>
