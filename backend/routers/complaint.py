@@ -36,6 +36,10 @@ from schemas.complaint import (
     ProblemUpdateIn,
     ProblemUrgeIn,
     ReportGenIn,
+    RootcauseConfirmIn,
+    RootcauseDisableIn,
+    RootcauseMergeIn,
+    TicketRootcauseIn,
     UrgePreviewIn,
 )
 from services.complaint import (
@@ -67,6 +71,8 @@ def list_tickets(
     unclosed: Optional[int] = Query(None, ge=0, le=1, description="1=未结单（非完结状态）下钻"),
     retention: Optional[int] = Query(None, ge=0, le=1, description="1=超期滞留（创建超N天未完结）下钻"),
     city: Optional[str] = Query(None, description="地市（精确）"),
+    rootcause_no: Optional[str] = Query(None, description="按根因簇下钻"),
+    rc_status: Optional[str] = Query(None, description="根因状态：ai/low/manual，pending=待分析"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ):
@@ -103,6 +109,15 @@ def list_tickets(
     if city:
         where.append("city = :city")
         params["city"] = city
+    if rootcause_no:
+        where.append("rootcause_no = :rcno")
+        params["rcno"] = rootcause_no
+    if rc_status:
+        if rc_status == "pending":
+            where.append("(rc_status IS NULL OR rc_status = '')")
+        else:
+            where.append("rc_status = :rcst")
+            params["rcst"] = rc_status
     # 完结口径与 metrics 一致：TERMINAL_STATUSES 之外视为未结单
     from services.complaint.config import TERMINAL_STATUSES
     term_params = {f"t{i}": s for i, s in enumerate(TERMINAL_STATUSES)}
@@ -142,7 +157,9 @@ def list_tickets(
         SELECT id, ticket_no, week, created_time, city, channel, appeal_category, biz_attr,
                handler, handle_unit, dispatch_count, status, category_l1, category_l2,
                classify_by, cluster_key, is_batch, is_recur, problem_no, remark,
-               ai_confidence, ai_evidence, content
+               ai_confidence, ai_evidence, content,
+               root_cause, fault_stage, fault_system, fault_type, own_party, fix_mode,
+               repro, rc_status, rc_confidence, rc_evidence, rootcause_no
         FROM pmwb_complaint_ticket WHERE {cond}
         ORDER BY created_time DESC
         LIMIT :limit OFFSET :offset
@@ -245,6 +262,164 @@ def run_llm_classify_api(
     """
     from services.complaint.llm_classify import run_llm_classify
     res = run_llm_classify(db, force=force, limit=limit)
+    return success(res)
+
+
+# ── 根因层 / 根因库（2026-11-03 客诉根因深化）────────────────────
+@router.get("/rootcause/status")
+def get_rootcause_status(db: Session = Depends(get_db)):
+    """根因覆盖率 / 高质量率 / 待人工数 / 根因库簇数。"""
+    from services.complaint.rootcause import rootcause_status
+    return success(rootcause_status(db))
+
+
+@router.get("/rootcause/meta")
+def get_rootcause_meta():
+    """根因枚举（唯一出口，前端下拉/标签由此 hydrate，禁止前端另存一份）。"""
+    from constants.complaint_rootcause import enum_meta
+    return success(enum_meta())
+
+
+@router.post("/rootcause/analyze")
+def run_rootcause_api(
+    db: Session = Depends(get_db),
+    force: bool = Query(False, description="True=重跑全部非人工确认工单"),
+    limit: Optional[int] = Query(None, ge=1, le=500),
+):
+    """触发 AI 根因归纳（同步执行；导入路径会自动后台触发）。"""
+    from services.complaint.rootcause import run_rootcause
+    return success(run_rootcause(db, force=force, limit=limit))
+
+
+@router.post("/rootcause/cluster")
+def run_rootcause_cluster_api(
+    db: Session = Depends(get_db),
+    limit: Optional[int] = Query(None, ge=1, le=1000),
+):
+    """把已归纳的单条根因归并进根因库（新簇先落 candidate，人工确认后入账）。"""
+    from services.complaint.rootcause_lib import build_clusters
+    return success(build_clusters(db, limit=limit))
+
+
+@router.get("/rootcause/top")
+def get_rootcause_top(
+    db: Session = Depends(get_db),
+    week: Optional[str] = Query(None, description="周次，空=全部累计"),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """根因簇排名（簇单量 = 该根因的理论压降空间）。"""
+    from services.complaint.rootcause_lib import top_clusters
+    return success({"week": week or "", "items": top_clusters(db, week=week or "", limit=limit)})
+
+
+@router.get("/rootcause/batch")
+def get_rootcause_batch(
+    db: Session = Depends(get_db),
+    week: Optional[str] = Query(None, description="周次，空=最新周"),
+    min_cnt: int = Query(3, ge=2, le=50, description="同簇当周最少单量"),
+):
+    """批量投诉识别（根因口径）：同根因簇当周 >= min_cnt 单。"""
+    from services.complaint.rootcause_lib import batch_clusters
+    return success({"items": batch_clusters(db, week=week or "", min_cnt=min_cnt)})
+
+
+@router.get("/rootcause/review")
+def get_rootcause_review(
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """待人工确认队列（rc_status='low'，含门禁未过与低置信）。"""
+    total = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket WHERE rc_status = 'low'")).scalar() or 0
+    rows = db.execute(text(
+        "SELECT id, ticket_no, week, created_time, LEFT(content, 200), root_cause, "
+        "fault_stage, fault_system, fault_type, own_party, fix_mode, rc_confidence, "
+        "LEFT(rc_evidence, 300) "
+        "FROM pmwb_complaint_ticket WHERE rc_status = 'low' ORDER BY rc_confidence ASC, id DESC "
+        "LIMIT :lim OFFSET :off"
+    ), {"lim": page_size, "off": (page - 1) * page_size}).fetchall()
+    return success({
+        "total": int(total), "page": page, "page_size": page_size,
+        "items": [{
+            "id": r[0], "ticket_no": r[1], "week": r[2] or "",
+            "created_time": r[3].strftime("%Y-%m-%d %H:%M") if r[3] else "",
+            "content": r[4] or "", "root_cause": r[5] or "",
+            "fault_stage": r[6] or "", "fault_system": r[7] or "",
+            "fault_type": r[8] or "", "own_party": r[9] or "", "fix_mode": r[10] or "",
+            "rc_confidence": float(r[11] or 0), "evidence": r[12] or "",
+        } for r in rows],
+    })
+
+
+@router.get("/rootcause/clusters")
+def list_rootcause_clusters(
+    db: Session = Depends(get_db),
+    status: Optional[str] = Query(None, description="candidate/open/merged/disabled，空=全部"),
+    keyword: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+):
+    """根因库列表（候选在前，按单量降序）。"""
+    from services.complaint.rootcause_lib import list_clusters as ls
+    return success(ls(db, status=status or "", keyword=keyword or "",
+                      page=page, page_size=page_size))
+
+
+@router.get("/rootcause/clusters/{rc_no}")
+def get_rootcause_cluster(rc_no: str, db: Session = Depends(get_db)):
+    """根因簇详情 + 关联工单（分析下钻）。"""
+    from services.complaint.rootcause_lib import rootcause_detail
+    d = rootcause_detail(db, rc_no)
+    if not d:
+        raise HTTPException(status_code=404, detail="根因簇不存在")
+    return success(d)
+
+
+@router.post("/rootcause/clusters/{rc_no}/confirm")
+def confirm_rootcause_cluster(rc_no: str, body: RootcauseConfirmIn,
+                              db: Session = Depends(get_db)):
+    """候选簇确认入账。"""
+    from services.complaint.rootcause_lib import confirm
+    res = confirm(db, rc_no, title=body.title, description=body.description,
+                  fault_type=body.fault_type, own_party=body.own_party,
+                  fix_mode=body.fix_mode)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("message") or "确认失败")
+    return success(res)
+
+
+@router.post("/rootcause/clusters/{rc_no}/merge")
+def merge_rootcause_cluster(rc_no: str, body: RootcauseMergeIn,
+                            db: Session = Depends(get_db)):
+    """同义簇合并到主簇。"""
+    from services.complaint.rootcause_lib import merge
+    res = merge(db, rc_no, body.dst_no)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("message") or "合并失败")
+    return success(res)
+
+
+@router.post("/rootcause/clusters/{rc_no}/disable")
+def disable_rootcause_cluster(rc_no: str, body: RootcauseDisableIn,
+                              db: Session = Depends(get_db)):
+    """簇停用/恢复。"""
+    from services.complaint.rootcause_lib import disable
+    return success(disable(db, rc_no, reopen=body.reopen))
+
+
+@router.put("/tickets/{ticket_id}/rootcause")
+def correct_ticket_rootcause(ticket_id: int, body: TicketRootcauseIn,
+                             db: Session = Depends(get_db)):
+    """人工校正单条工单根因（落 rc_status='manual'，重跑不覆盖）。"""
+    from services.complaint.rootcause import update_manual
+    no = db.execute(text(
+        "SELECT ticket_no FROM pmwb_complaint_ticket WHERE id = :id"), {"id": ticket_id}).scalar()
+    if not no:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    res = update_manual(db, no, body.model_dump())
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("message") or "保存失败")
     return success(res)
 
 

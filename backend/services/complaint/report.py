@@ -62,6 +62,27 @@ def _conclusions(m: Dict, problems: Optional[List[Dict]] = None) -> List[str]:
                    f'前两类合计占 {round(sum(x["pct"] for x in l1[:2]), 1)}%。')
 
     b = m["batch"]
+    # 根因口径压降空间（2026-11-03 新增；数据缺失时整段跳过，旧调用不破）
+    rc = m.get("rootcause") or {}
+    if rc and rc.get("covered"):
+        top = (rc.get("clusters") or [{}])[0]
+        parts = []
+        if top.get("title"):
+            parts.append(f'本周第一根因是「<b>{top["title"]}</b>」（{top["cnt"]} 单，{top["pct"]}%）')
+        if rc.get("batch"):
+            win = sum(int(x.get("cnt") or 0) for x in rc["batch"])
+            parts.append(f'同根因簇 ≥{C.RC_BATCH_WEEK_MIN} 单的批量问题 {len(rc["batch"])} 个、'
+                         f'覆盖 <b>{win} 单</b>（占 {round(win / rc["covered"] * 100, 1)}%），'
+                         f'修一处即可整批消掉')
+        if rc.get("quick_win_pct"):
+            parts.append(f'可批量修复/改造单量 {rc.get("quick_win_cnt")} 单（{rc["quick_win_pct"]}%）')
+        if parts:
+            out.append("<b>根因</b>：" + "；".join(parts) + "。根因明细见第三章。")
+        if rc.get("coverage_pct", 0) < 90:
+            out.append(f'<b>数据质量</b>：根因覆盖率仅 {rc["coverage_pct"]}%'
+                       f'（待分析 {rc.get("pending", 0)} 单、待人工 {rc.get("low", 0)} 单），'
+                       '根因结论可靠性受限，建议先补齐。')
+
     if b["cluster_count"]:
         if b["fix_rate"] < 50:
             out.append(f'<b>批量异常</b>：{b["cluster_count"]} 个簇、{b["ticket_cnt"]} 单（{b["ticket_pct"]}%），'
@@ -170,6 +191,47 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
 
     e = m["efficiency"]
     echarts_tag = _echarts_tag()
+
+    # ── 根因分析（2026-11-03 根因深化：从"有多少单"到"为什么、怎么治"）──
+    rc = m.get("rootcause") or {}
+    rc_covered = int(rc.get("covered") or 0)
+    rc_rows = _rows(rc.get("clusters") or [], [
+        ("#", lambda _x: ""),
+        ("根因簇（一簇 = 一处修复点）", lambda x: f'<b>{x["title"]}</b>'),
+        ("系统", lambda x: x.get("fault_system") or "—"),
+        ("环节", lambda x: x.get("fault_stage") or "—"),
+        ("缺陷性质", lambda x: x.get("fault_type") or "—"),
+        ("责任归属", lambda x: x.get("own_party") or "—"),
+        ("单量", lambda x: f'<b style="color:#c0392b">{x["cnt"]}</b>'),
+        ("占比", lambda x: f'{x["pct"]}%'),
+    ]) if rc.get("clusters") else (
+        '<tr><td colspan="8" style="color:#98a6ba;text-align:center">'
+        '本周尚无根因数据——请先执行「根因归纳」（后台自动，或根因库页手动触发）</td></tr>'
+    )
+
+    def _dist_rows(items: List[Dict], name_label: str) -> str:
+        rows = "".join(
+            f'<tr><td>{x["name"]}</td><td><b>{x["cnt"]}</b></td><td>{x["pct"]}%</td></tr>'
+            for x in (items or []) if x.get("cnt")
+        )
+        return rows or ('<tr><td colspan="3" style="color:#98a6ba;text-align:center">暂无数据</td></tr>')
+
+    # 根因口径的批量问题（一处修复可整批消掉）——取代原「同场景同日≥5单」的粗口径
+    rc_batch = rc.get("batch") or []
+    rc_batch_rows = _rows(rc_batch, [
+        ("根因（一处修复点）", lambda x: f'<b>{x["title"]}</b>'),
+        ("系统", lambda x: x.get("fault_system") or "—"),
+        ("环节", lambda x: x.get("fault_stage") or "—"),
+        ("责任方", lambda x: x.get("own_party") or "—"),
+        ("处置方式", lambda x: x.get("fix_mode") or "—"),
+        ("涉及单量", lambda x: f'<b style="color:#c0392b">{x["cnt"]}</b>'),
+        ("跨天数", lambda x: f'{x.get("days") or 0} 天'),
+    ]) if rc_batch else (
+        f'<tr><td colspan="7" style="color:#98a6ba;text-align:center">'
+        f'本周未出现同根因簇 ≥{C.RC_BATCH_WEEK_MIN} 单的批量问题</td></tr>'
+    )
+    rc_win_cnt = sum(int(x.get("cnt") or 0) for x in rc_batch)
+
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -224,7 +286,47 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
   </div>
 
   <div class="card">
-    <h2>三、问题性质结构</h2>
+    <h2>三、投诉根因分析（为什么）</h2>
+    <div class="note">口径：每单由 AI 归纳一句「真实问题描述」（含具体系统/环节/报错原文），
+      再按「同对象同机制」归并为根因簇；一簇 = 一处修复即可整批消掉的问题。
+      本周已根因分析 <b>{rc_covered}</b> / {m['total']} 单（覆盖 <b>{rc.get('coverage_pct', 0)}%</b>）
+      {f'，另有 {rc.get("pending", 0)} 单待分析、{rc.get("low", 0)} 单待人工确认' if rc.get('pending') or rc.get('low') else ''}。
+      下方结构分布均以「已根因分析单量」为分母，未分析工单不计入。</div>
+    <table>
+      <thead><tr><th>#</th><th>根因簇（一簇 = 一处修复点）</th><th>系统</th><th>环节</th>
+        <th>缺陷性质</th><th>责任归属</th><th>单量</th><th>占比</th></tr></thead>
+      <tbody>{''.join(f'<tr><td>{i+1}</td><td><b>{x["title"]}</b></td><td>{x.get("fault_system") or "—"}</td>'
+                      f'<td>{x.get("fault_stage") or "—"}</td><td>{x.get("fault_type") or "—"}</td>'
+                      f'<td>{x.get("own_party") or "—"}</td>'
+                      f'<td><b style="color:#c0392b">{x["cnt"]}</b></td><td>{x["pct"]}%</td></tr>'
+                      for i, x in enumerate(rc.get("clusters") or []))
+               or '<tr><td colspan="8" style="color:#98a6ba;text-align:center">本周尚无根因数据</td></tr>'}</tbody>
+    </table>
+
+    <h2 style="margin-top:20px">故障环节 · 责任归属 · 缺陷性质</h2>
+    <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:16px">
+      <div>
+        <div style="font-size:12.5px;color:#5a6b85;margin-bottom:6px">故障环节（业务链顺序，越靠前越接近源头）</div>
+        <table><thead><tr><th>环节</th><th>单量</th><th>占比</th></tr></thead>
+          <tbody>{_dist_rows(rc.get('by_stage'), '环节')}</tbody></table>
+      </div>
+      <div>
+        <div style="font-size:12.5px;color:#5a6b85;margin-bottom:6px">责任归属（谁该修）</div>
+        <table><thead><tr><th>归属</th><th>单量</th><th>占比</th></tr></thead>
+          <tbody>{_dist_rows(rc.get('by_party'), '归属')}</tbody></table>
+      </div>
+      <div>
+        <div style="font-size:12.5px;color:#5a6b85;margin-bottom:6px">缺陷性质（要不要改代码）</div>
+        <table><thead><tr><th>性质</th><th>单量</th><th>占比</th></tr></thead>
+          <tbody>{_dist_rows(rc.get('by_type'), '性质')}</tbody></table>
+      </div>
+    </div>
+    <div class="note">可批量修复/改造/规则调整的单量：<b>{rc.get('quick_win_cnt', 0)}</b> 单（{rc.get('quick_win_pct', 0)}%）——
+      这部分是一次动作能整批消掉的压降空间，应优先立措施。</div>
+  </div>
+
+  <div class="card">
+    <h2>四、问题性质结构（现象层，历史口径）</h2>
     <div id="pie" class="chart"></div>
     <table>
       <thead><tr><th>一级问题性质</th><th>单量</th><th>占比</th></tr></thead>
@@ -233,10 +335,12 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
        or '<tr><td colspan="3" style="text-align:center;color:#98a6ba">暂无数据</td></tr>'}
       </tbody>
     </table>
+    <div class="note">说明：现象层分类（' + str(len(l1)) + ' 个一级性质 / 30 个二级场景）保留用于历史可比，
+      但其颗粒度过粗（最大场景桶曾混装 6 类不相关问题），根因分析请以上一章为准。</div>
   </div>
 
   <div class="card">
-    <h2>四、问题场景 TOP12（改进措施的落点）</h2>
+    <h2>五、问题场景 TOP12（现象层，改进措施的落点参考）</h2>
     <table>
       <thead><tr><th>#</th><th>二级问题场景</th><th>所属性质</th><th>单量</th><th>占比</th></tr></thead>
       <tbody>
@@ -247,19 +351,23 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
   </div>
 
   <div class="card">
-    <h2>五、批量数据异常专题（压降主战场）</h2>
-    <div class="note">判定口径：同一二级场景 + 同一自然日 ≥ {C.BATCH_DAILY_THRESHOLD} 单 → 批量异常簇。
-      本周 <b>{m['batch']['cluster_count']}</b> 个簇、<b>{m['batch']['ticket_cnt']}</b> 单（占 {m['batch']['ticket_pct']}%），
-      组织修复率 <b>{m['batch']['fix_rate']}%</b>。
-      注意：「批量转派」属逐单流转，不计为组织修复。</div>
+    <h2>六、批量问题专题（根因口径，一处修复可整批消掉）</h2>
+    <div class="note">判定口径：同一根因簇当周 ≥ {C.RC_BATCH_WEEK_MIN} 单 → 批量问题。
+      本周 <b>{len(rc_batch)}</b> 个批量根因簇、覆盖 <b>{rc_win_cnt}</b> 单
+      （占已根因分析单量的 {round(rc_win_cnt / rc_covered * 100, 1) if rc_covered else 0}%）。
+      这些是压降主战场：修一处即可整批消掉，其余长尾单无共性、只能逐单处理。</div>
     <table>
-      <thead><tr><th>场景</th><th>发现日</th><th>单量</th><th>涉及地市</th><th>组织修复</th><th>代表单号</th></tr></thead>
-      <tbody>{cluster_rows}</tbody>
+      <thead><tr><th>根因（一处修复点）</th><th>系统</th><th>环节</th><th>责任方</th>
+        <th>处置方式</th><th>涉及单量</th><th>跨天数</th></tr></thead>
+      <tbody>{rc_batch_rows}</tbody>
     </table>
+    <div class="note">现象层「同场景同自然日 ≥ {C.BATCH_DAILY_THRESHOLD} 单」口径仍保留在效率指标中
+      （本周批量异常簇 {m['batch']['cluster_count']} 个、{m['batch']['ticket_cnt']} 单、
+      组织修复率 {m['batch']['fix_rate']}%），该口径只看现象不看机制，仅作参考。</div>
   </div>
 
   <div class="card">
-    <h2>六、支撑时效与效率</h2>
+    <h2>七、支撑时效与效率</h2>
     <table>
       <thead><tr><th>指标</th><th>本周值</th><th>口径说明</th></tr></thead>
       <tbody>
@@ -276,7 +384,7 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
   </div>
 
   <div class="card">
-    <h2>七、措施跟踪与共性问题闭环</h2>
+    <h2>八、措施跟踪与共性问题闭环</h2>
     <div class="note">共性问题台账：{_p_stat or '候选 → 入账 → 挂措施 → 周验证 → 闭环确认（详见问题台账页）'}</div>
     <table>
       <thead><tr><th>问题编号</th><th>场景</th><th>状态</th><th>首见周</th><th>在办周</th>
@@ -295,7 +403,7 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
   </div>
 
   <div class="card">
-    <h2>八、趋势（近 8 周）</h2>
+    <h2>九、趋势（近 8 周）</h2>
     <div id="trend" class="chart"></div>
     <div class="note">实线为总量，柱为批量簇工单量。趋势判断以完整周为准，数据缺失周（值为 0）不计入趋势结论。</div>
   </div>

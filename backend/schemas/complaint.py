@@ -101,3 +101,36 @@ class ProblemActionLinkIn(BaseModel):
 class ProblemUrgeIn(BaseModel):
     """问题级督办（复用 complaint_action_urge 场景，dry_run 默认）。"""
     confirm_send: bool = Field(False, description="确认真发（False 仅 dry_run）")
+
+
+# ── 根因层（2026-11-03 客诉根因深化）────────────────────────────
+class TicketRootcauseIn(BaseModel):
+    """单条工单根因人工校正（落 rc_status='manual'，重跑不覆盖）。"""
+    root_cause: str = Field("", max_length=500, description="一句话真实根因")
+    fault_stage: str = Field("", max_length=32, description="故障环节")
+    fault_system: str = Field("", max_length=64, description="涉及系统")
+    fault_type: str = Field("", max_length=32, description="缺陷性质")
+    own_party: str = Field("", max_length=32, description="责任归属")
+    fix_mode: str = Field("", max_length=32, description="处置方式")
+    repro: str = Field("unknown", max_length=8, description="可复现：yes/no/unknown")
+    evidence: str = Field("", description="原文依据")
+    has_defect: Optional[bool] = Field(None, description="是否存在缺陷（None=按 fault_type 推断）")
+
+
+class RootcauseConfirmIn(BaseModel):
+    """根因簇人工确认入账（可同时改名/补判定边界/校正标签）。"""
+    title: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = Field(None, max_length=500)
+    fault_type: Optional[str] = Field(None, max_length=32)
+    own_party: Optional[str] = Field(None, max_length=32)
+    fix_mode: Optional[str] = Field(None, max_length=32)
+
+
+class RootcauseMergeIn(BaseModel):
+    """同义簇合并：本簇并入 dst_no（工单指针统一改指主簇）。"""
+    dst_no: str = Field(..., max_length=64, description="主簇 rootcause_no")
+
+
+class RootcauseDisableIn(BaseModel):
+    """簇停用/恢复（停用后不再参与匹配，存量指针保留）。"""
+    reopen: bool = Field(False, description="True=恢复为已入账")

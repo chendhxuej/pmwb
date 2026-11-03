@@ -72,6 +72,153 @@
         </section>
       </div>
 
+      <!-- ── 投诉分析（根因口径，2026-11-03 根因深化）────────────────
+           原看板是「周增量工单统计」，回答了"有多少单"，但没回答"为什么"。
+           本节按分析四问组织：①投诉什么 ②为什么 ③哪些能一次消灭 ④治了没有（见下方措施跟踪）。 -->
+      <section class="card rc-analysis">
+        <div class="card-header">
+          <h3>投诉分析（根因口径）</h3>
+          <el-tag size="small" :type="rc.coverage_pct >= 90 ? 'success' : 'warning'">
+            本周已根因分析 {{ rc.covered }} / {{ rc.total }} 单（{{ rc.coverage_pct }}%）
+          </el-tag>
+        </div>
+        <div class="card-body">
+          <el-alert
+            v-if="rc.pending > 0 || rc.low > 0"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="rc-tip"
+          >
+            还有 {{ rc.pending }} 单待分析、{{ rc.low }} 单待人工确认根因——未分析的工单不计入下方根因分布，
+            结论的可靠性取决于覆盖率。
+          </el-alert>
+
+          <!-- 问①：投诉什么（根因簇 TOP） -->
+          <div class="rc-ask">
+            <span class="rc-ask-no">①</span>
+            <span class="rc-ask-title">投诉的是什么问题</span>
+            <span class="rc-ask-sub">按根因簇聚合，一簇 = 一次修复可消掉的一类问题</span>
+          </div>
+          <el-table
+            ref="pmTbl2"
+            :data="rc.clusters"
+            size="small"
+            border
+            empty-text="本周尚无根因簇数据"
+          >
+            <el-table-column label="根因簇" min-width="300" show-overflow-tooltip>
+              <template #default="{ row }">
+                <b>{{ row.title }}</b>
+                <span v-if="row.status === 'candidate'" class="rc-pending-tag">待确认</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="fault_system" label="系统" width="104" />
+            <el-table-column prop="fault_stage" label="环节" width="96" />
+            <el-table-column prop="fault_type" label="缺陷性质" width="104" />
+            <el-table-column prop="own_party" label="责任归属" width="96" />
+            <el-table-column label="单量" width="72" align="center">
+              <template #default="{ row }">
+                <b :class="row.cnt >= 3 ? 'cnt-danger' : ''">{{ row.cnt }}</b>
+              </template>
+            </el-table-column>
+            <el-table-column label="占比" width="72" align="right">
+              <template #default="{ row }">{{ row.pct }}%</template>
+            </el-table-column>
+          </el-table>
+
+          <!-- 问②：为什么（环节漏斗 + 责任归属 + 缺陷性质） -->
+          <div class="rc-ask">
+            <span class="rc-ask-no">②</span>
+            <span class="rc-ask-title">问题出在哪个环节、谁该修</span>
+            <span class="rc-ask-sub">环节按业务链顺序，越靠前说明越接近源头</span>
+          </div>
+          <div class="chart-row">
+            <section class="pm-col-6 rc-sub">
+              <div class="rc-sub-title">故障环节分布（业务链）</div>
+              <div class="rc-bars">
+                <div v-for="s in stageBars" :key="s.name" class="rc-bar-row">
+                  <span class="rc-bar-name">{{ s.name }}</span>
+                  <span class="rc-bar-track">
+                    <span class="rc-bar-fill" :style="{ width: s.width }"></span>
+                  </span>
+                  <span class="rc-bar-val">{{ s.cnt }} 单 · {{ s.pct }}%</span>
+                </div>
+                <div v-if="!stageBars.length" class="rc-empty">暂无数据</div>
+              </div>
+            </section>
+            <section class="pm-col-6 rc-sub">
+              <div class="rc-sub-title">责任归属 / 缺陷性质</div>
+              <div class="rc-split">
+                <div class="rc-split-col">
+                  <div class="rc-bars">
+                    <div v-for="s in partyBars" :key="s.name" class="rc-bar-row">
+                      <span class="rc-bar-name">{{ s.name }}</span>
+                      <span class="rc-bar-track">
+                        <span class="rc-bar-fill rc-fill-party" :style="{ width: s.width }"></span>
+                      </span>
+                      <span class="rc-bar-val">{{ s.cnt }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="rc-split-col">
+                  <div class="rc-bars">
+                    <div v-for="s in typeBars" :key="s.name" class="rc-bar-row">
+                      <span class="rc-bar-name">{{ s.name }}</span>
+                      <span class="rc-bar-track">
+                        <span class="rc-bar-fill rc-fill-type" :style="{ width: s.width }"></span>
+                      </span>
+                      <span class="rc-bar-val">{{ s.cnt }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- 问③：哪些能一次消灭 -->
+          <div class="rc-ask">
+            <span class="rc-ask-no">③</span>
+            <span class="rc-ask-title">哪些能一次消灭</span>
+            <span class="rc-ask-sub">同一根因簇当周 ≥3 单即为批量问题，一处修复可整批消掉</span>
+          </div>
+          <div class="pm-stat-grid pm-stat-grid--3 rc-win">
+            <div class="card kpi-card">
+              <div class="kpi-num red">{{ batchTotal }}</div>
+              <div class="kpi-label">批量问题可覆盖单量</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num amber">{{ (rc.batch || []).length }}</div>
+              <div class="kpi-label">批量根因簇数（≥3 单）</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num blue">{{ rc.quick_win_cnt }}</div>
+              <div class="kpi-label">可批量修复/改造单量（{{ rc.quick_win_pct }}%）</div>
+            </div>
+          </div>
+          <el-table :data="rc.batch" size="small" border :empty-text="`本周未出现同根因簇 ≥3 单的批量问题`">
+            <el-table-column prop="title" label="根因（一处修复点）" min-width="320" show-overflow-tooltip />
+            <el-table-column prop="fault_system" label="系统" width="104" />
+            <el-table-column prop="fault_stage" label="环节" width="96" />
+            <el-table-column prop="own_party" label="责任方" width="90" />
+            <el-table-column prop="fix_mode" label="处置方式" width="96" />
+            <el-table-column label="涉及单量" width="88" align="center">
+              <template #default="{ row }"><b class="cnt-danger">{{ row.cnt }}</b></template>
+            </el-table-column>
+            <el-table-column label="跨天数" width="80" align="center">
+              <template #default="{ row }">{{ row.days }} 天</template>
+            </el-table-column>
+            <el-table-column label="操作" width="90" align="center">
+              <template #default="{ row }">
+                <el-button size="small" text type="primary" @click="drillRootcause(row)">
+                  下钻
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
+
       <!-- 批量簇 + 效率指标 -->
       <div class="chart-row">
         <section class="card pm-col-7">
@@ -240,6 +387,27 @@ function drillClassify() {
 }
 const handlerRows = ref([])
 
+// ── 根因分析（2026-11-03 根因深化）──────────────────────────
+// 数据全部来自 metrics.collect 的 rootcause 段（唯一口径），前端只做展示与排序
+const rc = computed(() => metrics.value.rootcause || {
+  covered: 0, total: 0, coverage_pct: 0, pending: 0, low: 0,
+  clusters: [], batch: [], by_stage: [], by_system: [], by_type: [],
+  by_party: [], by_fix: [], quick_win_cnt: 0, quick_win_pct: 0,
+})
+
+function toBars(items, pick = 8) {
+  const list = (items || []).filter(x => x.cnt > 0).slice(0, pick)
+  const max = Math.max(1, ...list.map(x => x.cnt))
+  return list.map(x => ({ ...x, width: `${Math.round((x.cnt / max) * 100)}%` }))
+}
+const stageBars = computed(() => toBars(rc.value.by_stage, 12))
+const partyBars = computed(() => toBars(rc.value.by_party, 7))
+const typeBars = computed(() => toBars(rc.value.by_type, 7))
+const batchTotal = computed(() =>
+  (rc.value.batch || []).reduce((s, x) => s + (x.cnt || 0), 0)
+)
+
+
 const subTitle = computed(() =>
   metrics.value.week
     ? `统计区间 ${metrics.value.range}｜自然周口径｜数据源：小信工单逐单入库`
@@ -324,6 +492,11 @@ async function onWeekChange(w) {
   } finally {
     loading.value = false
   }
+}
+
+function drillRootcause(row) {
+  drill({ week: metrics.value.week, rootcause_no: row.rootcause_no },
+    `根因簇「${row.title}」工单`)
 }
 
 function drill(filters, title) {
@@ -459,5 +632,119 @@ onMounted(loadAll)
 .eff-value.warn {
   color: var(--danger);
   font-weight: 600;
+}
+
+/* ── 投诉分析（根因四问） ───────────────────────────────── */
+.rc-analysis .card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rc-tip {
+  margin-bottom: 2px;
+}
+.rc-ask {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--border-color);
+}
+.rc-ask-no {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.rc-ask-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.rc-ask-sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.rc-pending-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.rc-sub {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.rc-sub-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.rc-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rc-bar-row {
+  display: grid;
+  grid-template-columns: 84px 1fr 96px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.rc-bar-name {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-bar-track {
+  height: 10px;
+  background: var(--bg-secondary);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.rc-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 5px;
+  transition: width 0.4s ease;
+}
+.rc-fill-party {
+  background: var(--warning);
+}
+.rc-fill-type {
+  background: var(--success);
+}
+.rc-bar-val {
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  text-align: right;
+}
+.rc-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.rc-empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.rc-win {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 768px) {
+  .rc-split {
+    grid-template-columns: 1fr;
+  }
+  .rc-bar-row {
+    grid-template-columns: 68px 1fr 78px;
+  }
 }
 </style>

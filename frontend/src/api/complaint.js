@@ -123,4 +123,45 @@ export const complaintApi = {
   problemsUrge(data) {
     return request.post('/complaint/problems/urge-preview', data)
   },
+
+  // ── 根因层 / 根因库（2026-11-03 客诉根因深化）──
+  rootcauseStatus() {
+    return request.get('/complaint/rootcause/status')
+  },
+  rootcauseMeta() {
+    return request.get('/complaint/rootcause/meta')
+  },
+  runRootcause(params) {
+    return request.post('/complaint/rootcause/analyze', null, { params })
+  },
+  runRootcauseCluster(params) {
+    return request.post('/complaint/rootcause/cluster', null, { params })
+  },
+  rootcauseTop(params) {
+    return request.get('/complaint/rootcause/top', { params })
+  },
+  rootcauseBatch(params) {
+    return request.get('/complaint/rootcause/batch', { params })
+  },
+  rootcauseReview(params) {
+    return request.get('/complaint/rootcause/review', { params })
+  },
+  listRootcauseClusters(params) {
+    return request.get('/complaint/rootcause/clusters', { params })
+  },
+  getRootcauseCluster(rcNo) {
+    return request.get(`/complaint/rootcause/clusters/${rcNo}`)
+  },
+  confirmRootcauseCluster(rcNo, data) {
+    return request.post(`/complaint/rootcause/clusters/${rcNo}/confirm`, data)
+  },
+  mergeRootcauseCluster(rcNo, dstNo) {
+    return request.post(`/complaint/rootcause/clusters/${rcNo}/merge`, { dst_no: dstNo })
+  },
+  disableRootcauseCluster(rcNo, reopen = false) {
+    return request.post(`/complaint/rootcause/clusters/${rcNo}/disable`, { reopen })
+  },
+  correctTicketRootcause(id, data) {
+    return request.put(`/complaint/tickets/${id}/rootcause`, data)
+  },
 }

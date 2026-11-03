@@ -42,6 +42,8 @@ def run(db: Session, file: Optional[str] = None, week: Optional[str] = None,
     API 导入路径则由 ingest_file 起后台线程异步归类。
     """
     from services.complaint.llm_classify import run_llm_classify
+    from services.complaint.rootcause import run_rootcause
+    from services.complaint.rootcause_lib import auto_merge_similar, build_clusters
 
     info: Dict = {}
     if file:
@@ -54,6 +56,20 @@ def run(db: Session, file: Optional[str] = None, week: Optional[str] = None,
         refresh_derived(db, weeks=info.get("weeks") or None)
     else:
         refresh_derived(db)
+
+    # 根因层（2026-11-03）：增量归纳 → 归并进根因库 → 跨桶消重
+    # 根因是批量投诉识别与方案制定的基础数据，故放在指标计算之前，且失败不阻断周报
+    try:
+        rcs = run_rootcause(db, force=False)
+        print(f"根因归纳：扫描 {rcs['scanned']} 单（已归纳 {rcs['ok']}，待人工 {rcs['low']}，"
+              f"重写 {rcs['rewritten']}）；{rcs['notice']}")
+        if rcs.get("saved"):
+            cl = build_clusters(db)
+            mg = auto_merge_similar(db)
+            print(f"根因库：归并 {cl['assigned']} 单 → {len(cl['new_clusters'])} 簇"
+                  f"（{cl['buckets']} 个桶）；跨桶消重合并 {mg.get('merged', 0)} 单")
+    except Exception as e:  # 根因失败不阻断周报
+        print(f"[WARN] 根因归纳异常: {e}")
 
     # 共性问题闭环（幂等）：候选扫描 → 归因回写 → 周轨迹重算
     try:

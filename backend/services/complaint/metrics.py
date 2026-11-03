@@ -145,7 +145,9 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
     rows = db.execute(text("""
         SELECT id, ticket_no, created_time, city, handler, dispatch_count, status,
                category_l1, category_l2, cluster_key, is_batch, is_recur,
-               content, solution_history, linked_issue_no
+               content, solution_history, linked_issue_no,
+               rootcause_no, root_cause, fault_stage, fault_system, fault_type,
+               own_party, fix_mode, rc_status, rc_confidence
         FROM pmwb_complaint_ticket
         WHERE created_time >= :s AND created_time < :e
         ORDER BY created_time
@@ -294,6 +296,8 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
     prev_partial = int(prev_days) < 5
     wow = None if (prev_partial or not prev_total) else round((total - prev_total) / prev_total * 100, 1)
 
+    rootcause = _rootcause_block(db, rows, week, total)
+
     return {
         "week": week,
         "range": f"{start:%Y-%m-%d} ~ {(end - timedelta(days=1)):%Y-%m-%d}",
@@ -338,4 +342,103 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
             "by_status": action_by_status,
             "completion_pct": action_completion,
         },
+        "rootcause": rootcause,
+    }
+
+
+# ── 根因分析段（2026-11-03 客诉根因深化）──────────────────────
+def _rootcause_block(db: Session, rows, week: str, total: int) -> Dict:
+    """本周根因分析（投诉分析四问的数据源）。
+
+    口径说明：
+      - 全部比例的分母是「已根因分析单量 covered」，不是总单量——未分析的工单
+        不能算进根因分布，否则会凭空出现「未标注」大头误导结论；
+      - 覆盖情况单列 coverage_pct，让读者知道这个结论有多可靠；
+      - 批量簇一律调 rootcause_lib.batch_clusters（唯一实现），不在此另写阈值。
+    """
+    from constants.complaint_rootcause import FAULT_STAGES
+    from services.complaint.rootcause_lib import batch_clusters
+
+    analyzed = [r for r in rows if (r.get("root_cause") or "").strip()]
+    covered = len(analyzed)
+    low = sum(1 for r in rows if (r.get("rc_status") or "") == "low")
+    pending = sum(1 for r in rows if not (r.get("rc_status") or ""))
+
+    def dist(field: str, limit: int = 0, ordered: Optional[List[str]] = None) -> List[Dict]:
+        cnt: Dict[str, int] = {}
+        for r in analyzed:
+            v = (r.get(field) or "").strip() or "未标注"
+            cnt[v] = cnt.get(v, 0) + 1
+        if ordered:
+            # 环节类需要业务链顺序（漏斗图不能按大小排）
+            items = [(k, cnt.get(k, 0)) for k in ordered]
+            extra = [(k, v) for k, v in cnt.items() if k not in ordered]
+            items += sorted(extra, key=lambda kv: -kv[1])
+        else:
+            items = sorted(cnt.items(), key=lambda kv: -kv[1])
+        if limit:
+            items = items[:limit]
+        return [{"name": k, "cnt": v,
+                 "pct": round(v / covered * 100, 1) if covered else 0.0}
+                for k, v in items if v > 0 or ordered]
+
+    # 簇聚合（本周）
+    ck: Dict[str, int] = {}
+    for r in analyzed:
+        no = (r.get("rootcause_no") or "").strip()
+        if no:
+            ck[no] = ck.get(no, 0) + 1
+    titles: Dict[str, Dict] = {}
+    if ck:
+        marks = ",".join(f":c{i}" for i in range(len(ck)))
+        params = {f"c{i}": k for i, k in enumerate(ck.keys())}
+        for row in db.execute(text(
+            "SELECT rootcause_no, title, fault_system, fault_stage, fault_type, "
+            "own_party, fix_mode, status FROM pmwb_complaint_rootcause "
+            f"WHERE rootcause_no IN ({marks})"
+        ), params).fetchall():
+            titles[row[0]] = {"title": row[1], "fault_system": row[2] or "",
+                              "fault_stage": row[3] or "", "fault_type": row[4] or "",
+                              "own_party": row[5] or "", "fix_mode": row[6] or "",
+                              "status": row[7] or ""}
+    clusters = []
+    for no, c in sorted(ck.items(), key=lambda kv: -kv[1]):
+        t = titles.get(no) or {}
+        clusters.append({
+            "rootcause_no": no, "cnt": c,
+            "pct": round(c / covered * 100, 1) if covered else 0.0,
+            "title": t.get("title") or no, "fault_system": t.get("fault_system", ""),
+            "fault_stage": t.get("fault_stage", ""), "fault_type": t.get("fault_type", ""),
+            "own_party": t.get("own_party", ""), "fix_mode": t.get("fix_mode", ""),
+            "status": t.get("status", ""),
+        })
+
+    no_cluster = covered - sum(ck.values())
+    dup_cnt = sum(c for c in ck.values() if c > 1)
+    quick_win_modes = ("批量修复", "系统改造", "规则调整")
+    quick_win = sum(1 for r in analyzed if (r.get("fix_mode") or "") in quick_win_modes)
+    defect = sum(1 for r in analyzed if (r.get("fault_type") or "") not in ("", "无缺陷", "待核实"))
+
+    return {
+        "week": week,
+        "total": total,
+        "covered": covered,
+        "coverage_pct": round(covered / total * 100, 1) if total else 0.0,
+        "low": low,
+        "pending": pending,
+        "cluster_cnt": len(ck),
+        "unclustered": no_cluster,
+        "dup_cnt": dup_cnt,
+        "dup_rate": round(dup_cnt / covered * 100, 1) if covered else 0.0,
+        "defect_cnt": defect,
+        "defect_pct": round(defect / covered * 100, 1) if covered else 0.0,
+        "quick_win_cnt": quick_win,
+        "quick_win_pct": round(quick_win / covered * 100, 1) if covered else 0.0,
+        "by_stage": dist("fault_stage", ordered=list(FAULT_STAGES)),
+        "by_system": dist("fault_system", limit=10),
+        "by_type": dist("fault_type", limit=10),
+        "by_party": dist("own_party", limit=8),
+        "by_fix": dist("fix_mode", limit=8),
+        "clusters": clusters[:15],
+        "batch": batch_clusters(db, week=week, min_cnt=C.RC_BATCH_WEEK_MIN),
     }

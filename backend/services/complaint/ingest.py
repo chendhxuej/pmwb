@@ -100,6 +100,8 @@ def _bg_llm_classify(weeks: Sequence[str]) -> None:
     from db.base import SessionLocal
     from services.complaint.llm_classify import run_llm_classify
     from services.complaint.problems import after_import
+    from services.complaint.rootcause import run_rootcause
+    from services.complaint.rootcause_lib import auto_merge_similar, build_clusters
 
     logger = logging.getLogger(__name__)
     try:
@@ -108,6 +110,18 @@ def _bg_llm_classify(weeks: Sequence[str]) -> None:
             logger.info("导入后 LLM 归类完成：%s", res)
             ws = [w for w in weeks if w]
             refresh_derived(s, weeks=ws)
+            # 根因层（2026-11-03）：新单必须落根因，否则周报根因分析缺数据
+            try:
+                rcs = run_rootcause(s, force=False)
+                logger.info("导入后根因归纳完成：%s", rcs)
+                if rcs.get("saved"):
+                    cl = build_clusters(s)
+                    mg = auto_merge_similar(s)
+                    logger.info("导入后根因归并：%s 单 / %s 簇；消重 %s 单",
+                                cl.get("assigned"), len(cl.get("new_clusters") or []),
+                                mg.get("merged"))
+            except Exception:  # noqa: BLE001
+                logger.exception("导入后根因归纳失败")
             try:
                 after_import(s, weeks=ws)
             except Exception:  # noqa: BLE001

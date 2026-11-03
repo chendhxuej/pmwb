@@ -2003,6 +2003,19 @@ class PmwbComplaintTicket(Base):
     problem_no = Column(String(64), comment="归属共性问题编号（唯一归因键，唯一写入点 problems.assign_tickets）")
     ai_confidence = Column(Float, comment="AI 归类置信度（0~1，LLM 主导分析输出；人工校正/规则为空）")
     ai_evidence = Column(Text, comment="AI 判断依据摘录（LLM 分析输出，可追溯）")
+
+    # ── 根因层（L1，2026-11-03 客诉根因深化；唯一写入点 rootcause.py） ──
+    root_cause = Column(String(500), comment="一句话真实根因（含系统+环节+具体错误现象，质量门禁校验）")
+    fault_stage = Column(String(32), comment="故障环节：受理/签约/开通/计费/数据同步/产品配置/交付/使用/账务")
+    fault_system = Column(String(64), comment="涉及系统：CRM/BOSS/订单中心/政企工作台/电子协议/CMIOT/电视平台/无")
+    fault_type = Column(String(32), comment="缺陷性质：代码缺陷/接口映射错/数据不同步/配置缺失/规则不合理/权限缺失/无缺陷")
+    own_party = Column(String(32), comment="责任归属：系统研发/流程规则/数据治理/一线操作/客户认知/第三方厂家")
+    fix_mode = Column(String(32), comment="处置方式：批量修复/系统改造/规则调整/逐单处理/解释指引")
+    repro = Column(String(8), comment="可复现：yes/no/unknown")
+    rc_status = Column(String(16), default="", comment="根因状态：空=待分析 / ai=已归纳 / low=待人工 / manual=人工确认")
+    rc_confidence = Column(Float, comment="根因归纳置信度（0~1，信息不足时宁低勿高）")
+    rc_evidence = Column(Text, comment="根因原文依据（引用工单中的具体报错/账号/单号，可追溯）")
+    rootcause_no = Column(String(64), comment="归属根因库编号（唯一归因键，唯一写入点 rootcause.assign）")
     # 已废弃：不写不读；工单关联唯一来源 = pmwb_complaint_action.issue_no
     linked_issue_no = Column(String(64), comment="（已废弃）关联运营工单号")
 
@@ -2019,7 +2032,49 @@ class PmwbComplaintTicket(Base):
         Index("idx_ct_l2", "category_l2"),
         Index("idx_ct_cluster", "cluster_key"),
         Index("idx_ct_problem", "problem_no"),
+        Index("idx_ct_rootcause", "rootcause_no"),
+        Index("idx_ct_rc_status", "rc_status"),
         {"comment": "客诉工单明细（压降分析数据底座）"},
+    )
+
+
+class PmwbComplaintRootcause(Base):
+    """客诉根因库（L2，根因簇）—— 自下而上归纳出来的「真实问题」，投诉分析的唯一抓手。
+
+    设计要点（2026-11-03 客诉根因深化，老大拍板「逐步废弃 l1/l2 现象分类」）：
+      - 一簇 = 一个可一次修复的真实根因；ticket.rootcause_no 单指针指向本表；
+      - 自下而上：AI 从工单真实根因聚类出候选（status=candidate）→ 人工命名确认（open）→ 入库；
+      - 新单先匹配库内已确认根因（命中即复用，保证口径统一可聚合），未命中才提新候选；
+      - merged_to 处理同义簇合并（被合并簇 status=merged，工单指针统一改指主簇）；
+      - 库内代表单回流作 LLM few-shot，替代原先稀少的人工分类样例。
+    """
+
+    __tablename__ = "pmwb_complaint_rootcause"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    rootcause_no = Column(String(64), nullable=False, unique=True, comment="根因编号（RC-0001，递增不复用）")
+    title = Column(String(200), nullable=False, comment="根因标题（系统+环节+错误，人工可改）")
+    description = Column(Text, comment="簇定义与判定边界（防串簇，人工维护）")
+    fault_stage = Column(String(32), comment="簇级故障环节（取簇内众数）")
+    fault_system = Column(String(64), comment="簇级涉及系统（取簇内众数）")
+    fault_type = Column(String(32), comment="簇级缺陷性质（取簇内众数）")
+    own_party = Column(String(32), comment="簇级责任归属（取簇内众数）")
+    fix_mode = Column(String(32), comment="簇级处置方式（取簇内众数）")
+    status = Column(String(16), nullable=False, default="candidate",
+                    comment="candidate=待确认 / open=已入账 / merged=已合并 / disabled=停用")
+    source = Column(String(16), default="ai", comment="来源：ai=AI 归纳 / manual=人工新建")
+    merged_to = Column(String(64), comment="被合并到的主簇 rootcause_no（status=merged 时有效）")
+    ticket_cnt = Column(Integer, nullable=False, default=0, comment="当前归属单量（assign 后重算，派生值）")
+    sample_tickets = Column(Text, comment="代表工单号 JSON 数组（few-shot 与人工确认用）")
+    first_week = Column(String(16), comment="首见自然周")
+    last_week = Column(String(16), comment="最近出现自然周")
+    created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        Index("idx_crc_status", "status"),
+        Index("idx_crc_last_week", "last_week"),
+        {"comment": "客诉根因库（根因簇，投诉分析唯一抓手）"},
     )
 
 

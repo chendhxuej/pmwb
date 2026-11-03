@@ -64,6 +64,19 @@ LLM_CLASSIFY_BY = "ai"       # LLM 归类成功的 classify_by 值
 LLM_LOW_CONF_BY = "ai_low"   # LLM 低置信待人工确认的 classify_by 值
 CLASSIFY_MANUAL_BY = "manual"  # 人工校正（唯一不受重跑覆盖的值）
 
+# ── 根因归纳（rootcause.py 唯一读取处；枚举见 constants/complaint_rootcause.py） ──
+RC_BATCH_SIZE = 10           # 每次 LLM 调用归纳的工单条数（根因输出更长，比归类批更小）
+RC_TEXT_LIMIT = 2000         # 单工单送入 LLM 的内容+处理过程总字数上限
+RC_CONF_THRESHOLD = 0.5      # 根因置信度下限：**质量门禁主导**，此处只兜「信息严重不足」
+                             # （2026-11-03 实测：模型对「信息足够」普遍给 0.6，阈值设 0.7
+                             #   会把 60% 工单推进人工队列，队列失去意义）
+RC_REWRITE_ONCE = True       # 未过质量门禁的单，批内合并重写一次（仍不过 → low）
+RC_REWRITE_BATCH = 6         # 单次重写调用最多合并的工单数（控 token/耗时）
+RC_FEWSHOT_FROM_LIB = 2      # 根因库每簇取 N 条代表单作 few-shot
+RC_FEWSHOT_MAX = 12          # few-shot 总量上限（控 token）
+RC_BATCH_WEEK_MIN = 3        # 批量投诉识别（根因口径）：同根因簇当周 >= N 单即判批量问题
+
+
 # ── 接口 ──────────────────────────────────────────────────────
 API_BASE = "http://127.0.0.1:8000/api/v1"
 

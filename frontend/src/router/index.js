@@ -149,6 +149,13 @@ const routes = [
             meta: { title: '热点投诉' },
           },
           {
+            // 2026-11-03 根因深化：根因库 = 问题台账的上游（先有真实根因，才有共性问题）
+            path: 'rootcause',
+            name: 'ComplaintRootcauseLib',
+            component: () => import('@/views/complaint/RootcauseLib.vue'),
+            meta: { title: '根因库' },
+          },
+          {
             path: 'problems',
             name: 'ComplaintProblemLedger',
             component: () => import('@/views/complaint/ProblemLedger.vue'),
