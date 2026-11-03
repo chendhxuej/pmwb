@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { loginApi } from '@/api/auth'
+import { loadStatusMeta } from '@/api/statusMeta'
 
 const TOKEN_KEY = 'pmwb_token'
 const USERNAME_KEY = 'pmwb_username'
@@ -16,6 +17,9 @@ export const useAuthStore = defineStore('auth', () => {
     username.value = res.data.username
     localStorage.setItem(TOKEN_KEY, token.value)
     localStorage.setItem(USERNAME_KEY, username.value)
+    // 登录前应用启动时的状态注册表预加载会 401（无 token），登录成功后必须重拉，
+    // 否则无 seed 兜底的域（如 meeting）下拉只显示原始枚举值
+    loadStatusMeta(true).catch(() => {})
     return res.data
   }
 

@@ -64,6 +64,15 @@ export const MODULE_STATUS = {
     cancelled: { label: '已取消', tone: 'neutral' },
   },
 
+  // 会议（MeetingView）—— 与后端注册表 meeting 域对齐（label/tone 一致），
+  // 作为启动时 /meta/status-domains 未拉到（如登录前 401）的兜底
+  meeting: {
+    planned: { label: '已计划', tone: 'info' },
+    held: { label: '已召开', tone: 'success' },
+    cancelled: { label: '已取消', tone: 'neutral' },
+    not_attended: { label: '未参会', tone: 'neutral' },
+  },
+
   // 会议行动项（MeetingActionsView）—— 后端真实枚举：pending / in_progress / done / not_attended
   meeting_action: {
     pending: { label: '未开始', tone: 'info', sensitive: true },

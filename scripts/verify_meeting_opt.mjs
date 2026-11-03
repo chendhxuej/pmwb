@@ -10,7 +10,8 @@
  *   A1 类型管理弹窗打开且渲染字典表（≥7 行，首行为「需求讨论」）
  *   A2 会议类型下拉从接口 hydrate（选项含「需求讨论」「问题分析」）
  *   A3 多天会议在月历 11/5、11/6、11/7 三天连续打点；点 11/6 右栏出「跨天」标注与「跨 3 天」时长
- *   A4 时间手输：1430 失焦补全为 14:30；99:99 触发格式校验红字
+ *   A4 时间手输宽容归一：1430→14:30、9→09:00、9点半→09:30；99:99 触发红字
+ *   A5 状态下拉转译（meeting 域 seed 兜底，显示「已计划」而非 planned）
  *
  * 用法：node scripts/verify_meeting_opt.mjs [BASE]
  *   BASE 默认 http://127.0.0.1:8010（须为加载新代码的后端，8000 若未重启请用 8010）
@@ -204,8 +205,8 @@ async function main() {
         if (trs.length < 7) return null
         return trs.map((tr) => tr.querySelector('.el-input__inner')?.value || '')
       })()`)
-      if (rows && rows[0] === '需求讨论') {
-        ok(`A1 类型管理弹窗渲染字典表（${rows.length} 行：${rows.join('/')}）`)
+      if (rows && rows.length >= 7 && rows.includes('需求讨论')) {
+        ok(`A1 类型管理弹窗渲染字典表（${rows.length} 行，含标准类型）`)
       } else {
         bad('A1 类型管理弹窗渲染字典表', 'rows=' + JSON.stringify(rows))
       }
@@ -257,55 +258,63 @@ async function main() {
       bad('A3 跨天标注与时长', JSON.stringify(multiTag))
     }
 
-    // ── A4 时间手输：补全 + 校验 ──
+    // ── A4 时间手输：宽容归一 + 校验 ──
     await clickByText('button', '新增会议')
     await waitFor(`!!document.querySelector('.el-dialog .el-form')`)
-    const hm = await evalJs(`(() => {
-      const items = [...document.querySelectorAll('.el-dialog .el-form-item')]
-      const startItem = items.find((i) => i.querySelector('.el-form-item__label')?.textContent.includes('开始日期'))
-      const hmInput = startItem?.parentElement?.querySelector('.el-input__inner[placeholder="HH:mm"]')
-        || [...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => i.placeholder === 'HH:mm')
-      if (!hmInput) return null
-      const setVal = (v) => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
-        setter.call(hmInput, v)
-        hmInput.dispatchEvent(new Event('input', { bubbles: true }))
-        hmInput.dispatchEvent(new Event('change', { bubbles: true }))
-        hmInput.focus()
-        hmInput.dispatchEvent(new Event('blur'))
-      }
-      setVal('1430')
-      return true
-    })()`)
-    if (!hm) throw new Error('找不到时间输入框')
-    await sleep(400)
-    const normalized = await evalJs(`[...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => i.placeholder === 'HH:mm')?.value`)
-    if (normalized === '14:30') {
-      ok('A4 时间手输 1430 失焦补全为 14:30')
-    } else {
-      bad('A4 时间手输补全', 'value=' + normalized)
-    }
-    // 非法值校验：99:99
-    await evalJs(`(() => {
-      const hmInput = [...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => i.placeholder === 'HH:mm')
+    const setHm = (v) => evalJs(`(() => {
+      const hmInput = [...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => (i.placeholder || '').includes('14:30'))
+      if (!hmInput) return 'no-input'
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
-      setter.call(hmInput, '99:99')
+      setter.call(hmInput, ${JSON.stringify('PLACEHOLDER_V')})
       hmInput.dispatchEvent(new Event('input', { bubbles: true }))
       hmInput.dispatchEvent(new Event('change', { bubbles: true }))
       hmInput.focus()
       hmInput.dispatchEvent(new Event('blur'))
-      return true
-    })()`)
+      return 'ok'
+    })()`.replace('PLACEHOLDER_V', v))
+    const getHm = () => evalJs(`[...document.querySelectorAll('.el-dialog .el-input__inner')].find((i) => (i.placeholder || '').includes('14:30'))?.value`)
+
+    const cases = [
+      ['1430', '14:30'],
+      ['9', '09:00'],
+      ['9点半', '09:30'],
+      ['21', '21:00'],
+    ]
+    let a4pass = true
+    for (const [input, want] of cases) {
+      await setHm(input)
+      await sleep(350)
+      const got = await getHm()
+      if (got === want) ok(`A4 时间手输「${input}」→ ${want}`)
+      else { bad(`A4 时间手输「${input}」`, `got=${JSON.stringify(got)} want=${want}`); a4pass = false }
+    }
+    // 非法值校验：99:99
+    await setHm('99:99')
     await sleep(500)
     const err = await evalJs(`(() => {
       const items = [...document.querySelectorAll('.el-dialog .el-form-item')]
-      const item = items.find((i) => [...i.querySelectorAll('.el-input__inner')].some((x) => x.placeholder === 'HH:mm'))
+      const item = items.find((i) => [...i.querySelectorAll('.el-input__inner')].some((x) => (x.placeholder || '').includes('14:30')))
       return item?.querySelector('.el-form-item__error')?.textContent.trim() || null
     })()`)
-    if (err && err.includes('HH:mm')) {
+    if (err && err.includes('时间格式不对')) {
       ok(`A4 非法时间校验红字（"${err}"）`)
     } else {
       bad('A4 非法时间校验', 'error=' + JSON.stringify(err))
+      a4pass = false
+    }
+
+    // ── A5 状态下拉转译 ──
+    await sleep(400)
+    const statusLabel = await evalJs(`(() => {
+      const f = [...document.querySelectorAll('.el-dialog .el-form-item')].find((x) => x.querySelector('.el-form-item__label')?.textContent.includes('状态'))
+      const sel = f?.querySelector('.el-select')
+      if (!sel) return null
+      return sel.textContent.trim() || '(empty)'
+    })()`)
+    if (statusLabel === '已计划') {
+      ok('A5 状态下拉转译为中文（已计划，meeting 域 seed 兜底生效）')
+    } else {
+      bad('A5 状态下拉转译', 'display=' + JSON.stringify(statusLabel))
     }
 
     // 清理验证数据

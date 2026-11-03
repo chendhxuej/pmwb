@@ -576,8 +576,8 @@
             <el-form-item label-width="0" prop="start_hm">
               <el-input
                 v-model="form.start_hm"
-                placeholder="HH:mm"
-                maxlength="5"
+                placeholder="如 9 或 14:30"
+                maxlength="6"
                 @blur="form.start_hm = normalizeHm(form.start_hm)"
               >
                 <template #prepend>时间</template>
@@ -599,8 +599,8 @@
             <el-form-item label-width="0" prop="end_hm">
               <el-input
                 v-model="form.end_hm"
-                placeholder="HH:mm"
-                maxlength="5"
+                placeholder="如 9 或 14:30"
+                maxlength="6"
                 @blur="form.end_hm = normalizeHm(form.end_hm)"
               >
                 <template #prepend>时间</template>
@@ -609,8 +609,8 @@
           </el-col>
         </el-row>
         <div class="time-hint">
-          支持连续多天会议：结束日期与开始日期不同即跨天登记，月历将逐日连续标记；
-          时间可手输 HH:mm（如 1430 自动补为 14:30），结束时间留空按下方时长推算。
+          支持连续多天会议：结束日期与开始日期不同即跨天登记，月历将逐日连续标记。
+          时间直接输数字即可：9 → 09:00、9点 → 09:00、9点半 / 930 → 09:30、1430 → 14:30；结束留空按下方时长推算。
         </div>
         <el-row :gutter="14">
           <el-col :span="12">
@@ -1684,20 +1684,33 @@ const defaultForm = {
 }
 const form = reactive({ ...defaultForm })
 
-/* 时间手输：HH:mm 校验 + 快捷补全（1430 → 14:30） */
+/* 时间手输：宽容归一化 —— 9 / 9点 / 9点半 / 930 / 1430 / 9:30 → HH:mm；
+   归一不了的原样返回，交给校验红字提示 */
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/
 const normalizeHm = (v) => {
-  const s = String(v || '').trim()
-  if (!s) return ''
-  if (HM_RE.test(s)) return s
-  const m = s.match(/^(\d{1,2})([0-5]\d)$/)
-  if (m) return `${m[1].padStart(2, '0')}:${m[2]}`
-  return s
+  const orig = String(v || '').trim()
+  if (!orig) return ''
+  if (HM_RE.test(orig)) return orig
+  // 去「点/时」、全角冒号/小数点当分隔符、「半」= 30 分，仅保留数字
+  let s = orig.replace(/半/g, '30').replace(/[点时]/g, '').replace(/[:：.．]/g, '').replace(/\s/g, '')
+  if (/^\d{1,4}$/.test(s)) {
+    if (s.length <= 2) {
+      const h = parseInt(s, 10)
+      if (h <= 23) return `${String(h).padStart(2, '0')}:00` // 9 / 09 / 21 → 整点
+    } else {
+      const m = s.match(/^(\d{1,2})([0-5]\d)$/)
+      if (m) {
+        const h = parseInt(m[1], 10)
+        if (h <= 23) return `${String(h).padStart(2, '0')}:${m[2]}` // 930 → 09:30，1430 → 14:30
+      }
+    }
+  }
+  return orig
 }
 const validateHm = (required) => (rule, value, callback) => {
   const v = normalizeHm(value)
-  if (!v) return required ? callback(new Error('请输入时间，如 09:30')) : callback()
-  if (!HM_RE.test(v)) return callback(new Error('格式应为 HH:mm（00:00~23:59），如 14:30'))
+  if (!v) return required ? callback(new Error('请输入时间')) : callback()
+  if (!HM_RE.test(v)) return callback(new Error('时间格式不对，可输 9 / 9点 / 930 / 1430 / 9:30'))
   callback()
 }
 
