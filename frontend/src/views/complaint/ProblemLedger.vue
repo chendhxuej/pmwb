@@ -159,12 +159,40 @@
           <span class="ev-text">{{ evidenceBrief(detail.evidence) }}</span>
         </div>
 
-        <h4 class="sec-title">周度轨迹（锚点场景单量）</h4>
+        <h4 class="sec-title">
+          关联投诉工单（{{ detailTicketTotal }} 单）
+          <el-button v-if="detailTicketTotal > detailTickets.length" size="small" text type="primary"
+            @click="ticketDrillVisible = true">查看全部</el-button>
+        </h4>
+        <el-table v-if="detailTickets.length" :data="detailTickets" size="small" border>
+          <el-table-column prop="ticket_no" label="工单号" width="152">
+            <template #default="{ row }"><span class="mono">{{ row.ticket_no }}</span></template>
+          </el-table-column>
+          <el-table-column label="创建时间" width="140">
+            <template #default="{ row }">{{ fmtTime(row.created_time) }}</template>
+          </el-table-column>
+          <el-table-column prop="city" label="地市" width="76" />
+          <el-table-column prop="content" label="投诉内容" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="status" label="状态" width="86" />
+          <el-table-column label="已知/新增" width="92" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.known_flag === 1" size="small" type="warning">已知</el-tag>
+              <el-tag v-else-if="row.known_flag === 0" size="small" type="danger">新增</el-tag>
+              <span v-else class="text-muted">—</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else description="该问题下暂无关联工单" :image-size="48" />
+
+        <h4 class="sec-title">周度轨迹（根因簇单量）</h4>
         <ChartLine v-if="trajectory.length" :x-data="trajectory.map(t => t.week)" height="200px"
           :series="[{ name: '周单量', type: 'line', data: trajectory.map(t => t.cnt) }]" />
         <el-empty v-else description="暂无轨迹数据" :image-size="48" />
 
-        <h4 class="sec-title">关联措施（{{ detail.actions.length }}）</h4>
+        <h4 class="sec-title">
+          关联措施（{{ detail.actions.length }}）
+          <el-button type="primary" size="small" :icon="Plus" @click="openIssueDialog">建立运营工单</el-button>
+        </h4>
         <el-table ref="pmTbl3" :data="detail.actions" size="small" border>
           <el-table-column prop="action_no" label="措施编号" width="140">
             <template #default="{ row }">
@@ -197,6 +225,46 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- 关联工单下钻（问题详情内「查看全部」） -->
+    <TicketDrillDrawer v-model="ticketDrillVisible"
+      :filters="drillFilters" :title="`${detail?.problem_no || ''} 关联投诉工单`" />
+
+    <!-- 建立运营工单（自动生成措施 + 工单，双向联动） -->
+    <el-dialog v-model="issueVisible" title="建立运营工单" width="560px">
+      <el-form label-width="92px" size="default">
+        <el-form-item label="所属问题">
+          <span class="mono">{{ detail?.problem_no }}</span>
+          <span class="text-muted" style="margin-left:8px">{{ detail?.title }}</span>
+        </el-form-item>
+        <el-form-item label="问题场景" required>
+          <el-select v-model="issueForm.l2" filterable placeholder="选择二级场景（措施口径）" style="width: 100%">
+            <el-option v-for="c in l2Catalog" :key="c" :label="c" :value="c" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="工单标题" required>
+          <el-input v-model="issueForm.title" maxlength="120" show-word-limit />
+        </el-form-item>
+        <el-form-item label="责任人" required>
+          <el-input v-model="issueForm.owner" placeholder="多负责人用逗号分隔" />
+        </el-form-item>
+        <el-form-item label="截止日期">
+          <el-date-picker v-model="issueForm.due_date" type="date" value-format="YYYY-MM-DD"
+            placeholder="要求完成日期" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="验收标准" required>
+          <el-input v-model="issueForm.acceptance" type="textarea" :rows="2"
+            placeholder="可验证，如：上线后连续 3 周该簇周单量降至 3 单以下" />
+        </el-form-item>
+      </el-form>
+      <div class="gl-tip">
+        提交后自动生成「改进措施 + 运营工单」并双向关联本问题：工单状态流转自动回写措施状态，措施生效后按簇周单量自动验证压降。
+      </div>
+      <template #footer>
+        <el-button @click="issueVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveIssue">创建并关联</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 入账对话框 -->
     <el-dialog v-model="openVisible" title="候选入账（置为待处置）" width="440px">
@@ -281,12 +349,21 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Plus, Promotion } from '@element-plus/icons-vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import ChartLine from '@/components/Charts/ChartLine.vue'
+import TicketDrillDrawer from './components/TicketDrillDrawer.vue'
 import { complaintApi } from '@/api/complaint'
 import { domainStatuses, allowedNext } from '@/constants/statusConfig'
 
 const DOMAIN = 'complaint_problem'
 const RULE_NAMES = { batch_cluster: 'R1批量簇', surge: 'R3环比激增', top_scene: 'R2场景TOP', recur: 'R4复发', manual: '人工' }
-const SOURCE_NAMES = { batch_cluster: '批量簇', surge: '环比激增', top_scene: '场景TOP', recur: '复发', manual: '手工' }
+const SOURCE_NAMES = {
+  rootcause_batch: '批量成簇',
+  surge: '环比激增',
+  recur: '复发',
+  manual: '手工',
+  // 兼容历史数据里的旧口径值
+  batch_cluster: '批量簇',
+  top_scene: '场景TOP',
+}
 
 const loading = ref(false)
 const saving = ref(false)
@@ -301,6 +378,15 @@ const detailVisible = ref(false)
 const detail = ref(null)
 const trajectory = ref([])
 const linkActionNo = ref('')
+
+// 详情页「关联投诉工单」与「建立运营工单」
+const detailTickets = ref([])
+const detailTicketTotal = ref(0)
+const ticketDrillVisible = ref(false)
+const drillFilters = ref({})
+const issueVisible = ref(false)
+const issueForm = ref({ l2: '', title: '', owner: '', due_date: '', acceptance: '' })
+const l2Catalog = ref([])
 
 const openVisible = ref(false)
 const openRow = ref(null)
@@ -540,12 +626,89 @@ async function openDetail(row) {
   try {
     detail.value = await complaintApi.getProblem(row.problem_no)
     trajectory.value = detail.value.trajectory || []
+    // 关联投诉工单：按问题覆盖的根因簇拉（一个问题可纳多簇）
+    await loadDetailTickets()
     if (!allActions.value.length) {
       allActions.value = await complaintApi.listActions()
     }
     linkActionNo.value = ''
     detailVisible.value = true
   } catch (e) { /* request 已提示 */ }
+}
+
+function problemRcNos() {
+  const raw = detail.value?.rootcause_nos || detail.value?.rootcause_no || ''
+  return String(raw).split(',').map(s => s.trim()).filter(Boolean)
+}
+
+async function loadDetailTickets() {
+  const rcs = problemRcNos()
+  drillFilters.value = rcs.length ? { rootcause_no: rcs.join(',') } : { problem_no: detail.value?.problem_no }
+  try {
+    const t = await complaintApi.listTickets({ ...drillFilters.value, page: 1, page_size: 8 })
+    detailTickets.value = t?.items || []
+    detailTicketTotal.value = t?.total || 0
+  } catch (e) {
+    detailTickets.value = []
+    detailTicketTotal.value = 0
+  }
+}
+
+function fmtTime(v) {
+  if (!v) return '—'
+  return String(v).replace('T', ' ').slice(0, 16)
+}
+
+async function openIssueDialog() {
+  if (!detail.value) return
+  if (!l2Catalog.value.length) {
+    try {
+      const cats = await complaintApi.listCategories()
+      l2Catalog.value = (Array.isArray(cats) ? cats : [])
+        .filter(c => c.level === 2 && c.enabled)
+        .map(c => c.name)
+    } catch (e) { l2Catalog.value = [] }
+  }
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+  issueForm.value = {
+    l2: detail.value.category_l2 || '',
+    title: detail.value.title || '',
+    owner: detail.value.owner || '',
+    due_date: due,
+    acceptance: '',
+  }
+  issueVisible.value = true
+}
+
+async function saveIssue() {
+  const f = issueForm.value
+  if (!f.l2) return ElMessage.warning('请选择问题场景')
+  if (!f.title.trim()) return ElMessage.warning('请填写工单标题')
+  if (!f.owner.trim()) return ElMessage.warning('请指定责任人')
+  if (!f.acceptance.trim()) return ElMessage.warning('验收标准必填（可验证才算闭环）')
+  saving.value = true
+  try {
+    const r = await complaintApi.createAction({
+      l2: f.l2,
+      title: f.title.trim(),
+      owner: f.owner.trim(),
+      due_date: f.due_date || null,
+      acceptance: f.acceptance.trim(),
+      desc: `由共性问题 ${detail.value.problem_no} 发起：${detail.value.title}`,
+      create_issue: true,
+      problem_nos: [detail.value.problem_no],
+    })
+    ElMessage.success(`已创建措施 ${r.action_no}，运营工单 ${r.issue_no || '已生成'}`)
+    issueVisible.value = false
+    // 重新拉详情（措施与工单已联动回写）
+    detail.value = await complaintApi.getProblem(detail.value.problem_no)
+    trajectory.value = detail.value.trajectory || []
+    await loadDetailTickets()
+    allActions.value = await complaintApi.listActions()
+    load()
+  } catch (e) { /* request 已提示 */ } finally {
+    saving.value = false
+  }
 }
 
 async function doLink() {
@@ -704,5 +867,14 @@ onMounted(load)
 }
 .ledger-tabs {
   padding: 0 2px;
+}
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+}
+/* 区块标题右侧的操作按钮：与标题基线对齐 */
+.sec-title .el-button {
+  margin-left: 8px;
+  vertical-align: baseline;
 }
 </style>

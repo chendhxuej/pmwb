@@ -138,10 +138,72 @@
       <!-- 三、分类汇总 -->
       <section class="card">
         <div class="card-header">
-          <h3>三、投诉问题分类汇总（五类 → 根因簇）</h3>
-          <span class="hint">分母 = 已根因分析 {{ rc.covered ?? 0 }} 单</span>
+          <h3>三、问题族分析（业务链路）</h3>
+          <span class="hint">
+            环比按日均对比（本周 {{ th.week_days || 0 }} 天 / 上周 {{ th.prev_days || 0 }} 天）
+          </span>
         </div>
         <div class="card-body">
+          <el-table class="theme-table" :data="themeRows" size="small" empty-text="暂无问题族数据">
+            <el-table-column label="问题族（业务链路）" min-width="170">
+              <template #default="{ row }">
+                <b>{{ row.name }}</b>
+                <el-tag v-if="row.is_new" size="small" type="danger" class="rule-tag">本周新增</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="本周" width="70" align="center">
+              <template #default="{ row }"><b class="num-red">{{ row.week_cnt }}</b></template>
+            </el-table-column>
+            <el-table-column label="上周日均" width="86" align="right">
+              <template #default="{ row }">{{ row.prev_avg }}</template>
+            </el-table-column>
+            <el-table-column label="本周日均" width="86" align="right">
+              <template #default="{ row }">{{ row.avg }}</template>
+            </el-table-column>
+            <el-table-column label="日均环比" width="110" align="center">
+              <template #default="{ row }">
+                <span v-if="row.wow === null || row.wow === undefined" class="text-muted">不可比</span>
+                <span v-else :class="row.wow > 0 ? 'num-red' : 'num-green'">
+                  {{ row.wow > 0 ? '+' : '' }}{{ row.wow }}%
+                </span>
+                <el-tag v-if="row.low_sample" size="small" type="info" class="rule-tag">样本小</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="累计" width="72" align="right">
+              <template #default="{ row }">{{ row.total_cnt }}</template>
+            </el-table-column>
+            <el-table-column label="问题簇" width="76" align="center">
+              <template #default="{ row }">{{ row.problem_cluster_cnt }}</template>
+            </el-table-column>
+            <el-table-column label="主要问题（累计 TOP）" min-width="300">
+              <template #default="{ row }">
+                <div v-for="c in row.top_clusters" :key="c.rc_no" class="top-cluster">
+                  <span class="tc-cnt">{{ c.cnt }} 单</span>
+                  <span class="tc-title">{{ c.title }}</span>
+                </div>
+                <span v-if="!row.top_clusters.length" class="text-muted">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="80" align="center">
+              <template #default="{ row }">
+                <el-button size="small" text type="primary" @click="drillTheme(row)">下钻</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="case-line">
+            <el-icon><InfoFilled /></el-icon>
+            另有 <b>{{ th.cases?.cluster_cnt || 0 }}</b> 个一次性个案（共
+            {{ th.cases?.ticket_cnt || 0 }} 单，仅出现 1 次、无同类可比），不计入族汇总；
+            <span v-if="th.new_case_cnt">本周新增 {{ th.new_case_cnt }} 个。</span>
+            <el-button v-if="th.cases?.cluster_cnt" size="small" text type="primary"
+              @click="drillCases">查看个案明细</el-button>
+          </div>
+          <div v-if="th.unattributed?.cnt" class="case-line warn">
+            未归因工单 {{ th.unattributed.cnt }} 单（根因分析未完成），未摊入任何族。
+          </div>
+
+          <div class="sub-h">按投诉性质看（五类，分母 = 已根因分析 {{ rc.covered ?? 0 }} 单）</div>
           <div class="l1-row">
             <div class="l1-chart pm-col-5">
               <ChartPie :data="pieData" donut height="260px" @item-click="p => drill({ week: metrics.week, l1: p.name }, `一级性质「${p.name}」工单`)" />
@@ -158,20 +220,16 @@
             </div>
           </div>
 
-          <div class="sub-h">根因簇 TOP15（一簇 = 一处修复点）</div>
-          <el-table :data="rc.clusters || []" size="small" empty-text="暂无根因数据">
-            <el-table-column label="根因簇" min-width="300" show-overflow-tooltip>
+          <div class="sub-h">重点根因簇（累计 ≥5 单，可直接立项修复）</div>
+          <el-table :data="bigClusters" size="small" empty-text="暂无达到量级的根因簇">
+            <el-table-column label="根因簇" min-width="320" show-overflow-tooltip>
               <template #default="{ row }"><b>{{ row.title }}</b></template>
             </el-table-column>
             <el-table-column prop="fault_system" label="系统" width="110" />
-            <el-table-column prop="fault_stage" label="环节" width="100" />
             <el-table-column prop="fault_type" label="缺陷性质" width="110" />
             <el-table-column prop="own_party" label="责任归属" width="100" />
-            <el-table-column label="单量" width="72" align="center">
+            <el-table-column label="累计单量" width="88" align="center">
               <template #default="{ row }"><b class="num-red">{{ row.cnt }}</b></template>
-            </el-table-column>
-            <el-table-column label="占比" width="72" align="right">
-              <template #default="{ row }">{{ row.pct }}%</template>
             </el-table-column>
             <el-table-column label="操作" width="88" align="center">
               <template #default="{ row }">
@@ -274,13 +332,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Upload, Download } from '@element-plus/icons-vue'
+import { Refresh, Upload, Download, InfoFilled } from '@element-plus/icons-vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import ChartPie from '@/components/Charts/ChartPie.vue'
 import ChartLine from '@/components/Charts/ChartLine.vue'
 import ComplaintUploadDialog from './components/ComplaintUploadDialog.vue'
 import TicketDrillDrawer from './components/TicketDrillDrawer.vue'
 import { complaintApi } from '@/api/complaint'
+import { openWithAuth } from '@/utils/download.js'
 
 const router = useRouter()
 const loading = ref(false)
@@ -335,6 +394,22 @@ const pieData = computed(() => (metrics.value.by_l1 || []).map(x => ({ value: x.
 const l1Rows = computed(() => (metrics.value.by_l1 || []).map(x => ({
   ...x, meaning: L1_MEANING[x.name] || '—',
 })))
+
+// 问题族（业务链路）：报表主视角，替代原来平铺根因簇的「散」
+const th = computed(() => metrics.value.themes || {})
+const themeRows = computed(() => th.value.themes || [])
+// 重点根因簇：只有达到量级的才值得单独立项，1~2 单的个案不进这张表
+const bigClusters = computed(() => (rc.value.clusters || []).filter(c => (c.cnt || 0) >= 5))
+
+function drillTheme(row) {
+  const rcs = row.rc_nos || []
+  if (!rcs.length) return ElMessage.info('该族本周无归因工单')
+  drill({ rootcause_no: rcs.join(',') }, `问题族「${row.name}」工单`)
+}
+
+function drillCases() {
+  drill({ rc_max_tickets: 1 }, '一次性个案工单（所在簇仅 1 单）')
+}
 const dailyX = computed(() => Object.keys(metrics.value.daily || {}).map(k => k.slice(5)))
 const dailySeries = computed(() => [{
   name: '当日单量',
@@ -389,9 +464,28 @@ function drill(filters, title) {
   drillVisible.value = true
 }
 
-function openReport() {
+async function openReport() {
   if (!metrics.value.week) return ElMessage.warning('暂无可导出的周报')
-  window.open(complaintApi.reportDownloadUrl(metrics.value.week), '_blank')
+  const week = metrics.value.week
+  const loadingMsg = ElMessage({ message: '正在准备周报…', duration: 0, type: 'info' })
+  try {
+    try {
+      // 裸 window.open 不带 JWT，开启了鉴权会被 401 拦下
+      await openWithAuth(complaintApi.reportDownloadUrl(week))
+    } catch (e) {
+      // 该周周报文件还没生成（历史周常见）：先让后端生成，再打开
+      if (String(e?.message || '').includes('不存在')) {
+        await complaintApi.genReport({ week, with_pdf: false })
+        await openWithAuth(complaintApi.reportDownloadUrl(week))
+      } else {
+        throw e
+      }
+    }
+  } catch (e) {
+    ElMessage.error('周报打开失败：' + (e?.message || e))
+  } finally {
+    loadingMsg.close()
+  }
 }
 
 function goActions() {
@@ -433,6 +527,42 @@ onMounted(loadAll)
 }
 .num-red { color: var(--danger); }
 .num-green { color: var(--success); }
+/* 问题族表：族内 TOP 问题紧凑堆叠，避免撑行高 */
+.top-cluster {
+  display: flex;
+  gap: 8px;
+  line-height: 1.6;
+  font-size: 12px;
+}
+.top-cluster .tc-cnt {
+  flex: 0 0 44px;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+.top-cluster .tc-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+/* 个案/未归因提示行 */
+.case-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-app);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.case-line.warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
 .muted { color: var(--text-muted); }
 .l1-row {
   display: grid;

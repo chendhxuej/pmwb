@@ -187,13 +187,20 @@ async function main() {
       const rowCount = (i) => tables[i] ? tables[i].querySelectorAll('.el-table__body tbody tr').length : -1
       const l1Table = root.querySelector('.l1-class-table')
       const l1Rows = l1Table ? [...l1Table.querySelectorAll('.el-table__body tbody tr')].map(tr => tr.innerText.replace(/\\s+/g, ' ').trim()) : []
+      // 问题族表（业务链路）：用 class 精确定位，避免表格顺序变动后断言错位
+      const themeTbl = root.querySelector('.theme-table')
+      const themeRows = themeTbl ? [...themeTbl.querySelectorAll('.el-table__body tbody tr')].map(tr => tr.innerText.replace(/\\s+/g, ' ').trim()) : []
+      const themeHeaders = themeTbl ? [...themeTbl.querySelectorAll('.el-table__header th')].map(th => th.innerText.trim()) : []
       const knownTag = [...root.querySelectorAll('.el-tag')].map(t => t.innerText.trim())
       return {
         titles, sectionCount: secs.length, kpis, tableCount: tables.length,
         knownTableRows: rowCount(0), newTableRows: rowCount(1),
+        themeRows, themeHeaders,
         clusterTableRows: rowCount(2), guideTableRows: rowCount(3),
         l1Rows, knownTag,
         hasWarn: !!root.querySelector('.pm-note.warn'),
+        hasCaseLine: !!root.querySelector('.case-line'),
+        hasBigCluster: [...root.querySelectorAll('.sub-h')].some(e => e.innerText.includes('重点根因簇')),
         bodyText: root.innerText.slice(0, 4000),
       }
     })()`)
@@ -201,7 +208,8 @@ async function main() {
       const has = (kw) => dash.titles.some(t => t.includes(kw))
       has('本周概览与波动') ? ok('板块一：本周概览与波动') : bad('缺板块一')
       has('已知问题 vs 新增问题') ? ok('板块二：已知 vs 新增') : bad('缺板块二')
-      has('投诉问题分类汇总') ? ok('板块三：分类汇总') : bad('缺板块三')
+      has('投诉问题分类汇总') || has('问题族分析') ? ok('板块三：问题族分析（业务链路）') : bad('缺板块三')
+      has('问题族分析') ? ok('板块三标题已改为业务链路视角') : bad('板块三仍是旧标题')
       has('工单压降分析指引') ? ok('板块四：压降指引') : bad('缺板块四')
       has('措施跟踪与自动验证') ? ok('板块五：措施跟踪与验证') : bad('缺板块五')
       dash.sectionCount >= 5 ? ok('板块卡片数 ≥5', `actual=${dash.sectionCount}`) : bad('板块卡片不足', `${dash.sectionCount}`)
@@ -219,8 +227,13 @@ async function main() {
       if (dash.knownTableRows > 0) ok('已知问题表有数据', `rows=${dash.knownTableRows}`)
       else if (dash.bodyText.includes('本周没有一单能被在办问题解释')) ok('已知问题表空态合法（本周已知 0 单）')
       else bad('已知问题表为空且无空态文案')
+      // 问题族表：反「散」的核心，必须是族粒度且带日均环比口径
+      dash.themeRows.length > 0 ? ok('问题族表有数据', `族=${dash.themeRows.length}`) : bad('问题族表为空')
+      dash.themeHeaders.some(h => h.includes('日均环比')) ? ok('族表含「日均环比」列（残缺周不误判）') : bad('族表缺日均环比列')
+      dash.hasCaseLine ? ok('一次性个案单列计数在位') : bad('缺一次性个案说明')
+      dash.hasBigCluster ? ok('重点根因簇（≥5 单）独立成表') : bad('缺重点根因簇表')
+
       dash.newTableRows > 0 ? ok('新增问题表有数据', `rows=${dash.newTableRows}`) : bad('新增问题表为空')
-      dash.clusterTableRows > 0 ? ok('根因簇表有数据', `rows=${dash.clusterTableRows}`) : bad('根因簇表为空')
       dash.guideTableRows > 0 ? ok('压降指引表有数据', `rows=${dash.guideTableRows}`) : bad('压降指引表为空')
 
       const names = ['系统问题', '流程优化', '数据异常', '规则咨询', '操作咨询']
@@ -295,6 +308,81 @@ async function main() {
         : bad('候选页签缺入账说明')
     } else {
       bad('候选页签切换失败')
+    }
+
+    /* ── 2b. 问题详情：关联工单 + 建立运营工单（2026-11-04 老大要求） ── */
+    // 回到在办页签并点第一行「详情」
+    await cdp.eval(`(() => {
+      const tabs = [...document.querySelectorAll('.problem-ledger .el-tabs__item')]
+      const t = tabs.find(x => x.innerText.includes('在办'))
+      if (t) t.click()
+    })()`)
+    await sleep(1200)
+    const detailOpened = await cdp.eval(`(() => {
+      const btns = [...document.querySelectorAll('.problem-ledger .el-button')]
+      const b = btns.find(x => x.innerText.trim() === '详情' && x.offsetParent !== null)
+      if (!b) return false
+      b.click()
+      return true
+    })()`)
+    await sleep(2600)
+    const dt = await cdp.eval(`(() => {
+      const dw = document.querySelector('.el-drawer')
+      if (!dw) return null
+      const body = dw.innerText
+      const tables = [...dw.querySelectorAll('.el-table')]
+      const tRows = tables.map(t => t.querySelectorAll('.el-table__body tbody tr').length)
+      const hasIssueBtn = [...dw.querySelectorAll('.el-button')].some(b => b.innerText.includes('建立运营工单'))
+      return {
+        hasTicketSec: body.includes('关联投诉工单'),
+        hasActionSec: body.includes('关联措施'),
+        hasIssueBtn,
+        tableRowCounts: tRows,
+        total: (body.match(/关联投诉工单（(\\d+) 单）/) || [])[1] || '0',
+      }
+    })()`)
+    if (detailOpened && dt) {
+      dt.hasTicketSec ? ok('详情含「关联投诉工单」区块', `总数 ${dt.total}`) : bad('详情缺关联投诉工单区块')
+      dt.hasActionSec ? ok('详情含「关联措施」区块') : bad('详情缺关联措施区块')
+      dt.hasIssueBtn ? ok('详情有「建立运营工单」入口') : bad('详情缺建立运营工单入口')
+      dt.tableRowCounts.some(n => n > 0) ? ok('详情工单/措施表可渲染', `rows=${dt.tableRowCounts.join('/')}`) : bad('详情表全空')
+    } else {
+      bad('问题详情抽屉未打开')
+    }
+    // 点开建立工单对话框（只验证表单存在，不提交，避免写库）
+    const issueDlg = await cdp.eval(`(() => {
+      const dw = document.querySelector('.el-drawer')
+      const b = dw ? [...dw.querySelectorAll('.el-button')].find(x => x.innerText.includes('建立运营工单')) : null
+      return b ? (b.click(), true) : false
+    })()`)
+    await sleep(1600)
+    const dlgInfo = await cdp.eval(`(() => {
+      const dlgs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null)
+      const d = dlgs.find(x => x.innerText.includes('建立运营工单'))
+      if (!d) return null
+      const txt = d.innerText
+      return {
+        hasScene: txt.includes('问题场景'),
+        hasAccept: txt.includes('验收标准'),
+        hasProblem: txt.includes('所属问题'),
+        hasLinkTip: txt.includes('双向关联') || txt.includes('联动'),
+      }
+    })()`)
+    if (issueDlg && dlgInfo) {
+      dlgInfo.hasProblem ? ok('建单对话框带所属问题上下文') : bad('建单对话框缺所属问题')
+      dlgInfo.hasScene ? ok('建单对话框有场景选择') : bad('建单对话框缺场景')
+      dlgInfo.hasAccept ? ok('建单对话框要求验收标准') : bad('建单对话框缺验收标准')
+      dlgInfo.hasLinkTip ? ok('建单对话框说明措施/工单联动') : bad('建单对话框缺联动说明')
+      // 关闭对话框，保持页面干净
+      await cdp.eval(`(() => {
+        const dlgs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null)
+        const d = dlgs.find(x => x.innerText.includes('建立运营工单'))
+        const btn = d ? [...d.querySelectorAll('.el-button')].find(b => b.innerText.trim() === '取消') : null
+        if (btn) btn.click()
+      })()`)
+      await sleep(600)
+    } else {
+      bad('建立运营工单对话框未弹出')
     }
 
     /* ── 3. 工单明细：关联问题列 + 信息不足 ── */

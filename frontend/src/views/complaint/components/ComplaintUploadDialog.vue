@@ -63,6 +63,7 @@ import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { complaintApi } from '@/api/complaint'
+import { openWithAuth } from '@/utils/download.js'
 
 defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue', 'imported'])
@@ -97,9 +98,14 @@ async function doImport() {
   }
 }
 
-function openReport() {
+async function openReport() {
   const w = result.value?.report?.week
-  if (w) window.open(complaintApi.reportDownloadUrl(w, 'html'), '_blank')
+  if (!w) return
+  try {
+    await openWithAuth(complaintApi.reportDownloadUrl(w, 'html'))
+  } catch (e) {
+    ElMessage.error('周报打开失败：' + (e?.message || e))
+  }
 }
 </script>
 

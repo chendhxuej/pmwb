@@ -303,6 +303,10 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
     from services.complaint import known as known_svc
     known = known_svc.summary(db, week, rows)
 
+    # 问题族（业务链路）聚合：簇是个案级，报表要看链路级
+    from services.complaint import themes as theme_svc
+    themes = theme_svc.theme_stats(db, week)
+
     return {
         "week": week,
         "range": f"{start:%Y-%m-%d} ~ {(end - timedelta(days=1)):%Y-%m-%d}",
@@ -349,6 +353,7 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
         },
         "rootcause": rootcause,
         "known": known,
+        "themes": themes,
     }
 
 

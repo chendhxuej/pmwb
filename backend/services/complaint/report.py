@@ -168,15 +168,52 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     ]) if k.get("new_clusters") else (
         '<tr><td colspan="5" style="color:#98a6ba;text-align:center">本周无新增问题</td></tr>')
 
-    # ── 三、五类分类汇总 ──
+    # ── 三、问题族（业务链路）+ 五类汇总 ──
+    th = m.get("themes") or {}
+    th_rows_data = th.get("themes") or []
+    _wow_basis = (f"环比按日均对比（本周 {th.get('week_days', 0)} 天 / 上周 {th.get('prev_days', 0)} 天）"
+                  if th.get("wow_basis") == "daily_avg" else "环比按周总量对比")
+
+    def _wow_cell(x: Dict) -> str:
+        v = x.get("wow")
+        if v is None:
+            return '<span style="color:#98a6ba">不可比</span>'
+        color = "#c0392b" if v > 0 else "#1f8a5c"
+        tag = ' <span style="color:#98a6ba;font-size:11px">样本小</span>' if x.get("low_sample") else ""
+        return f'<b style="color:{color}">{v:+.1f}%</b>{tag}'
+
+    theme_rows = _rows(th_rows_data, [
+        ("问题族（业务链路）", lambda x: ('<b>' + x["name"] + '</b>' +
+                                    (' <span style="color:#c0392b;font-size:11px">本周新增</span>'
+                                     if x.get("is_new") else ""))),
+        ("本周", lambda x: f'<b style="color:#c0392b">{x["week_cnt"]}</b>'),
+        ("本周日均", lambda x: str(x.get("avg", "—"))),
+        ("上周日均", lambda x: str(x.get("prev_avg", "—"))),
+        ("日均环比", _wow_cell),
+        ("累计", lambda x: str(x.get("total_cnt", 0))),
+        ("涉及问题簇", lambda x: str(x.get("problem_cluster_cnt", 0))),
+        ("主要问题（累计 TOP3）", lambda x: '<br>'.join(
+            f'{c["cnt"]} 单·{c["title"]}' for c in (x.get("top_clusters") or [])) or "—"),
+    ]) if th_rows_data else (
+        '<tr><td colspan="8" style="color:#98a6ba;text-align:center">暂无问题族数据</td></tr>')
+
+    _cases = th.get("cases") or {}
+    _unattr = th.get("unattributed") or {}
+    case_note = (
+        f'另有 <b>{_cases.get("cluster_cnt", 0)}</b> 个一次性个案（共 {_cases.get("ticket_cnt", 0)} 单，'
+        f'仅出现 1 次、无同类可比），不计入族汇总；本周新增 {th.get("new_case_cnt", 0)} 个。'
+    )
+    if _unattr.get("cnt"):
+        case_note += f' 未归因工单 {_unattr["cnt"]} 单（根因分析未完成），未摊入任何族。'
+
     l1_rows = "".join(
         f'<tr><td><b>{x["name"]}</b></td><td>{_L1_MEANING.get(x["name"], "—")}</td>'
         f'<td><b>{x["cnt"]}</b></td><td>{x["pct"]}%</td></tr>'
         for x in l1
     ) or '<tr><td colspan="4" style="color:#98a6ba;text-align:center">暂无数据</td></tr>'
 
-    cluster_rows = _rows((rc.get("clusters") or [])[:15], [
-        ("根因簇（一簇 = 一处修复点）", lambda x: f'<b>{x["title"]}</b>'),
+    cluster_rows = _rows([x for x in (rc.get("clusters") or []) if int(x.get("cnt") or 0) >= 5][:15], [
+        ("重点根因簇（累计 ≥5 单）", lambda x: f'<b>{x["title"]}</b>'),
         ("系统", lambda x: x.get("fault_system") or "—"),
         ("环节", lambda x: x.get("fault_stage") or "—"),
         ("缺陷性质", lambda x: x.get("fault_type") or "—"),
@@ -305,11 +342,18 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
   </div>
 
   <div class="card">
-    <h2>三、投诉问题分类汇总（五类 → 根因簇）</h2>
+    <h2>三、问题族分析（业务链路）</h2>
+    <div class="note">为什么先看族：根因簇是个案粒度（很多簇只有 1 单，标题精确到订单号），
+      直接列表会又散又不准。按业务链路归并后才能看出「哪条链路在恶化」。{_wow_basis}</div>
+    <table><thead><tr><th>问题族</th><th>本周</th><th>本周日均</th><th>上周日均</th><th>日均环比</th><th>累计</th><th>涉及问题簇</th><th>主要问题</th></tr></thead>
+    <tbody>{theme_rows}</tbody></table>
+    <div class="note" style="margin-top:10px">{case_note}</div>
+
+    <div class="sub-h">按投诉性质看（五类，分母 = 已根因分析 {rc.get('covered', 0)} 单）</div>
     <table><thead><tr><th>一级性质</th><th>含义</th><th>单量</th><th>占比</th></tr></thead>
     <tbody>{l1_rows}</tbody></table>
     <div id="pie" class="chart" style="height:280px;margin-top:12px"></div>
-    <div class="sub-h">根因簇 TOP15（判定口径：分母 = 已根因分析 {rc.get('covered', 0)} 单）</div>
+    <div class="sub-h">重点根因簇（累计 ≥5 单，可直接立项修复）</div>
     <table><thead><tr><th>根因簇</th><th>系统</th><th>环节</th><th>缺陷性质</th><th>责任归属</th><th>单量</th><th>占比</th></tr></thead>
     <tbody>{cluster_rows}</tbody></table>
   </div>

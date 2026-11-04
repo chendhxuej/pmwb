@@ -177,12 +177,12 @@
       </section>
 
     <!-- 预览抽屉 -->
-    <el-drawer v-model="previewVisible" :title="previewTitle" size="60%" destroy-on-close>
+    <el-drawer v-model="previewVisible" :title="previewTitle" size="60%" destroy-on-close @closed="releaseInlineUrl">
       <div v-loading="previewLoading" class="preview-body">
         <template v-if="previewData">
           <div v-if="previewData.mode === 'html'" class="preview-html" v-html="previewData.html" />
           <pre v-else-if="previewData.mode === 'text'" class="preview-text">{{ previewData.text }}</pre>
-          <iframe v-else-if="previewData.mode === 'stream'" :src="inlineMaterialUrl(previewId)" class="preview-iframe" />
+          <iframe v-else-if="previewData.mode === 'stream' && inlineUrl" :src="inlineUrl" class="preview-iframe" />
           <el-result v-else icon="warning" title="暂不支持在线预览" :sub-title="previewData.reason">
             <template #extra>
               <el-button type="primary" @click="doDownloadById(previewId)">下载查看</el-button>
@@ -276,6 +276,7 @@ import {
   checkUploadConflict, batchUploadMaterials, batchReassignCategory, batchDeleteMaterials,
   getCategories, inlineMaterialUrl, downloadMaterialUrl,
 } from '@/api/material.js'
+import { downloadWithAuth, fetchBlobUrl, revokeBlobUrl } from '@/utils/download.js'
 import MaterialCategoryManage from '@/views/MaterialCategoryManage.vue'
 import MaterialCategoryNav from '@/components/Material/MaterialCategoryNav.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
@@ -297,6 +298,7 @@ const previewLoading = ref(false)
 const previewData = ref(null)
 const previewId = ref(null)
 const previewTitle = ref('')
+const inlineUrl = ref('')  // stream 预览的鉴权 blob URL（需手动释放）
 
 const reassignVisible = ref(false)
 const reassignForm = reactive({ id: null, category_id: null })
@@ -420,21 +422,29 @@ async function openPreview(m) {
   previewVisible.value = true
   previewLoading.value = true
   previewData.value = null
+  releaseInlineUrl()
   try {
     const data = await previewMaterial(m.id)
     previewData.value = data
+    // stream 模式用 iframe 内联，iframe 无法携带 JWT，必须换成鉴权后的 blob URL
+    if (data && data.mode === 'stream') {
+      inlineUrl.value = await fetchBlobUrl(inlineMaterialUrl(m.id))
+    }
   } catch (e) {
     previewData.value = { mode: 'unsupported', reason: '预览失败，请下载查看' }
   } finally { previewLoading.value = false }
 }
-function doDownload(m) { doDownloadById(m.id) }
-function doDownloadById(id) {
-  const a = document.createElement('a')
-  a.href = downloadMaterialUrl(id)
-  a.target = '_blank'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+function releaseInlineUrl() {
+  revokeBlobUrl(inlineUrl.value)
+  inlineUrl.value = ''
+}
+function doDownload(m) { doDownloadById(m.id, m.file_name) }
+async function doDownloadById(id, name) {
+  try {
+    await downloadWithAuth(downloadMaterialUrl(id), name || '')
+  } catch (e) {
+    ElMessage.error('下载失败：' + (e?.message || e))
+  }
 }
 function openReassign(m) {
   reassignForm.id = m.id

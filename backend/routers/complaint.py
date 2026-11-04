@@ -75,6 +75,7 @@ def list_tickets(
     rootcause_no: Optional[str] = Query(None, description="按根因簇下钻"),
     known_flag: Optional[int] = Query(None, ge=0, le=1, description="1=已知问题 0=新增问题"),
     rc_status: Optional[str] = Query(None, description="根因状态：ai/insufficient/manual，pending=待分析"),
+    rc_max_tickets: Optional[int] = Query(None, ge=1, description="只看簇累计单量 ≤N 的工单（1=一次性个案）"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ):
@@ -115,14 +116,27 @@ def list_tickets(
         where.append("known_flag = :kf")
         params["kf"] = known_flag
     if rootcause_no:
-        where.append("rootcause_no = :rcno")
-        params["rcno"] = rootcause_no
+        # 支持逗号分隔多簇（问题台账一个可纳多簇，详情页要一次拉全）
+        rc_list = [x.strip() for x in str(rootcause_no).split(",") if x.strip()]
+        if len(rc_list) == 1:
+            where.append("rootcause_no = :rcno")
+            params["rcno"] = rc_list[0]
+        elif rc_list:
+            marks = ",".join(f":rc{i}" for i in range(len(rc_list)))
+            where.append(f"rootcause_no IN ({marks})")
+            params.update({f"rc{i}": v for i, v in enumerate(rc_list)})
     if rc_status:
         if rc_status == "pending":
             where.append("(rc_status IS NULL OR rc_status = '')")
         else:
             where.append("rc_status = :rcst")
             params["rcst"] = rc_status
+    if rc_max_tickets is not None:
+        # 一次性个案下钻：只看「所在簇累计单量 ≤ N」的工单
+        where.append(
+            "rootcause_no IN (SELECT rootcause_no FROM pmwb_complaint_rootcause "
+            "WHERE ticket_cnt <= :rcmx)")
+        params["rcmx"] = int(rc_max_tickets)
     # 完结口径与 metrics 一致：TERMINAL_STATUSES 之外视为未结单
     from services.complaint.config import TERMINAL_STATUSES
     term_params = {f"t{i}": s for i, s in enumerate(TERMINAL_STATUSES)}

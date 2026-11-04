@@ -1011,7 +1011,7 @@
                     <el-icon><Document /></el-icon>
                     <span class="att-name">{{ sys.doc.file_name }}</span>
                     <span class="att-size text-muted">{{ fmtSize(sys.doc.size || 0) }}</span>
-                    <a :href="downloadInterfaceDocUrl(reqId, sys.doc.id)" target="_blank" class="text-muted" style="font-size:11px">下载</a>
+                    <el-button link type="primary" size="small" class="text-muted" style="font-size:11px" @click="downloadIfaceDoc(reqId, sys.doc)">下载</el-button>
                     <el-button link type="danger" size="small" @click="removeIfaceDoc(sys)">删除</el-button>
                   </div>
                   <div v-else class="manual-item empty">
@@ -1271,7 +1271,7 @@
     </el-dialog>
 
     <!-- 操作手册在线预览弹窗 -->
-    <el-dialog v-model="manualPreviewVisible" title="操作手册预览" width="80%" top="4vh">
+    <el-dialog v-model="manualPreviewVisible" title="操作手册预览" width="80%" top="4vh" @closed="releaseManualPreview">
       <div v-loading="manualPreviewLoading" class="manual-preview-box">
         <iframe v-if="manualPreviewUrl" :src="manualPreviewUrl" class="manual-preview-frame"></iframe>
         <div v-else class="empty-hint">该格式暂不支持在线预览，请下载后查看</div>
@@ -1546,6 +1546,7 @@ import {
 } from '@/api/vendorDev.js'
 // 系统别名映射的只读数据源（维护入口在人员中台）
 import { getOrgMappingIndex, getTargetSystemOptions } from '@/api/basicData.js'
+import { downloadWithAuth, fetchBlobUrl, revokeBlobUrl } from '@/utils/download.js'
 import { domainStatuses, getStatusMeta } from '@/constants/statusConfig.js'
 import {
   getActiveOptimizations, getActiveOptimizationStats, createActiveOptimization, updateActiveOptimization, deleteActiveOptimization,
@@ -2388,24 +2389,41 @@ function openManualPreview(sys) {
   const m = sys?.manual
   if (!m?.id) return
   manualPreviewSys.value = sys
-  manualPreviewLoading.value = true
   manualPreviewVisible.value = true
-  manualPreviewUrl.value = ''
-  // 预取预览 HTML（docx 转 html 耗时，先加载提示）
-  setTimeout(() => {
-    manualPreviewUrl.value = previewManualUrl(current.value.req_id, m.id)
-    manualPreviewLoading.value = false
+  releaseManualPreview()
+  manualPreviewLoading.value = true
+  // 预取预览 HTML（docx 转 html 耗时，先加载提示）。iframe 带不上 JWT，
+  // 必须先用 fetch 取回再转 blob URL，否则预览也是 401
+  setTimeout(async () => {
+    try {
+      manualPreviewUrl.value = await fetchBlobUrl(
+        previewManualUrl(current.value.req_id, m.id), 'text/html')
+    } catch (e) {
+      ElMessage.error('预览失败：' + (e?.message || e))
+    } finally {
+      manualPreviewLoading.value = false
+    }
   }, 50)
 }
-function downloadManual(sys) {
+function releaseManualPreview() {
+  revokeBlobUrl(manualPreviewUrl.value)
+  manualPreviewUrl.value = ''
+}
+async function downloadManual(sys) {
   const m = sys?.manual
   if (!m?.id) return
-  const a = document.createElement('a')
-  a.href = downloadManualUrl(current.value.req_id, m.id)
-  a.download = m.file_name
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  try {
+    await downloadWithAuth(downloadManualUrl(current.value.req_id, m.id), m.file_name || '')
+  } catch (e) {
+    ElMessage.error('下载失败：' + (e?.message || e))
+  }
+}
+async function downloadIfaceDoc(reqId, doc) {
+  try {
+    await downloadWithAuth(downloadInterfaceDocUrl(reqId, doc.id), doc.file_name || '')
+  } catch (e) {
+    ElMessage.error('下载失败：' + (e?.message || e))
+  }
 }
 function fmtSize(v) {
   if (!v) return ''
@@ -2694,9 +2712,13 @@ usePasteUpload({
     ElMessage.success(`已粘贴上传 ${files.length} 个文件`)
   },
 })
-function downloadAttachment(f) {
+async function downloadAttachment(f) {
   const url = `/api/v1/requirements/${current.value.req_id}/delivery/attachments/download?filename=${encodeURIComponent(f.name)}`
-  window.open(url, '_blank')
+  try {
+    await downloadWithAuth(url, f.name || '')
+  } catch (e) {
+    ElMessage.error('下载失败：' + (e?.message || e))
+  }
 }
 function openGen(g) {
   if (g.url) window.open(g.url)

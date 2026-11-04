@@ -544,3 +544,63 @@ def test_operation_issue_update_status_guard(client: TestClient, db):
     resp = client.put(f"/api/v1/operation/issues/{issue.id}", json={"status": "processing"})
     assert resp.status_code == 200
     assert resp.json()["data"]["status"] == "processing"
+
+
+# ── 9. 非缺陷簇与台账自愈（2026-11-04 老大拍板）────────────────
+def _cluster(db, no, **kw):
+    from db.models import PmwbComplaintRootcause
+    defaults = dict(rootcause_no=no, title="测试簇", status="open", ticket_cnt=0, is_defect=1)
+    defaults.update(kw)
+    return _add(db, PmwbComplaintRootcause(**defaults))
+
+
+def test_scan_skips_non_defect_cluster(db):
+    """咨询/非缺陷簇（is_defect=0）不进台账：即使当周量级达批量线也不建候选。"""
+    _seed_dict(db)
+    _cluster(db, "RC-9001", fault_stage="使用咨询", is_defect=0)
+    for i in range(6):
+        _ticket(db, f"ND-{i}", day=26 + i % 3, rootcause_no="RC-9001")
+    r = P.scan_candidates(db, week="2026-W44")
+    assert r["created"] == []
+    assert db.query(PmwbComplaintProblem).filter_by(rootcause_no="RC-9001").count() == 0
+
+
+def test_scan_still_catches_defect_cluster(db):
+    """对照组：同量级的缺陷簇正常入候选（确认上面的跳过是按标记而非量级）。"""
+    _seed_dict(db)
+    _cluster(db, "RC-9002", fault_stage="订单开通", is_defect=1)
+    for i in range(6):
+        _ticket(db, f"D-{i}", day=26 + i % 3, rootcause_no="RC-9002")
+    r = P.scan_candidates(db, week="2026-W44")
+    assert len(r["created"]) == 1
+
+
+def test_dedupe_inflight_merges_same_cluster(db):
+    """同一根因簇只留一条在办问题：多余项置 merged 并指向保留项，措施关联跟随迁移。"""
+    _seed_dict(db)
+    _cluster(db, "RC-9100", is_defect=1)
+    keep = _candidate(db, no="CPB-2026W44-01", rc="RC-9100", status="open", owner="A")
+    dup = _candidate(db, no="CPB-2026W44-02", rc="RC-9100", status="open")
+    act = _action(db, no="CACT-2026W44-09")
+    P.link_action(db, dup.problem_no, act.action_no)
+    _ticket(db, "M-1", rootcause_no="RC-9100")
+
+    out = P.dedupe_inflight(db)
+    db.expire_all()
+    assert {"from": dup.problem_no, "to": keep.problem_no, "rc": "RC-9100"} in out["merged"]
+    row = db.query(PmwbComplaintProblem).filter_by(problem_no=dup.problem_no).one()
+    assert row.status == "merged" and row.merged_into == keep.problem_no
+    # 措施关联迁到保留项
+    links = P.linked_actions(db, keep.problem_no)
+    assert any(x["action_no"] == act.action_no for x in links)
+
+
+def test_dedupe_inflight_ignores_non_defect_problem(db):
+    """已入账的非缺陷问题自动出账（ignored），不再占台账。"""
+    _seed_dict(db)
+    _cluster(db, "RC-9200", fault_stage="使用咨询", is_defect=0)
+    p = _candidate(db, no="CPB-2026W44-03", rc="RC-9200", status="open")
+    out = P.dedupe_inflight(db)
+    db.expire_all()
+    assert p.problem_no in out["ignored"]
+    assert db.query(PmwbComplaintProblem).filter_by(problem_no=p.problem_no).one().status == "ignored"

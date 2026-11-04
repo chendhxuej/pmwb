@@ -95,13 +95,14 @@ def _cluster_titles(db: Session, rc_nos: List[str]) -> Dict[str, Dict]:
     marks = ", ".join(f":c{i}" for i in range(len(rc_nos)))
     rows = db.execute(text(
         "SELECT rootcause_no, title, description, fault_system, fault_stage, "
-        "       fault_type, own_party, fix_mode, status "
+        "       fault_type, own_party, fix_mode, status, is_defect "
         f"FROM pmwb_complaint_rootcause WHERE rootcause_no IN ({marks})"
     ), {f"c{i}": v for i, v in enumerate(rc_nos)}).fetchall()
     return {r[0]: {"title": r[1] or "", "description": r[2] or "", "fault_system": r[3] or "",
                    "fault_stage": r[4] or "", "fault_type": r[5] or "",
                    "own_party": r[6] or "", "fix_mode": r[7] or "",
-                   "status": r[8] or ""} for r in rows}
+                   "status": r[8] or "", "is_defect": int(r[9] if r[9] is not None else 1)}
+            for r in rows}
 
 
 def _problem_cluster_nos(p: Dict) -> List[str]:
@@ -175,6 +176,12 @@ def scan_candidates(db: Session, week: Optional[str] = None,
 
     for rc_no, st in stats.items():
         cnt = st["cnt"]
+        meta = titles.get(rc_no) or {}
+        # 咨询/非缺陷簇（is_defect=0）不进台账：这些是业务/操作咨询，不是系统缺陷，
+        # 混进台账会把压降空间算虚（如 109 单的「非系统缺陷-使用咨询」垃圾桶簇）。
+        # 它们仍在根因库可见、计入咨询类统计，只是不生成候选。
+        if not int(meta.get("is_defect", 1)):
+            continue
         hits: List[str] = []
         evidence: Dict = {
             "week": week, "cnt": cnt, "rootcause_no": rc_no,
@@ -355,13 +362,18 @@ def rebuild_counters(db: Session) -> Dict:
     工单重建的路径，否则没有唯一真相源。
 
     重建口径（与 recompute 的周轨迹一致）：
-      total_cnt   = 首见周起各周该簇单量之和
+      total_cnt   = 该问题覆盖簇的**全部工单量**（含问题认账前的历史单）
       peak_cnt    = 各周单量最大值
       week_cnt    = 最近一次有单周的单量
       active_weeks= 有单周数
       quiet_weeks = 自最新周向前连续零单周数
-      recur_cnt   = 首见周起 is_recur 单量之和
+      recur_cnt   = is_recur 单量之和
       recur_weeks = 自最新周向前连续（有复发标记）周数
+
+    为什么统计全周期而不是「首见周之后」：历史工单是补导进来的，问题实体的
+    first_week 是「认账周」，晚于该簇真实首单周。若按 first_week 截断，total_cnt
+    会显著小于工单真值（实测 RC-0001 只有 26/63、RC-0080 只有 12/83），
+    报表里的「同类问题累计单量」就失真了。压降有效性另有 go_live 基线口径，不看这里。
     """
     rows = db.execute(text(
         "SELECT rootcause_no, week, COUNT(*) c, "
@@ -385,10 +397,9 @@ def rebuild_counters(db: Session) -> Dict:
     rows_of_week: Dict[int, list] = {}
     for p in ps:
         nos = _problem_cluster_nos(dict(p))
-        fw = p["first_week"] or ""
         rows_of_week[p["id"]] = [
             (w, sum(cnt.get((n, w), 0) for n in nos), sum(rec.get((n, w), 0) for n in nos))
-            for w in weeks if w >= fw
+            for w in weeks
         ]
     now_ts = datetime.now()
     updated = 0
@@ -474,6 +485,99 @@ def recompute(db: Session, week: Optional[str] = None) -> Dict:
     return {"week": week, "updated": updated}
 
 
+# ── 台账自愈：同簇重复问题收敛 / 非缺陷问题出账 ────────────────
+_STATUS_RANK = {"resolving": 3, "open": 2, "candidate": 1}
+
+
+def dedupe_inflight(db: Session, dry_run: bool = False) -> Dict:
+    """同一根因簇只允许一条在办/候选问题（应用层不变量的存量修复）。
+
+    为什么需要：多次 after_import 叠加历史数据导入，会让同一簇重复建问题——
+    实测 RC-0080 挂 3 条、RC-0001 挂 2 条、RC-0618 挂 2 条，台账看着「问题很多很散」，
+    已知问题率也被重复计入。本函数按主簇（rootcause_no）归组，保留状态最靠后/
+    单量最大的一条，其余置 merged 并迁移措施关联；簇已标记 is_defect=0 的问题
+    置 ignored（咨询类不进台账）。
+
+    dry_run=True 只算不写，便于回归与人工预览。
+    """
+    rows = db.execute(text(
+        "SELECT problem_no, rootcause_no, status, total_cnt, id "
+        "FROM pmwb_complaint_problem WHERE status IN ('candidate', 'open', 'resolving') "
+        "ORDER BY id"
+    )).mappings().all()
+
+    groups: Dict[str, List[Dict]] = {}
+    for r in rows:
+        rc = str(r["rootcause_no"] or "").strip()
+        if not rc:
+            continue
+        groups.setdefault(rc, []).append(dict(r))
+
+    titles = _cluster_titles(db, list(groups.keys()))
+    merged: List[Dict] = []
+    ignored: List[str] = []
+
+    for rc_no, items in groups.items():
+        if not int((titles.get(rc_no) or {}).get("is_defect", 1)):
+            # 咨询/非缺陷：整组出账（不进台账，但仍留在根因库）
+            for it in items:
+                ignored.append(it["problem_no"])
+                if dry_run:
+                    continue
+                # 注意：字符串拼接不能用 `||`（MySQL 里是逻辑或）也不能用 CONCAT（SQLite 无），
+                # 统一在 Python 侧拼好再入库
+                old_note = db.execute(text(
+                    "SELECT note FROM pmwb_complaint_problem WHERE id = :id"), {"id": it["id"]}
+                ).scalar() or ""
+                marker = "[系统] 所属根因簇为咨询/非缺陷类，不进问题台账"
+                new_note = old_note if marker in old_note else (old_note + "\n" + marker if old_note else marker)
+                db.execute(text(
+                    "UPDATE pmwb_complaint_problem SET status = 'ignored', note = :nt, "
+                    "updated_at = :ts WHERE id = :id"
+                ), {"nt": new_note, "ts": datetime.now(), "id": it["id"]})
+            continue
+        if len(items) < 2:
+            continue
+        # 保留规则必须与 _problem_cluster_index 完全一致（同簇同状态取 id 最小），
+        # 否则 assign_tickets 会把工单指回被合并的那条，去重等于白做
+        items.sort(key=lambda x: (_STATUS_RANK.get(x["status"], 9) * -1, int(x["id"])))
+        keep, others = items[0], items[1:]
+        for it in others:
+            merged.append({"from": it["problem_no"], "to": keep["problem_no"], "rc": rc_no})
+            if dry_run:
+                continue
+            # 措施关联迁移（冲突则丢弃重复行，避免 uk_cpp_linked 报错）
+            for link in db.execute(text(
+                "SELECT id, action_no FROM pmwb_complaint_problem_action WHERE problem_no = :p"
+            ), {"p": it["problem_no"]}).mappings().all():
+                dup = db.execute(text(
+                    "SELECT id FROM pmwb_complaint_problem_action "
+                    "WHERE problem_no = :p AND action_no = :a"
+                ), {"p": keep["problem_no"], "a": link["action_no"]}).first()
+                if dup:
+                    db.execute(text("DELETE FROM pmwb_complaint_problem_action WHERE id = :id"),
+                               {"id": link["id"]})
+                else:
+                    db.execute(text(
+                        "UPDATE pmwb_complaint_problem_action SET problem_no = :p WHERE id = :id"
+                    ), {"p": keep["problem_no"], "id": link["id"]})
+            db.execute(text(
+                "UPDATE pmwb_complaint_ticket SET problem_no = :keep WHERE problem_no = :old"
+            ), {"keep": keep["problem_no"], "old": it["problem_no"]})
+            db.execute(text(
+                "UPDATE pmwb_complaint_problem SET status = 'merged', merged_into = :keep, "
+                "updated_at = :ts WHERE id = :id"
+            ), {"keep": keep["problem_no"], "ts": datetime.now(), "id": it["id"]})
+
+    if not dry_run:
+        # 保留项单量按簇重算，避免合并后计数停在旧值
+        refresh = rebuild_counters(db)
+        db.commit()
+    else:
+        refresh = {"updated": 0}
+    return {"merged": merged, "ignored": ignored, "counters": refresh.get("updated", 0)}
+
+
 def after_import(db: Session, weeks: Optional[List[str]] = None) -> Dict:
     """每周导入后的固定后处理：扫描候选 → 回写归因 → 重算周轨迹 → 纠正派生计数。
 
@@ -491,6 +595,9 @@ def after_import(db: Session, weeks: Optional[List[str]] = None) -> Dict:
         summary["updated"] += scan["updated"]
         summary["reopen"] += scan["reopen"]
         summary["assigned"] += assign["assigned"]
+    summary["dedupe"] = {
+        "merged": len(dedupe_inflight(db)["merged"]),
+    }
     summary["rebuilt"] = rebuild_counters(db)["updated"]
     return summary
 

@@ -2069,6 +2069,8 @@ class PmwbComplaintRootcause(Base):
                     comment="candidate=待确认 / open=已入账 / merged=已合并 / disabled=停用")
     source = Column(String(16), default="ai", comment="来源：ai=AI 归纳 / manual=人工新建")
     merged_to = Column(String(64), comment="被合并到的主簇 rootcause_no（status=merged 时有效）")
+    is_defect = Column(SmallInteger, nullable=False, default=1,
+                       comment="是否系统缺陷：1=是，0=咨询/非缺陷（不进问题台账）")
     ticket_cnt = Column(Integer, nullable=False, default=0, comment="当前归属单量（assign 后重算，派生值）")
     sample_tickets = Column(Text, comment="代表工单号 JSON 数组（few-shot 与人工确认用）")
     first_week = Column(String(16), comment="首见自然周")
