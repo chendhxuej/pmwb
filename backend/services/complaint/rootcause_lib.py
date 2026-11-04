@@ -22,6 +22,7 @@ import json
 import logging
 import re
 from collections import Counter
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -127,12 +128,12 @@ def _create_cluster(db: Session, title: str, description: str,
         " status, source, ticket_cnt, sample_tickets, first_week, last_week, "
         " created_at, updated_at) "
         "VALUES (:no, :title, :desc, :sys, :stage, :ftype, 'candidate', 'ai', 0, :samples, "
-        " :wk, :wk, NOW(), NOW())"
+        " :wk, :wk, :ts, :ts)"
     ), {"no": no, "title": title, "desc": (description or "").strip()[:500],
         "sys": cnt[0][0] if cnt else "", "stage": stage[0][0] if stage else "",
         "ftype": ftype[0][0] if ftype else "",
         "samples": json.dumps([t["ticket_no"] for t in tickets[:8]], ensure_ascii=False),
-        "wk": first.get("week") or ""})
+        "wk": first.get("week") or "", "ts": datetime.now()})
     return no
 
 
@@ -207,8 +208,8 @@ def auto_merge_similar(db: Session, limit_groups: int = 200) -> Dict[str, Any]:
         new_title = str(g.get("new_title") or "").strip()
         if new_title:
             db.execute(text(
-                "UPDATE pmwb_complaint_rootcause SET title = :t, updated_at = NOW() "
-                "WHERE rootcause_no = :no"), {"t": new_title[:200], "no": keep})
+                "UPDATE pmwb_complaint_rootcause SET title = :t, updated_at = :ts "
+                "WHERE rootcause_no = :no"), {"t": new_title[:200], "no": keep, "ts": datetime.now()})
         for src in (g.get("absorb") or []):
             src = str(src).strip()
             if src not in valid or src == keep:
@@ -349,14 +350,24 @@ def refresh_counts(db: Session, commit: bool = True,
     """
     db.execute(text(
         "UPDATE pmwb_complaint_rootcause SET ticket_cnt = 0, sample_tickets = '[]'"))
+    # 跨库注意：禁 SUBSTRING_INDEX/FIND_IN_SET 等 MySQL 专有函数（测试库 SQLite）。
+    # 代表单取「簇内 id 最小前 8」——按 id 升序在 Python 侧截断，不用 GROUP_CONCAT ORDER BY。
     rows = db.execute(text(
         "SELECT rootcause_no, COUNT(*), MIN(week), MAX(week), "
-        "  SUBSTRING_INDEX(GROUP_CONCAT(ticket_no ORDER BY id), ',', 8), "
         "  GROUP_CONCAT(fault_stage), GROUP_CONCAT(fault_type), "
         "  GROUP_CONCAT(own_party), GROUP_CONCAT(fix_mode) "
         "FROM pmwb_complaint_ticket WHERE rootcause_no IS NOT NULL AND rootcause_no != '' "
         "GROUP BY rootcause_no"
     )).fetchall()
+    sample_rows = db.execute(text(
+        "SELECT rootcause_no, ticket_no FROM pmwb_complaint_ticket "
+        "WHERE rootcause_no IS NOT NULL AND rootcause_no != '' ORDER BY id ASC"
+    )).fetchall()
+    samples_map: Dict[str, List[str]] = {}
+    for rc_no, tno in sample_rows:
+        lst = samples_map.setdefault(rc_no, [])
+        if len(lst) < 8:
+            lst.append(tno)
 
     def _mode(raw: Optional[str]) -> str:
         if not raw:
@@ -364,13 +375,13 @@ def refresh_counts(db: Session, commit: bool = True,
         vals = [v for v in str(raw).split(",") if v]
         return Counter(vals).most_common(1)[0][0] if vals else ""
 
-    for rc_no, cnt, fw, lw, samples, stages, ftypes, parties, fixes in rows:
+    for rc_no, cnt, fw, lw, stages, ftypes, parties, fixes in rows:
         sets = ["ticket_cnt = :c", "first_week = :fw", "last_week = :lw",
-                "sample_tickets = :s", "updated_at = NOW()"]
+                "sample_tickets = :s", "updated_at = :ts"]
         params: Dict[str, Any] = {
             "c": int(cnt), "fw": fw or "", "lw": lw or "",
-            "s": json.dumps((samples or "").split(",") if samples else [], ensure_ascii=False),
-            "no": rc_no}
+            "s": json.dumps(samples_map.get(rc_no) or [], ensure_ascii=False),
+            "no": rc_no, "ts": datetime.now()}
         if update_labels:
             sets += ["fault_stage = :stage", "fault_type = :ftype",
                      "own_party = :party", "fix_mode = :fix"]
@@ -395,8 +406,8 @@ def confirm(db: Session, rc_no: str, title: Optional[str] = None,
     ), {"no": rc_no}).first()
     if not row:
         return {"ok": False, "message": "根因簇不存在"}
-    sets = ["status = 'open'", "updated_at = NOW()"]
-    params: Dict[str, Any] = {"no": rc_no}
+    sets = ["status = 'open'", "updated_at = :ts"]
+    params: Dict[str, Any] = {"no": rc_no, "ts": datetime.now()}
     if title and title.strip():
         sets.append("title = :title")
         params["title"] = title.strip()[:200]
@@ -419,8 +430,72 @@ def confirm(db: Session, rc_no: str, title: Optional[str] = None,
     return {"ok": True, "rootcause_no": rc_no}
 
 
+def resolve_merged_no(db: Session, rc_no: str) -> str:
+    """沿 merged_to 链追到终簇（消重后旧簇号一律解析到存活簇，防悬空锚点）。"""
+    seen = set()
+    cur = (rc_no or "").strip()
+    while cur and cur not in seen:
+        seen.add(cur)
+        nxt = db.execute(text(
+            "SELECT merged_to FROM pmwb_complaint_rootcause WHERE rootcause_no = :n"
+        ), {"n": cur}).scalar()
+        if not nxt:
+            break
+        cur = nxt
+    return cur or (rc_no or "")
+
+
+def sync_entity_anchors(db: Session) -> Dict[str, int]:
+    """问题台账/措施的簇锚跟随消重迁移（merge 收尾；也可单独跑一次修复）。
+
+    为什么必须：auto_merge_similar 会把同义簇并进主簇（源簇置 merged、工单指针
+    迁走），但问题台账 rootcause_no/rootcause_nos 与措施 rootcause_nos 若仍锚着
+    源簇，已知判定（known.py 走「工单簇 → 在办问题簇」匹配）会全量失配——
+    2026-11-04 实测：CPB-2026W42-01 锚 RC-0060 被并入 RC-0059 后已知率掉到 0。
+    问题/措施表都在百级以内，直接全量读出在 Python 侧做列表替换（跨库安全，
+    禁 FIND_IN_SET）。
+    """
+    remapped_problems = remapped_actions = 0
+    problems = db.execute(text(
+        "SELECT id, rootcause_no, rootcause_nos FROM pmwb_complaint_problem"
+    )).fetchall()
+    for pid, rc, rcs in problems:
+        new_rc = resolve_merged_no(db, rc) if rc else rc
+        lst = [x.strip() for x in (rcs or "").split(",") if x.strip()]
+        new_lst = [resolve_merged_no(db, x) for x in lst]
+        # 去重保序；主簇若在列表里保持首位
+        merged_list = list(dict.fromkeys(
+            ([new_rc] if new_rc else []) + new_lst))
+        new_nos = ",".join(merged_list) if lst or new_rc else ""
+        if new_rc != (rc or "") or new_nos != (rcs or ""):
+            db.execute(text(
+                "UPDATE pmwb_complaint_problem SET rootcause_no = :rc, "
+                "rootcause_nos = :ns WHERE id = :i"
+            ), {"rc": new_rc, "ns": new_nos, "i": pid})
+            remapped_problems += 1
+
+    actions = db.execute(text(
+        "SELECT id, rootcause_nos FROM pmwb_complaint_action "
+        "WHERE rootcause_nos IS NOT NULL AND rootcause_nos <> ''"
+    )).fetchall()
+    for aid, rcs in actions:
+        lst = [x.strip() for x in (rcs or "").split(",") if x.strip()]
+        new_lst = [resolve_merged_no(db, x) for x in lst]
+        new_nos = ",".join(dict.fromkeys(new_lst))
+        if new_nos != (rcs or ""):
+            db.execute(text(
+                "UPDATE pmwb_complaint_action SET rootcause_nos = :ns WHERE id = :i"
+            ), {"ns": new_nos, "i": aid})
+            remapped_actions += 1
+    return {"problems": remapped_problems, "actions": remapped_actions}
+
+
 def merge(db: Session, src_no: str, dst_no: str) -> Dict[str, Any]:
-    """同义簇合并：工单指针统一改指主簇，源簇置 merged（不删历史）。"""
+    """同义簇合并：工单指针统一改指主簇，源簇置 merged（不删历史）。
+
+    收尾必须同步迁移问题台账/措施的簇锚（sync_entity_anchors），否则
+    在办问题锚着已消亡簇会导致已知判定全量失配。
+    """
     if src_no == dst_no:
         return {"ok": False, "message": "不能与自身合并"}
     dst = db.execute(text(
@@ -433,8 +508,9 @@ def merge(db: Session, src_no: str, dst_no: str) -> Dict[str, Any]:
     ), {"dst": dst_no, "src": src_no}).rowcount
     db.execute(text(
         "UPDATE pmwb_complaint_rootcause SET status = 'merged', merged_to = :dst, "
-        "ticket_cnt = 0, updated_at = NOW() WHERE rootcause_no = :src"
-    ), {"dst": dst_no, "src": src_no})
+        "ticket_cnt = 0, updated_at = :ts WHERE rootcause_no = :src"
+    ), {"dst": dst_no, "src": src_no, "ts": datetime.now()})
+    sync_entity_anchors(db)
     db.commit()
     refresh_counts(db)
     return {"ok": True, "moved": int(moved or 0), "merged_into": dst_no}
@@ -444,9 +520,9 @@ def disable(db: Session, rc_no: str, reopen: bool = False) -> Dict[str, Any]:
     """停用/恢复簇（停用后不再参与匹配，存量工单指针保留）。"""
     status = RC.RC_LIB_OPEN if reopen else RC.RC_LIB_DISABLED
     db.execute(text(
-        "UPDATE pmwb_complaint_rootcause SET status = :st, updated_at = NOW() "
+        "UPDATE pmwb_complaint_rootcause SET status = :st, updated_at = :ts "
         "WHERE rootcause_no = :no"
-    ), {"st": status, "no": rc_no})
+    ), {"st": status, "no": rc_no, "ts": datetime.now()})
     db.commit()
     return {"ok": True, "status": status}
 

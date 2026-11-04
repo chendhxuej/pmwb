@@ -2119,6 +2119,7 @@ class PmwbComplaintAction(Base):
         comment="状态：planned/in_progress/verifying/effective/ineffective/cancelled（见 status_registry）",
     )
     note = Column(Text, comment="备注/未达标原因")
+    rootcause_nos = Column(String(500), comment="绑定的根因簇号列表（逗号分隔，簇口径绑定）")
     created_at = Column(DateTime, nullable=False, default=now_cn, comment="创建时间")
     updated_at = Column(DateTime, nullable=False, default=now_cn, onupdate=now_cn, comment="更新时间")
 

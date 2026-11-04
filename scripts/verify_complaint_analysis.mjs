@@ -214,7 +214,11 @@ async function main() {
       if (cov && String(cov.num).includes('%')) ok('根因分析覆盖率出数', cov.num)
       else bad('根因覆盖率未出数', JSON.stringify(cov || null))
 
-      dash.knownTableRows > 0 ? ok('已知问题表有数据', `rows=${dash.knownTableRows}`) : bad('已知问题表为空')
+      // 已知问题表允许为空：本周无已知单是真实业务状态（如 W45 在办簇 0 单），
+      // 只要求页面给出明确空态文案而非渲染缺失。
+      if (dash.knownTableRows > 0) ok('已知问题表有数据', `rows=${dash.knownTableRows}`)
+      else if (dash.bodyText.includes('本周没有一单能被在办问题解释')) ok('已知问题表空态合法（本周已知 0 单）')
+      else bad('已知问题表为空且无空态文案')
       dash.newTableRows > 0 ? ok('新增问题表有数据', `rows=${dash.newTableRows}`) : bad('新增问题表为空')
       dash.clusterTableRows > 0 ? ok('根因簇表有数据', `rows=${dash.clusterTableRows}`) : bad('根因簇表为空')
       dash.guideTableRows > 0 ? ok('压降指引表有数据', `rows=${dash.guideTableRows}`) : bad('压降指引表为空')
