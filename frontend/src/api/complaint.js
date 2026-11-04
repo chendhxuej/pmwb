@@ -88,6 +88,10 @@ export const complaintApi = {
     listProblems(params) {
     return request.get('/complaint/problems', { params })
   },
+  // 可选观察周列表（台账按周查看）
+  listWeeks(n = 20) {
+    return request.get('/complaint/weeks', { params: { n } })
+  },
   listCandidates() {
     return request.get('/complaint/problems/candidates')
   },

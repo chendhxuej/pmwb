@@ -285,13 +285,38 @@ async function main() {
         ? [...firstTbl.querySelectorAll('.el-table__header th')].map(th => th.innerText.trim())
         : []
       const statusTags = [...root.querySelectorAll('.el-table__body .el-tag')].map(t => t.innerText.trim())
-      return { tabs, tableCount: tables.length, rowCount: rows.length, rowText, headers, statusTags }
+      // 增量列取值（用于验证默认倒序）
+      const di = headers.findIndex(h => h === '增量')
+      const deltaVals = di >= 0
+        ? rows.map(tr => parseInt((tr.querySelectorAll('td')[di]?.innerText || '0').replace(/[^0-9]/g, ''), 10) || 0)
+        : []
+      const weekSelCnt = root.querySelectorAll('.tab-bar .el-select').length
+      const moreCnt = root.querySelectorAll('.el-table__body .more-btn').length
+      const hasDefaultSort = !!firstTbl?.querySelector('.descending, .ascending')
+      return { tabs, tableCount: tables.length, rowCount: rows.length, rowText, headers, statusTags,
+               deltaVals, weekSelCnt, moreCnt, hasDefaultSort }
     })()`)
     if (pb) {
       pb.tabs.length >= 2 ? ok('台账页签 ≥2（在办 / 待确认候选）', pb.tabs.join(' | ')) : bad('台账页签缺失', pb.tabs.join('|'))
       pb.tabs.some(t => t.includes('在办问题')) ? ok('页签一：在办问题（已复核未闭环）') : bad('缺在办页签')
       pb.tabs.some(t => t.includes('待确认候选')) ? ok('页签二：待确认候选') : bad('缺候选页签')
       pb.headers.some(h => h.includes('根因簇')) ? ok('台账表含「根因簇」列') : bad('台账表缺根因簇列')
+      // 2026-11-04 口径简化：只留增量/累计两列，「在办周」「当周/累计」合并列必须去掉
+      pb.headers.some(h => h === '增量') && pb.headers.some(h => h === '累计')
+        ? ok('台账表拆分为「增量」「累计」两列')
+        : bad('台账表缺增量/累计列', pb.headers.join('|'))
+      !pb.headers.some(h => h.includes('在办周')) ? ok('已移除「在办周」列') : bad('仍保留在办周列')
+      !pb.headers.some(h => h.includes('当周')) ? ok('已移除「当周/累计」合并列') : bad('仍保留当周合并列')
+      // 周选择器 + 默认增量倒序
+      pb.weekSelCnt >= 2 ? ok('台账有「观察周」选择器') : bad('台账缺观察周选择器')
+      pb.hasDefaultSort ? ok('台账表头默认排序标记在位（增量降序）') : bad('表头无默认排序标记')
+      const deltas = pb.deltaVals || []
+      const desc = deltas.every((v, i) => i === 0 || deltas[i - 1] >= v)
+      deltas.length
+        ? (desc ? ok('默认按增量倒序', deltas.join(',')) : bad('增量未倒序', deltas.join(',')))
+        : bad('增量列为空')
+      // 操作区：详情 + 建工单 + 更多下拉（不再铺一堆流转按钮）
+      pb.moreCnt > 0 ? ok('操作区收敛为「详情/建工单/更多」', `dropdown=${pb.moreCnt}`) : bad('操作区未收敛')
       const candMixed = pb.rowText.some(t => t.includes('candidate'))
       !candMixed ? ok('台账主列表未混入候选问题') : bad('台账主列表混入候选')
       pb.rowCount >= 0 ? ok('台账主列表可渲染', `rows=${pb.rowCount}`) : bad('台账主列表异常')

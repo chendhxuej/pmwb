@@ -50,54 +50,63 @@
       <el-tabs v-model="activeTab" class="ledger-tabs">
         <el-tab-pane :label="`在办问题（已复核未闭环 · ${inflightRows.length}）`" name="open">
           <div class="tab-bar">
-            <el-select v-model="statusFilter" clearable size="small" style="width: 160px" placeholder="全部在办状态">
+            <el-select v-model="statusFilter" clearable size="small" style="width: 150px" placeholder="全部在办状态">
               <el-option v-for="s in inflightStatusDefs" :key="s.value" :label="s.label" :value="s.value" />
             </el-select>
-            <span class="tab-hint">台账只放已确认入账的问题；候选在右侧页签，确认后才进这里</span>
+            <el-select v-model="statWeek" size="small" style="width: 148px" @change="load"
+              placeholder="观察周">
+              <el-option v-for="w in weekOptions" :key="w" :label="w === latestWeek ? `${w}（最新）` : w" :value="w" />
+            </el-select>
+            <span class="tab-hint">
+              「增量」= 所选周该问题新增投诉单量；「累计」= 截至所选周的单量总和。点表头可切换增量/累计排序
+            </span>
           </div>
-          <el-table ref="pmTbl2" v-loading="loading" :data="filteredRows" size="default" border stripe>
-            <el-table-column prop="problem_no" label="问题编号" width="150">
+          <el-table ref="pmTbl2" v-loading="loading" :data="filteredRows" size="default" border stripe
+            :default-sort="{ prop: 'week_delta', order: 'descending' }" @sort-change="onSortChange">
+            <el-table-column prop="problem_no" label="问题编号" width="146">
               <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
             </el-table-column>
-            <el-table-column prop="title" label="问题（根因摘要）" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="rootcause_no" label="根因簇" width="110">
+            <el-table-column prop="title" label="问题（根因摘要）" min-width="230" show-overflow-tooltip />
+            <el-table-column prop="rootcause_no" label="根因簇" width="106">
               <template #default="{ row }">{{ row.rootcause_no || '—' }}</template>
             </el-table-column>
-            <el-table-column prop="category_l1" label="一级性质" width="96" />
-            <el-table-column label="状态" width="96" align="center">
+            <el-table-column label="状态" width="92" align="center">
               <template #default="{ row }">
                 <el-tag :type="statusTone(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="first_week" label="首见周" width="92" />
-            <el-table-column prop="active_weeks" label="在办周" width="78" align="center">
+            <el-table-column prop="week_delta" label="增量" width="104" align="center" sortable="custom">
               <template #default="{ row }">
-                <span :class="{ 'long-run': row.active_weeks >= 12 && isOpen(row) }">{{ row.active_weeks }}</span>
+                <span class="delta-num" :class="{ hot: row.week_delta >= 3 }">{{ row.week_delta ?? 0 }}</span>
+                <span class="col-unit">单</span>
               </template>
             </el-table-column>
-            <el-table-column label="当周/累计" width="92" align="center">
-              <template #default="{ row }">{{ row.week_cnt }} / {{ row.total_cnt }}</template>
-            </el-table-column>
-            <el-table-column prop="recur_cnt" label="累计复发" width="84" align="center">
+            <el-table-column prop="cum_total" label="累计" width="104" align="center" sortable="custom">
               <template #default="{ row }">
-                <span :class="{ recur: row.recur_cnt > 0 }">{{ row.recur_cnt }}</span>
+                <span class="cum-num">{{ row.cum_total ?? 0 }}</span><span class="col-unit">单</span>
               </template>
             </el-table-column>
-            <el-table-column label="措施" width="112" align="center">
-              <template #default="{ row }">{{ row.effective_cnt ?? 0 }} / {{ row.action_cnt }}</template>
-            </el-table-column>
-            <el-table-column prop="owner" label="责任人" width="96" show-overflow-tooltip />
-            <el-table-column label="操作" width="200" fixed="right" align="center">
+            <el-table-column label="措施" width="96" align="center">
               <template #default="{ row }">
-                <el-button size="small" text type="primary" @click="openDetail(row)">详情</el-button>
-                <el-button
-                  v-for="t in nextTargets(row.status)"
-                  :key="t.value"
-                  size="small"
-                  :type="t.value === 'closed' ? 'success' : (t.value === 'ignored' ? 'danger' : 'default')"
-                  text
-                  @click="doTransition(row, t)"
-                >{{ t.label }}</el-button>
+                <span :class="{ 'no-action': !row.action_cnt }">{{ row.effective_cnt ?? 0 }} / {{ row.action_cnt }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="owner" label="责任人" width="92" show-overflow-tooltip />
+            <el-table-column label="操作" width="150" fixed="right" align="center">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" text @click="openDetail(row)">详情</el-button>
+                <el-button size="small" type="primary" text @click="openIssueForRow(row)">建工单</el-button>
+                <el-dropdown v-if="nextTargets(row.status).length" trigger="click"
+                  @command="(cmd) => doTransition(row, cmd)">
+                  <el-button size="small" text class="more-btn">更多<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item v-for="t in nextTargets(row.status)" :key="t.value" :command="t">
+                        {{ t.label }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </template>
             </el-table-column>
           </el-table>
@@ -392,7 +401,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, Plus, Promotion } from '@element-plus/icons-vue'
+import { MagicStick, Plus, Promotion, ArrowDown } from '@element-plus/icons-vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import ChartLine from '@/components/Charts/ChartLine.vue'
 import TicketDrillDrawer from './components/TicketDrillDrawer.vue'
@@ -482,12 +491,37 @@ const subTitle = computed(() => {
 const candidates = computed(() => rows.value.filter(r => r.status === 'candidate'))
 const inflightRows = computed(() => rows.value.filter(r => ['open', 'resolving'].includes(r.status)))
 const inflightStatusDefs = computed(() => statusDefs.value.filter(s => ['open', 'resolving'].includes(s.value)))
+
+// ── 观察周与排序（2026-11-04：按指定周看问题表现，默认增量倒序） ──
+const statWeek = ref('')
+const latestWeek = ref('')
+const weekOptions = ref([])
+const sortState = ref({ prop: 'week_delta', order: 'descending' })
+
+function onSortChange({ prop, order }) {
+  // 只允许增量/累计排序；取消排序回默认（增量倒序）
+  sortState.value = order && ['week_delta', 'cum_total'].includes(prop)
+    ? { prop, order }
+    : { prop: 'week_delta', order: 'descending' }
+}
+
 // 台账主列表**只展示在办**（已复核、未闭环）——候选走页签，不混在台账里
-const filteredRows = computed(() =>
-  statusFilter.value
-    ? inflightRows.value.filter(r => r.status === statusFilter.value)
+const filteredRows = computed(() => {
+  let r = statusFilter.value
+    ? inflightRows.value.filter(x => x.status === statusFilter.value)
     : inflightRows.value
-)
+  const { prop, order } = sortState.value
+  if (order) {
+    const dir = order === 'descending' ? -1 : 1
+    // 主键相同再看另一维度，保证排序稳定可解释
+    const alt = prop === 'week_delta' ? 'cum_total' : 'week_delta'
+    r = [...r].sort((a, b) => {
+      const d = ((a[prop] || 0) - (b[prop] || 0)) * dir
+      return d !== 0 ? d : ((a[alt] || 0) - (b[alt] || 0)) * dir
+    })
+  }
+  return r
+})
 
 const kpi = computed(() => ({
   candidate: candidates.value.length,
@@ -510,7 +544,6 @@ const linkableActions = computed(() =>
   allActions.value.filter(a => !['cancelled'].includes(a.status))
 )
 
-function isOpen(row) { return ['open', 'resolving'].includes(row.status) }
 function statusLabel(v) { return statusMap.value[v]?.label || v }
 function statusTone(v) {
   const t = statusMap.value[v]?.tone || 'info'
@@ -544,12 +577,25 @@ function evidenceBrief(v) {
   } catch (e) { return '—' }
 }
 
+async function loadWeeks() {
+  try {
+    const r = await complaintApi.listWeeks(20)
+    weekOptions.value = r?.weeks || []
+    latestWeek.value = r?.latest || (weekOptions.value[0] || '')
+    if (!statWeek.value) statWeek.value = latestWeek.value
+  } catch (e) { weekOptions.value = [] }
+}
+
 async function load() {
   loading.value = true
   try {
+    if (!weekOptions.value.length) await loadWeeks()
     // 分两次拉（在办 / 候选）：单次 200 上限，混拉会被分页截断丢候选
     const [openData, candData] = await Promise.all([
-      complaintApi.listProblems({ page_size: 200, status: 'open,resolving' }),
+      complaintApi.listProblems({
+        page_size: 200, status: 'open,resolving',
+        stat_week: statWeek.value || undefined, sort: 'delta_desc',
+      }),
       complaintApi.listProblems({ page_size: 200, status: 'candidate' }),
     ])
     rows.value = [...(openData?.items || []), ...(candData?.items || [])]
@@ -637,6 +683,14 @@ async function doIgnore(row) {
     ElMessage.success('已忽略')
     load()
   } catch (e) { /* request 已提示 */ }
+}
+
+// 列表行直接建运营工单：不打开详情抽屉，用行数据做轻量上下文（详情在提交后自动补全）
+async function openIssueForRow(row) {
+  if (!row) return
+  detail.value = { ...row }
+  trajectory.value = []
+  await openIssueDialog()
 }
 
 async function doTransition(row, t) {
@@ -882,14 +936,6 @@ onMounted(load)
   align-items: center;
   justify-content: space-between;
 }
-.long-run {
-  color: var(--danger);
-  font-weight: 600;
-}
-.recur {
-  color: var(--danger);
-  font-weight: 600;
-}
 .detail-body {
   display: flex;
   flex-direction: column;
@@ -958,5 +1004,30 @@ onMounted(load)
   font-size: 12px;
   color: var(--text-secondary);
   margin-bottom: 6px;
+}
+/* 台账增量/累计两列（2026-11-04 拆分口径） */
+.delta-num {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.delta-num.hot {
+  color: var(--danger, #c0392b);
+}
+.cum-num {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.col-unit {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+.no-action {
+  color: var(--text-muted);
+}
+.more-btn {
+  padding-left: 4px;
+  padding-right: 4px;
 }
 </style>

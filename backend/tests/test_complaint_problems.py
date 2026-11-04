@@ -604,3 +604,51 @@ def test_dedupe_inflight_ignores_non_defect_problem(db):
     db.expire_all()
     assert p.problem_no in out["ignored"]
     assert db.query(PmwbComplaintProblem).filter_by(problem_no=p.problem_no).one().status == "ignored"
+
+
+# ── 指定周口径：增量 / 累计 / 排序（2026-11-04 老大要求） ─────────────
+def test_list_problems_week_stats_and_sort(db):
+    """按指定周看问题表现：增量=该周单量，累计=截至该周总数；默认增量倒序。
+
+    反例（改造前）：列表只给 week_cnt（问题生成时的历史快照）与 total_cnt（全周期），
+    切周看数据完全不刷新，且「在办周/当周」两个字段语义重叠看不懂。
+    """
+    _seed_dict(db)
+    p1 = _candidate(db, no="CPB-WK-01", rc="RC-W1", status="open")
+    p2 = _candidate(db, no="CPB-WK-02", rc="RC-W2", status="open")
+    # W44：RC-W1 三单、RC-W2 一单；W45：RC-W1 零单、RC-W2 五单
+    _ticket(db, "WK-1", rc="RC-W1", week="2026-W44", day=26)
+    _ticket(db, "WK-2", rc="RC-W1", week="2026-W44", day=27)
+    _ticket(db, "WK-3", rc="RC-W1", week="2026-W44", day=28)
+    _ticket(db, "WK-4", rc="RC-W2", week="2026-W44", day=26)
+    for i in range(5):
+        _ticket(db, f"WK5-{i}", rc="RC-W2", week="2026-W45", day=2 + i)
+
+    # W44 视角：p1 增量 3 / 累计 3；p2 增量 1 / 累计 1 → 默认增量倒序 p1 在前
+    rows44 = P.list_problems(db, status="open", stat_week="2026-W44", sort="delta_desc")
+    by_no = {r["problem_no"]: r for r in rows44}
+    assert by_no[p1.problem_no]["week_delta"] == 3 and by_no[p1.problem_no]["cum_total"] == 3
+    assert by_no[p2.problem_no]["week_delta"] == 1
+    assert rows44[0]["problem_no"] == p1.problem_no
+    assert rows44[0]["stat_week"] == "2026-W44"
+
+    # W45 视角：p2 增量 5（累计 6），p1 增量 0（累计仍 3）→ 排序翻转
+    rows45 = P.list_problems(db, status="open", stat_week="2026-W45", sort="delta_desc")
+    by45 = {r["problem_no"]: r for r in rows45}
+    assert by45[p2.problem_no]["week_delta"] == 5 and by45[p2.problem_no]["cum_total"] == 6
+    assert by45[p1.problem_no]["week_delta"] == 0 and by45[p1.problem_no]["cum_total"] == 3
+    assert rows45[0]["problem_no"] == p2.problem_no
+
+    # 累计升序
+    asc = P.list_problems(db, status="open", stat_week="2026-W45", sort="total_asc")
+    assert asc[0]["problem_no"] == p1.problem_no
+
+
+def test_list_problems_before_first_week_is_zero(db):
+    """指定周早于问题数据起点：增量/累计都是 0（不虚报），不是历史快照值。"""
+    _seed_dict(db)
+    p = _candidate(db, no="CPB-WK-09", rc="RC-W9", status="open")
+    _ticket(db, "WK9-1", rc="RC-W9", week="2026-W45", day=2)
+    rows = P.list_problems(db, status="open", stat_week="2026-W40", sort="delta_desc")
+    r = {x["problem_no"]: x for x in rows}[p.problem_no]
+    assert r["week_delta"] == 0 and r["cum_total"] == 0

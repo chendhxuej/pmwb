@@ -694,6 +694,10 @@ def list_problems(
     status: Optional[str] = Query(
         None, description="逗号分隔；**默认只返回在办(open,resolving)**——候选见 /problems/candidates"),
     week: Optional[str] = Query(None, description="按首见/末见周过滤"),
+    stat_week: Optional[str] = Query(
+        None, description="统计观察周（默认最新周）：决定「增量/累计」两列口径，不影响筛选"),
+    sort: Optional[str] = Query(
+        None, description="排序：delta_desc(默认前端用)/delta_asc/total_desc/total_asc"),
     l1: Optional[str] = Query(None),
     l2: Optional[str] = Query(None),
     source_type: Optional[str] = Query(None),
@@ -702,14 +706,30 @@ def list_problems(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    """共性问题台账分页（含关联措施数）。"""
+    """共性问题台账分页（含关联措施数、指定周增量与截至该周累计）。"""
     items = complaint_problems.list_problems(
         db, status=status if status is not None else "open,resolving",
         week=week or "", l1=l1 or "", l2=l2 or "",
         source_type=source_type or "", keyword=keyword or "", owner=owner or "",
         limit=page_size, offset=(page - 1) * page_size,
+        stat_week=stat_week or "", sort=sort or "",
     )
-    return success({"items": items, "page": page, "page_size": page_size})
+    return success({"items": items, "page": page, "page_size": page_size,
+                    "stat_week": (stat_week or complaint_metrics.latest_week(db))})
+
+
+@router.get("/weeks")
+def list_weeks(n: int = Query(20, ge=1, le=60), db: Session = Depends(get_db)):
+    """可选观察周列表（近 n 周，倒序，供台账「按周查看」下拉）。"""
+    rows = db.execute(text(
+        "SELECT DISTINCT week FROM pmwb_complaint_ticket "
+        "WHERE week IS NOT NULL AND week <> '' ORDER BY week DESC"
+    )).scalars().all()
+    latest = complaint_metrics.latest_week(db)
+    weeks = list(rows)[:n]
+    if latest and latest not in weeks:
+        weeks = [latest] + weeks[: n - 1]
+    return success({"weeks": weeks, "latest": latest})
 
 
 @router.get("/problems/candidates")

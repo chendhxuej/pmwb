@@ -834,9 +834,54 @@ def closure_suggestions(db: Session) -> List[Dict]:
 
 
 # ── 台账查询 ─────────────────────────────────────────────────
+def _week_tuple(w: str) -> tuple:
+    """'2026-W45' → (2026, 45)；无法解析返回 (0, 0)。跨年也安全（按年+周号比较）。"""
+    try:
+        y, n = str(w).split("-W")
+        return (int(y), int(n))
+    except Exception:
+        return (0, 0)
+
+
+def _attach_week_stats(db: Session, items: List[Dict], stat_week: str) -> None:
+    """给问题列表补「指定周增量 + 截至该周累计」（2026-11-04 老大要求拆字段）。
+
+    口径（唯一实现，禁别处另算）：
+      - week_delta：该问题根因簇在 stat_week 当周的新增投诉单量；
+      - cum_total ：该问题根因簇在 stat_week **及之前**的累计单量（与指定周视角一致）。
+    工单只挂单值 rootcause_no，问题可能锚多簇（rootcause_nos 快照）→ 按簇集合汇总。
+    """
+    rc_to_items: Dict[str, List[Dict]] = {}
+    for it in items:
+        it["week_delta"] = 0
+        it["cum_total"] = 0
+        it["stat_week"] = stat_week
+        nos = {x.strip() for x in f"{it.get('rootcause_nos') or ''},{it.get('rootcause_no') or ''}".split(",") if x.strip()}
+        for n in nos:
+            rc_to_items.setdefault(n, []).append(it)
+    if not rc_to_items:
+        return
+    keys = list(rc_to_items.keys())
+    marks = ",".join(f":r{i}" for i in range(len(keys)))
+    rows = db.execute(text(
+        f"SELECT rootcause_no, week, COUNT(*) c FROM pmwb_complaint_ticket "
+        f"WHERE rootcause_no IN ({marks}) AND week IS NOT NULL AND week <> '' "
+        f"GROUP BY rootcause_no, week"
+    ), {f"r{i}": v for i, v in enumerate(keys)}).fetchall()
+    st = _week_tuple(stat_week)
+    for rc, wk, c in rows:
+        cnt = int(c or 0)
+        for it in rc_to_items.get(rc, []):
+            if wk == stat_week:
+                it["week_delta"] += cnt
+            if _week_tuple(wk) <= st:
+                it["cum_total"] += cnt
+
+
 def list_problems(db: Session, status: str = "", week: str = "", l1: str = "",
                   l2: str = "", source_type: str = "", keyword: str = "",
-                  owner: str = "", limit: int = 200, offset: int = 0) -> List[Dict]:
+                  owner: str = "", limit: int = 200, offset: int = 0,
+                  stat_week: str = "", sort: str = "") -> List[Dict]:
     conds = ["1 = 1"]
     params: Dict = {}
     if status:
@@ -877,10 +922,18 @@ def list_problems(db: Session, status: str = "", week: str = "", l1: str = "",
                      WHEN 'candidate' THEN 0 WHEN 'open' THEN 1 WHEN 'resolving' THEN 2
                      WHEN 'closed' THEN 3 WHEN 'ignored' THEN 4 ELSE 5 END,
                  p.updated_at DESC
-        LIMIT :limit OFFSET :offset
     """
-    params.update({"limit": int(limit), "offset": int(offset)})
-    return [dict(r) for r in db.execute(text(sql), params).mappings().all()]
+    # 指定周口径下须先统计+排序再分页（否则排序只作用于当前页，是假的）
+    items = [dict(r) for r in db.execute(text(sql), params).mappings().all()]
+    sw = stat_week or latest_week(db)
+    if sw and items:
+        _attach_week_stats(db, items, sw)
+    if sort in ("delta_desc", "delta_asc", "total_desc", "total_asc"):
+        by_delta = sort.startswith("delta")
+        key = (lambda x: (x.get("week_delta") or 0, x.get("cum_total") or 0)) if by_delta \
+            else (lambda x: (x.get("cum_total") or 0, x.get("week_delta") or 0))
+        items.sort(key=key, reverse=sort.endswith("desc"))
+    return items[int(offset): int(offset) + int(limit)]
 
 
 def weekly_trajectory(db: Session, problem_no: str, weeks: int = 12) -> List[Dict]:
