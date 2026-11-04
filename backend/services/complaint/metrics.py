@@ -147,7 +147,7 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
                category_l1, category_l2, cluster_key, is_batch, is_recur,
                content, solution_history, linked_issue_no,
                rootcause_no, root_cause, fault_stage, fault_system, fault_type,
-               own_party, fix_mode, rc_status, rc_confidence
+               own_party, fix_mode, rc_status, rc_confidence, known_flag, known_problem_no
         FROM pmwb_complaint_ticket
         WHERE created_time >= :s AND created_time < :e
         ORDER BY created_time
@@ -298,6 +298,11 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
 
     rootcause = _rootcause_block(db, rows, week, total)
 
+    # 已知/新增判定（核心 KPI：本周客户反馈的问题是不是已知问题）
+    # 口径唯一实现在 services/complaint/known.py，此处只取数、不重算。
+    from services.complaint import known as known_svc
+    known = known_svc.summary(db, week, rows)
+
     return {
         "week": week,
         "range": f"{start:%Y-%m-%d} ~ {(end - timedelta(days=1)):%Y-%m-%d}",
@@ -343,6 +348,7 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
             "completion_pct": action_completion,
         },
         "rootcause": rootcause,
+        "known": known,
     }
 
 
@@ -356,12 +362,17 @@ def _rootcause_block(db: Session, rows, week: str, total: int) -> Dict:
       - 覆盖情况单列 coverage_pct，让读者知道这个结论有多可靠；
       - 批量簇一律调 rootcause_lib.batch_clusters（唯一实现），不在此另写阈值。
     """
+    from constants import complaint_rootcause as RC
     from constants.complaint_rootcause import FAULT_STAGES
     from services.complaint.rootcause_lib import batch_clusters
 
-    analyzed = [r for r in rows if (r.get("root_cause") or "").strip()]
+    # 信息不足单（AI 已尽力但工单本身缺关键事实）：单列一桶，
+    # **不计入根因分布分母**——否则粗结论会污染坡降判断（2026-11-04 口径）。
+    insufficient = [r for r in rows if (r.get("rc_status") or "") == RC.RC_STATUS_INSUFFICIENT]
+    analyzed = [r for r in rows
+                if (r.get("root_cause") or "").strip()
+                and (r.get("rc_status") or "") != RC.RC_STATUS_INSUFFICIENT]
     covered = len(analyzed)
-    low = sum(1 for r in rows if (r.get("rc_status") or "") == "low")
     pending = sum(1 for r in rows if not (r.get("rc_status") or ""))
 
     def dist(field: str, limit: int = 0, ordered: Optional[List[str]] = None) -> List[Dict]:
@@ -424,7 +435,8 @@ def _rootcause_block(db: Session, rows, week: str, total: int) -> Dict:
         "total": total,
         "covered": covered,
         "coverage_pct": round(covered / total * 100, 1) if total else 0.0,
-        "low": low,
+        "insufficient": len(insufficient),
+        "insufficient_pct": round(len(insufficient) / total * 100, 1) if total else 0.0,
         "pending": pending,
         "cluster_cnt": len(ck),
         "unclustered": no_cluster,

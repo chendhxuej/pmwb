@@ -8,6 +8,7 @@
     python -m scripts.complaint.rootcause status               # 根因覆盖率/质量率
     python -m scripts.complaint.rootcause clusters             # 列根因库
     python -m scripts.complaint.rootcause top --week 2026-W44  # 当周簇排名（压降空间）
+    python -m scripts.complaint.rootcause known --week 2026-W44 # 已知/新增判定（核心 KPI）
 """
 
 from __future__ import annotations
@@ -46,6 +47,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_top.add_argument("--week", default="")
     p_top.add_argument("--limit", type=int, default=20)
 
+    p_kn = sub.add_parser("known", help="已知/新增判定回填（核心 KPI）")
+    p_kn.add_argument("--week", default="", help="只刷指定周；空=全部重判")
+
     p_bc = sub.add_parser("batch", help="批量投诉识别（根因口径）")
     p_bc.add_argument("--week", default="")
     p_bc.add_argument("--min-cnt", type=int, default=3)
@@ -64,6 +68,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         elif args.cmd == "clusters":
             out = lib.list_clusters(db, status=args.status, keyword=args.keyword,
                                     page=args.page, page_size=args.page_size)
+        elif args.cmd == "known":
+            from services.complaint.known import mark, summary
+            from services.complaint.metrics import latest_week
+            wk = args.week or latest_week(db)
+            marked = mark(db, weeks=[wk] if args.week else None)
+            out = {"mark": marked, "summary": summary(db, wk)}
         elif args.cmd == "top":
             out = lib.top_clusters(db, week=args.week, limit=args.limit)
         else:

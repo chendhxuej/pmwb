@@ -12,6 +12,13 @@ from sqlalchemy.pool import StaticPool
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# ─── 强制关闭鉴权（必须在 import main 之前）──────────────────────────────────
+# 背景（防复发）：.env 里 AUTH_REQUIRED=true 是给花生壳公网穿透用的，测试会话
+# 若继承该值，所有 /api/* 用例都会 401（2026-11-04 实测 5 例全红）。
+# 测试自身是隔离的内存库，不应受运行态鉴权开关影响；pydantic-settings 中环境变量
+# 优先级高于 .env，故此处直接改 os.environ 即可生效。
+os.environ["AUTH_REQUIRED"] = "false"
+
 from db.base import Base, get_db
 from main import app
 from tests.fake_master import install_fake_master

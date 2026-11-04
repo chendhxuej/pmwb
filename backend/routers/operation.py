@@ -116,13 +116,15 @@ def update_issue(issue_id: int, obj_in: OperationIssueUpdate, db: Session = Depe
         from constants import status_registry
         obj = operation_issue_service.get(db, issue_id)
         if obj:
-            allowed = status_registry.allowed_next("operation", obj.status)
-            if status not in allowed:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"状态流转不合法：{obj.status} → {status}（允许：{allowed or '无'}）",
-                )
-            operation_issue_service.update_status(db, issue_id, status)
+            if status != obj.status:
+                # 同值 status（编辑表单回显）不是流转，跳过校验；仅真实变更走白名单
+                allowed = status_registry.allowed_next("operation", obj.status)
+                if status not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"状态流转不合法：{obj.status} → {status}（允许：{allowed or '无'}）",
+                    )
+                operation_issue_service.update_status(db, issue_id, status)
     if data_in:
         operation_issue_service.update(db, issue_id, data_in)
     return success(data=operation_issue_service.get(db, issue_id))

@@ -98,6 +98,7 @@ def _bg_llm_classify(weeks: Sequence[str]) -> None:
     import logging
 
     from db.base import SessionLocal
+    from services.complaint.known import mark as mark_known
     from services.complaint.llm_classify import run_llm_classify
     from services.complaint.problems import after_import
     from services.complaint.rootcause import run_rootcause
@@ -126,6 +127,13 @@ def _bg_llm_classify(weeks: Sequence[str]) -> None:
                 after_import(s, weeks=ws)
             except Exception:  # noqa: BLE001
                 logger.exception("导入后共性问题识别失败")
+            # 已知/新增判定（2026-11-04 核心 KPI）：必须在问题归因之后跑，
+            # 否则拿到的是上一轮的归属链，已知率会失真。
+            try:
+                kn = mark_known(s, weeks=ws or None)
+                logger.info("导入后已知/新增判定：%s", kn)
+            except Exception:  # noqa: BLE001
+                logger.exception("导入后已知/新增判定失败")
     except Exception:  # noqa: BLE001
         logger.exception("导入后 LLM 归类线程异常")
 

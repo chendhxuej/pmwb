@@ -8,8 +8,9 @@
 
 本模块的设计（与 llm_classify.py 的本质区别）：
   - **不选分类，而是写根因**：不再受字典约束，自由归纳「系统 + 环节 + 具体错误 + 影响」；
-  - **质量门禁**：根因描述必须落到真实问题点（最小有效字数 + 泛词黑名单 + 必含系统），
-    不合格退回重写一次，仍不合格标 rc_status='low' 进人工队列（宁缺不滥，绝不写空话）；
+  - **质量门禁**：根因描述必须落到真实问题点（最小有效字数 + 泛词黑名单 + 必含具体标识），
+    不合格退回重写一次，仍不合格落 rc_status='insufficient' 并记 rc_gap（信息缺口）。
+    **不设人工队列**（2026-11-04 原则变更）：工单层分析必须全自动，人只在问题入账时确认；
   - **结构化标签**：fault_stage / fault_system / fault_type / own_party / fix_mode / repro
     六个受控枚举（唯一源 constants/complaint_rootcause.py），支撑环节漏斗、责任归属、
     「能不能一次消灭」等分析；
@@ -210,6 +211,17 @@ def quality_check(rc: Dict[str, Any]) -> List[str]:
     return reasons
 
 
+def _gap_text(reasons: List[str], rc: Dict[str, Any]) -> str:
+    """生成信息缺口说明（存 rc_gap），让人一眼看出这条根因为什么不够硬。
+
+    只描述缺口，不写结论——避免与 root_cause 抢口径。
+    """
+    parts = [r.split(" ", 1)[-1] for r in reasons] if reasons else []
+    if not parts:
+        parts.append(f"模型置信不足（{rc.get('confidence') or 0:.2f}）")
+    return ("信息不足：" + "；".join(parts[:3]))[:255]
+
+
 def _normalize(item: Dict[str, Any]) -> Dict[str, Any]:
     """把 LLM 单条输出对齐到受控枚举（防编造，越界即置空由门禁拦截）。"""
     try:
@@ -236,17 +248,18 @@ def _normalize(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ── 写库 ─────────────────────────────────────────────────────
-def _save(db: Session, ticket_no: str, rc: Dict[str, Any], status: str) -> None:
+def _save(db: Session, ticket_no: str, rc: Dict[str, Any], status: str,
+          gap: str = "") -> None:
     db.execute(text(
         "UPDATE pmwb_complaint_ticket SET "
         "root_cause = :rc, fault_stage = :fs, fault_system = :fy, fault_type = :ft, "
         "own_party = :op, fix_mode = :fm, repro = :rp, rc_status = :st, "
-        "rc_confidence = :cf, rc_evidence = :ev "
+        "rc_confidence = :cf, rc_evidence = :ev, rc_gap = :gp "
         "WHERE ticket_no = :no AND (rc_status != 'manual' OR rc_status IS NULL)"
     ), {"rc": rc["root_cause"], "fs": rc["fault_stage"], "fy": rc["fault_system"],
         "ft": rc["fault_type"], "op": rc["own_party"], "fm": rc["fix_mode"],
         "rp": rc["repro"], "st": status, "cf": rc["confidence"],
-        "ev": rc["evidence"], "no": ticket_no})
+        "ev": rc["evidence"], "gp": gap or None, "no": ticket_no})
 
 
 def _rewrite_batch(db: Session, tasks: List[Tuple[Dict[str, Any], List[str], Dict[str, Any]]]
@@ -362,19 +375,21 @@ def run_rootcause(db: Session, force: bool = False,
                     rewritten += 1
                     reasons = quality_check(rc)
                 passed = not reasons and rc["confidence"] >= C.RC_CONF_THRESHOLD
-                status = RC.RC_STATUS_AI if passed else RC.RC_STATUS_LOW
-                _save(db, no, rc, status)
+                _save(db, no, rc,
+                      RC.RC_STATUS_AI if passed else RC.RC_STATUS_INSUFFICIENT,
+                      gap="" if passed else _gap_text(reasons, rc))
                 saved += 1
                 if passed:
                     ok += 1
                 else:
                     low += 1
-                    logger.info("根因待人工 %s：%s（置信 %.2f）", no,
+                    logger.info("根因信息不足 %s：%s（置信 %.2f）", no,
                                 "；".join(reasons) or "置信不足", rc["confidence"])
             to_rewrite.clear()
         else:
             for t, reasons, rc in to_rewrite:
-                _save(db, t["ticket_no"], rc, RC.RC_STATUS_LOW)
+                _save(db, t["ticket_no"], rc, RC.RC_STATUS_INSUFFICIENT,
+                      gap=_gap_text(reasons, rc))
                 saved += 1
                 low += 1
             to_rewrite.clear()
@@ -388,15 +403,16 @@ def run_rootcause(db: Session, force: bool = False,
 
 
 def rejudge(db: Session) -> Dict[str, Any]:
-    """按当前门禁与阈值重判存量低置信单（零 LLM 成本）。
+    """按当前门禁与阈值重判存量「信息不足」单（零 LLM 成本）。
 
-    用途：调过质量门禁或置信度阈值后，不必重跑模型，直接按新口径重判 rc_status='low' 的单。
+    用途：调过质量门禁或置信度阈值后，不必重跑模型，直接按新口径重判。
+    仍不合格者刷新缺口说明，状态保持 insufficient。
     """
     rows = db.execute(text(
         "SELECT ticket_no, root_cause, fault_stage, fault_system, fault_type, "
         "own_party, fix_mode, rc_confidence FROM pmwb_complaint_ticket "
-        "WHERE rc_status = 'low'"
-    )).fetchall()
+        "WHERE rc_status = :st"
+    ), {"st": RC.RC_STATUS_INSUFFICIENT}).fetchall()
     promoted = 0
     for r in rows:
         rc = {
@@ -408,9 +424,14 @@ def rejudge(db: Session) -> Dict[str, Any]:
         reasons = quality_check(rc)
         if not reasons and rc["confidence"] >= C.RC_CONF_THRESHOLD:
             db.execute(text(
-                "UPDATE pmwb_complaint_ticket SET rc_status = 'ai' WHERE ticket_no = :no"
-            ), {"no": r[0]})
+                "UPDATE pmwb_complaint_ticket SET rc_status = :st, rc_gap = NULL "
+                "WHERE ticket_no = :no"
+            ), {"st": RC.RC_STATUS_AI, "no": r[0]})
             promoted += 1
+        else:
+            db.execute(text(
+                "UPDATE pmwb_complaint_ticket SET rc_gap = :gp WHERE ticket_no = :no"
+            ), {"gp": _gap_text(reasons, rc), "no": r[0]})
     db.commit()
     return {"scanned": len(rows), "promoted": promoted, "remained": len(rows) - promoted}
 
@@ -454,12 +475,12 @@ def update_manual(db: Session, ticket_no: str, payload: Dict[str, Any]) -> Dict[
 
 
 def rootcause_status(db: Session) -> Dict[str, Any]:
-    """根因归纳状态统计（看板 / 待人工队列数据源）。
+    """根因归纳状态统计（看板数据源）。
 
     口径说明（必须分开，否则误导）：
-      - coverage  根因覆盖率 = 有根因的单 / 总数（含待人工）
+      - coverage  根因覆盖率 = 有根因的单 / 总数（含信息不足）
       - quality   高质量率 = rc_status='ai' / 总数（真正可支撑分析的根因）
-      - need_analyze 待分析 / need_review 待人工
+      - need_analyze 待分析 / insufficient 信息不足（AI 已尽力，不需人工介入）
     """
     total = db.execute(text(
         "SELECT COUNT(*) FROM pmwb_complaint_ticket")).scalar() or 0
@@ -471,7 +492,7 @@ def rootcause_status(db: Session) -> Dict[str, Any]:
         "SELECT COUNT(*) FROM pmwb_complaint_ticket "
         "WHERE root_cause IS NOT NULL AND root_cause != ''")).scalar() or 0
     ai = by.get(RC.RC_STATUS_AI, 0)
-    low = by.get(RC.RC_STATUS_LOW, 0)
+    low = by.get(RC.RC_STATUS_INSUFFICIENT, 0)
     manual = by.get(RC.RC_STATUS_MANUAL, 0)
     pending = max(0, total - ai - low - manual)
     lib = {}

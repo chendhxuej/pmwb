@@ -98,7 +98,10 @@ def update_status(db: Session, action_no: str, target: str,
         except ValueError:
             g = None
         if g:
-            baseline = actions.baseline_for(db, row["category_l2"], g)
+            # 簇口径优先（唯一口径）；旧措施未回填时按场景反查兜底
+            _nos = actions.cluster_keys(row.get("rootcause_nos")) \
+                or actions.clusters_of_l2(db, row.get("category_l2") or "")
+            baseline = actions.baseline_for(db, _nos, g)
             sets.append("baseline_cnt = :baseline")
             params["baseline"] = baseline
 

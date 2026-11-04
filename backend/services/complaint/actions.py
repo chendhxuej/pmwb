@@ -141,23 +141,93 @@ def add(db: Session, l2: str, title: str, owner: str, due: Optional[date],
             "l1": l1, "warnings": warnings}
 
 
-def baseline_for(db: Session, l2: str, go_live: date, weeks: int = C.BASELINE_WEEKS) -> float:
-    """措施上线前 N 周该场景周均单量。"""
-    start = datetime.combine(go_live, datetime.min.time()) - timedelta(weeks=weeks)
-    end = datetime.combine(go_live, datetime.min.time())
-    cnt = db.execute(text(
-        "SELECT COUNT(*) FROM pmwb_complaint_ticket "
-        "WHERE category_l2 = :l2 AND created_time >= :s AND created_time < :e"
-    ), {"l2": l2, "s": start, "e": end}).scalar() or 0
-    return round(cnt / weeks, 1)
+# ── 簇口径统计（2026-11-04 切口径；唯一实现，禁在别处另写 SQL） ──
+def cluster_keys(rc_nos) -> List[str]:
+    """归一化簇集合入参（支持 None / str / 逗号串 / list）。"""
+    if not rc_nos:
+        return []
+    if isinstance(rc_nos, str):
+        parts = rc_nos.split(",")
+    else:
+        parts = list(rc_nos)
+    out: List[str] = []
+    for p in parts:
+        k = str(p or "").strip()
+        if k and k not in out:
+            out.append(k)
+    return out
 
 
-def week_count(db: Session, l2: str, week: str) -> int:
+def clusters_of_l2(db: Session, l2: str) -> List[str]:
+    """按二级场景反查根因簇（兼容未回填 rootcause_nos 的旧措施）。
+
+    仅作兼容兜底：新措施必须显式指定簇，不走场景推断。
+    """
+    if not l2:
+        return []
+    rows = db.execute(text(
+        "SELECT DISTINCT rootcause_no FROM pmwb_complaint_ticket "
+        "WHERE category_l2 = :l2 AND rootcause_no IS NOT NULL AND rootcause_no <> ''"
+    ), {"l2": l2}).fetchall()
+    return [r[0] for r in rows]
+
+
+def _in_clause(nos: List[str], prefix: str = "rc") -> tuple:
+    marks = ", ".join(f":{prefix}{i}" for i in range(len(nos)))
+    return f"({marks})", {f"{prefix}{i}": v for i, v in enumerate(nos)}
+
+
+def week_count(db: Session, rc_nos, week: str) -> int:
+    """簇集合当周单量（根因口径；替代原场景单量）。"""
+    nos = cluster_keys(rc_nos)
+    if not nos or not week:
+        return 0
     s, e = week_bounds(week)
+    cond, params = _in_clause(nos)
+    params.update({"s": s, "e": e})
     return int(db.execute(text(
-        "SELECT COUNT(*) FROM pmwb_complaint_ticket "
-        "WHERE category_l2 = :l2 AND created_time >= :s AND created_time < :e"
-    ), {"l2": l2, "s": s, "e": e}).scalar() or 0)
+        f"SELECT COUNT(*) FROM pmwb_complaint_ticket "
+        f"WHERE rootcause_no IN {cond} AND created_time >= :s AND created_time < :e"
+    ), params).scalar() or 0)
+
+
+def complete_weeks(db: Session, before: date, weeks: int = C.BASELINE_WEEKS) -> List[str]:
+    """措施上线前的**完整周**（该周至少 5 天有工单，防残缺周拉低基线）。
+
+    为什么必须判完整：历史导入常出现半周数据（实测 W42 只有 2 天 13 单），
+    直接用来当基线会把基线压到接近 0，降幅算成 -246.9% 这种假结论。
+
+    实现：日期去重放 Python 侧做——`DATE()`/`strftime()` 分属 MySQL/SQLite 专有，
+    基线窗口最长 4 周量级很小，跨库一致比省一次内存遍历更重要。
+    """
+    start = datetime.combine(before, datetime.min.time()) - timedelta(weeks=weeks)
+    rows = db.execute(text(
+        "SELECT week, created_time FROM pmwb_complaint_ticket "
+        "WHERE created_time >= :s AND created_time < :e"
+    ), {"s": start, "e": datetime.combine(before, datetime.min.time())}).fetchall()
+    days: Dict[str, set] = {}
+    for wk, ct in rows:
+        if not wk or not ct:
+            continue
+        day = ct.date() if hasattr(ct, "date") else str(ct)[:10]
+        days.setdefault(wk, set()).add(day)
+    return sorted(w for w, d in days.items() if len(d) >= 5)
+
+
+def baseline_for(db: Session, rc_nos, go_live: date,
+                 weeks: int = C.BASELINE_WEEKS) -> Optional[float]:
+    """措施上线前 N 个完整周该簇集合的周均单量。
+
+    无完整周可用 → 返回 None（调用方不得据此计算降幅，宁可不给结论）。
+    """
+    nos = cluster_keys(rc_nos)
+    if not nos or not go_live:
+        return None
+    full = complete_weeks(db, go_live, weeks)
+    if not full:
+        return None
+    total = sum(week_count(db, nos, w) for w in full)
+    return round(total / len(full), 1)
 
 
 def verify(db: Session) -> List[Dict]:
@@ -167,7 +237,8 @@ def verify(db: Session) -> List[Dict]:
     状态不变时仅刷新有效性指标。个别流转缺必填（如 owner）不阻断其余措施结算。
     """
     rows = db.execute(text("""
-        SELECT id, action_no, category_l2, go_live_date, verify_weeks, baseline_cnt, target_drop_pct, status
+        SELECT id, action_no, category_l2, rootcause_nos, go_live_date, verify_weeks,
+               baseline_cnt, target_drop_pct, status
         FROM pmwb_complaint_action
         WHERE status IN ('verifying', 'in_progress')
     """)).mappings().all()
@@ -175,13 +246,27 @@ def verify(db: Session) -> List[Dict]:
     latest = latest_week(db)
     results: List[Dict] = []
     for a in rows:
-        l2 = a["category_l2"]
         go_live = a["go_live_date"]
-        if not l2 or not go_live:
+        # 簇口径优先；旧措施未回填时按场景反查兜底（兼容，不新增第二套口径）
+        nos = cluster_keys(a["rootcause_nos"]) or clusters_of_l2(db, a["category_l2"])
+        if not nos or not go_live:
+            results.append({"action_no": a["action_no"], "status": a["status"],
+                            "skipped": "未绑定根因簇或未标记生效"})
             continue
 
-        baseline = a["baseline_cnt"] or baseline_for(db, l2, go_live)
-        last_cnt = float(week_count(db, l2, latest)) if latest else 0.0
+        baseline = a["baseline_cnt"] or baseline_for(db, nos, go_live)
+        if not baseline:
+            # 基线不可得（历史数据残缺/不足一个完整周）→ 不给降幅，
+            # 状态不流转：宁可不结论，也不产出 -246.9% 这种假结论。
+            db.execute(text(
+                "UPDATE pmwb_complaint_action SET rootcause_nos = :n, updated_at = :t "
+                "WHERE id = :i"
+            ), {"n": ",".join(nos), "t": datetime.now(), "i": a["id"]})
+            results.append({"action_no": a["action_no"], "status": a["status"],
+                            "baseline": None, "skipped": "基线不可得（无完整基线周）"})
+            continue
+
+        last_cnt = float(week_count(db, nos, latest)) if latest else 0.0
         drop = round((baseline - last_cnt) / baseline * 100, 1) if baseline else None
 
         elapsed_weeks = (date.today() - go_live).days // 7
@@ -200,15 +285,14 @@ def verify(db: Session) -> List[Dict]:
                 update_status(db, a["action_no"], new_status, metrics_payload)
             except ValueError as e:
                 error = str(e)
-        if error or new_status == a["status"]:
-            db.execute(text("""
-                UPDATE pmwb_complaint_action
-                SET baseline_cnt = :b, last_week_cnt = :l, actual_drop_pct = :d,
-                    updated_at = :now_ts
-                WHERE id = :i
-            """), {"b": baseline, "l": last_cnt, "d": drop, "i": a["id"],
-                   "now_ts": datetime.now()})
-        results.append({"action_no": a["action_no"], "l2": l2, "baseline": baseline,
+        db.execute(text("""
+            UPDATE pmwb_complaint_action
+            SET baseline_cnt = :b, last_week_cnt = :l, actual_drop_pct = :d,
+                rootcause_nos = :n, updated_at = :now_ts
+            WHERE id = :i
+        """), {"b": baseline, "l": last_cnt, "d": drop, "n": ",".join(nos),
+               "i": a["id"], "now_ts": datetime.now()})
+        results.append({"action_no": a["action_no"], "clusters": nos, "baseline": baseline,
                         "last_week": last_cnt, "drop": drop,
                         "status": new_status if not error else a["status"],
                         **({"error": error} if error else {})})
@@ -222,13 +306,21 @@ def mark_go_live(db: Session, action_no: str, go_live: date) -> None:
     from services.complaint import update_status  # 懒加载防循环
     update_status(db, action_no, "verifying", {
         "go_live_date": str(go_live),
-        "baseline_cnt": baseline_for(db, _l2_of(db, action_no), go_live),
+        "baseline_cnt": baseline_for(
+            db, cluster_keys(_clusters_of_action(db, action_no))
+            or clusters_of_l2(db, _l2_of(db, action_no)), go_live),
     })
 
 
 def _l2_of(db: Session, action_no: str) -> str:
     return db.execute(text(
         "SELECT category_l2 FROM pmwb_complaint_action WHERE action_no = :no"
+    ), {"no": action_no}).scalar() or ""
+
+
+def _clusters_of_action(db: Session, action_no: str) -> str:
+    return db.execute(text(
+        "SELECT rootcause_nos FROM pmwb_complaint_action WHERE action_no = :no"
     ), {"no": action_no}).scalar() or ""
 
 

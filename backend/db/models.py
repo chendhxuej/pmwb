@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -2012,10 +2013,14 @@ class PmwbComplaintTicket(Base):
     own_party = Column(String(32), comment="责任归属：系统研发/流程规则/数据治理/一线操作/客户认知/第三方厂家")
     fix_mode = Column(String(32), comment="处置方式：批量修复/系统改造/规则调整/逐单处理/解释指引")
     repro = Column(String(8), comment="可复现：yes/no/unknown")
-    rc_status = Column(String(16), default="", comment="根因状态：空=待分析 / ai=已归纳 / low=待人工 / manual=人工确认")
+    rc_status = Column(String(16), default="", comment="根因状态：空=待分析 / ai=已归纳 / insufficient=信息不足（不进人工队列） / manual=人工校正")
     rc_confidence = Column(Float, comment="根因归纳置信度（0~1，信息不足时宁低勿高）")
     rc_evidence = Column(Text, comment="根因原文依据（引用工单中的具体报错/账号/单号，可追溯）")
+    rc_gap = Column(String(255), comment="信息缺口说明（rc_status=insufficient 时记录缺什么）")
     rootcause_no = Column(String(64), comment="归属根因库编号（唯一归因键，唯一写入点 rootcause.assign）")
+    # 已知/新增判定（2026-11-04）：唯一写入点 known.mark，核心 KPI「已知问题率」数据源
+    known_flag = Column(SmallInteger, comment="1=已知问题（命中在办问题） 0=新增问题")
+    known_problem_no = Column(String(64), comment="命中的在办问题编号（known_flag=1 时有值）")
     # 已废弃：不写不读；工单关联唯一来源 = pmwb_complaint_action.issue_no
     linked_issue_no = Column(String(64), comment="（已废弃）关联运营工单号")
 
@@ -2131,9 +2136,11 @@ class PmwbComplaintProblem(Base):
     设计要点：
       - 唯一归因键 problem_no：工单归属（ticket.problem_no）、措施关联（多对多表）、
         报表汇总、台账下钻全用它；cluster_key 仅作检测证据，不再承担归因；
-      - 一级识别=规则引擎 problems.scan_candidates（R1 批量簇/R2 场景TOP/R3 激增/R4 复发），
+      - 一级识别=规则引擎 problems.scan_candidates（R1 根因簇批量/R2 环比激增/R3 复发），
         候选须人工确认（confirm）后方可关联措施；
-      - 归并口径：同 category_l2 且 status∈(candidate,open,resolving) 至多一条（应用层保证）；
+      - 归并口径（2026-11-04 起）：同根因簇（rootcause_no / rootcause_nos）且
+        status∈(candidate,open,resolving) 至多一条（应用层保证）；
+        category_l2 降级为快照维度，不再作归并锚点；
       - 周轨迹字段由 recompute 每周导入后重算，闭环建议以 quiet_weeks/措施状态为准。
     """
 
@@ -2141,13 +2148,15 @@ class PmwbComplaintProblem(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
     problem_no = Column(String(64), nullable=False, unique=True, comment="问题编号（CPB-2026W44-01）")
-    title = Column(String(255), nullable=False, comment="问题标题（规则自动生成，可人工改）")
-    category_l1 = Column(String(64), comment="一级问题性质（快照）")
-    category_l2 = Column(String(64), nullable=False, comment="二级问题场景（归并锚点）")
+    title = Column(String(255), nullable=False, comment="问题标题（根因摘要，可人工改）")
+    category_l1 = Column(String(64), comment="一级问题性质（快照，仅统计用）")
+    category_l2 = Column(String(64), comment="主要二级场景（快照，仅统计用；不再作归并锚点）")
+    rootcause_no = Column(String(64), comment="主根因簇编号（问题实体锚点，取代 category_l2 归并键）")
+    rootcause_nos = Column(String(512), comment="覆盖的根因簇编号（逗号分隔，一问题可纳多簇）")
 
     source_type = Column(
         String(32), nullable=False, default="candidate",
-        comment="主触发规则：batch_cluster/top_scene/surge/recur/manual",
+        comment="主触发规则：rootcause_batch/surge/recur/manual",
     )
     rule_hits = Column(String(128), comment="全部命中规则（逗号分隔，证据不参与分支）")
     evidence = Column(Text, comment="证据快照 JSON（week/cnt/wow/簇/样本单号，只读）")

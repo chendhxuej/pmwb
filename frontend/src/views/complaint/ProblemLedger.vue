@@ -45,13 +45,70 @@
       </div>
     </el-alert>
 
-    <!-- 候选确认区 -->
+    <!-- 台账：默认只展示「已复核、未闭环」的问题；候选独立页签（2026-11-04 收窄） -->
     <section class="card">
-      <div class="card-header">
-        <h3>候选问题（每周分析自动识别，须人工确认后方可关联措施）</h3>
-      </div>
-      <div class="card-body">
-        <el-table ref="pmTbl1" v-if="candidates.length" :data="candidates" size="default" border>
+      <el-tabs v-model="activeTab" class="ledger-tabs">
+        <el-tab-pane :label="`在办问题（已复核未闭环 · ${inflightRows.length}）`" name="open">
+          <div class="tab-bar">
+            <el-select v-model="statusFilter" clearable size="small" style="width: 160px" placeholder="全部在办状态">
+              <el-option v-for="s in inflightStatusDefs" :key="s.value" :label="s.label" :value="s.value" />
+            </el-select>
+            <span class="tab-hint">台账只放已确认入账的问题；候选在右侧页签，确认后才进这里</span>
+          </div>
+          <el-table ref="pmTbl2" v-loading="loading" :data="filteredRows" size="default" border stripe>
+            <el-table-column prop="problem_no" label="问题编号" width="150">
+              <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
+            </el-table-column>
+            <el-table-column prop="title" label="问题（根因摘要）" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="rootcause_no" label="根因簇" width="110">
+              <template #default="{ row }">{{ row.rootcause_no || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="category_l1" label="一级性质" width="96" />
+            <el-table-column label="状态" width="96" align="center">
+              <template #default="{ row }">
+                <el-tag :type="statusTone(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="first_week" label="首见周" width="92" />
+            <el-table-column prop="active_weeks" label="在办周" width="78" align="center">
+              <template #default="{ row }">
+                <span :class="{ 'long-run': row.active_weeks >= 12 && isOpen(row) }">{{ row.active_weeks }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="当周/累计" width="92" align="center">
+              <template #default="{ row }">{{ row.week_cnt }} / {{ row.total_cnt }}</template>
+            </el-table-column>
+            <el-table-column prop="recur_cnt" label="累计复发" width="84" align="center">
+              <template #default="{ row }">
+                <span :class="{ recur: row.recur_cnt > 0 }">{{ row.recur_cnt }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="措施" width="112" align="center">
+              <template #default="{ row }">{{ row.effective_cnt ?? 0 }} / {{ row.action_cnt }}</template>
+            </el-table-column>
+            <el-table-column prop="owner" label="责任人" width="96" show-overflow-tooltip />
+            <el-table-column label="操作" width="200" fixed="right" align="center">
+              <template #default="{ row }">
+                <el-button size="small" text type="primary" @click="openDetail(row)">详情</el-button>
+                <el-button
+                  v-for="t in nextTargets(row.status)"
+                  :key="t.value"
+                  size="small"
+                  :type="t.value === 'closed' ? 'success' : (t.value === 'ignored' ? 'danger' : 'default')"
+                  text
+                  @click="doTransition(row, t)"
+                >{{ t.label }}</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!inflightRows.length" description="暂无在办问题——去「待确认候选」把 AI 识别的问题确认入账" :image-size="60" />
+        </el-tab-pane>
+
+        <el-tab-pane :label="`待确认候选（${candidates.length}）`" name="candidate">
+          <div class="tab-bar">
+            <span class="tab-hint">每周导入后 AI 自动识别；<b>确认入账</b>后才进入台账、才能挂措施</span>
+          </div>
+          <el-table ref="pmTbl1" v-if="candidates.length" :data="candidates" size="default" border>
           <el-table-column prop="problem_no" label="编号" width="150">
             <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
           </el-table-column>
@@ -75,67 +132,8 @@
           </el-table-column>
         </el-table>
         <el-empty v-else description="暂无待确认候选（每周导入分析后自动生成）" :image-size="60" />
-      </div>
-    </section>
-
-    <!-- 台账表格 -->
-    <section class="card">
-      <div class="card-header">
-        <h3>问题台账</h3>
-        <el-select v-model="statusFilter" clearable size="small" style="width: 160px" placeholder="全部状态">
-          <el-option v-for="s in statusDefs" :key="s.value" :label="s.label" :value="s.value" />
-        </el-select>
-      </div>
-      <div class="card-body">
-        <el-table ref="pmTbl2" v-loading="loading" :data="filteredRows" size="default" border stripe>
-          <el-table-column prop="problem_no" label="问题编号" width="150">
-            <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
-          </el-table-column>
-          <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="category_l2" label="场景" min-width="130" show-overflow-tooltip />
-          <el-table-column label="来源" width="96" align="center">
-            <template #default="{ row }">
-              <el-tag size="small" type="info">{{ sourceLabel(row.source_type) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="106" align="center">
-            <template #default="{ row }">
-              <el-tag :type="statusTone(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="first_week" label="首见周" width="96" />
-          <el-table-column prop="active_weeks" label="在办周" width="80" align="center">
-            <template #default="{ row }">
-              <span :class="{ 'long-run': row.active_weeks >= 12 && isOpen(row) }">{{ row.active_weeks }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="当周/累计" width="96" align="center">
-            <template #default="{ row }">{{ row.week_cnt }} / {{ row.total_cnt }}</template>
-          </el-table-column>
-          <el-table-column prop="recur_cnt" label="累计复发" width="86" align="center">
-            <template #default="{ row }">
-              <span :class="{ recur: row.recur_cnt > 0 }">{{ row.recur_cnt }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="关联措施" width="120" align="center">
-            <template #default="{ row }">{{ row.effective_cnt ?? 0 }} / {{ row.action_cnt }}</template>
-          </el-table-column>
-          <el-table-column prop="owner" label="责任人" width="100" show-overflow-tooltip />
-          <el-table-column label="操作" width="200" fixed="right" align="center">
-            <template #default="{ row }">
-              <el-button size="small" text type="primary" @click="openDetail(row)">详情</el-button>
-              <el-button
-                v-for="t in nextTargets(row.status)"
-                :key="t.value"
-                size="small"
-                :type="t.value === 'closed' ? 'success' : (t.value === 'ignored' ? 'danger' : 'default')"
-                text
-                @click="doTransition(row, t)"
-              >{{ t.label }}</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
+        </el-tab-pane>
+      </el-tabs>
     </section>
 
     <!-- 详情抽屉 -->
@@ -297,6 +295,7 @@ const rows = ref([])
 const suggestions = ref([])
 const allActions = ref([])
 const statusFilter = ref('')
+const activeTab = ref('open')
 
 const detailVisible = ref(false)
 const detail = ref(null)
@@ -329,8 +328,13 @@ const subTitle = computed(() => {
 })
 
 const candidates = computed(() => rows.value.filter(r => r.status === 'candidate'))
+const inflightRows = computed(() => rows.value.filter(r => ['open', 'resolving'].includes(r.status)))
+const inflightStatusDefs = computed(() => statusDefs.value.filter(s => ['open', 'resolving'].includes(s.value)))
+// 台账主列表**只展示在办**（已复核、未闭环）——候选走页签，不混在台账里
 const filteredRows = computed(() =>
-  statusFilter.value ? rows.value.filter(r => r.status === statusFilter.value) : rows.value
+  statusFilter.value
+    ? inflightRows.value.filter(r => r.status === statusFilter.value)
+    : inflightRows.value
 )
 
 const kpi = computed(() => ({
@@ -391,8 +395,12 @@ function evidenceBrief(v) {
 async function load() {
   loading.value = true
   try {
-    const data = await complaintApi.listProblems({ page_size: 200 })
-    rows.value = data?.items || []
+    // 分两次拉（在办 / 候选）：单次 200 上限，混拉会被分页截断丢候选
+    const [openData, candData] = await Promise.all([
+      complaintApi.listProblems({ page_size: 200, status: 'open,resolving' }),
+      complaintApi.listProblems({ page_size: 200, status: 'candidate' }),
+    ])
+    rows.value = [...(openData?.items || []), ...(candData?.items || [])]
     try {
       const sug = await complaintApi.closureSuggestions()
       suggestions.value = sug?.items || []
@@ -683,5 +691,18 @@ onMounted(load)
 }
 .urge-line .warn {
   color: var(--warning);
+}
+.tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.tab-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ledger-tabs {
+  padding: 0 2px;
 }
 </style>

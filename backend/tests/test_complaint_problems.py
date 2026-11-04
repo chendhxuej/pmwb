@@ -1,8 +1,8 @@
 """客诉共性问题闭环管理测试。
 
-覆盖（对应 2026-10-27 共性问题闭环升级）：
+覆盖（2026-10-27 共性问题闭环升级 / 2026-11-04 锚点切根因簇）：
   1. 状态注册表 complaint_problem 域：白名单流转 + required_fields + 统一态
-  2. 识别规则 R1-R4（批量簇/场景TOP/环比激增/复发）+ 幂等归并
+  2. 识别规则 R1-R3（根因簇批量/环比激增/复发）+ 幂等归并
   3. 候选确认：入账/合并/忽略 + 确认前禁关联措施
   4. 问题↔措施多对多：关联/解除/主措施唯一
   5. 措施↔运营工单双向同步：工单解决推措施、缺必填不硬改、source 过滤、
@@ -10,9 +10,13 @@
   6. 闭环建议与重开、归因回写（assign_tickets 优先级）
   7. API：台账/详情/非法流转 400 / 工单按问题下钻
   8. 门禁：任务中心来源仍 9 项（问题不入任务中心）
+
+口径说明：问题实体锚点是**根因簇**（ticket.rootcause_no），category_l2 仅作快照，
+因此所有识别/归因用例的夹具都必须给工单打上 rootcause_no。
 """
 
 from datetime import date, datetime
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,6 +31,7 @@ from db.models import (
 )
 from schemas.task_center import TASK_SOURCES
 from services.complaint import problems as P
+from services.complaint import config as C
 
 
 # ── 构造工具 ─────────────────────────────────────────────────
@@ -39,6 +44,8 @@ def _add(db, obj):
 
 L2 = "电视与机顶盒账号未同步"
 L2B = "在途单阻塞新业务"
+RC = "RC-0001"      # 主根因簇：机顶盒账号未随订单同步建档
+RC_B = "RC-0002"    # 副根因簇
 
 
 def _seed_dict(db):
@@ -52,12 +59,13 @@ def _seed_dict(db):
                                    name=L2B, keywords=r"在途单", sort_order=21, enabled=1))
 
 
-def _ticket(db, no, l2=L2, day=26, week="2026-W44", **kw):
+def _ticket(db, no, l2=L2, day=26, week="2026-W44", rc=RC, **kw):
+    """造工单。rc 为根因簇编号（识别/归因的唯一锚点），置空表示未判定根因。"""
     defaults = dict(
         ticket_no=no, week=week, created_time=datetime(2026, 10, day, 10, 0),
         city="苏州", content="机顶盒账号异常", status="已回复",
         category_l1="数据与状态异常", category_l2=l2, classify_by="auto",
-        dispatch_count=1,
+        rootcause_no=rc, dispatch_count=1,
     )
     defaults.update(kw)
     return _add(db, PmwbComplaintTicket(**defaults))
@@ -80,15 +88,17 @@ def _issue(db, no="COMP-20261027-100", source="complaint_weekly", status="pendin
     ))
 
 
-def _candidate(db, no="CPB-2026W44-01", l2=L2, **kw):
+def _candidate(db, no="CPB-2026W44-01", l2=L2, rc=RC, **kw):
     defaults = dict(
-        problem_no=no, title=f"{l2}（2026-W44）", category_l1="数据与状态异常",
-        category_l2=l2, source_type="batch_cluster", rule_hits="batch_cluster",
+        problem_no=no, title=f"根因簇 {rc}（2026-W44）", category_l1="数据与状态异常",
+        category_l2=l2, rootcause_no=rc, rootcause_nos=rc,
+        source_type="rootcause_batch", rule_hits="rootcause_batch",
         status="candidate", first_week="2026-W44", last_week="2026-W44",
         week_cnt=8, total_cnt=8, peak_cnt=8, active_weeks=1,
     )
     defaults.update(kw)
     return _add(db, PmwbComplaintProblem(**defaults))
+
 
 
 # ── 1. 状态机 ────────────────────────────────────────────────
@@ -116,71 +126,134 @@ def test_problem_to_unified():
     assert sr.to_unified("complaint_problem", "closed") == "done"
 
 
-# ── 2. 识别规则 ──────────────────────────────────────────────
-def test_rule_r1_batch_cluster(db):
+# ── 2. 识别规则（根因簇口径） ────────────────────────────────
+def test_rule_r1_rootcause_batch(db):
+    """R1：同根因簇当周 >= RC_BATCH_WEEK_MIN 单 → 批量问题。"""
     _seed_dict(db)
     for i in range(5):
-        _ticket(db, f"B-{i}", day=26, cluster_key=f"{L2}@2026-10-26", is_batch=1)
-    _ticket(db, "B-5", day=27)
-    _ticket(db, "B-6", day=27)
-    _ticket(db, "B-7", day=28)
+        _ticket(db, f"B-{i}", day=26 + i % 3)
+    r = P.scan_candidates(db, week="2026-W44")
+    assert r["created"] and len(r["created"]) == 1
+    p = db.query(PmwbComplaintProblem).one()
+    assert p.source_type == "rootcause_batch"
+    assert p.rootcause_no == RC
+    assert "rootcause_batch" in (p.rule_hits or "")
+    # 证据快照带簇编号与样本单号
+    ev = json.loads(p.evidence)
+    assert ev["rootcause_no"] == RC and ev["cnt"] == 5
+    assert len(ev["sample_tickets"]) == 5
+
+
+def test_rule_r1_threshold_not_reached(db):
+    """簇当周 2 单不足批量线（RC_BATCH_WEEK_MIN=3）且未达激增绝对量 → 不产生候选。"""
+    _seed_dict(db)
+    for i in range(2):
+        _ticket(db, f"C-{i}", day=26 + i)
+    r = P.scan_candidates(db, week="2026-W44")
+    assert r["created"] == []
+    assert db.query(PmwbComplaintProblem).count() == 0
+
+
+def test_rule_r2_surge(db):
+    """R2：簇环比 >= PROBLEM_SURGE_PCT 且绝对量 >= PROBLEM_SURGE_MIN → 叠加 surge 命中。"""
+    _seed_dict(db)
+    for i in range(2):  # 上周 2 单
+        _ticket(db, f"P-{i}", day=19, week="2026-W43")
+    for i in range(6):  # 本周 6 单，环比 200%
+        _ticket(db, f"C-{i}", day=26 + i % 3)
     r = P.scan_candidates(db, week="2026-W44")
     assert len(r["created"]) == 1
-    p = db.query(PmwbComplaintProblem).filter_by(category_l2=L2).one()
-    assert p.source_type == "batch_cluster"
-    assert "batch_cluster" in p.rule_hits
-    # 4 单不触发（日簇不足且周累计不足）
-    db.query(PmwbComplaintProblem).delete()
-    db.query(PmwbComplaintTicket).delete()
-    db.commit()
-    for i in range(4):
-        _ticket(db, f"C-{i}", day=26, cluster_key=f"{L2}@2026-10-26", is_batch=1)
+    p = db.query(PmwbComplaintProblem).one()
+    # 6 单同时越过批量线（3），主规则取强度最高的 rootcause_batch，surge 只作证据
+    assert p.source_type == "rootcause_batch"
+    assert "surge" in (p.rule_hits or "")
+    ev = json.loads(p.evidence)
+    assert ev["wow"] == 200.0 and ev["prev_cnt"] == 2
+
+
+def test_rule_r2_new_cluster_surge(db):
+    """R2 补充分支：上周 0 单的新簇达到激增绝对量 → 记 surge 证据（wow 为空）。"""
+    _seed_dict(db)
+    for i in range(C.PROBLEM_SURGE_MIN):
+        _ticket(db, f"N-{i}", day=26 + i % 3)
+    P.scan_candidates(db, week="2026-W44")
+    p = db.query(PmwbComplaintProblem).one()
+    assert "surge" in (p.rule_hits or "")
+    ev = json.loads(p.evidence)
+    assert ev["prev_cnt"] == 0 and ev["wow"] is None
+
+
+def test_rule_r3_recur_requires_inflight_problem(db):
+    """R3：簇已被在办问题收纳且本周仍有复发标记单 → 累加 recur 证据（不新建）。"""
+    _seed_dict(db)
+    p = _candidate(db, no="CPB-2026W44-01", status="open", owner="A",
+                   first_week="2026-W43", last_week="2026-W43")
+    _ticket(db, "R-1", day=27, is_recur=1)
+    r = P.scan_candidates(db, week="2026-W44")
+    assert r["created"] == []
+    assert r["updated"] == [p.problem_no]
+    db.expire_all()
+    row = db.query(PmwbComplaintProblem).filter_by(problem_no=p.problem_no).one()
+    assert "recur" in (row.rule_hits or "")
+    assert row.recur_cnt == 1 and row.recur_weeks == 1
+    # 同一周重复扫描幂等：累计字段不再翻倍（仅首见周累加；夹具初值 8 单/1 周）
+    total, active = row.total_cnt, row.active_weeks
+    assert (total, active) == (9, 2)
+    P.scan_candidates(db, week="2026-W44")
+    db.expire_all()
+    row = db.query(PmwbComplaintProblem).filter_by(problem_no=p.problem_no).one()
+    assert (row.total_cnt, row.active_weeks, row.recur_cnt) == (total, active, 1)
+
+
+def test_rule_r3_no_inflight_no_recur_hit(db):
+    """R3 前置：无在办问题时，单条复发单不构成候选（避免每单都建问题）。"""
+    _seed_dict(db)
+    _ticket(db, "R-1", day=27, is_recur=1)
     r = P.scan_candidates(db, week="2026-W44")
     assert r["created"] == []
 
 
-def test_rule_r3_surge(db):
-    _seed_dict(db)
-    # 上周 2 单、本周 6 单（环比 200%）
-    for i in range(2):
-        _ticket(db, f"P-{i}", day=19, week="2026-W43")
-    for i in range(6):
-        _ticket(db, f"C-{i}", day=26 + i % 3)  # 3 天各 2 单，日簇不触发
-    r = P.scan_candidates(db, week="2026-W44")
-    assert len(r["created"]) == 1
-    p = db.query(PmwbComplaintProblem).one()
-    assert p.source_type == "surge"
-
-
-def test_rule_r2_top_scene(db):
-    _seed_dict(db)
-    for i in range(9):  # 3 天各 3 单：周累计达标、日簇不触发
-        _ticket(db, f"T-{i}", day=26 + i % 3)
-    r = P.scan_candidates(db, week="2026-W44")
-    assert len(r["created"]) == 1
-    p = db.query(PmwbComplaintProblem).one()
-    assert p.source_type == "top_scene"
-
-
-def test_rule_r4_recur(db):
-    _seed_dict(db)
-    _action(db, status="effective", go_live_date=date(2026, 10, 20))
-    _ticket(db, "R-1", day=27, is_recur=1)
-    r = P.scan_candidates(db, week="2026-W44")
-    assert len(r["created"]) == 1
-    p = db.query(PmwbComplaintProblem).one()
-    assert "recur" in p.rule_hits
-
-
-def test_scan_idempotent_and_unique_per_scene(db):
+def test_scan_idempotent(db):
+    """幂等：同簇重复扫描只累加证据，不新建第二条问题。"""
     _seed_dict(db)
     for i in range(8):
         _ticket(db, f"U-{i}", day=26 + i % 3)
     P.scan_candidates(db, week="2026-W44")
-    cnt1 = db.query(PmwbComplaintProblem).count()
-    r2 = P.scan_candidates(db, week="2026-W44")
-    assert cnt1 == 1 and r2["created"] == []
     assert db.query(PmwbComplaintProblem).count() == 1
+    r2 = P.scan_candidates(db, week="2026-W44")
+    assert r2["created"] == [] and len(r2["updated"]) == 1
+    assert db.query(PmwbComplaintProblem).count() == 1
+
+
+def test_scan_dry_run_does_not_write(db):
+    """dry_run 必须零写库（回归：在办问题累加分支曾在 dry_run 之前执行 UPDATE）。"""
+    _seed_dict(db)
+    p = _candidate(db, status="open", owner="A",
+                   first_week="2026-W43", last_week="2026-W43")
+    for i in range(5):
+        _ticket(db, f"D-{i}")
+    before = (p.total_cnt, p.week_cnt, p.last_week, p.active_weeks)
+    r = P.scan_candidates(db, week="2026-W44", dry_run=True)
+    assert r["created"] == [] and r["updated"] == [p.problem_no]
+    db.expire_all()
+    row = db.query(PmwbComplaintProblem).filter_by(problem_no=p.problem_no).one()
+    assert (row.total_cnt, row.week_cnt, row.last_week, row.active_weeks) == before
+
+
+def test_rebuild_counters_from_tickets(db):
+    """派生计数自愈：累计/峰值等字段被写坏后，按「簇 × 周」工单真值整体重建。"""
+    _seed_dict(db)
+    _ticket(db, "Z-1")
+    _ticket(db, "Z-2")
+    p = _candidate(db, total_cnt=999, peak_cnt=999, week_cnt=999, active_weeks=9)
+    out = P.rebuild_counters(db)
+    db.expire_all()
+    row = db.query(PmwbComplaintProblem).filter_by(problem_no=p.problem_no).one()
+    assert out["updated"] == 1
+    assert (row.total_cnt, row.peak_cnt, row.week_cnt,
+            row.active_weeks, row.quiet_weeks) == (2, 2, 2, 1, 0)
+
+
 
 
 # ── 3. 候选确认 ──────────────────────────────────────────────
@@ -192,8 +265,8 @@ def test_confirm_open_requires_owner(db):
 
 def test_confirm_merge_reassigns_tickets(db):
     _seed_dict(db)
-    src = _candidate(db, no="CPB-2026W44-01", l2=L2)
-    tgt = _candidate(db, no="CPB-2026W44-02", l2=L2B, status="open", owner="李雷")
+    src = _candidate(db, no="CPB-2026W44-01", l2=L2, rc=RC)
+    tgt = _candidate(db, no="CPB-2026W44-02", l2=L2B, rc=RC_B, status="open", owner="李雷")
     t = _ticket(db, "M-1", l2=L2, problem_no=src.problem_no)
     P.confirm(db, src.problem_no, "merge", merged_into=tgt.problem_no, confirm_by="老大")
     db.expire_all()
@@ -221,8 +294,8 @@ def test_candidate_cannot_link_action(db):
 
 # ── 4. 多对多 ────────────────────────────────────────────────
 def test_link_action_many_to_many_and_primary(db):
-    p1 = _candidate(db, no="CPB-2026W44-01", l2=L2, status="open", owner="A")
-    p2 = _candidate(db, no="CPB-2026W44-02", l2=L2B, status="open", owner="B")
+    p1 = _candidate(db, no="CPB-2026W44-01", l2=L2, rc=RC, status="open", owner="A")
+    p2 = _candidate(db, no="CPB-2026W44-02", l2=L2B, rc=RC_B, status="open", owner="B")
     a = _action(db)
     P.link_action(db, p1.problem_no, a.action_no, is_primary=True)
     P.link_action(db, p2.problem_no, a.action_no)  # 一措施挂两问题
@@ -337,22 +410,37 @@ def test_issue_suspended_not_touched(db):
 
 # ── 6. 归因与闭环 ────────────────────────────────────────────
 def test_assign_tickets_priority(db):
+    """归因：在办问题优先于候选；未判定根因（无簇）的单不打问题标。"""
     _seed_dict(db)
-    bp = _candidate(db, no="CPB-2026W44-01", l2=L2, source_type="batch_cluster",
-                    status="open", owner="A")
-    t_batch = _ticket(db, "A-1", l2=L2, is_batch=1)
-    t_norm = _ticket(db, "A-2", l2=L2)
-    r = P.assign_tickets(db, week="2026-W44")
+    open_p = _candidate(db, no="CPB-2026W44-01", rc=RC, status="open", owner="A")
+    cand_p = _candidate(db, no="CPB-2026W44-02", l2=L2B, rc=RC_B)
+    t_open = _ticket(db, "A-1", rc=RC)
+    t_cand = _ticket(db, "A-2", l2=L2B, rc=RC_B)
+    t_none = _ticket(db, "A-3", rc=None)
+    P.assign_tickets(db, week="2026-W44")
     db.expire_all()
-    assert db.get(PmwbComplaintTicket, t_batch.id).problem_no == bp.problem_no
-    assert db.get(PmwbComplaintTicket, t_norm.id).problem_no == bp.problem_no
+    assert db.get(PmwbComplaintTicket, t_open.id).problem_no == open_p.problem_no
+    assert db.get(PmwbComplaintTicket, t_cand.id).problem_no == cand_p.problem_no
+    assert db.get(PmwbComplaintTicket, t_none.id).problem_no is None
+
+
+def test_assign_tickets_closed_problem_releases_tickets(db):
+    """已闭环问题不再收纳新单（归因清空，由 known.py 判为「新增问题」）。"""
+    _seed_dict(db)
+    p = _candidate(db, no="CPB-2026W44-01", rc=RC, status="closed",
+                   conclusion="已闭环", owner="A")
+    t = _ticket(db, "Z-1", rc=RC, problem_no=p.problem_no)
+    P.assign_tickets(db, week="2026-W44")
+    db.expire_all()
+    assert db.get(PmwbComplaintTicket, t.id).problem_no is None
 
 
 def test_recompute_and_reopen(db):
     _seed_dict(db)
-    p = _candidate(db, no="CPB-2026W44-01", l2=L2, status="closed",
-                   conclusion="已闭环", closed_week="2026-W43", owner="李雷")
-    _ticket(db, "X-1", day=27, is_recur=1)
+    p = _candidate(db, no="CPB-2026W44-01", rc=RC, status="closed",
+                   conclusion="已闭环", closed_week="2026-W43", owner="李雷",
+                   last_week="2026-W43")
+    _ticket(db, "X-1", day=27, rc=RC, is_recur=1)
     P.recompute(db, week="2026-W44")
     db.expire_all()
     row = db.query(PmwbComplaintProblem).filter_by(problem_no=p.problem_no).one()
@@ -362,6 +450,7 @@ def test_recompute_and_reopen(db):
     db.expire_all()
     row = db.query(PmwbComplaintProblem).filter_by(problem_no=p.problem_no).one()
     assert row.status == "resolving" and row.reopen_flag == 0
+
 
 
 def test_closure_suggestions(db):
@@ -381,19 +470,27 @@ def test_closure_suggestions(db):
 
 # ── 7. API ───────────────────────────────────────────────────
 def test_problems_list_and_detail(client: TestClient, db):
+    """台账默认只返回「已复核待解决」问题；候选走独立端点/显式 status 查询。"""
     _seed_dict(db)
-    p = _candidate(db)
+    cand = _candidate(db, no="CPB-2026W44-01", rc=RC)
+    opened = _candidate(db, no="CPB-2026W44-02", rc=RC_B, status="open", owner="A")
+
     resp = client.get("/api/v1/complaint/problems")
     assert resp.status_code == 200
-    assert resp.json()["data"]["items"][0]["problem_no"] == p.problem_no
+    items = resp.json()["data"]["items"]
+    assert [i["problem_no"] for i in items] == [opened.problem_no]
 
-    resp = client.get(f"/api/v1/complaint/problems/{p.problem_no}")
+    resp = client.get("/api/v1/complaint/problems", params={"status": "candidate"})
+    assert [i["problem_no"] for i in resp.json()["data"]["items"]] == [cand.problem_no]
+
+    resp = client.get(f"/api/v1/complaint/problems/{cand.problem_no}")
     assert resp.status_code == 200
     assert resp.json()["data"]["status"] == "candidate"
 
     resp = client.get("/api/v1/complaint/problems/candidates")
     assert resp.status_code == 200
     assert len(resp.json()["data"]["items"]) == 1
+
 
 
 def test_problem_status_illegal_400(client: TestClient, db):

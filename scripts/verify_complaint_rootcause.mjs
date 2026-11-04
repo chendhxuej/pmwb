@@ -3,7 +3,7 @@
  *
  * 覆盖：
  *   1. 根因库页 /complaint-center/rootcause：KPI 卡、根因簇表格、簇详情抽屉（关联工单）
- *   2. 投诉现状看板「分析四问」：① 根因簇表 ② 环节/责任条形非空 ③ 批量问题表与压降空间
+ *   2. 投诉现状看板（冒烟：五板块 + 已知问题率；完整断言见 verify_complaint_analysis.mjs）
  *   3. 工单台账：根因列渲染（真实根因文本 + 系统/环节标签 + 簇编号）
  *
  * 用法（backend 目录外，项目根执行）：
@@ -215,42 +215,31 @@ async function main() {
     await sleep(600)
 
     /* ── 2. 看板「分析四问」 ── */
-    console.log('\n▶ 投诉现状看板 /complaint-center/dashboard')
+    /* ── 2. 投诉现状：看板已重构为「五板块分析报告」（2026-11-04）
+       完整断言见 scripts/verify_complaint_analysis.mjs（34 项）。此处只做冒烟，
+       避免两个脚本各维护一套看板断言、改版时双处返工。 ── */
+    console.log('\n▶ 投诉现状看板 /complaint-center/dashboard（冒烟）')
     await cdp.goto(`${BASE}/complaint-center/dashboard`)
-    const hasCard2 = await cdp.waitFor('.rc-analysis', 30000)
-    hasCard2 ? ok('分析区块 .rc-analysis 存在') : bad('分析区块缺失')
+    const hasDash = await cdp.waitFor('.complaint-dashboard', 30000)
+    hasDash ? ok('看板页挂载') : bad('看板页未挂载')
     await sleep(2500)
-
-    const dash = await cdp.eval(`(() => {
-      const box = document.querySelector('.rc-analysis')
-      if (!box) return null
-      const asks = [...box.querySelectorAll('.rc-ask-title')].map(e => e.innerText.trim())
-      const tables = [...box.querySelectorAll('.el-table')]
-      const clusterRows = tables[0] ? tables[0].querySelectorAll('.el-table__body tbody tr').length : 0
-      const batchRows = tables[1] ? tables[1].querySelectorAll('.el-table__body tbody tr').length : 0
-      const bars = [...box.querySelectorAll('.rc-bar-row')]
-      const barW = bars.map(b => b.querySelector('.rc-bar-fill')?.style.width || '')
-      const winNums = [...box.querySelectorAll('.rc-win .kpi-num')].map(e => e.innerText.trim())
-      const covTag = (box.querySelector('.card-header .el-tag')?.innerText || '').trim()
+    const dashBrief = await cdp.eval(`(() => {
+      const root = document.querySelector('.complaint-dashboard')
+      if (!root) return null
+      const kpis = [...root.querySelectorAll('.kpi-card')].map(c => ({
+        num: (c.querySelector('.kpi-num')?.innerText || '').trim(),
+        label: (c.querySelector('.kpi-label')?.innerText || '').trim(),
+      }))
       return {
-        asks, clusterRows, batchRows, bars: bars.length,
-        filledBars: barW.filter(w => w && w !== '0%').length,
-        winNums, covTag, hasTip: !!box.querySelector('.rc-tip'),
+        titles: [...root.querySelectorAll('.card-header h3')].map(h => h.innerText.trim()),
+        kpis,
       }
     })()`)
-
-    dash ? ok('分析区块 DOM 可取') : bad('分析区块取不到')
-    if (dash) {
-      dash.asks.length === 3 ? ok('三个分析分节标题', dash.asks.join(' / ')) : bad('分析分节数量异常', JSON.stringify(dash.asks))
-      dash.asks[0]?.includes('投诉的是什么问题') ? ok('分节①文案正确') : bad('分节①文案异常', dash.asks[0] || '')
-      dash.asks[2]?.includes('一次消灭') ? ok('分节③文案正确') : bad('分节③文案异常', dash.asks[2] || '')
-      dash.clusterRows > 0 ? ok('根因簇表有数据', `${dash.clusterRows} 行`) : bad('根因簇表为空')
-      dash.bars > 0 ? ok('环节/责任条形渲染', `${dash.bars} 条`) : bad('条形图未渲染')
-      dash.filledBars > 0 ? ok('条形宽度非零（真实数据驱动）', `${dash.filledBars}/${dash.bars}`) : bad('条形宽度全为 0')
-      dash.batchRows > 0 ? ok('批量问题表有数据', `${dash.batchRows} 行`) : bad('批量问题表为空')
-      dash.winNums.length === 3 ? ok('压降空间 KPI 3 张', dash.winNums.join('/')) : bad('压降空间 KPI 数量异常', JSON.stringify(dash.winNums))
-      Number(dash.winNums[0]) > 0 ? ok('批量问题覆盖单量 > 0', dash.winNums[0]) : bad('批量覆盖单量为 0')
-      String(dash.covTag).includes('根因分析') ? ok('覆盖率标签可见', dash.covTag) : bad('覆盖率标签缺失', dash.covTag)
+    dashBrief ? ok('看板 DOM 可取') : bad('看板 DOM 取不到')
+    if (dashBrief) {
+      dashBrief.titles.length >= 5 ? ok('五板块标题在位', `${dashBrief.titles.length} 个`) : bad('板块标题不足', JSON.stringify(dashBrief.titles))
+      const rh = dashBrief.kpis.find(k => k.label.includes('已知问题率'))
+      rh && String(rh.num).includes('%') ? ok('已知问题率出数', rh.num) : bad('已知问题率缺失')
     }
 
     /* ── 3. 工单台账根因列 ── */

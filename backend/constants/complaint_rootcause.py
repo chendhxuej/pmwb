@@ -95,16 +95,19 @@ REPRO_LABELS: Dict[str, str] = {
 }
 
 # ── 根因状态（写 pmwb_complaint_ticket.rc_status）────────────
-RC_STATUS_PENDING = ""        # 待分析
-RC_STATUS_AI = "ai"           # 已归纳（过质量门禁）
-RC_STATUS_LOW = "low"         # 待人工（门禁未过或置信度不足）
-RC_STATUS_MANUAL = "manual"   # 人工确认（重跑永不覆盖）
+# 设计原则（2026-11-04）：工单层分析 AI 全自动，**不设人工队列**。
+# 门禁不通过的单落 insufficient（信息不足）并记 rc_gap，聚合时单列一桶、
+# 不计入根因分布分母——宁标不足，也不让粗结论污染统计。
+RC_STATUS_PENDING = ""              # 待分析
+RC_STATUS_AI = "ai"                 # 已归纳（过质量门禁）
+RC_STATUS_INSUFFICIENT = "insufficient"  # 信息不足（AI 已尽力，缺关键事实，不进人工队列）
+RC_STATUS_MANUAL = "manual"         # 人工校正（可选动作，重跑永不覆盖）
 
 RC_STATUS_LABELS: Dict[str, str] = {
     RC_STATUS_PENDING: "待分析",
     RC_STATUS_AI: "已归纳",
-    RC_STATUS_LOW: "待人工",
-    RC_STATUS_MANUAL: "人工确认",
+    RC_STATUS_INSUFFICIENT: "信息不足",
+    RC_STATUS_MANUAL: "人工校正",
 }
 
 # ── 根因库状态（写 pmwb_complaint_rootcause.status）──────────
@@ -123,7 +126,8 @@ RC_LIB_STATUS_LABELS: Dict[str, str] = {
 # ── 根因描述质量门禁（泛词黑名单，防再次"泛化"）────────────────
 # 命中这些词说明根因停在「现象层」，没有落到真实问题点。
 GENERIC_TERMS: Tuple[str, ...] = (
-    "操作咨询", "操作指引", "系统问题", "数据问题", "流程优化", "投诉咨询",
+    "操作咨询", "操作指引", "系统问题", "数据问题", "数据异常", "流程优化",
+    "投诉咨询", "规则咨询", "信息不足",
     "数据不一致", "状态不一致", "需要核实", "需核实", "待核实", "存在问题",
     "出现异常", "发生异常", "系统异常", "数据异常", "处理中", "已解决",
     "已处理", "协助处理", "请协助", "无法处理", "报错", "失败",

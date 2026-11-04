@@ -39,92 +39,6 @@ def _pct(v: Optional[float], dash: str = "—") -> str:
     return dash if v is None else f"{v}%"
 
 
-def _wow_text(m: Dict) -> str:
-    if m["wow_pct"] is None:
-        if m["prev_partial"]:
-            return f'<span class="tag t-gray">不可比</span> 上周数据仅覆盖 {m["prev_days"]} 天（{m["prev_total"]} 单），不做环比结论'
-        return '<span class="tag t-gray">无基线</span> 上周无数据'
-    v = m["wow_pct"]
-    cls = "t-red" if v > 0 else ("t-green" if v < 0 else "t-gray")
-    arrow = "↑" if v > 0 else ("↓" if v < 0 else "→")
-    return f'<span class="tag {cls}">{arrow} {abs(v)}%</span> 上周 {m["prev_total"]} 单'
-
-
-def _conclusions(m: Dict, problems: Optional[List[Dict]] = None) -> List[str]:
-    """按数据生成结论（不写死话术）。"""
-    out: List[str] = []
-    tot = m["total"]
-
-    l1 = m["by_l1"]
-    if l1:
-        top = l1[0]
-        out.append(f'<b>结构</b>：{top["name"]} 占 <b>{top["cnt"]} 单（{top["pct"]}%）</b>，为本周第一大类；'
-                   f'前两类合计占 {round(sum(x["pct"] for x in l1[:2]), 1)}%。')
-
-    b = m["batch"]
-    # 根因口径压降空间（2026-11-03 新增；数据缺失时整段跳过，旧调用不破）
-    rc = m.get("rootcause") or {}
-    if rc and rc.get("covered"):
-        top = (rc.get("clusters") or [{}])[0]
-        parts = []
-        if top.get("title"):
-            parts.append(f'本周第一根因是「<b>{top["title"]}</b>」（{top["cnt"]} 单，{top["pct"]}%）')
-        if rc.get("batch"):
-            win = sum(int(x.get("cnt") or 0) for x in rc["batch"])
-            parts.append(f'同根因簇 ≥{C.RC_BATCH_WEEK_MIN} 单的批量问题 {len(rc["batch"])} 个、'
-                         f'覆盖 <b>{win} 单</b>（占 {round(win / rc["covered"] * 100, 1)}%），'
-                         f'修一处即可整批消掉')
-        if rc.get("quick_win_pct"):
-            parts.append(f'可批量修复/改造单量 {rc.get("quick_win_cnt")} 单（{rc["quick_win_pct"]}%）')
-        if parts:
-            out.append("<b>根因</b>：" + "；".join(parts) + "。根因明细见第三章。")
-        if rc.get("coverage_pct", 0) < 90:
-            out.append(f'<b>数据质量</b>：根因覆盖率仅 {rc["coverage_pct"]}%'
-                       f'（待分析 {rc.get("pending", 0)} 单、待人工 {rc.get("low", 0)} 单），'
-                       '根因结论可靠性受限，建议先补齐。')
-
-    if b["cluster_count"]:
-        if b["fix_rate"] < 50:
-            out.append(f'<b>批量异常</b>：{b["cluster_count"]} 个簇、{b["ticket_cnt"]} 单（{b["ticket_pct"]}%），'
-                       f'但<b>组织修复率仅 {b["fix_rate"]}%</b>——同源故障仍在逐单兜底，未升级为故障处置。')
-        else:
-            out.append(f'<b>批量异常</b>：{b["cluster_count"]} 个簇、{b["ticket_cnt"]} 单（{b["ticket_pct"]}%），'
-                       f'组织修复率 {b["fix_rate"]}%，已具备批量处置动作。')
-    else:
-        out.append('<b>批量异常</b>：本周未出现同场景单日 ≥5 单的批量簇。')
-
-    e = m["efficiency"]
-    risks = []
-    if e["rework_pct"] >= 15:
-        risks.append(f'首轮返工 {e["rework_pct"]}%（{e["rework"]} 单）')
-    if e["repeat_dispatch_pct"] >= 10:
-        risks.append(f'重复派单 {e["repeat_dispatch_pct"]}%（{e["repeat_dispatch"]} 单）')
-    if e["unclosed_pct"] >= 50:
-        risks.append(f'未结单率 {e["unclosed_pct"]}%（{e["unclosed"]} 单）')
-    if e["pushout_pct"] >= 5:
-        risks.append(f'互推外部 {e["pushout_pct"]}%（{e["pushout"]} 单）')
-    if risks:
-        out.append("<b>效率损耗</b>：" + "、".join(risks) + "，属流程与话术可治理范围，不依赖开发。")
-
-    r = m["recur"]
-    if r["cnt"]:
-        names = "、".join(f'{x["name"]}（{x["cnt"]}）' for x in r["tops"][:3])
-        out.append(f'<b>复发预警</b>：{r["cnt"]} 单（{r["pct"]}%）发生在措施生效后，集中在 {names}——'
-                   f'说明前期措施未真正见效，需回退核查。')
-    else:
-        out.append('<b>复发预警</b>：本周无"措施生效后同类再现"工单（当前措施台账为空或未到验证期）。')
-
-    # 共性问题闭环洞察（problems 为空时优雅降级，CLI 旧调用不破）
-    if problems is not None:
-        cand = sum(1 for p in problems if p["status"] == "candidate")
-        inflight = sum(1 for p in problems if p["status"] in ("open", "resolving"))
-        reopen = sum(1 for p in problems if p["reopen_flag"])
-        out.append(f'<b>共性问题</b>：本周新增候选问题 {cand} 个（未确认）、在办 {inflight} 个'
-                   + (f'、{reopen} 个已闭环问题再次出现待重开' if reopen else '')
-                   + '。台账见「客诉专题 → 问题台账」。')
-    return out
-
-
 def _rows(items: List[Dict], cols: List[tuple]) -> str:
     if not items:
         return '<tr><td colspan="%d" style="text-align:center;color:#98a6ba">暂无数据</td></tr>' % len(cols)
@@ -135,7 +49,67 @@ def _rows(items: List[Dict], cols: List[tuple]) -> str:
     return "".join(out)
 
 
+_L1_MEANING = {
+    "系统问题": "系统缺陷，需研发修复",
+    "流程优化": "流程或规则不合理，需改造",
+    "数据异常": "数据不一致/错误，需批量修复",
+    "规则咨询": "客户对政策资费有疑问，解释即可化解",
+    "操作咨询": "客户不熟悉操作，指引或代办即可化解",
+}
+
+_FIX_ACTION = {
+    "批量修复": "出数据修复脚本，一次性回溯存量错误数据",
+    "系统改造": "提需求排期改造（评估版本窗口）",
+    "规则调整": "调整校验规则/配置口径，无需改代码",
+    "逐单处理": "无法批量，只能逐单兜底（不产生压降空间）",
+    "解释指引": "完善指引话术，压降重复咨询",
+}
+
+_REPORT_STYLE = """
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:#f5f7fa;color:#1f2d3d;padding:30px 0;line-height:1.7}
+  .wrap{width:min(1080px,94%);margin:0 auto}
+  h1{font-size:24px;margin-bottom:4px}
+  .sub{color:#7a8ba3;font-size:13px;margin-bottom:22px}
+  .card{background:#fff;border-radius:12px;padding:22px 26px;margin-bottom:18px;box-shadow:0 1px 4px rgba(31,45,61,.08);break-inside:avoid}
+  h2{font-size:17px;margin-bottom:14px;border-left:4px solid #2f6fed;padding-left:10px}
+  .kpi{display:grid;grid-template-columns:repeat(6,1fr);gap:11px}
+  .kpi .item{background:#f0f5ff;border-radius:10px;padding:13px 10px;text-align:center}
+  .kpi .num{font-size:23px;font-weight:800;color:#2f6fed;font-family:Consolas,monospace}
+  .kpi .lbl{font-size:11.5px;color:#5a6b85;margin-top:3px}
+  .heroline{display:grid;grid-template-columns:1.1fr 1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+  .hero{background:linear-gradient(135deg,#2f6fed,#4b8bff);border-radius:12px;padding:18px 20px;color:#fff}
+  .hero .num{font-size:40px;font-weight:800;font-family:Consolas,monospace;line-height:1.1}
+  .hero .lbl{font-size:12.5px;opacity:.9;margin-top:2px}
+  .hero .desc{font-size:11.5px;opacity:.85;margin-top:6px}
+  .mini{background:#f7f9fc;border-radius:10px;padding:14px 16px;text-align:center}
+  .mini .num{font-size:26px;font-weight:800;font-family:Consolas,monospace;color:#1f2d3d}
+  .mini .lbl{font-size:11.5px;color:#5a6b85}
+  .chart{width:100%;height:300px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:#f0f4fa;text-align:left;padding:8px 10px;border-bottom:2px solid #dfe7f2}
+  td{padding:7px 10px;border-bottom:1px solid #eef2f7;vertical-align:top}
+  .tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
+  .t-red{background:#fde8e8;color:#c0392b}.t-orange{background:#fff2e0;color:#d97706}
+  .t-blue{background:#e8f1ff;color:#2f6fed}.t-green{background:#e5f7ed;color:#1e9e5a}
+  .t-gray{background:#eef1f5;color:#5a6b85}
+  .note{background:#f0f7ff;border-left:4px solid #2f6fed;padding:12px 15px;border-radius:6px;margin:10px 0;font-size:13px}
+  .warn{background:#fff8ec;border-left:4px solid #e8a33d}
+  ul{padding-left:20px}li{font-size:13.5px;line-height:1.9}
+  .foot{color:#98a6ba;font-size:12px;text-align:center;margin-top:8px}
+  .sub-h{font-size:14px;font-weight:700;margin:18px 0 8px;color:#1f2d3d}
+"""
+
 def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
+    """渲染周分析报告（6 章，2026-11-04 重构为「分析」而非「统计」）。
+
+    叙事主线（老大定的核心诉求）：
+      本周多少单 → 是不是已知问题 → 是什么问题（五类+簇）→ 能压多少 → 治了没有。
+    统计口径纪律：
+      - 已知率分母 = 已判定单量（不是总单量），未分析的单不稀释指标；
+      - 根因分布分母 = 已根因分析单量（信息不足单单独成桶，不进分母）；
+      - 基期数据残缺时明确标「不可比」，绝不显示 0 充数。
+    """
     l1 = m["by_l1"]
     pie_data = [{"value": x["cnt"], "name": x["name"]} for x in l1]
     trend_weeks = [t["week"].split("-")[1] for t in m["trend"]]
@@ -144,59 +118,64 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     daily_keys = [k[5:] for k in m["daily"].keys()]
     daily_vals = list(m["daily"].values())
 
-    concl = "".join(f"<li>{c}</li>" for c in _conclusions(m, problems))
-
-    action_rows = _rows(m["actions"], [
-        ("措施编号", lambda a: f'<b>{a["action_no"]}</b>'),
-        ("所属问题", lambda a: (f'<b>{a["problem_no"]}</b>' if a.get("problem_no") else "—")),
-        ("针对场景", lambda a: a["category_l2"] or "—"),
-        ("责任人", lambda a: a["owner"] or "—"),
-        ("要求完成", lambda a: str(a["due_date"] or "—")),
-        ("生效日", lambda a: str(a["go_live_date"] or "—")),
-        ("基线/目标", lambda a: f'{a["baseline_cnt"] or "—"} / 降{a["target_drop_pct"] or 50}%'),
-        ("状态", lambda a: a["status"]),
-    ]) if m["actions"] else (
-        '<tr><td colspan="8" style="color:#98a6ba;text-align:center">'
-        '本周尚未登记改进措施——请将结论中的 P0/P1 项落为运营工单并登记到措施台账，'
-        '否则下周无法回答"措施做了没有、有没有用"</td></tr>'
-    )
-
-    # 共性问题台账表（7.1，problems 为空时显示空态行）
-    problem_rows = _rows(problems or [], [
-        ("问题编号", lambda p: f'<b>{p["problem_no"]}</b>'),
-        ("场景", lambda p: p.get("category_l2") or "—"),
-        ("状态", lambda p: p.get("status") or "—"),
-        ("首见周", lambda p: p.get("first_week") or "—"),
-        ("在办周", lambda p: str(p.get("active_weeks") if p.get("active_weeks") is not None else "—")),
-        ("当周/累计", lambda p: f'{p.get("week_cnt") if p.get("week_cnt") is not None else "—"} / {p.get("total_cnt") or 0}'),
-        ("复发", lambda p: f'<b style="color:#c0392b">{p["recur_cnt"]}</b>' if p.get("recur_cnt") else "0"),
-        ("措施(有效/总数)", lambda p: f'{p.get("effective_cnt") or 0} / {p.get("action_cnt") or 0}'),
-        ("闭环结论", lambda p: p.get("conclusion") or "—"),
-    ]) if problems is not None else '<tr><td colspan="9" style="color:#98a6ba;text-align:center">—</td></tr>'
-    _p_stat = (
-        f'待确认 {sum(1 for p in problems if p["status"] == "candidate")}｜'
-        f'在办 {sum(1 for p in problems if p["status"] in ("open", "resolving"))}｜'
-        f'已闭环 {sum(1 for p in problems if p["status"] == "closed")}'
-    ) if problems is not None else ""
-
-    cluster_rows = _rows(m["batch"]["clusters"], [
-        ("场景", lambda c: f'<b>{c["l2"]}</b>'),
-        ("发现日", lambda c: c["date"]),
-        ("单量", lambda c: f'<b style="color:#c0392b">{c["cnt"]}</b>'),
-        ("涉及地市", lambda c: c["cities"] or "—"),
-        ("组织修复", lambda c: '<span class="tag t-green">已批量处置</span>' if c["fixed"]
-            else '<span class="tag t-red">逐单兜底</span>'),
-        ("代表单号", lambda c: f'<span style="font-size:11px;color:#5a6b85">{c["tickets"]}</span>'),
-    ])
-
+    k = m.get("known") or {}
+    rc = m.get("rootcause") or {}
     e = m["efficiency"]
     echarts_tag = _echarts_tag()
 
-    # ── 根因分析（2026-11-03 根因深化：从"有多少单"到"为什么、怎么治"）──
-    rc = m.get("rootcause") or {}
-    rc_covered = int(rc.get("covered") or 0)
-    rc_rows = _rows(rc.get("clusters") or [], [
-        ("#", lambda _x: ""),
+    known_rate = float(k.get("known_rate") or 0)
+    known_cnt = int(k.get("known_cnt") or 0)
+    new_cnt = int(k.get("new_cnt") or 0)
+    unknown_cnt = int(k.get("unknown_cnt") or 0)
+    judged = int(k.get("judged") or 0)
+    pot_known = int(k.get("potential_known_cnt") or 0)
+
+    # ── 一、概览与波动 ──
+    if m.get("prev_partial"):
+        wow_cell = f'<div class="num" style="font-size:17px">不可比</div>'
+        wow_note = (f'<div class="note warn">上周（{m["prev_week"]}）仅有 {m["prev_days"]} 天数据，'
+                    f'周环比不可比，本报告不给出环比结论。补导历史工单后自动恢复。</div>')
+    elif m.get("wow_pct") is None:
+        wow_cell = '<div class="num">—</div>'
+        wow_note = '<div class="note warn">缺少可比基期数据，暂不给出环比结论。</div>'
+    else:
+        v = m["wow_pct"]
+        color = "#c0392b" if v > 0 else "#1e9e5a"
+        wow_cell = f'<div class="num" style="color:{color}">{v:+.1f}%</div>'
+        wow_note = ""
+
+    # ── 二、已知 vs 新增 ──
+    known_rows = _rows(k.get("known_problems") or [], [
+        ("问题编号", lambda x: f'<b>{x["problem_no"]}</b>'),
+        ("在办问题（根因摘要）", lambda x: f'<b>{x["title"] or "—"}</b>'),
+        ("责任人", lambda x: x.get("owner") or "—"),
+        ("本周命中", lambda x: f'<b style="color:#c0392b">{x["cnt"]}</b> 单'),
+        ("状态", lambda x: {"open": '<span class="tag t-blue">在办</span>',
+                            "resolving": '<span class="tag t-orange">处理中</span>'}
+            .get(x.get("status") or "", '<span class="tag t-gray">—</span>')),
+    ]) if k.get("known_problems") else (
+        '<tr><td colspan="5" style="color:#98a6ba;text-align:center">'
+        '本周没有命中在办问题的工单——即没有一单能被「已在处理的问题」解释</td></tr>')
+
+    new_cluster_rows = _rows((k.get("new_clusters") or [])[:12], [
+        ("新增问题（根因簇）", lambda x: f'<b>{x["title"] or x["rootcause_no"] or "未归簇"}</b>'),
+        ("系统", lambda x: x.get("fault_system") or "—"),
+        ("环节", lambda x: x.get("fault_stage") or "—"),
+        ("单量", lambda x: f'<b style="color:#c0392b">{x["cnt"]}</b>'),
+        ("已提候选", lambda x: (
+            f'<span class="tag t-blue">{x["cand_problem_no"]}</span>' if x.get("in_candidate")
+            else '<span class="tag t-orange">待入账</span>')),
+    ]) if k.get("new_clusters") else (
+        '<tr><td colspan="5" style="color:#98a6ba;text-align:center">本周无新增问题</td></tr>')
+
+    # ── 三、五类分类汇总 ──
+    l1_rows = "".join(
+        f'<tr><td><b>{x["name"]}</b></td><td>{_L1_MEANING.get(x["name"], "—")}</td>'
+        f'<td><b>{x["cnt"]}</b></td><td>{x["pct"]}%</td></tr>'
+        for x in l1
+    ) or '<tr><td colspan="4" style="color:#98a6ba;text-align:center">暂无数据</td></tr>'
+
+    cluster_rows = _rows((rc.get("clusters") or [])[:15], [
         ("根因簇（一簇 = 一处修复点）", lambda x: f'<b>{x["title"]}</b>'),
         ("系统", lambda x: x.get("fault_system") or "—"),
         ("环节", lambda x: x.get("fault_stage") or "—"),
@@ -205,211 +184,178 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
         ("单量", lambda x: f'<b style="color:#c0392b">{x["cnt"]}</b>'),
         ("占比", lambda x: f'{x["pct"]}%'),
     ]) if rc.get("clusters") else (
-        '<tr><td colspan="8" style="color:#98a6ba;text-align:center">'
-        '本周尚无根因数据——请先执行「根因归纳」（后台自动，或根因库页手动触发）</td></tr>'
-    )
+        '<tr><td colspan="7" style="color:#98a6ba;text-align:center">本周尚无根因数据</td></tr>')
 
-    def _dist_rows(items: List[Dict], name_label: str) -> str:
-        rows = "".join(
-            f'<tr><td>{x["name"]}</td><td><b>{x["cnt"]}</b></td><td>{x["pct"]}%</td></tr>'
-            for x in (items or []) if x.get("cnt")
-        )
-        return rows or ('<tr><td colspan="3" style="color:#98a6ba;text-align:center">暂无数据</td></tr>')
-
-    # 根因口径的批量问题（一处修复可整批消掉）——取代原「同场景同日≥5单」的粗口径
-    rc_batch = rc.get("batch") or []
-    rc_batch_rows = _rows(rc_batch, [
-        ("根因（一处修复点）", lambda x: f'<b>{x["title"]}</b>'),
+    # ── 四、压降指引 ──
+    batch = rc.get("batch") or []
+    win_cnt = sum(int(x.get("cnt") or 0) for x in batch)
+    win_pct = round(win_cnt / int(rc.get("covered") or 1) * 100, 1) if rc.get("covered") else 0.0
+    guide_rows = _rows(batch, [
+        ("根因（改这里即可整批消掉）", lambda x: f'<b>{x["title"]}</b>'),
         ("系统", lambda x: x.get("fault_system") or "—"),
-        ("环节", lambda x: x.get("fault_stage") or "—"),
         ("责任方", lambda x: x.get("own_party") or "—"),
+        ("覆盖单量", lambda x: f'<b style="color:#c0392b">{x["cnt"]}</b>'),
         ("处置方式", lambda x: x.get("fix_mode") or "—"),
-        ("涉及单量", lambda x: f'<b style="color:#c0392b">{x["cnt"]}</b>'),
-        ("跨天数", lambda x: f'{x.get("days") or 0} 天'),
-    ]) if rc_batch else (
-        f'<tr><td colspan="7" style="color:#98a6ba;text-align:center">'
-        f'本周未出现同根因簇 ≥{C.RC_BATCH_WEEK_MIN} 单的批量问题</td></tr>'
-    )
-    rc_win_cnt = sum(int(x.get("cnt") or 0) for x in rc_batch)
+        ("建议动作", lambda x: _FIX_ACTION.get(x.get("fix_mode") or "", "逐单核实后再定")),
+    ]) if batch else (
+        f'<tr><td colspan="6" style="color:#98a6ba;text-align:center">'
+        f'本周未出现同根因簇 ≥{C.RC_BATCH_WEEK_MIN} 单的批量问题，没有可整批压降的空间</td></tr>')
+
+    # ── 五、措施跟踪与验证 ──
+    action_rows = _rows(m["actions"], [
+        ("措施编号", lambda a: f'<b>{a["action_no"]}</b>'),
+        ("所属问题", lambda a: (f'<b>{a["problem_no"]}</b>' if a.get("problem_no") else "—")),
+        ("责任人", lambda a: a["owner"] or "—"),
+        ("生效日", lambda a: str(a["go_live_date"] or "—")),
+        ("基线/本周", lambda a: f'{a["baseline_cnt"] if a["baseline_cnt"] is not None else "—"} / '
+                             f'{a["last_week_cnt"] if a["last_week_cnt"] is not None else "—"}'),
+        ("实际降幅", lambda a: (f'<b style="color:{"#1e9e5a" if (a["actual_drop_pct"] or 0) >= 0 else "#c0392b"}">'
+                            f'{a["actual_drop_pct"]:+.1f}%</b>'
+                            if a["actual_drop_pct"] is not None else "待基线")),
+        ("状态", lambda a: a["status"]),
+    ]) if m["actions"] else (
+        '<tr><td colspan="7" style="color:#98a6ba;text-align:center">'
+        '本周尚未登记改进措施——问题不入账、不挂措施，下周的已知率仍会是 0</td></tr>')
+
+    problem_rows = _rows(problems or [], [
+        ("问题编号", lambda p: f'<b>{p["problem_no"]}</b>'),
+        ("问题（根因摘要）", lambda p: f'<b>{p.get("title") or "—"}</b>'),
+        ("状态", lambda p: p.get("status") or "—"),
+        ("首见周", lambda p: p.get("first_week") or "—"),
+        ("在办周", lambda p: str(p.get("active_weeks") if p.get("active_weeks") is not None else "—")),
+        ("当周/累计", lambda p: f'{p.get("week_cnt") if p.get("week_cnt") is not None else "—"} / {p.get("total_cnt") or 0}'),
+        ("措施", lambda p: f'{p.get("effective_cnt") or 0} / {p.get("action_cnt") or 0}'),
+    ]) if problems is not None else (
+        '<tr><td colspan="7" style="color:#98a6ba;text-align:center">—</td></tr>')
+
+    # ── 结论（四问式）──
+    concl_items = []
+    if judged:
+        concl_items.append(
+            f"本周新增 <b>{m['total']}</b> 单，其中判为<b>已知问题</b> {known_cnt} 单"
+            f"（已知率 <b>{known_rate}%</b>），<b>新增问题</b> {new_cnt} 单。")
+    if not known_cnt and new_cnt:
+        concl_items.append(
+            "全部工单都不是在办问题能解释的——说明台账里几乎没有在办问题，"
+            f"AI 已识别出 {pot_known} 单本应入账的问题（{k.get('inflight_problem_cnt', 0)} 个在办问题），"
+            "**确认入账是本周最该做的一件事**。")
+    if batch:
+        concl_items.append(
+            f"可整批压降空间：<b>{len(batch)}</b> 个根因簇、<b>{win_cnt}</b> 单"
+            f"（占已分析单量的 {win_pct}%），修掉这些簇是压降主力。")
+    if rc.get("insufficient"):
+        concl_items.append(
+            f"另有 {rc['insufficient']} 单工单信息不足（AI 已尽力，缺关键报错/处理意见），"
+            "已单列不进统计分母——要提升根因质量需从工单填写侧补事实。")
+    if not m["actions"]:
+        concl_items.append("本周无措施在跟踪，压降闭环未启动。")
+    concl = "".join(f"<li>{c}</li>" for c in concl_items) or "<li>本周无可分析数据。</li>"
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <title>客诉工单专题分析 {m['week']}</title>
-<style>
-  *{{margin:0;padding:0;box-sizing:border-box}}
-  body{{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:#f5f7fa;color:#1f2d3d;padding:30px 0;line-height:1.7}}
-  .wrap{{width:min(1080px,94%);margin:0 auto}}
-  h1{{font-size:24px;margin-bottom:4px}}
-  .sub{{color:#7a8ba3;font-size:13px;margin-bottom:22px}}
-  .card{{background:#fff;border-radius:12px;padding:22px 26px;margin-bottom:18px;box-shadow:0 1px 4px rgba(31,45,61,.08);break-inside:avoid}}
-  h2{{font-size:17px;margin-bottom:14px;border-left:4px solid #2f6fed;padding-left:10px}}
-  .kpi{{display:grid;grid-template-columns:repeat(6,1fr);gap:11px}}
-  .kpi .item{{background:#f0f5ff;border-radius:10px;padding:13px 10px;text-align:center}}
-  .kpi .num{{font-size:23px;font-weight:800;color:#2f6fed;font-family:Consolas,monospace}}
-  .kpi .lbl{{font-size:11.5px;color:#5a6b85;margin-top:3px}}
-  .chart{{width:100%;height:300px}}
-  table{{width:100%;border-collapse:collapse;font-size:13px}}
-  th{{background:#f0f4fa;text-align:left;padding:8px 10px;border-bottom:2px solid #dfe7f2}}
-  td{{padding:7px 10px;border-bottom:1px solid #eef2f7;vertical-align:top}}
-  .tag{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}}
-  .t-red{{background:#fde8e8;color:#c0392b}}.t-orange{{background:#fff2e0;color:#d97706}}
-  .t-blue{{background:#e8f1ff;color:#2f6fed}}.t-green{{background:#e5f7ed;color:#1e9e5a}}
-  .t-gray{{background:#eef1f5;color:#5a6b85}}
-  .note{{background:#f0f7ff;border-left:4px solid #2f6fed;padding:12px 15px;border-radius:6px;margin:10px 0;font-size:13px}}
-  ul{{padding-left:20px}}li{{font-size:13.5px;line-height:1.9}}
-  .foot{{color:#98a6ba;font-size:12px;text-align:center;margin-top:8px}}
-</style>
+<style>{_REPORT_STYLE}</style>
 </head>
 <body>
 <div class="wrap">
   <h1>商客客诉工单专题分析（{m['week']}）</h1>
-  <div class="sub">统计区间 {m['range']}｜数据源：小信工单导出（逐单入库）｜口径：docs/客诉工单分析体系规范.md｜Vicky2号 {m['week']}</div>
+  <div class="sub">统计区间 {m['range']}｜数据源：小信工单导出（逐单入库）｜
+    根因与已知判定均为 AI 自动完成，人工只在问题入账时确认一次｜Vicky2号</div>
 
   <div class="card">
-    <h2>一、核心指标</h2>
+    <h2>一、本周概览与波动</h2>
     <div class="kpi">
-      <div class="item"><div class="num">{m['total']}</div><div class="lbl">本周总量</div></div>
-      <div class="item"><div class="num">{m['daily_avg']}</div><div class="lbl">日均单量</div></div>
-      <div class="item"><div class="num">{m['batch']['cluster_count']}</div><div class="lbl">批量异常簇</div></div>
-      <div class="item"><div class="num">{e['repeat_dispatch_pct']}%</div><div class="lbl">重复派单率</div></div>
-      <div class="item"><div class="num">{e['rework_pct']}%</div><div class="lbl">首轮返工率</div></div>
-      <div class="item"><div class="num">{e['unclosed_pct']}%</div><div class="lbl">未结单率</div></div>
+      <div class="item"><div class="num">{m['total']}</div><div class="lbl">本周新增（单）</div></div>
+      <div class="item"><div class="num">{m['daily_avg']}</div><div class="lbl">日均（单）</div></div>
+      <div class="item">{wow_cell.replace('class="num"', 'class="num"').replace('<div class="num"', '<div class="num"')}<div class="lbl">周环比</div></div>
+      <div class="item"><div class="num">{known_rate}%</div><div class="lbl">已知问题率</div></div>
+      <div class="item"><div class="num">{rc.get('coverage_pct', 0)}%</div><div class="lbl">根因分析覆盖</div></div>
+      <div class="item"><div class="num">{rc.get('cluster_cnt', 0)}</div><div class="lbl">涉及根因簇</div></div>
     </div>
-    <div class="note">环比：{_wow_text(m)}</div>
+    {wow_note}
+    <div id="daily" class="chart" style="height:260px;margin-top:10px"></div>
+    <div class="note">波动判断口径：以<b>完整自然周</b>为基期；基期不足 5 天一律标「不可比」，
+      不用残缺数据硬算环比（会把周末导入的数据算成暴跌）。</div>
   </div>
 
   <div class="card">
-    <h2>二、本周结论</h2>
-    <ul>{concl}</ul>
-  </div>
-
-  <div class="card">
-    <h2>三、投诉根因分析（为什么）</h2>
-    <div class="note">口径：每单由 AI 归纳一句「真实问题描述」（含具体系统/环节/报错原文），
-      再按「同对象同机制」归并为根因簇；一簇 = 一处修复即可整批消掉的问题。
-      本周已根因分析 <b>{rc_covered}</b> / {m['total']} 单（覆盖 <b>{rc.get('coverage_pct', 0)}%</b>）
-      {f'，另有 {rc.get("pending", 0)} 单待分析、{rc.get("low", 0)} 单待人工确认' if rc.get('pending') or rc.get('low') else ''}。
-      下方结构分布均以「已根因分析单量」为分母，未分析工单不计入。</div>
-    <table>
-      <thead><tr><th>#</th><th>根因簇（一簇 = 一处修复点）</th><th>系统</th><th>环节</th>
-        <th>缺陷性质</th><th>责任归属</th><th>单量</th><th>占比</th></tr></thead>
-      <tbody>{''.join(f'<tr><td>{i+1}</td><td><b>{x["title"]}</b></td><td>{x.get("fault_system") or "—"}</td>'
-                      f'<td>{x.get("fault_stage") or "—"}</td><td>{x.get("fault_type") or "—"}</td>'
-                      f'<td>{x.get("own_party") or "—"}</td>'
-                      f'<td><b style="color:#c0392b">{x["cnt"]}</b></td><td>{x["pct"]}%</td></tr>'
-                      for i, x in enumerate(rc.get("clusters") or []))
-               or '<tr><td colspan="8" style="color:#98a6ba;text-align:center">本周尚无根因数据</td></tr>'}</tbody>
-    </table>
-
-    <h2 style="margin-top:20px">故障环节 · 责任归属 · 缺陷性质</h2>
-    <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:16px">
-      <div>
-        <div style="font-size:12.5px;color:#5a6b85;margin-bottom:6px">故障环节（业务链顺序，越靠前越接近源头）</div>
-        <table><thead><tr><th>环节</th><th>单量</th><th>占比</th></tr></thead>
-          <tbody>{_dist_rows(rc.get('by_stage'), '环节')}</tbody></table>
+    <h2>二、已知 vs 新增（核心指标）</h2>
+    <div class="heroline">
+      <div class="hero">
+        <div class="num">{known_rate}%</div>
+        <div class="lbl">已知问题率</div>
+        <div class="desc">本周工单中能被「在办问题」解释的占比</div>
       </div>
-      <div>
-        <div style="font-size:12.5px;color:#5a6b85;margin-bottom:6px">责任归属（谁该修）</div>
-        <table><thead><tr><th>归属</th><th>单量</th><th>占比</th></tr></thead>
-          <tbody>{_dist_rows(rc.get('by_party'), '归属')}</tbody></table>
-      </div>
-      <div>
-        <div style="font-size:12.5px;color:#5a6b85;margin-bottom:6px">缺陷性质（要不要改代码）</div>
-        <table><thead><tr><th>性质</th><th>单量</th><th>占比</th></tr></thead>
-          <tbody>{_dist_rows(rc.get('by_type'), '性质')}</tbody></table>
-      </div>
+      <div class="mini"><div class="num" style="color:#c0392b">{known_cnt}</div><div class="lbl">已知问题（单）</div></div>
+      <div class="mini"><div class="num" style="color:#2f6fed">{new_cnt}</div><div class="lbl">新增问题（单）</div></div>
+      <div class="mini"><div class="num">{judged}/{k.get('total', m['total'])}</div><div class="lbl">已判定/总量</div></div>
     </div>
-    <div class="note">可批量修复/改造/规则调整的单量：<b>{rc.get('quick_win_cnt', 0)}</b> 单（{rc.get('quick_win_pct', 0)}%）——
-      这部分是一次动作能整批消掉的压降空间，应优先立措施。</div>
+    <div class="note">判定口径：工单 → 根因簇 → 是否被<b>在办问题（open/resolving）</b>收纳。
+      已识别但<b>未确认入账</b>的候选不计为已知——没进台账就等于组织还没认账。
+      本周有 <b>{pot_known}</b> 单属于「AI 已识别待入账」，入账后已知率会上升。
+      {f'另有 {unknown_cnt} 单未完成判定（无根因簇），不计入分母。' if unknown_cnt else ''}</div>
+    <div class="sub-h">已知问题（按本周命中单量）</div>
+    <table><thead><tr><th>问题编号</th><th>在办问题（根因摘要）</th><th>责任人</th><th>本周命中</th><th>状态</th></tr></thead>
+    <tbody>{known_rows}</tbody></table>
+    <div class="sub-h">新增问题（本周出现、台账未收纳）</div>
+    <table><thead><tr><th>新增问题（根因簇）</th><th>系统</th><th>环节</th><th>单量</th><th>已提候选</th></tr></thead>
+    <tbody>{new_cluster_rows}</tbody></table>
   </div>
 
   <div class="card">
-    <h2>四、问题性质结构（现象层，历史口径）</h2>
-    <div id="pie" class="chart"></div>
-    <table>
-      <thead><tr><th>一级问题性质</th><th>单量</th><th>占比</th></tr></thead>
-      <tbody>
-      {''.join(f'<tr><td>{x["name"]}</td><td><b>{x["cnt"]}</b></td><td>{x["pct"]}%</td></tr>' for x in l1)
-       or '<tr><td colspan="3" style="text-align:center;color:#98a6ba">暂无数据</td></tr>'}
-      </tbody>
-    </table>
-    <div class="note">说明：现象层分类（' + str(len(l1)) + ' 个一级性质 / 30 个二级场景）保留用于历史可比，
-      但其颗粒度过粗（最大场景桶曾混装 6 类不相关问题），根因分析请以上一章为准。</div>
+    <h2>三、投诉问题分类汇总（五类 → 根因簇）</h2>
+    <table><thead><tr><th>一级性质</th><th>含义</th><th>单量</th><th>占比</th></tr></thead>
+    <tbody>{l1_rows}</tbody></table>
+    <div id="pie" class="chart" style="height:280px;margin-top:12px"></div>
+    <div class="sub-h">根因簇 TOP15（判定口径：分母 = 已根因分析 {rc.get('covered', 0)} 单）</div>
+    <table><thead><tr><th>根因簇</th><th>系统</th><th>环节</th><th>缺陷性质</th><th>责任归属</th><th>单量</th><th>占比</th></tr></thead>
+    <tbody>{cluster_rows}</tbody></table>
   </div>
 
   <div class="card">
-    <h2>五、问题场景 TOP12（现象层，改进措施的落点参考）</h2>
-    <table>
-      <thead><tr><th>#</th><th>二级问题场景</th><th>所属性质</th><th>单量</th><th>占比</th></tr></thead>
-      <tbody>
-      {''.join(f'<tr><td>{i+1}</td><td><b>{x["name"]}</b></td><td>{x["l1"]}</td><td>{x["cnt"]}</td><td>{x["pct"]}%</td></tr>'
-               for i, x in enumerate(m['by_l2'])) or '<tr><td colspan="5" style="text-align:center;color:#98a6ba">暂无数据</td></tr>'}
-      </tbody>
-    </table>
+    <h2>四、工单压降分析指引</h2>
+    <div class="kpi" style="grid-template-columns:repeat(4,1fr)">
+      <div class="item"><div class="num" style="color:#c0392b">{win_cnt}</div><div class="lbl">可整批压降单量</div></div>
+      <div class="item"><div class="num">{win_pct}%</div><div class="lbl">占已分析单量</div></div>
+      <div class="item"><div class="num">{len(batch)}</div><div class="lbl">可修复根因簇</div></div>
+      <div class="item"><div class="num">{rc.get('quick_win_cnt', 0)}</div><div class="lbl">可批量修复/改造单量</div></div>
+    </div>
+    <div class="note">逻辑：同根因簇 ≥{C.RC_BATCH_WEEK_MIN} 单 → 修一处可整批消掉，是压降主战场；
+      处置方式为「逐单处理」的簇不产生压降空间，只做兜底。
+      按覆盖单量降序排，逐条落成措施即可（措施挂问题、绑簇、自动验证）。</div>
+    <table><thead><tr><th>根因（改这里即可整批消掉）</th><th>系统</th><th>责任方</th><th>覆盖单量</th><th>处置方式</th><th>建议动作</th></tr></thead>
+    <tbody>{guide_rows}</tbody></table>
   </div>
 
   <div class="card">
-    <h2>六、批量问题专题（根因口径，一处修复可整批消掉）</h2>
-    <div class="note">判定口径：同一根因簇当周 ≥ {C.RC_BATCH_WEEK_MIN} 单 → 批量问题。
-      本周 <b>{len(rc_batch)}</b> 个批量根因簇、覆盖 <b>{rc_win_cnt}</b> 单
-      （占已根因分析单量的 {round(rc_win_cnt / rc_covered * 100, 1) if rc_covered else 0}%）。
-      这些是压降主战场：修一处即可整批消掉，其余长尾单无共性、只能逐单处理。</div>
-    <table>
-      <thead><tr><th>根因（一处修复点）</th><th>系统</th><th>环节</th><th>责任方</th>
-        <th>处置方式</th><th>涉及单量</th><th>跨天数</th></tr></thead>
-      <tbody>{rc_batch_rows}</tbody>
-    </table>
-    <div class="note">现象层「同场景同自然日 ≥ {C.BATCH_DAILY_THRESHOLD} 单」口径仍保留在效率指标中
-      （本周批量异常簇 {m['batch']['cluster_count']} 个、{m['batch']['ticket_cnt']} 单、
-      组织修复率 {m['batch']['fix_rate']}%），该口径只看现象不看机制，仅作参考。</div>
+    <h2>五、措施跟踪与自动验证</h2>
+    <div class="note">验证口径：措施绑定根因簇 → 按<b>簇单量</b>算降幅（不是按二级场景，否则一桶多缺陷会把降幅稀释）。
+      基线只取<b>完整周</b>，基线不可得不给降幅、不流转状态——宁可不结论，也不产出假结论。</div>
+    <table><thead><tr><th>措施编号</th><th>所属问题</th><th>责任人</th><th>生效日</th><th>基线/本周</th><th>实际降幅</th><th>状态</th></tr></thead>
+    <tbody>{action_rows}</tbody></table>
+    <div class="sub-h">在办问题台账（{len(problems or [])} 条）</div>
+    <table><thead><tr><th>问题编号</th><th>问题（根因摘要）</th><th>状态</th><th>首见周</th><th>在办周</th><th>当周/累计</th><th>措施(有效/总)</th></tr></thead>
+    <tbody>{problem_rows}</tbody></table>
   </div>
 
   <div class="card">
-    <h2>七、支撑时效与效率</h2>
-    <table>
-      <thead><tr><th>指标</th><th>本周值</th><th>口径说明</th></tr></thead>
-      <tbody>
-        <tr><td>平均经手环节</td><td><b>{e['avg_opinions']}</b> 条/单</td><td>处理意见条数，反映流转长度</td></tr>
-        <tr><td>长链条工单（≥{C.LONG_CHAIN_OPINIONS}条）</td><td>{e['long_chain']} 单（{e['long_chain_pct']}%）</td><td>单笔走 5 个以上环节</td></tr>
-        <tr><td>重复派单</td><td>{e['repeat_dispatch']} 单（{e['repeat_dispatch_pct']}%）</td><td>派单次数 &gt; 1，一次未解决</td></tr>
-        <tr><td>首轮返工</td><td>{e['rework']} 单（{e['rework_pct']}%）</td><td>首个回复即索要素材/截图</td></tr>
-        <tr><td>互推外部</td><td>{e['pushout']} 单（{e['pushout_pct']}%）</td><td>首轮回复即转网络部/走审批</td></tr>
-        <tr><td>挂起待流程</td><td>{e['pending']} 单（{e['pending_pct']}%）</td><td>回复"预计 N 个工作日"</td></tr>
-        <tr><td>超期未结单</td><td><b>{e['retention']}</b> 单</td><td>创建 &gt; {C.RETENTION_DAYS} 天且状态非"关闭"</td></tr>
-        <tr><td>未结单合计</td><td>{e['unclosed']} 单（{e['unclosed_pct']}%）</td><td>状态非"关闭"（"已回复"不计结单）</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <h2>八、措施跟踪与共性问题闭环</h2>
-    <div class="note">共性问题台账：{_p_stat or '候选 → 入账 → 挂措施 → 周验证 → 闭环确认（详见问题台账页）'}</div>
-    <table>
-      <thead><tr><th>问题编号</th><th>场景</th><th>状态</th><th>首见周</th><th>在办周</th>
-        <th>当周/累计</th><th>复发</th><th>措施(有效/总数)</th><th>闭环结论</th></tr></thead>
-      <tbody>{problem_rows}</tbody>
-    </table>
-    <h2 style="margin-top:18px">措施台账</h2>
-    <table>
-      <thead><tr><th>措施编号</th><th>所属问题</th><th>针对场景</th><th>责任人</th><th>要求完成</th>
-        <th>生效日</th><th>基线/目标</th><th>状态</th></tr></thead>
-      <tbody>{action_rows}</tbody>
-    </table>
-    <div class="note">复发判定：措施台账中该场景已过生效日，本周仍出现同类工单 →
-      本周复发 <b>{m['recur']['cnt']}</b> 单（{m['recur']['pct']}%）。
-      措施完成率 <b>{m['action_stats']['completion_pct']}%</b>（已验证有效 {m['action_stats']['by_status'].get('effective', 0)} / 共 {m['action_stats']['total']} 项）。</div>
-  </div>
-
-  <div class="card">
-    <h2>九、趋势（近 8 周）</h2>
+    <h2>六、趋势（近 8 周）</h2>
     <div id="trend" class="chart"></div>
-    <div class="note">实线为总量，柱为批量簇工单量。趋势判断以完整周为准，数据缺失周（值为 0）不计入趋势结论。</div>
+    <div class="note">实线总量、柱为批量簇工单量。数据缺失周不计入趋势结论。</div>
   </div>
 
-  <div class="foot">本报告由 scripts/complaint 流水线自动生成｜指标口径唯一来源：scripts/complaint/metrics.py｜
-   分类口径唯一来源：pmwb_complaint_category 字典表｜{m['week']}</div>
+  <div class="card">
+    <h2>附：结论与建议动作</h2>
+    <ul>{concl}</ul>
+    <div class="note">支撑时效（不影响压降结论，仅作运营质量参考）：长链条 <b>{e['long_chain']}</b> 单
+      （{e['long_chain_pct']}%）、重复派单 <b>{e['repeat_dispatch']}</b> 单（{e['repeat_dispatch_pct']}%）、
+      返工 <b>{e['rework']}</b> 单（{e['rework_pct']}%）、周内未结 <b>{e['unclosed']}</b> 单（{e['unclosed_pct']}%）。</div>
+  </div>
+
+  <div class="foot">本报告由客诉流水线自动生成｜指标口径唯一来源 services/complaint/metrics.py｜
+    已知判定唯一来源 services/complaint/known.py｜分类口径唯一来源 pmwb_complaint_category 字典表｜{m['week']}</div>
 </div>
 
 {echarts_tag}
@@ -420,6 +366,15 @@ echarts.init(document.getElementById('pie')).setOption({{
   series:[{{type:'pie',radius:['38%','64%'],center:['34%','52%'],
     data:{json.dumps(pie_data, ensure_ascii=False)},
     label:{{formatter:'{{b}}\\n{{c}}单 {{d}}%',fontSize:11}}}}]
+}});
+echarts.init(document.getElementById('daily')).setOption({{
+  tooltip:{{trigger:'axis'}},
+  grid:{{top:30,bottom:34,left:48,right:24}},
+  xAxis:{{type:'category',data:{json.dumps(daily_keys)}}},
+  yAxis:{{type:'value',name:'单'}},
+  series:[{{name:'当日单量',type:'bar',data:{json.dumps(daily_vals)},barMaxWidth:34,
+    itemStyle:{{color:'#2f6fed',borderRadius:[3,3,0,0]}},
+    label:{{show:true,position:'top',fontSize:11}}}}]
 }});
 echarts.init(document.getElementById('trend')).setOption({{
   tooltip:{{trigger:'axis'}},

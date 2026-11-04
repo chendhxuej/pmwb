@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from core.response import success
 from db.base import get_db
+from constants import complaint_rootcause as RC
 from services.mail_dispatch import dispatch_email
 from schemas.complaint import (
     ActionCreateIn,
@@ -72,7 +73,8 @@ def list_tickets(
     retention: Optional[int] = Query(None, ge=0, le=1, description="1=超期滞留（创建超N天未完结）下钻"),
     city: Optional[str] = Query(None, description="地市（精确）"),
     rootcause_no: Optional[str] = Query(None, description="按根因簇下钻"),
-    rc_status: Optional[str] = Query(None, description="根因状态：ai/low/manual，pending=待分析"),
+    known_flag: Optional[int] = Query(None, ge=0, le=1, description="1=已知问题 0=新增问题"),
+    rc_status: Optional[str] = Query(None, description="根因状态：ai/insufficient/manual，pending=待分析"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ):
@@ -109,6 +111,9 @@ def list_tickets(
     if city:
         where.append("city = :city")
         params["city"] = city
+    if known_flag is not None:
+        where.append("known_flag = :kf")
+        params["kf"] = known_flag
     if rootcause_no:
         where.append("rootcause_no = :rcno")
         params["rcno"] = rootcause_no
@@ -159,7 +164,8 @@ def list_tickets(
                classify_by, cluster_key, is_batch, is_recur, problem_no, remark,
                ai_confidence, ai_evidence, content,
                root_cause, fault_stage, fault_system, fault_type, own_party, fix_mode,
-               repro, rc_status, rc_confidence, rc_evidence, rootcause_no
+               repro, rc_status, rc_confidence, rc_evidence, rc_gap, rootcause_no,
+               known_flag, known_problem_no
         FROM pmwb_complaint_ticket WHERE {cond}
         ORDER BY created_time DESC
         LIMIT :limit OFFSET :offset
@@ -329,16 +335,23 @@ def get_rootcause_review(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    """待人工确认队列（rc_status='low'，含门禁未过与低置信）。"""
+    """信息不足清单（只读参考，**不是人工队列**）。
+
+    口径（2026-11-04）：工单层分析 AI 全自动，不设人工待办。
+    这里只用于「AI 尽力了但工单本身缺关键事实」的可解释性展示——
+    聚合统计时这些单单独成桶、不计入根因分布分母。
+    """
+    st = RC.RC_STATUS_INSUFFICIENT
     total = db.execute(text(
-        "SELECT COUNT(*) FROM pmwb_complaint_ticket WHERE rc_status = 'low'")).scalar() or 0
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket WHERE rc_status = :st"
+    ), {"st": st}).scalar() or 0
     rows = db.execute(text(
         "SELECT id, ticket_no, week, created_time, LEFT(content, 200), root_cause, "
         "fault_stage, fault_system, fault_type, own_party, fix_mode, rc_confidence, "
-        "LEFT(rc_evidence, 300) "
-        "FROM pmwb_complaint_ticket WHERE rc_status = 'low' ORDER BY rc_confidence ASC, id DESC "
-        "LIMIT :lim OFFSET :off"
-    ), {"lim": page_size, "off": (page - 1) * page_size}).fetchall()
+        "LEFT(rc_evidence, 300), rc_gap "
+        "FROM pmwb_complaint_ticket WHERE rc_status = :st "
+        "ORDER BY rc_confidence ASC, id DESC LIMIT :lim OFFSET :off"
+    ), {"st": st, "lim": page_size, "off": (page - 1) * page_size}).fetchall()
     return success({
         "total": int(total), "page": page, "page_size": page_size,
         "items": [{
@@ -348,6 +361,7 @@ def get_rootcause_review(
             "fault_stage": r[6] or "", "fault_system": r[7] or "",
             "fault_type": r[8] or "", "own_party": r[9] or "", "fix_mode": r[10] or "",
             "rc_confidence": float(r[11] or 0), "evidence": r[12] or "",
+            "gap": r[13] or "",
         } for r in rows],
     })
 
@@ -661,7 +675,8 @@ def urge_preview(body: UrgePreviewIn, db: Session = Depends(get_db)):
 @router.get("/problems")
 def list_problems(
     db: Session = Depends(get_db),
-    status: Optional[str] = Query(None, description="逗号分隔，如 open,resolving"),
+    status: Optional[str] = Query(
+        None, description="逗号分隔；**默认只返回在办(open,resolving)**——候选见 /problems/candidates"),
     week: Optional[str] = Query(None, description="按首见/末见周过滤"),
     l1: Optional[str] = Query(None),
     l2: Optional[str] = Query(None),
@@ -673,7 +688,8 @@ def list_problems(
 ):
     """共性问题台账分页（含关联措施数）。"""
     items = complaint_problems.list_problems(
-        db, status=status or "", week=week or "", l1=l1 or "", l2=l2 or "",
+        db, status=status if status is not None else "open,resolving",
+        week=week or "", l1=l1 or "", l2=l2 or "",
         source_type=source_type or "", keyword=keyword or "", owner=owner or "",
         limit=page_size, offset=(page - 1) * page_size,
     )

@@ -26,9 +26,13 @@
       </el-select>
       <el-select v-model="filters.rc_status" placeholder="根因状态" clearable style="width: 124px" @change="load">
         <el-option label="已归纳" value="ai" />
-        <el-option label="待人工" value="low" />
-        <el-option label="人工确认" value="manual" />
+        <el-option label="信息不足" value="insufficient" />
+        <el-option label="人工校正" value="manual" />
         <el-option label="待分析" value="pending" />
+      </el-select>
+      <el-select v-model="filters.known_flag" placeholder="已知/新增" clearable style="width: 118px" @change="load">
+        <el-option label="已知问题" :value="1" />
+        <el-option label="新增问题" :value="0" />
       </el-select>
       <el-select v-model="filters.is_batch" placeholder="批量标记" clearable style="width: 108px" @change="load">
         <el-option label="批量簇内" :value="1" />
@@ -78,8 +82,17 @@
             </div>
           </div>
           <div v-else class="unclassified">
-            {{ row.rc_status === 'low' ? '根因待人工' : '待根因分析' }}
+            {{ rcEmptyText(row) }}
           </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="关联问题（已知/新增）" width="168">
+        <template #default="{ row }">
+          <el-tag v-if="row.known_flag === 1" size="small" type="primary" effect="light">
+            已知 {{ row.known_problem_no || '' }}
+          </el-tag>
+          <el-tag v-else-if="row.known_flag === 0" size="small" type="warning" effect="light">新增问题</el-tag>
+          <span v-else class="unclassified">—</span>
         </template>
       </el-table-column>
       <el-table-column label="批量" width="76" align="center">
@@ -270,6 +283,7 @@ async function load() {
       l2: filters.l2 || undefined,
       classify_by: filters.classify_by || undefined,
       rc_status: filters.rc_status || undefined,
+      known_flag: filters.known_flag ?? undefined,
       is_batch: filters.is_batch ?? undefined,
       keyword: filters.keyword || undefined,
     }
@@ -335,6 +349,12 @@ async function saveRootcause() {
 
 function goRootcause(row) {
   router.push({ path: '/complaint-center/rootcause', query: { keyword: row.rootcause_no } })
+}
+
+// 根因缺失时的说明：信息不足是 AI 的判定结论（不设人工队列），不是待办
+function rcEmptyText(row) {
+  if (row.rc_status === 'insufficient') return row.rc_gap || '信息不足（AI 已判定，缺关键事实）'
+  return '待根因分析'
 }
 
 function openCorrect(row) {

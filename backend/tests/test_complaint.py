@@ -14,6 +14,8 @@ run_weekly CLI 口径回归覆盖，不在 SQLite 单测范围内。
 import pytest
 from fastapi.testclient import TestClient
 
+from datetime import datetime
+
 from constants import status_registry as sr
 from db.models import PmwbComplaintAction, PmwbComplaintCategory, PmwbComplaintTicket
 from services.complaint import update_status
@@ -151,12 +153,31 @@ def test_update_status_ok_and_go_live(db):
     # verifying 缺生效日 → 拒绝
     with pytest.raises(ValueError, match="go_live_date"):
         update_status(db, "CACT-2026W44-01", "verifying")
-    # 补生效日 → 通过且自动绑基线（场景无历史单，基线=0）
+    # 补生效日 → 通过。该场景无任何历史单 ⇒ 无完整周可作基线 ⇒ 基线留空
+    # （2026-11-04 口径修正：残缺周/无历史时不再给 0 基线，否则降幅会算成 -246.9% 假结论）
     row = update_status(db, "CACT-2026W44-01", "verifying",
                         {"go_live_date": "2026-10-27"})
     assert row["status"] == "verifying"
     assert row["go_live_date"] is not None
-    assert row["baseline_cnt"] is not None
+    assert row["baseline_cnt"] is None
+
+
+def test_update_status_baseline_from_complete_weeks(db):
+    """基线绑定：仅取上线前的**完整周**（该周 >=5 天有单），簇口径周均单量。"""
+    _make_action(db, owner="吴胜捷")
+    for i in range(5):  # W43：10-19~10-23 连续 5 天有单 → 完整周
+        _make_ticket(db, ticket_no=f"B-{i}", week="2026-W43",
+                     created_time=datetime(2026, 10, 19 + i, 10, 0),
+                     rootcause_no="RC-0001")
+    for i in range(3):  # W42：只有 2 天有单 → 残缺周，不得计入基线
+        _make_ticket(db, ticket_no=f"P-{i}", week="2026-W42",
+                     created_time=datetime(2026, 10, 13 + i % 2, 10, 0),
+                     rootcause_no="RC-0001")
+    update_status(db, "CACT-2026W44-01", "in_progress")
+    row = update_status(db, "CACT-2026W44-01", "verifying",
+                        {"go_live_date": "2026-10-26"})
+    assert row["baseline_cnt"] == 5.0
+
 
 
 # ─────────────────────────────────────────────────────────────

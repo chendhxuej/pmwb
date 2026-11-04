@@ -1,6 +1,6 @@
 <template>
   <div class="complaint-dashboard">
-    <PageHeader title="客诉压降看板" :subtitle="subTitle">
+    <PageHeader title="投诉现状分析" :subtitle="subTitle">
       <template #actions>
         <el-select v-if="weekOptions.length" v-model="selectedWeek" style="width: 168px" @change="onWeekChange">
           <el-option v-for="w in weekOptions" :key="w" :label="weekLabel(w)" :value="w" />
@@ -11,336 +11,261 @@
       </template>
     </PageHeader>
 
-    <div v-if="metrics.week" class="dashboard-body">
-      <!-- KPI 区 -->
-      <div class="pm-stat-grid pm-stat-grid--7">
-        <div class="card kpi-card kpi-clickable" title="点击下钻工单明细" @click="drill({ week: metrics.week }, '本周投诉工单')">
-          <div class="kpi-num blue">{{ metrics.total }}</div>
-          <div class="kpi-label">本周总量（单）</div>
-        </div>
-        <div class="card kpi-card">
-          <div class="kpi-num" :class="wowClass">{{ wowText }}</div>
-          <div class="kpi-label">周环比</div>
-        </div>
-        <div class="card kpi-card kpi-clickable" title="点击下钻批量簇工单" @click="drill({ week: metrics.week, is_batch: 1 }, '批量异常簇工单')">
-          <div class="kpi-num" :class="metrics.batch.cluster_count ? 'red' : 'green'">
-            {{ metrics.batch.cluster_count }}
-          </div>
-          <div class="kpi-label">批量异常簇</div>
-        </div>
-        <div class="card kpi-card">
-          <div class="kpi-num" :class="metrics.batch.fix_rate < 50 && metrics.batch.cluster_count ? 'amber' : 'green'">
-            {{ metrics.batch.fix_rate }}%
-          </div>
-          <div class="kpi-label">批量组织修复率</div>
-        </div>
-        <div class="card kpi-card kpi-clickable" title="点击下钻超期工单" @click="drill({ retention: 1 }, '超期未结单工单')">
-          <div class="kpi-num" :class="metrics.efficiency.retention ? 'red' : 'green'">
-            {{ metrics.efficiency.retention }}
-          </div>
-          <div class="kpi-label">超期未结单</div>
-        </div>
-        <div class="card kpi-card kpi-clickable" title="点击下钻复发工单" @click="drill({ week: metrics.week, is_recur: 1 }, '措施后复发工单')">
-          <div class="kpi-num" :class="metrics.recur.cnt ? 'red' : 'green'">{{ metrics.recur.cnt }}</div>
-          <div class="kpi-label">措施后复发（单）</div>
-        </div>
-        <div class="card kpi-card kpi-clickable" :title="classifyTitle" @click="drillClassify">
-          <div class="kpi-num" :class="(classify.ai_rate || 0) >= 90 ? 'green' : 'amber'">{{ classify.ai_rate ?? 0 }}%</div>
-          <div class="kpi-label">AI 分析覆盖率</div>
-          <div class="kpi-sub">{{ classifySub }}</div>
-        </div>
-      </div>
-
-      <!-- 图表区：性质结构 + 8 周趋势 -->
-      <div class="chart-row">
-        <section class="card pm-col-5">
-          <div class="card-header"><h3>问题性质结构（一级）</h3></div>
-          <div class="card-body">
-            <ChartPie :data="pieData" donut height="280px" @item-click="p => drill({ week: metrics.week, l1: p.name }, `问题性质「${p.name}」工单`)" />
-          </div>
-        </section>
-        <section class="card pm-col-7">
-          <div class="card-header"><h3>近 8 周趋势（总量 / 批量簇单量）</h3></div>
-          <div class="card-body">
-            <ChartLine
-              :x-data="trendWeeks"
-              :series="trendSeries"
-              height="280px"
-              @item-click="onTrendClick"
-            />
-          </div>
-        </section>
-      </div>
-
-      <!-- ── 投诉分析（根因口径，2026-11-03 根因深化）────────────────
-           原看板是「周增量工单统计」，回答了"有多少单"，但没回答"为什么"。
-           本节按分析四问组织：①投诉什么 ②为什么 ③哪些能一次消灭 ④治了没有（见下方措施跟踪）。 -->
-      <section class="card rc-analysis">
+    <div v-if="metrics.week" v-loading="loading" class="dashboard-body">
+      <!-- 一、本周概览与波动 -->
+      <section class="card">
         <div class="card-header">
-          <h3>投诉分析（根因口径）</h3>
-          <el-tag size="small" :type="rc.coverage_pct >= 90 ? 'success' : 'warning'">
-            本周已根因分析 {{ rc.covered }} / {{ rc.total }} 单（{{ rc.coverage_pct }}%）
-          </el-tag>
+          <h3>一、本周概览与波动</h3>
+          <span class="hint">区间 {{ metrics.range }}</span>
         </div>
         <div class="card-body">
-          <el-alert
-            v-if="rc.pending > 0 || rc.low > 0"
-            type="warning"
-            :closable="false"
-            show-icon
-            class="rc-tip"
-          >
-            还有 {{ rc.pending }} 单待分析、{{ rc.low }} 单待人工确认根因——未分析的工单不计入下方根因分布，
-            结论的可靠性取决于覆盖率。
-          </el-alert>
-
-          <!-- 问①：投诉什么（根因簇 TOP） -->
-          <div class="rc-ask">
-            <span class="rc-ask-no">①</span>
-            <span class="rc-ask-title">投诉的是什么问题</span>
-            <span class="rc-ask-sub">按根因簇聚合，一簇 = 一次修复可消掉的一类问题</span>
+          <div class="pm-stat-grid pm-stat-grid--6">
+            <div class="card kpi-card kpi-clickable" title="点击下钻本周工单" @click="drill({ week: metrics.week }, '本周新增投诉工单')">
+              <div class="kpi-num blue">{{ metrics.total }}</div>
+              <div class="kpi-label">本周新增（单）</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num">{{ metrics.daily_avg }}</div>
+              <div class="kpi-label">日均（单）</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num" :class="wowClass">{{ wowText }}</div>
+              <div class="kpi-label">周环比</div>
+            </div>
+            <div class="card kpi-card kpi-clickable" title="已知问题率越低，说明越在追新火" @click="drill({ week: metrics.week, known_flag: 0 }, '本周新增问题工单')">
+              <div class="kpi-num" :class="known.known_rate >= 50 ? 'green' : 'red'">{{ known.known_rate ?? 0 }}%</div>
+              <div class="kpi-label">已知问题率</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num" :class="(rc.coverage_pct || 0) >= 95 ? 'green' : 'amber'">{{ rc.coverage_pct ?? 0 }}%</div>
+              <div class="kpi-label">根因分析覆盖</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num">{{ rc.cluster_cnt ?? 0 }}</div>
+              <div class="kpi-label">涉及根因簇</div>
+            </div>
           </div>
-          <el-table
-            ref="pmTbl2"
-            :data="rc.clusters"
-            size="small"
-            border
-            empty-text="本周尚无根因簇数据"
-          >
-            <el-table-column label="根因簇" min-width="300" show-overflow-tooltip>
+
+          <div v-if="partialBase" class="pm-note warn">
+            上周（{{ metrics.prev_week }}）仅 {{ metrics.prev_days }} 天数据，<b>周环比不可比</b>——
+            本页不给环比结论，不用残缺数据硬算（否则会把导入节奏误判成暴涨暴跌）。
+          </div>
+
+          <ChartLine :x-data="dailyX" :series="dailySeries" height="240px" />
+        </div>
+      </section>
+
+      <!-- 二、已知 vs 新增 -->
+      <section class="card">
+        <div class="card-header">
+          <h3>二、已知问题 vs 新增问题（核心指标）</h3>
+          <span class="hint">判定：工单 → 根因簇 → 是否被在办问题收纳</span>
+        </div>
+        <div class="card-body">
+          <div class="pm-stat-grid pm-stat-grid--4">
+            <div class="card kpi-card">
+              <div class="kpi-num" :class="known.known_rate >= 50 ? 'green' : 'red'">{{ known.known_rate ?? 0 }}%</div>
+              <div class="kpi-label">已知问题率（分母=已判定单量）</div>
+            </div>
+            <div class="card kpi-card kpi-clickable" @click="drill({ week: metrics.week, known_flag: 1 }, '已知问题工单')">
+              <div class="kpi-num red">{{ known.known_cnt ?? 0 }}</div>
+              <div class="kpi-label">已知问题（单）</div>
+            </div>
+            <div class="card kpi-card kpi-clickable" @click="drill({ week: metrics.week, known_flag: 0 }, '新增问题工单')">
+              <div class="kpi-num blue">{{ known.new_cnt ?? 0 }}</div>
+              <div class="kpi-label">新增问题（单）</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num">{{ known.judged ?? 0 }}/{{ known.total ?? metrics.total }}</div>
+              <div class="kpi-label">已判定 / 总量</div>
+            </div>
+          </div>
+
+          <div class="pm-note">
+            候选问题不计为已知——<b>没进台账就等于组织还没认账</b>。
+            本周有 <b>{{ known.potential_known_cnt ?? 0 }}</b> 单属于「AI 已识别、待确认入账」，
+            当前在办问题 <b>{{ known.inflight_problem_cnt ?? 0 }}</b> 个。
+            <span v-if="known.unknown_cnt">另有 {{ known.unknown_cnt }} 单无根因簇，不计入分母。</span>
+          </div>
+
+          <div class="sub-h">已知问题（按本周命中单量）</div>
+          <el-table :data="known.known_problems || []" size="small" empty-text="本周没有一单能被在办问题解释">
+            <el-table-column prop="problem_no" label="问题编号" width="150" />
+            <el-table-column prop="title" label="在办问题（根因摘要）" min-width="280" show-overflow-tooltip />
+            <el-table-column prop="owner" label="责任人" width="110" />
+            <el-table-column label="本周命中" width="96" align="center">
+              <template #default="{ row }"><b class="num-red">{{ row.cnt }}</b></template>
+            </el-table-column>
+            <el-table-column label="状态" width="92" align="center">
               <template #default="{ row }">
-                <b>{{ row.title }}</b>
-                <span v-if="row.status === 'candidate'" class="rc-pending-tag">待确认</span>
+                <el-tag :type="row.status === 'resolving' ? 'warning' : 'primary'" size="small" effect="light">
+                  {{ row.status === 'resolving' ? '处理中' : '在办' }}
+                </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="fault_system" label="系统" width="104" />
-            <el-table-column prop="fault_stage" label="环节" width="96" />
-            <el-table-column prop="fault_type" label="缺陷性质" width="104" />
-            <el-table-column prop="own_party" label="责任归属" width="96" />
-            <el-table-column label="单量" width="72" align="center">
+            <el-table-column label="操作" width="88" align="center">
               <template #default="{ row }">
-                <b :class="row.cnt >= 3 ? 'cnt-danger' : ''">{{ row.cnt }}</b>
+                <el-button size="small" text type="primary" @click="drill({ week: metrics.week, problem_no: row.problem_no }, '已知问题工单')">下钻</el-button>
               </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="sub-h">新增问题（本周出现、台账未收纳 → 应入账）</div>
+          <el-table :data="known.new_clusters || []" size="small" empty-text="本周无新增问题">
+            <el-table-column label="新增问题（根因簇）" min-width="300" show-overflow-tooltip>
+              <template #default="{ row }"><b>{{ row.title || row.rootcause_no || '未归簇' }}</b></template>
+            </el-table-column>
+            <el-table-column prop="fault_system" label="系统" width="110" />
+            <el-table-column prop="fault_stage" label="环节" width="100" />
+            <el-table-column label="单量" width="76" align="center">
+              <template #default="{ row }"><b class="num-red">{{ row.cnt }}</b></template>
+            </el-table-column>
+            <el-table-column label="候选状态" width="130" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.in_candidate" type="primary" size="small" effect="light">{{ row.cand_problem_no }}</el-tag>
+                <el-tag v-else type="warning" size="small" effect="light">待入账</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="88" align="center">
+              <template #default="{ row }">
+                <el-button size="small" text type="primary" @click="drillRootcause(row)">下钻</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
+
+      <!-- 三、分类汇总 -->
+      <section class="card">
+        <div class="card-header">
+          <h3>三、投诉问题分类汇总（五类 → 根因簇）</h3>
+          <span class="hint">分母 = 已根因分析 {{ rc.covered ?? 0 }} 单</span>
+        </div>
+        <div class="card-body">
+          <div class="l1-row">
+            <div class="l1-chart pm-col-5">
+              <ChartPie :data="pieData" donut height="260px" @item-click="p => drill({ week: metrics.week, l1: p.name }, `一级性质「${p.name}」工单`)" />
+            </div>
+            <div class="l1-table pm-col-7">
+              <el-table class="l1-class-table" :data="l1Rows" size="small">
+                <el-table-column prop="name" label="一级性质" width="110" />
+                <el-table-column prop="meaning" label="含义" min-width="200" show-overflow-tooltip />
+                <el-table-column prop="cnt" label="单量" width="80" align="center" />
+                <el-table-column prop="pct" label="占比" width="80" align="right">
+                  <template #default="{ row }">{{ row.pct }}%</template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </div>
+
+          <div class="sub-h">根因簇 TOP15（一簇 = 一处修复点）</div>
+          <el-table :data="rc.clusters || []" size="small" empty-text="暂无根因数据">
+            <el-table-column label="根因簇" min-width="300" show-overflow-tooltip>
+              <template #default="{ row }"><b>{{ row.title }}</b></template>
+            </el-table-column>
+            <el-table-column prop="fault_system" label="系统" width="110" />
+            <el-table-column prop="fault_stage" label="环节" width="100" />
+            <el-table-column prop="fault_type" label="缺陷性质" width="110" />
+            <el-table-column prop="own_party" label="责任归属" width="100" />
+            <el-table-column label="单量" width="72" align="center">
+              <template #default="{ row }"><b class="num-red">{{ row.cnt }}</b></template>
             </el-table-column>
             <el-table-column label="占比" width="72" align="right">
               <template #default="{ row }">{{ row.pct }}%</template>
             </el-table-column>
-          </el-table>
-
-          <!-- 问②：为什么（环节漏斗 + 责任归属 + 缺陷性质） -->
-          <div class="rc-ask">
-            <span class="rc-ask-no">②</span>
-            <span class="rc-ask-title">问题出在哪个环节、谁该修</span>
-            <span class="rc-ask-sub">环节按业务链顺序，越靠前说明越接近源头</span>
-          </div>
-          <div class="chart-row">
-            <section class="pm-col-6 rc-sub">
-              <div class="rc-sub-title">故障环节分布（业务链）</div>
-              <div class="rc-bars">
-                <div v-for="s in stageBars" :key="s.name" class="rc-bar-row">
-                  <span class="rc-bar-name">{{ s.name }}</span>
-                  <span class="rc-bar-track">
-                    <span class="rc-bar-fill" :style="{ width: s.width }"></span>
-                  </span>
-                  <span class="rc-bar-val">{{ s.cnt }} 单 · {{ s.pct }}%</span>
-                </div>
-                <div v-if="!stageBars.length" class="rc-empty">暂无数据</div>
-              </div>
-            </section>
-            <section class="pm-col-6 rc-sub">
-              <div class="rc-sub-title">责任归属 / 缺陷性质</div>
-              <div class="rc-split">
-                <div class="rc-split-col">
-                  <div class="rc-bars">
-                    <div v-for="s in partyBars" :key="s.name" class="rc-bar-row">
-                      <span class="rc-bar-name">{{ s.name }}</span>
-                      <span class="rc-bar-track">
-                        <span class="rc-bar-fill rc-fill-party" :style="{ width: s.width }"></span>
-                      </span>
-                      <span class="rc-bar-val">{{ s.cnt }}</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="rc-split-col">
-                  <div class="rc-bars">
-                    <div v-for="s in typeBars" :key="s.name" class="rc-bar-row">
-                      <span class="rc-bar-name">{{ s.name }}</span>
-                      <span class="rc-bar-track">
-                        <span class="rc-bar-fill rc-fill-type" :style="{ width: s.width }"></span>
-                      </span>
-                      <span class="rc-bar-val">{{ s.cnt }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          <!-- 问③：哪些能一次消灭 -->
-          <div class="rc-ask">
-            <span class="rc-ask-no">③</span>
-            <span class="rc-ask-title">哪些能一次消灭</span>
-            <span class="rc-ask-sub">同一根因簇当周 ≥3 单即为批量问题，一处修复可整批消掉</span>
-          </div>
-          <div class="pm-stat-grid pm-stat-grid--3 rc-win">
-            <div class="card kpi-card">
-              <div class="kpi-num red">{{ batchTotal }}</div>
-              <div class="kpi-label">批量问题可覆盖单量</div>
-            </div>
-            <div class="card kpi-card">
-              <div class="kpi-num amber">{{ (rc.batch || []).length }}</div>
-              <div class="kpi-label">批量根因簇数（≥3 单）</div>
-            </div>
-            <div class="card kpi-card">
-              <div class="kpi-num blue">{{ rc.quick_win_cnt }}</div>
-              <div class="kpi-label">可批量修复/改造单量（{{ rc.quick_win_pct }}%）</div>
-            </div>
-          </div>
-          <el-table :data="rc.batch" size="small" border :empty-text="`本周未出现同根因簇 ≥3 单的批量问题`">
-            <el-table-column prop="title" label="根因（一处修复点）" min-width="320" show-overflow-tooltip />
-            <el-table-column prop="fault_system" label="系统" width="104" />
-            <el-table-column prop="fault_stage" label="环节" width="96" />
-            <el-table-column prop="own_party" label="责任方" width="90" />
-            <el-table-column prop="fix_mode" label="处置方式" width="96" />
-            <el-table-column label="涉及单量" width="88" align="center">
-              <template #default="{ row }"><b class="cnt-danger">{{ row.cnt }}</b></template>
-            </el-table-column>
-            <el-table-column label="跨天数" width="80" align="center">
-              <template #default="{ row }">{{ row.days }} 天</template>
-            </el-table-column>
-            <el-table-column label="操作" width="90" align="center">
+            <el-table-column label="操作" width="88" align="center">
               <template #default="{ row }">
-                <el-button size="small" text type="primary" @click="drillRootcause(row)">
-                  下钻
-                </el-button>
+                <el-button size="small" text type="primary" @click="drillRootcause(row)">下钻</el-button>
               </template>
             </el-table-column>
           </el-table>
         </div>
       </section>
 
-      <!-- 批量簇 + 效率指标 -->
-      <div class="chart-row">
-        <section class="card pm-col-7">
-          <div class="card-header">
-            <h3>批量数据异常专题（压降主战场）</h3>
-            <el-tag v-if="metrics.batch.ticket_pct" type="danger" size="small">
-              簇内 {{ metrics.batch.ticket_cnt }} 单 / {{ metrics.batch.ticket_pct }}%
-            </el-tag>
-          </div>
-          <div class="card-body">
-            <el-table ref="pmTbl1" :data="metrics.batch.clusters" size="small" empty-text="本周未出现同场景单日 ≥5 单的批量簇">
-              <el-table-column prop="l2" label="场景" min-width="150" show-overflow-tooltip />
-              <el-table-column prop="date" label="发现日" width="100" />
-              <el-table-column prop="cnt" label="单量" width="64" align="center">
-                <template #default="{ row }">
-                  <b class="cnt-danger cnt-clickable" title="点击下钻该场景批量簇工单" @click.stop="drill({ week: metrics.week, l2: row.l2, is_batch: 1 }, `批量簇「${row.l2}」工单`)">{{ row.cnt }}</b>
-                </template>
-              </el-table-column>
-              <el-table-column prop="cities" label="涉及地市" min-width="110" show-overflow-tooltip />
-              <el-table-column label="组织修复" width="100" align="center">
-                <template #default="{ row }">
-                  <el-tag :type="row.fixed ? 'success' : 'danger'" size="small">
-                    {{ row.fixed ? '已批量处置' : '逐单兜底' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </section>
-        <section class="card pm-col-5">
-          <div class="card-header"><h3>支撑时效与效率</h3></div>
-          <div class="card-body">
-            <div class="eff-list">
-              <div v-for="e in effItems" :key="e.label" class="eff-item">
-                <span class="eff-label">{{ e.label }}</span>
-                <span class="eff-value" :class="e.cls">{{ e.value }}</span>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <!-- 措施台账概览 -->
+      <!-- 四、压降指引 -->
       <section class="card">
         <div class="card-header">
-          <h3>措施跟踪（压降闭环）</h3>
-          <el-button size="small" text type="primary" @click="$router.push('/operation/complaint-center/actions')">
-            进入措施台账 →
-          </el-button>
+          <h3>四、工单压降分析指引</h3>
+          <span class="hint">同根因簇 ≥{{ batchMin }} 单 = 修一处可整批消掉</span>
         </div>
         <div class="card-body">
           <div class="pm-stat-grid pm-stat-grid--4">
-            <div v-for="s in actionStatItems" :key="s.label" class="pm-stat">
-              <div class="pm-stat__top" :style="{ color: s.color }">{{ s.cnt }}</div>
-              <div class="pm-stat__label">{{ s.label }}</div>
+            <div class="card kpi-card">
+              <div class="kpi-num red">{{ winCnt }}</div>
+              <div class="kpi-label">可整批压降单量</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num">{{ winPct }}%</div>
+              <div class="kpi-label">占已分析单量</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num">{{ (rc.batch || []).length }}</div>
+              <div class="kpi-label">可修复根因簇</div>
+            </div>
+            <div class="card kpi-card">
+              <div class="kpi-num">{{ rc.quick_win_cnt ?? 0 }}</div>
+              <div class="kpi-label">可批量修复/改造单量</div>
             </div>
           </div>
-        </div>
-      </section>
 
-      <!-- 共性问题闭环 -->
-      <section class="card">
-        <div class="card-header">
-          <h3>共性问题闭环（候选 → 入账 → 挂措施 → 周验证 → 闭环）</h3>
-          <el-button size="small" text type="primary" @click="$router.push('/operation/complaint-center/problems')">
-            进入问题台账 →
-          </el-button>
-        </div>
-        <div class="card-body">
-          <div class="pm-stat-grid pm-stat-grid--4">
-            <div v-for="s in problemStatItems" :key="s.label" class="pm-stat">
-              <div class="pm-stat__top" :style="{ color: s.color }">{{ s.cnt }}</div>
-              <div class="pm-stat__label">{{ s.label }}</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 处理人负荷（并入运营监控统一口径 /operation/stats/by-handler 的 complaint 键） -->
-      <section class="card">
-        <div class="card-header">
-          <h3>处理人负荷（客诉口径，与运营监控统一统计）</h3>
-          <el-button size="small" text type="primary" @click="$router.push('/operation/overview')">
-            责任人矩阵 →
-          </el-button>
-        </div>
-        <div class="card-body">
-          <el-table ref="pmTbl2" v-if="handlerRows.length" :data="handlerRows" size="small">
-            <el-table-column prop="name" label="处理人" width="110" />
-            <el-table-column prop="total" label="累计经手" width="90" align="center">
-              <template #default="{ row }"><b class="cnt-clickable" title="点击下钻该处理人工单" @click.stop="drill({ handler: row.name }, `处理人「${row.name}」工单`)">{{ row.total }}</b></template>
+          <el-table :data="rc.batch || []" size="small" empty-text="本周无可整批压降的问题">
+            <el-table-column label="根因（改这里即可整批消掉）" min-width="300" show-overflow-tooltip>
+              <template #default="{ row }"><b>{{ row.title }}</b></template>
             </el-table-column>
-            <el-table-column prop="open_cnt" label="未结单" width="80" align="center">
-              <template #default="{ row }">
-                <span :class="{ 'cnt-danger': row.open_cnt > 0 }" class="cnt-clickable" title="点击下钻未结单工单" @click.stop="drill({ handler: row.name, unclosed: 1 }, `「${row.name}」未结单工单`)">{{ row.open_cnt }}</span>
-              </template>
+            <el-table-column prop="fault_system" label="系统" width="110" />
+            <el-table-column prop="own_party" label="责任方" width="100" />
+            <el-table-column label="覆盖单量" width="90" align="center">
+              <template #default="{ row }"><b class="num-red">{{ row.cnt }}</b></template>
             </el-table-column>
-            <el-table-column prop="batch_cnt" label="批量簇内" width="86" align="center" />
-            <el-table-column prop="recur_cnt" label="复发" width="64" align="center" />
-            <el-table-column label="主要场景 TOP3" min-width="220">
+            <el-table-column prop="fix_mode" label="处置方式" width="100" />
+            <el-table-column label="建议动作" min-width="240" show-overflow-tooltip>
+              <template #default="{ row }">{{ fixAction(row.fix_mode) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="88" align="center">
               <template #default="{ row }">
-                <el-tag
-                  v-for="t in row.top_l2"
-                  :key="t.name"
-                  size="small"
-                  type="info"
-                  style="margin-right: 4px"
-                >{{ t.name }}×{{ t.cnt }}</el-tag>
-                <span v-if="!row.top_l2.length">—</span>
+                <el-button size="small" text type="primary" @click="drillRootcause(row)">下钻</el-button>
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-else description="暂无客诉处理人数据" :image-size="60" />
+        </div>
+      </section>
+
+      <!-- 五、措施进展 -->
+      <section class="card">
+        <div class="card-header">
+          <h3>五、措施跟踪与自动验证</h3>
+          <span class="hint">措施绑簇、按簇单量算降幅、每期导入后自动结算</span>
+        </div>
+        <div class="card-body">
+          <el-table :data="metrics.actions || []" size="small" empty-text="尚未登记改进措施">
+            <el-table-column prop="action_no" label="措施编号" width="170" />
+            <el-table-column prop="title" label="措施" min-width="260" show-overflow-tooltip />
+            <el-table-column prop="owner" label="责任人" width="100" />
+            <el-table-column label="基线/本周" width="110" align="center">
+              <template #default="{ row }">{{ row.baseline_cnt ?? '—' }} / {{ row.last_week_cnt ?? '—' }}</template>
+            </el-table-column>
+            <el-table-column label="实际降幅" width="96" align="right">
+              <template #default="{ row }">
+                <b v-if="row.actual_drop_pct !== null" :class="row.actual_drop_pct >= 0 ? 'num-green' : 'num-red'">
+                  {{ row.actual_drop_pct > 0 ? '+' : '' }}{{ row.actual_drop_pct }}%
+                </b>
+                <span v-else class="muted">待基线</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="100" />
+            <el-table-column label="操作" width="88" align="center">
+              <template #default>
+                <el-button size="small" text type="primary" @click="goActions">去跟踪</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
       </section>
     </div>
 
-    <el-empty v-else-if="!loading" description="暂无客诉数据：请先上传小信工单导出 xlsx" />
+    <el-empty v-else description="暂无投诉数据，请先上传工单" />
 
-    <ComplaintUploadDialog v-model="uploadVisible" @imported="loadAll" />
-
-    <!-- 统一工单下钻抽屉：所有数量可下钻到工单明细级 -->
+    <ComplaintUploadDialog v-model="uploadVisible" @done="loadAll" />
     <TicketDrillDrawer v-model="drillVisible" :filters="drillFilters" :title="drillTitle" />
   </div>
 </template>
@@ -356,395 +281,167 @@ import ChartLine from '@/components/Charts/ChartLine.vue'
 import ComplaintUploadDialog from './components/ComplaintUploadDialog.vue'
 import TicketDrillDrawer from './components/TicketDrillDrawer.vue'
 import { complaintApi } from '@/api/complaint'
-import { operationApi } from '@/api/operation'
 
 const router = useRouter()
 const loading = ref(false)
 const uploadVisible = ref(false)
 const metrics = ref({})
 const selectedWeek = ref('')
-const drillVisible = ref(false)
-const drillFilters = ref({})
-const drillTitle = ref('投诉工单下钻')
-const classify = ref({ ai_rate: 0, ai_low: 0, need_analyze: 0, need_review: 0, total: 0 })
+const weekOptions = ref([])
+const batchMin = 3
 
-// AI 分析覆盖率卡：主指标为 ai_rate（有大模型结论的单占比），副文案说明待办
-const classifySub = computed(() => {
-  const c = classify.value
-  if (c.need_review) return `${c.need_review} 条待人工确认`
-  if (c.need_analyze) return `${c.need_analyze} 条待 AI 分析`
-  return c.total ? '全部已完成 AI 分析' : '暂无工单'
-})
-const classifyTitle = computed(() => {
-  const c = classify.value
-  return `点击下钻：${c.need_review ? 'AI 低置信待确认工单' : (c.need_analyze ? '待 AI 分析工单' : '全部工单')}`
-})
-function drillClassify() {
-  const c = classify.value
-  if (c.need_review) return drill({ classify_by: 'ai_low' }, 'AI 低置信待人工确认工单')
-  if (c.need_analyze) return drill({ classify_by: 'auto' }, '待 AI 分析工单')
-  return drill({}, '全部投诉工单')
+// 一级性质含义（展示用；字典与口径仍在后端唯一源自 pmwb_complaint_category）
+const L1_MEANING = {
+  系统问题: '系统缺陷，需研发修复',
+  流程优化: '流程或规则不合理，需改造',
+  数据异常: '数据不一致/错误，需批量修复',
+  规则咨询: '客户对政策资费有疑问，解释即可化解',
+  操作咨询: '客户不熟悉操作，指引或代办即可化解',
 }
-const handlerRows = ref([])
+const FIX_ACTION = {
+  批量修复: '出数据修复脚本，一次性回溯存量错误数据',
+  系统改造: '提需求排期改造（评估版本窗口）',
+  规则调整: '调整校验规则/配置口径，无需改代码',
+  逐单处理: '无法批量，只能逐单兜底（不产生压降空间）',
+  解释指引: '完善指引话术，压降重复咨询',
+}
+function fixAction(mode) {
+  return FIX_ACTION[mode] || '逐单核实后再定'
+}
 
-// ── 根因分析（2026-11-03 根因深化）──────────────────────────
-// 数据全部来自 metrics.collect 的 rootcause 段（唯一口径），前端只做展示与排序
-const rc = computed(() => metrics.value.rootcause || {
-  covered: 0, total: 0, coverage_pct: 0, pending: 0, low: 0,
-  clusters: [], batch: [], by_stage: [], by_system: [], by_type: [],
-  by_party: [], by_fix: [], quick_win_cnt: 0, quick_win_pct: 0,
+const rc = computed(() => metrics.value.rootcause || {})
+const known = computed(() => metrics.value.known || {})
+
+const subTitle = computed(() => {
+  if (!metrics.value.week) return 'AI 自动分析：本周新增 → 已知/新增 → 五类 → 压降空间'
+  return `${metrics.value.week}｜AI 全自动分析，人工只在问题入账时确认一次`
 })
 
-function toBars(items, pick = 8) {
-  const list = (items || []).filter(x => x.cnt > 0).slice(0, pick)
-  const max = Math.max(1, ...list.map(x => x.cnt))
-  return list.map(x => ({ ...x, width: `${Math.round((x.cnt / max) * 100)}%` }))
-}
-const stageBars = computed(() => toBars(rc.value.by_stage, 12))
-const partyBars = computed(() => toBars(rc.value.by_party, 7))
-const typeBars = computed(() => toBars(rc.value.by_type, 7))
-const batchTotal = computed(() =>
-  (rc.value.batch || []).reduce((s, x) => s + (x.cnt || 0), 0)
-)
-
-
-const subTitle = computed(() =>
-  metrics.value.week
-    ? `统计区间 ${metrics.value.range}｜自然周口径｜数据源：小信工单逐单入库`
-    : '每周上传小信工单导出 xlsx，自动归档入库并生成压降看板'
-)
-
+const partialBase = computed(() => !!metrics.value.prev_partial)
+const wowText = computed(() => {
+  if (metrics.value.prev_partial) return '不可比'
+  const v = metrics.value.wow_pct
+  if (v === null || v === undefined) return '—'
+  return `${v > 0 ? '+' : ''}${v}%`
+})
 const wowClass = computed(() => {
+  if (metrics.value.prev_partial) return ''
   const v = metrics.value.wow_pct
   if (v === null || v === undefined) return ''
-  return v > 0 ? 'red' : (v < 0 ? 'green' : '')
-})
-const wowText = computed(() => {
-  const m = metrics.value
-  if (m.wow_pct === null || m.wow_pct === undefined) {
-    return m.prev_partial ? '不可比' : '—'
-  }
-  const arrow = m.wow_pct > 0 ? '↑' : (m.wow_pct < 0 ? '↓' : '→')
-  return `${arrow} ${Math.abs(m.wow_pct)}%`
+  return v > 0 ? 'red' : 'green'
 })
 
-const pieData = computed(() =>
-  (metrics.value.by_l1 || []).map(x => ({ name: x.name, value: x.cnt }))
-)
-const trendWeeks = computed(() =>
-  (metrics.value.trend || []).map(t => t.week.split('-')[1])
-)
-const trendSeries = computed(() => [
-  { name: '总量', type: 'line', data: (metrics.value.trend || []).map(t => t.total) },
-  { name: '批量簇单量', type: 'bar', data: (metrics.value.trend || []).map(t => t.batch) },
-])
+const pieData = computed(() => (metrics.value.by_l1 || []).map(x => ({ value: x.cnt, name: x.name })))
+const l1Rows = computed(() => (metrics.value.by_l1 || []).map(x => ({
+  ...x, meaning: L1_MEANING[x.name] || '—',
+})))
+const dailyX = computed(() => Object.keys(metrics.value.daily || {}).map(k => k.slice(5)))
+const dailySeries = computed(() => [{
+  name: '当日单量',
+  data: Object.values(metrics.value.daily || {}),
+}])
 
-const effItems = computed(() => {
-  const e = metrics.value.efficiency || {}
-  return [
-    { label: '平均经手环节', value: `${e.avg_opinions ?? '—'} 条/单`, cls: '' },
-    { label: '重复派单', value: `${e.repeat_dispatch ?? 0} 单（${e.repeat_dispatch_pct ?? 0}%）`, cls: e.repeat_dispatch_pct >= 10 ? 'warn' : '' },
-    { label: '首轮返工', value: `${e.rework ?? 0} 单（${e.rework_pct ?? 0}%）`, cls: e.rework_pct >= 15 ? 'warn' : '' },
-    { label: '互推外部', value: `${e.pushout ?? 0} 单（${e.pushout_pct ?? 0}%）`, cls: e.pushout_pct >= 5 ? 'warn' : '' },
-    { label: '未结单合计', value: `${e.unclosed ?? 0} 单（${e.unclosed_pct ?? 0}%）`, cls: e.unclosed_pct >= 50 ? 'warn' : '' },
-    { label: '长链条（≥5 环节）', value: `${e.long_chain ?? 0} 单`, cls: '' },
-  ]
-})
-
-const actionStatItems = computed(() => {
-  const st = metrics.value.action_stats || {}
-  const by = st.by_status || {}
-  return [
-    { label: '措施总数', cnt: st.total ?? 0, color: 'var(--accent)' },
-    { label: '推进中/验证中', cnt: (by.in_progress || 0) + (by.verifying || 0), color: 'var(--warning)' },
-    { label: '已验证有效', cnt: by.effective || 0, color: 'var(--success)' },
-    { label: '验证未达标', cnt: by.ineffective || 0, color: 'var(--danger)' },
-  ]
-})
-
-const problemRows = ref([])
-const problemStatItems = computed(() => {
-  const inflight = problemRows.value.filter(r => ['open', 'resolving'].includes(r.status))
-  return [
-    { label: '待确认候选', cnt: problemRows.value.filter(r => r.status === 'candidate').length, color: 'var(--warning)' },
-    { label: '在办问题', cnt: inflight.length, color: 'var(--accent)' },
-    { label: '闭环后待重开', cnt: problemRows.value.filter(r => r.reopen_flag).length, color: 'var(--danger)' },
-    { label: '已闭环', cnt: problemRows.value.filter(r => r.status === 'closed').length, color: 'var(--success)' },
-  ]
-})
-
-const weekOptions = computed(() => {
-  const weeks = (metrics.value.trend || []).map(t => t.week)
-  if (metrics.value.week && !weeks.includes(metrics.value.week)) weeks.push(metrics.value.week)
-  return weeks.sort().reverse()
+const winCnt = computed(() => (rc.value.batch || []).reduce((s, x) => s + (x.cnt || 0), 0))
+const winPct = computed(() => {
+  const covered = rc.value.covered || 0
+  return covered ? Math.round((winCnt.value / covered) * 1000) / 10 : 0
 })
 
 function weekLabel(w) {
-  return w === (metrics.value.trend || []).slice(-1)[0]?.week ? `${w}（最新）` : w
-}
-
-async function onWeekChange(w) {
-  loading.value = true
-  try {
-    metrics.value = await complaintApi.getMetrics(w)
-  } catch (e) {
-    ElMessage.error('切换周失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-function drillRootcause(row) {
-  drill({ week: metrics.value.week, rootcause_no: row.rootcause_no },
-    `根因簇「${row.title}」工单`)
-}
-
-function drill(filters, title) {
-  drillFilters.value = { ...filters }
-  drillTitle.value = title || '投诉工单下钻'
-  drillVisible.value = true
-}
-
-function onTrendClick(p) {
-  // 趋势图 x 轴是周简称（W44），反查完整周名并切换
-  const hit = (metrics.value.trend || []).find(t => t.week.endsWith(p.name))
-  if (hit && hit.week !== metrics.value.week) {
-    selectedWeek.value = hit.week
-    onWeekChange(hit.week)
-  }
+  return w ? w.replace('-', ' 第') + ' 周' : ''
 }
 
 async function loadAll() {
   loading.value = true
   try {
     metrics.value = await complaintApi.getMetrics(selectedWeek.value || undefined)
+    if (metrics.value.week) {
+      if (!selectedWeek.value) selectedWeek.value = metrics.value.week
+      if (!weekOptions.value.includes(metrics.value.week)) {
+        weekOptions.value = [...new Set([...(metrics.value.trend || []).map(t => t.week), metrics.value.week])]
+          .filter(Boolean).sort().reverse()
+      }
+    }
   } catch (e) {
     metrics.value = {}
   } finally {
     loading.value = false
   }
-  if (metrics.value.week && !selectedWeek.value) selectedWeek.value = metrics.value.week
-  // AI 归类状态（大模型主导归类率 + 待人工确认数）
-  try {
-    classify.value = await complaintApi.classifyStatus()
-  } catch (e) {
-    classify.value = { ai_rate: 0, ai_low: 0, need_analyze: 0, need_review: 0, total: 0 }
-  }
-  // 处理人负荷：读 /operation/stats/by-handler 顶层 complaint 键（统一口径）
-  try {
-    const byHandler = await operationApi.getStatsByHandler()
-    handlerRows.value = byHandler?.complaint?.handlers || []
-  } catch (e) {
-    handlerRows.value = []
-  }
-  // 共性问题闭环概览
-  try {
-    const pd = await complaintApi.listProblems({ page_size: 200 })
-    problemRows.value = pd?.items || []
-  } catch (e) {
-    problemRows.value = []
-  }
+}
+
+function onWeekChange(w) {
+  selectedWeek.value = w
+  loadAll()
+}
+
+function drillRootcause(row) {
+  if (!row?.rootcause_no) return
+  drill({ week: metrics.value.week, rootcause_no: row.rootcause_no },
+    `根因簇「${row.title}」工单`)
+}
+
+const drillVisible = ref(false)
+const drillFilters = ref({})
+const drillTitle = ref('')
+function drill(filters, title) {
+  drillFilters.value = { ...filters }
+  drillTitle.value = title || '投诉工单下钻'
+  drillVisible.value = true
 }
 
 function openReport() {
-  if (!metrics.value.week) return
-  window.open(complaintApi.reportDownloadUrl(metrics.value.week, 'html'), '_blank')
+  if (!metrics.value.week) return ElMessage.warning('暂无可导出的周报')
+  window.open(complaintApi.reportDownloadUrl(metrics.value.week), '_blank')
+}
+
+function goActions() {
+  router.push('/complaint-center/actions')
 }
 
 onMounted(loadAll)
 </script>
 
 <style scoped>
-.complaint-dashboard {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
 .dashboard-body {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-.chart-row {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 16px;
+.hint {
+  font-size: 12px;
+  color: var(--text-muted);
 }
-.chart-row .card {
-  min-width: 0;
-}
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.card-header h3 {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-.cnt-danger {
-  color: var(--danger);
-}
-.kpi-clickable {
-  cursor: pointer;
-  transition: box-shadow 0.15s, transform 0.15s;
-}
-.kpi-clickable:hover {
-  box-shadow: 0 2px 12px rgba(47, 111, 237, 0.18);
-  transform: translateY(-1px);
-}
-.kpi-sub {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-.kpi-num.amber { color: var(--warning, #ea580c); }
-.cnt-clickable {
-  cursor: pointer;
-}
-.cnt-clickable:hover {
-  text-decoration: underline;
-}
-.eff-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.eff-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12.5px;
-  padding: 6px 10px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-sm);
-}
-.eff-label {
-  color: var(--text-secondary);
-}
-.eff-value {
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-}
-.eff-value.warn {
-  color: var(--danger);
-  font-weight: 600;
-}
-
-/* ── 投诉分析（根因四问） ───────────────────────────────── */
-.rc-analysis .card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.rc-tip {
-  margin-bottom: 2px;
-}
-.rc-ask {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-top: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px dashed var(--border-color);
-}
-.rc-ask-no {
-  font-size: 15px;
+.sub-h {
+  font-size: 13px;
   font-weight: 700;
-  color: var(--primary);
-}
-.rc-ask-title {
-  font-size: 14px;
-  font-weight: 600;
   color: var(--text-primary);
+  margin: 18px 0 8px;
 }
-.rc-ask-sub {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-.rc-pending-tag {
-  margin-left: 6px;
-  font-size: 11px;
-  color: var(--warning);
-  border: 1px solid var(--warning);
-  border-radius: 3px;
-  padding: 0 3px;
-}
-.rc-sub {
-  border: 1px solid var(--border-color);
+.pm-note {
+  margin: 12px 0;
+  padding: 10px 14px;
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
-}
-.rc-sub-title {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
   font-size: 12.5px;
-  font-weight: 600;
+  line-height: 1.8;
   color: var(--text-secondary);
-  margin-bottom: 8px;
 }
-.rc-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.pm-note.warn {
+  background: var(--warning-soft);
+  border-left-color: var(--warning);
 }
-.rc-bar-row {
+.num-red { color: var(--danger); }
+.num-green { color: var(--success); }
+.muted { color: var(--text-muted); }
+.l1-row {
   display: grid;
-  grid-template-columns: 84px 1fr 96px;
+  grid-template-columns: 5fr 7fr;
+  gap: 16px;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
 }
-.rc-bar-name {
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.rc-bar-track {
-  height: 10px;
-  background: var(--bg-secondary);
-  border-radius: 5px;
-  overflow: hidden;
-}
-.rc-bar-fill {
-  display: block;
-  height: 100%;
-  background: var(--primary);
-  border-radius: 5px;
-  transition: width 0.4s ease;
-}
-.rc-fill-party {
-  background: var(--warning);
-}
-.rc-fill-type {
-  background: var(--success);
-}
-.rc-bar-val {
-  font-family: var(--font-mono);
-  color: var(--text-tertiary);
-  text-align: right;
-}
-.rc-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-.rc-empty {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-.rc-win {
-  margin-bottom: 4px;
-}
-
-@media (max-width: 768px) {
-  .rc-split {
-    grid-template-columns: 1fr;
-  }
-  .rc-bar-row {
-    grid-template-columns: 68px 1fr 78px;
-  }
+.kpi-clickable { cursor: pointer; }
+@media (max-width: 960px) {
+  .l1-row { grid-template-columns: 1fr; }
 }
 </style>
