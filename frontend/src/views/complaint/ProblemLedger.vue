@@ -12,25 +12,27 @@
 
     <!-- KPI 区 -->
     <div class="pm-stat-grid pm-stat-grid--5">
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="kpi.candidate ? 'amber' : 'green'">{{ kpi.candidate }}</div>
-        <div class="kpi-label">待确认候选</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">待确认候选</span></div>
+        <div class="pm-stat__val" :class="kpi.candidate ? 'is-warning' : 'is-success'">{{ kpi.candidate }}</div>
       </div>
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="kpi.inflight ? 'blue' : 'green'">{{ kpi.inflight }}</div>
-        <div class="kpi-label">在办问题</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">在办问题</span></div>
+        <div class="pm-stat__val" :class="kpi.inflight ? 'is-accent' : 'is-success'">{{ kpi.inflight }}<span class="pm-stat__unit">个</span></div>
       </div>
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="suggestions.length ? 'green' : ''">{{ suggestions.length }}</div>
-        <div class="kpi-label">待闭环建议</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">待闭环建议</span></div>
+        <div class="pm-stat__val" :class="suggestions.length ? 'is-success' : ''">{{ suggestions.length }}<span class="pm-stat__unit">条</span></div>
       </div>
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="kpi.longRunning ? 'red' : 'green'">{{ kpi.longRunning }}</div>
-        <div class="kpi-label">长期未闭环（≥12周）</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">长期未闭环</span></div>
+        <div class="pm-stat__val" :class="kpi.longRunning ? 'is-danger' : 'is-success'">{{ kpi.longRunning }}</div>
+        <div class="pm-stat__sub">在办 ≥12 周</div>
       </div>
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="kpi.reopen ? 'red' : 'green'">{{ kpi.reopen }}</div>
-        <div class="kpi-label">闭环后复发（待重开）</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">闭环后复发</span></div>
+        <div class="pm-stat__val" :class="kpi.reopen ? 'is-danger' : 'is-success'">{{ kpi.reopen }}</div>
+        <div class="pm-stat__sub">待重开</div>
       </div>
     </div>
 

@@ -20,29 +20,29 @@
         </div>
         <div class="card-body">
           <div class="pm-stat-grid pm-stat-grid--6">
-            <div class="card kpi-card kpi-clickable" title="点击下钻本周工单" @click="drill({ week: metrics.week }, '本周新增投诉工单')">
-              <div class="kpi-num blue">{{ metrics.total }}</div>
-              <div class="kpi-label">本周新增（单）</div>
+            <div class="pm-stat is-clickable" title="点击下钻本周工单" @click="drill({ week: metrics.week }, '本周新增投诉工单')">
+              <div class="pm-stat__top"><span class="pm-stat__label">本周新增</span></div>
+              <div class="pm-stat__val is-accent">{{ metrics.total }}<span class="pm-stat__unit">单</span></div>
             </div>
-            <div class="card kpi-card">
-              <div class="kpi-num">{{ metrics.daily_avg }}</div>
-              <div class="kpi-label">日均（单）</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">日均</span></div>
+              <div class="pm-stat__val">{{ metrics.daily_avg }}<span class="pm-stat__unit">单</span></div>
             </div>
-            <div class="card kpi-card">
-              <div class="kpi-num" :class="wowClass">{{ wowText }}</div>
-              <div class="kpi-label">周环比</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">周环比</span></div>
+              <div class="pm-stat__val" :class="wowClass">{{ wowText }}</div>
             </div>
-            <div class="card kpi-card kpi-clickable" title="已知问题率越低，说明越在追新火" @click="drill({ week: metrics.week, known_flag: 0 }, '本周新增问题工单')">
-              <div class="kpi-num" :class="known.known_rate >= 50 ? 'green' : 'red'">{{ known.known_rate ?? 0 }}%</div>
-              <div class="kpi-label">已知问题率</div>
+            <div class="pm-stat is-clickable" title="已知问题率越低，说明越在追新火" @click="drill({ week: metrics.week, known_flag: 0 }, '本周新增问题工单')">
+              <div class="pm-stat__top"><span class="pm-stat__label">已知问题率</span></div>
+              <div class="pm-stat__val" :class="known.known_rate >= 50 ? 'is-success' : 'is-danger'">{{ known.known_rate ?? 0 }}<span class="pm-stat__unit">%</span></div>
             </div>
-            <div class="card kpi-card">
-              <div class="kpi-num" :class="(rc.coverage_pct || 0) >= 95 ? 'green' : 'amber'">{{ rc.coverage_pct ?? 0 }}%</div>
-              <div class="kpi-label">根因分析覆盖</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">根因分析覆盖</span></div>
+              <div class="pm-stat__val" :class="(rc.coverage_pct || 0) >= 95 ? 'is-success' : 'is-warning'">{{ rc.coverage_pct ?? 0 }}<span class="pm-stat__unit">%</span></div>
             </div>
-            <div class="card kpi-card">
-              <div class="kpi-num">{{ rc.cluster_cnt ?? 0 }}</div>
-              <div class="kpi-label">涉及根因簇</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">涉及根因簇</span></div>
+              <div class="pm-stat__val">{{ rc.cluster_cnt ?? 0 }}<span class="pm-stat__unit">簇</span></div>
             </div>
           </div>
 
@@ -63,21 +63,22 @@
         </div>
         <div class="card-body">
           <div class="pm-stat-grid pm-stat-grid--4">
-            <div class="card kpi-card">
-              <div class="kpi-num" :class="known.known_rate >= 50 ? 'green' : 'red'">{{ known.known_rate ?? 0 }}%</div>
-              <div class="kpi-label">已知问题率（分母=已判定单量）</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">已知问题率</span></div>
+              <div class="pm-stat__val" :class="known.known_rate >= 50 ? 'is-success' : 'is-danger'">{{ known.known_rate ?? 0 }}<span class="pm-stat__unit">%</span></div>
+              <div class="pm-stat__sub">分母 = 已判定单量</div>
             </div>
-            <div class="card kpi-card kpi-clickable" @click="drill({ week: metrics.week, known_flag: 1 }, '已知问题工单')">
-              <div class="kpi-num red">{{ known.known_cnt ?? 0 }}</div>
-              <div class="kpi-label">已知问题（单）</div>
+            <div class="pm-stat is-clickable" @click="drill({ week: metrics.week, known_flag: 1 }, '已知问题工单')">
+              <div class="pm-stat__top"><span class="pm-stat__label">已知问题</span></div>
+              <div class="pm-stat__val is-danger">{{ known.known_cnt ?? 0 }}<span class="pm-stat__unit">单</span></div>
             </div>
-            <div class="card kpi-card kpi-clickable" @click="drill({ week: metrics.week, known_flag: 0 }, '新增问题工单')">
-              <div class="kpi-num blue">{{ known.new_cnt ?? 0 }}</div>
-              <div class="kpi-label">新增问题（单）</div>
+            <div class="pm-stat is-clickable" @click="drill({ week: metrics.week, known_flag: 0 }, '新增问题工单')">
+              <div class="pm-stat__top"><span class="pm-stat__label">新增问题</span></div>
+              <div class="pm-stat__val is-accent">{{ known.new_cnt ?? 0 }}<span class="pm-stat__unit">单</span></div>
             </div>
-            <div class="card kpi-card">
-              <div class="kpi-num">{{ known.judged ?? 0 }}/{{ known.total ?? metrics.total }}</div>
-              <div class="kpi-label">已判定 / 总量</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">已判定 / 总量</span></div>
+              <div class="pm-stat__val">{{ known.judged ?? 0 }} / {{ known.total ?? metrics.total }}</div>
             </div>
           </div>
 
@@ -249,21 +250,21 @@
         </div>
         <div class="card-body">
           <div class="pm-stat-grid pm-stat-grid--4">
-            <div class="card kpi-card">
-              <div class="kpi-num red">{{ winCnt }}</div>
-              <div class="kpi-label">可整批压降单量</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">可整批压降单量</span></div>
+              <div class="pm-stat__val is-danger">{{ winCnt }}<span class="pm-stat__unit">单</span></div>
             </div>
-            <div class="card kpi-card">
-              <div class="kpi-num">{{ winPct }}%</div>
-              <div class="kpi-label">占已分析单量</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">占已分析单量</span></div>
+              <div class="pm-stat__val">{{ winPct }}<span class="pm-stat__unit">%</span></div>
             </div>
-            <div class="card kpi-card">
-              <div class="kpi-num">{{ (rc.batch || []).length }}</div>
-              <div class="kpi-label">可修复根因簇</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">可修复根因簇</span></div>
+              <div class="pm-stat__val">{{ (rc.batch || []).length }}<span class="pm-stat__unit">簇</span></div>
             </div>
-            <div class="card kpi-card">
-              <div class="kpi-num">{{ rc.quick_win_cnt ?? 0 }}</div>
-              <div class="kpi-label">可批量修复/改造单量</div>
+            <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">可批量修复/改造单量</span></div>
+              <div class="pm-stat__val">{{ rc.quick_win_cnt ?? 0 }}<span class="pm-stat__unit">单</span></div>
             </div>
           </div>
 
@@ -388,7 +389,7 @@ const wowClass = computed(() => {
   if (metrics.value.prev_partial) return ''
   const v = metrics.value.wow_pct
   if (v === null || v === undefined) return ''
-  return v > 0 ? 'red' : 'green'
+  return v > 0 ? 'is-danger' : 'is-success'
 })
 
 const pieData = computed(() => (metrics.value.by_l1 || []).map(x => ({ value: x.cnt, name: x.name })))
@@ -571,7 +572,6 @@ onMounted(loadAll)
   gap: 16px;
   align-items: center;
 }
-.kpi-clickable { cursor: pointer; }
 @media (max-width: 960px) {
   .l1-row { grid-template-columns: 1fr; }
 }

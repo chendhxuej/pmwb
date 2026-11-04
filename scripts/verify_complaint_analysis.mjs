@@ -179,9 +179,10 @@ async function main() {
       if (!root) return null
       const titles = [...root.querySelectorAll('.card-header h3')].map(h => h.innerText.trim())
       const secs = [...root.querySelectorAll('section.card')]
-      const kpis = [...root.querySelectorAll('.kpi-card')].map(c => ({
-        num: (c.querySelector('.kpi-num')?.innerText || '').trim(),
-        label: (c.querySelector('.kpi-label')?.innerText || '').trim(),
+      // 2026-11-04 卡片体系迁移：.kpi-card → .pm-stat（design.css 全局规范类）
+      const kpis = [...root.querySelectorAll('.pm-stat')].map(c => ({
+        num: (c.querySelector('.pm-stat__val')?.innerText || '').trim(),
+        label: (c.querySelector('.pm-stat__label')?.innerText || '').trim(),
       }))
       const tables = [...root.querySelectorAll('.el-table')]
       const rowCount = (i) => tables[i] ? tables[i].querySelectorAll('.el-table__body tbody tr').length : -1

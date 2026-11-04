@@ -10,13 +10,16 @@
     </PageHeader>
 
     <div v-if="data.week" class="hot-body">
-      <div class="hot-summary">
-        <span>{{ data.week }}</span>
-        <span class="sep">｜</span>
-        <span>本周新增投诉 <b class="total-num">{{ data.total }}</b> 单</span>
-        <span class="sep">｜</span>
-        <span>热点场景 <b>{{ data.items.length }}</b> 个</span>
-        <span class="hint">（按二级场景统计，凸显当下投诉都集中在什么事）</span>
+      <div class="pm-stat-grid pm-stat-grid--4 hot-kpis">
+        <div class="pm-stat">
+          <div class="pm-stat__top"><span class="pm-stat__label">本周新增投诉</span></div>
+          <div class="pm-stat__val is-accent">{{ data.total }}<span class="pm-stat__unit">单</span></div>
+        </div>
+        <div class="pm-stat">
+          <div class="pm-stat__top"><span class="pm-stat__label">热点场景</span></div>
+          <div class="pm-stat__val">{{ data.items.length }}<span class="pm-stat__unit">个</span></div>
+          <div class="pm-stat__sub">按二级场景统计，凸显当下投诉集中点</div>
+        </div>
       </div>
 
       <section class="card">
@@ -196,19 +199,7 @@ onMounted(load)
   flex-direction: column;
   gap: 14px;
 }
-.hot-summary {
-  font-size: 13px;
-  color: var(--text-secondary);
-  padding: 10px 14px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-sm, 8px);
-}
-.hot-summary .total-num {
-  color: var(--accent);
-  font-size: 16px;
-}
-.hot-summary .sep { color: var(--border-color); }
-.hot-summary .hint { font-size: 12px; opacity: 0.8; }
+.hot-kpis { max-width: 880px; }
 .hot-list { display: flex; flex-direction: column; }
 .hot-row {
   display: flex;

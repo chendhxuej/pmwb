@@ -11,31 +11,29 @@
 
     <!-- KPI：根因分析的可靠性与收敛度 -->
     <div class="pm-stat-grid pm-stat-grid--5">
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="status.coverage >= 90 ? 'green' : 'amber'">
-          {{ status.coverage }}%
-        </div>
-        <div class="kpi-label">根因覆盖率（{{ status.filled }}/{{ status.total }} 单）</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">根因覆盖率</span></div>
+        <div class="pm-stat__val" :class="status.coverage >= 90 ? 'is-success' : 'is-warning'">{{ status.coverage }}<span class="pm-stat__unit">%</span></div>
+        <div class="pm-stat__sub">{{ status.filled }}/{{ status.total }} 单</div>
       </div>
-      <div class="card kpi-card">
-        <div class="kpi-num blue">{{ libStats.open || 0 }}</div>
-        <div class="kpi-label">已入账根因簇</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">已入账根因簇</span></div>
+        <div class="pm-stat__val is-accent">{{ libStats.open || 0 }}<span class="pm-stat__unit">簇</span></div>
       </div>
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="(libStats.candidate || 0) > 0 ? 'amber' : 'green'">
-          {{ libStats.candidate || 0 }}
-        </div>
-        <div class="kpi-label">待确认候选（须人工命名入账）</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">待确认候选</span></div>
+        <div class="pm-stat__val" :class="(libStats.candidate || 0) > 0 ? 'is-warning' : 'is-success'">{{ libStats.candidate || 0 }}</div>
+        <div class="pm-stat__sub">须人工命名入账</div>
       </div>
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="status.low > 0 ? 'amber' : 'green'">{{ status.low }}</div>
-        <div class="kpi-label">待人工根因（信息不足/未过门禁）</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">待人工根因</span></div>
+        <div class="pm-stat__val" :class="status.low > 0 ? 'is-warning' : 'is-success'">{{ status.low }}</div>
+        <div class="pm-stat__sub">信息不足 / 未过门禁</div>
       </div>
-      <div class="card kpi-card">
-        <div class="kpi-num" :class="status.quality >= 90 ? 'green' : 'amber'">
-          {{ status.quality }}%
-        </div>
-        <div class="kpi-label">根因质量率（可用作分析基础）</div>
+      <div class="pm-stat">
+        <div class="pm-stat__top"><span class="pm-stat__label">根因质量率</span></div>
+        <div class="pm-stat__val" :class="status.quality >= 90 ? 'is-success' : 'is-warning'">{{ status.quality }}<span class="pm-stat__unit">%</span></div>
+        <div class="pm-stat__sub">可用作分析基础</div>
       </div>
     </div>
 
