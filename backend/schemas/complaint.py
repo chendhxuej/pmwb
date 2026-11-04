@@ -180,3 +180,12 @@ class TicketsMoveIn(BaseModel):
     """批量把工单改指到指定簇（人工纠偏）。"""
     ticket_nos: List[str] = Field(default_factory=list)
     target_no: str = Field("", max_length=64)
+
+
+class ProblemV42RunIn(BaseModel):
+    """客诉 v4.2 全链运行入参（方案 §1.3：分析过程不依赖人；dry_run 默认）。"""
+    dry_run: bool = True
+    force: bool = False                 # True=忽略已存 L1 结论，全量重算
+    limit: int = 0                      # 0=全量
+    allow_semantic: bool = True         # False=只用确定性规则层（演练用）
+    max_semantic_batches: int = 1       # 默认最多 1 批，防误触全量调用；0=不限

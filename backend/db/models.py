@@ -2236,3 +2236,89 @@ class PmwbComplaintProblemAction(Base):
         Index("idx_cpp_action", "action_no"),
         {"comment": "共性问题↔改进措施多对多关联"},
     )
+
+
+# ── 客诉 v4.2 自动化分析链（D5；2026-11-04；与旧「根因簇/问题台账」隔离）──────────
+class PmwbComplaintProblemPoint(Base):
+    """逐单投诉问题点：含待自动补跑标记与缺口原因（通道恢复后系统自动补跑）。"""
+    __tablename__ = "pmwb_complaint_problem_point"
+    ticket_no = Column(String(64), primary_key=True, comment="工单号")
+    point = Column(String(500), comment="一句逐单投诉问题点")
+    status = Column(String(32), nullable=False, comment="ok/pending_auto_rerun/unclassified")
+    gaps_json = Column(Text, comment="缺口原因列表")
+    evidence_json = Column(Text, comment="原文证据片段")
+    anchors_json = Column(Text, comment="问题点与原文锚点映射")
+    old_record_conclusion = Column(Integer, nullable=False, default=0, server_default="0")
+    rewritten_from_conclusion = Column(Integer, nullable=False, default=0, server_default="0")
+    generator_channel = Column(String(64), comment="生成通道")
+    judge_channel = Column(String(64), comment="独立判定通道")
+    policy_version = Column(String(32), comment="口径版本")
+    updated_at = Column(DateTime, comment="判定时间")
+    __table_args__ = (Index("idx_cpp_status", "status"),)
+
+
+class PmwbComplaintProblemClass(Base):
+    """问题点类 + 结构化判定卡（系统自动生成，机器可判；无人工编制）。"""
+    __tablename__ = "pmwb_complaint_problem_class"
+    class_no = Column(String(64), primary_key=True, comment="问题点类编号")
+    description = Column(String(255), nullable=False, comment="一句具体投诉问题点")
+    elements_json = Column(Text, comment="四要素")
+    card_json = Column(Text, comment="结构化判定卡")
+    fix_point = Column(String(255), comment="可指认修复落点")
+    ticket_cnt = Column(Integer, nullable=False, default=0, server_default="0")
+    first_sight = Column(Integer, nullable=False, default=0, server_default="0")
+    status = Column(String(32), nullable=False, comment="published/draft/voided/blocked/changed")
+    reasons_json = Column(Text, comment="未发布原因")
+    version = Column(Integer, nullable=False, default=1, server_default="1", comment="描述版本")
+    prev_description = Column(String(255), comment="上一版描述（口径变更留痕）")
+    prev_card_json = Column(Text, comment="上一版判定卡（口径变更留痕）")
+    policy_version = Column(String(32), comment="口径版本")
+    created_at = Column(DateTime, comment="建立时间")
+    updated_at = Column(DateTime, comment="更新时间")
+    __table_args__ = (Index("idx_cpc_status", "status"),)
+
+
+class PmwbComplaintProblemGate(Base):
+    """每单 100% 自动门禁留痕 / 未归类清单（逐单写明缺哪项证据）。"""
+    __tablename__ = "pmwb_complaint_problem_gate"
+    ticket_no = Column(String(64), primary_key=True, comment="工单号")
+    class_no = Column(String(64), comment="归入的问题点类")
+    status = Column(String(32), nullable=False, comment="matched/matched_second/unclassified/pending_auto_rerun")
+    gaps_json = Column(Text, comment="未过闸原因/缺口")
+    mapped_json = Column(Text, comment="描述到工单的证据映射")
+    missing_json = Column(Text, comment="未定位到的描述要素")
+    generator_channel = Column(String(64), comment="生成通道")
+    judge_channel = Column(String(64), comment="判定通道")
+    second_channel = Column(String(64), comment="二次判定通道")
+    policy_version = Column(String(32), comment="口径版本")
+    updated_at = Column(DateTime, comment="判定时间")
+    __table_args__ = (Index("idx_cpg_status", "status"),)
+
+
+class PmwbComplaintProblemGoldset(Base):
+    """金标集（系统自动构建并滚动扩充；无人工标注）。"""
+    __tablename__ = "pmwb_complaint_problem_goldset"
+    ticket_no = Column(String(64), primary_key=True, comment="工单号")
+    source = Column(String(64), comment="纳入来源")
+    policy_version = Column(String(32), comment="口径版本")
+    added_at = Column(DateTime, comment="自动纳入时间")
+
+
+class PmwbComplaintProblemRun(Base):
+    """每次运行的验收结果与发布闸门结论（不达标自动拦截，不退回人工）。"""
+    __tablename__ = "pmwb_complaint_problem_run"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_no = Column(String(64), nullable=False, unique=True, comment="运行批次号")
+    dry_run = Column(Integer, nullable=False, default=1, server_default="1")
+    publish = Column(Integer, nullable=False, default=0, server_default="0")
+    failed_json = Column(Text, comment="未达标项")
+    veto_json = Column(Text, comment="一票否决项")
+    metrics_json = Column(Text, comment="§5 全指标")
+    classes_cnt = Column(Integer, nullable=False, default=0, server_default="0")
+    unclassified_cnt = Column(Integer, nullable=False, default=0, server_default="0")
+    pending_cnt = Column(Integer, nullable=False, default=0, server_default="0")
+    channel_available = Column(Integer, nullable=False, default=0, server_default="0")
+    channel_notice = Column(String(500), comment="语义通道不可用原因")
+    policy_version = Column(String(32), comment="口径版本")
+    created_at = Column(DateTime, comment="运行时间")
+    __table_args__ = (Index("idx_cpr_created", "created_at"),)

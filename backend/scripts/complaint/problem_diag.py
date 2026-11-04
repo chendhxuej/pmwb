@@ -12,9 +12,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 
-from db.base import SessionLocal
-from services.complaint.problem_point import scan_tickets
+# 与 problem.py 一致：CLI 只输出纯 JSON，关掉 SQL echo 并压掉引擎日志
+os.environ["DEBUG"] = "false"
+
+from db.base import SessionLocal  # noqa: E402
+from services.complaint.problem_point import scan_tickets  # noqa: E402
+
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 
 def main() -> None:

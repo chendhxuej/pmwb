@@ -73,8 +73,24 @@ def extract_elements(res: Dict[str, Any]) -> Dict[str, str]:
             "trigger": strip_user_level(trigger)}
 
 
-def compose_description(elements: Dict[str, str]) -> str:
-    """由共性事实拼出一句描述（确定性，不用枚举词拼接、不臆造）。"""
+def compose_description(elements: Dict[str, str],
+                        members: Optional[List[Dict[str, Any]]] = None) -> str:
+    """由共性事实产出一句描述（确定性，不用枚举词拼接、不臆造）。
+
+    D5 修正（2026-11-04 端到端实测发现）：原实现把四要素用逗号机械拼成
+    「施工单，申请，无法生成」——那是标签不是一句话，长度不足 15 字会被 D0
+    判不合格，导致**语义通道恢复后所有类仍永远 draft、闸门永远不发布**。
+    成员 L1 问题点归一后完全一致时，那句话本身就是共性事实（不是任一一单的
+    个案措辞），可直接作类描述；措辞不一致时退回确定性拼接并标 draft，
+    不臆造、不等人、不引入人工编制。
+    """
+    if members:
+        pts = [strip_user_level((m.get("point") or "").strip())
+               for m in members if isinstance(m, dict) and (m.get("point") or "").strip()]
+        if pts and len({canonical(p) for p in pts}) == 1:
+            cand = pts[0]
+            if P.check_description(cand)["ok"]:
+                return cand
     obj, act, fail, trig = (elements.get(k, "") for k in P.ELEMENT_KEYS)
     parts: List[str] = []
     if trig and trig not in fail:
@@ -273,7 +289,8 @@ def build_classes(point_results: List[Dict[str, Any]], *,
                 unclassified.append({"ticket_no": m.get("ticket_no", ""),
                                      "status": P.UNCLASSIFIED_STATUS, "gaps": adm["failed"]})
             continue
-        desc = (generator(c["members"], el) if generator else compose_description(el))
+        desc = (generator(c["members"], el) if generator
+                else compose_description(el, c["members"]))
         desc = strip_user_level((desc or "").strip())
         checked = P.check_description(desc)
         card = build_card(desc, el, fix_point, c["members"], peers)

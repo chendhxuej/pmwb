@@ -33,6 +33,7 @@ from schemas.complaint import (
     ProblemActionLinkIn,
     ProblemConfirmIn,
     ProblemCreateIn,
+    ProblemV42RunIn,
     ProblemStatusIn,
     ProblemUpdateIn,
     ProblemUrgeIn,
@@ -54,6 +55,7 @@ from services.complaint import (
     pipeline as complaint_pipeline,
     problems as complaint_problems,
 )
+from services.complaint import problem_pipeline
 from services.complaint.ingest import ingest_file
 from utils.owners import split_owners
 
@@ -1111,3 +1113,48 @@ async def import_weekly(
             # 周报失败不吞导入结果
             result["report"] = {"error": str(e)}
     return success(result)
+
+
+# ── 客诉 v4.2 自动化分析链（方案 §1.3：全过程不依赖人；dry_run 默认）──────────
+@router.get("/problem-v42/status")
+def problem_v42_status(db: Session = Depends(get_db)):
+    """最近一次验收结论、六项一票否决、待自动补跑规模。"""
+    return success(problem_pipeline.status(db))
+
+
+@router.get("/problem-v42/classes")
+def problem_v42_classes(
+    status: str = Query("", description="published/blocked/draft/voided/changed"),
+    keyword: str = Query(""),
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """问题点类列表（一句具体投诉问题点 + 结构化判定卡）。"""
+    return success(problem_pipeline.list_classes(
+        db, status_filter=status, keyword=keyword, page=page, page_size=page_size))
+
+
+@router.get("/problem-v42/unclassified")
+def problem_v42_unclassified(
+    reason: str = Query("", description="按缺口原因过滤"),
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """未归类清单：逐单写明缺哪项证据；「待自动补跑」单如实列出。"""
+    return success(problem_pipeline.list_unclassified(
+        db, reason=reason, page=page, page_size=page_size))
+
+
+@router.post("/problem-v42/run")
+def problem_v42_run(body: ProblemV42RunIn, db: Session = Depends(get_db)):
+    """一键全链（D1→D4）。默认只读演练；显式 dry_run=false 才落库并自动补跑。"""
+    return success(problem_pipeline.run_full(
+        db, dry_run=body.dry_run, force=body.force,
+        limit=(body.limit or None), allow_semantic=body.allow_semantic,
+        max_semantic_batches=body.max_semantic_batches))
+
+
+@router.post("/problem-v42/rerun-pending")
+def problem_v42_rerun_pending(body: ProblemV42RunIn, db: Session = Depends(get_db)):
+    """对「待自动补跑」单重跑全链；通道仍不可用时原样保留、不中断、不排队等人。"""
+    return success(problem_pipeline.rerun_pending(db, dry_run=body.dry_run))
