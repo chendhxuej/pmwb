@@ -555,6 +555,7 @@ class PmwbOperationIssue(Base):
     is_overdue = Column(Integer, default=0, comment="是否超期")
     go_live_date = Column(Date, comment="计划完成时间")
     result_feedback = Column(Text, comment="处理结果反馈")
+    context_tickets = Column(Text, comment="客诉关联投诉工单明细(JSON数组，由建单联动写入)")
     attachments = Column(Text, comment="附件元信息(JSON 数组)")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(

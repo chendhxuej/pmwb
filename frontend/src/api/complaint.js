@@ -102,6 +102,10 @@ export const complaintApi = {
   getProblem(problemNo) {
     return request.get(`/complaint/problems/${problemNo}`)
   },
+  // 「问题 → 建运营工单」代入上下文：summary（情况说明预填）+ tickets（明细预览）
+  getIssueContext(problemNo, weeks = 1) {
+    return request.get(`/complaint/problems/${problemNo}/issue-context`, { params: { weeks } })
+  },
   updateProblem(problemNo, data) {
     return request.put(`/complaint/problems/${problemNo}`, data)
   },

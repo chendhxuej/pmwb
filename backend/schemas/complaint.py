@@ -26,11 +26,13 @@ class ActionCreateIn(BaseModel):
     owner: str = Field(..., max_length=255, description="责任人（多负责人逗号分隔）")
     due_date: Optional[date] = Field(None, description="要求完成日期")
     acceptance: str = Field(..., description="验收标准（可验证）")
-    desc: str = Field("", description="情况说明")
+    desc: str = Field("", description="情况说明（前端把自动总结+手工补充整合后的最终文本）")
     create_issue: bool = Field(False, description="是否同步创建运营工单父子关联")
     problem_nos: list[str] = Field(default_factory=list, description="所属共性问题编号（多选）")
     context_weeks: int = Field(1, ge=1, le=26,
                                description="建工单时自动代入关联投诉工单的周期（1=当周，N=近N周）")
+    context_tickets: Optional[str] = Field(None,
+                                           description="关联投诉工单明细(JSON数组串，前端预览确认后传回；不传则后端按 context_weeks 自动收集)")
 
 
 class ActionUpdateIn(BaseModel):

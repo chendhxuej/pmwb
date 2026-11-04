@@ -512,6 +512,7 @@ def create_action(body: ActionCreateIn, db: Session = Depends(get_db)):
             body.acceptance, body.create_issue, body.desc,
             problem_nos=body.problem_nos or None,
             context_weeks=body.context_weeks,
+            context_tickets=body.context_tickets,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -915,6 +916,24 @@ def confirm_problem(problem_no: str, body: ProblemConfirmIn, db: Session = Depen
         ))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/problems/{problem_no}/issue-context")
+def problem_issue_context(problem_no: str, weeks: int = Query(1, ge=0, le=52),
+                          db: Session = Depends(get_db)):
+    """「问题 → 建运营工单」代入上下文（结构化）。
+
+    返回 summary（情况说明总结，前端预填可编辑）+ tickets（关联投诉工单明细，
+    前端表格预览，提交时作为 context_tickets JSON 存工单）。
+    weeks: 1=当周（默认）、N=近 N 周、0=全周期。
+    """
+    try:
+        ctx = complaint_actions.collect_issue_context(db, [problem_no], weeks_back=weeks)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ctx["summary"] and not ctx["tickets"]:
+        raise HTTPException(status_code=404, detail=f"问题不存在：{problem_no}")
+    return success(ctx)
 
 
 @router.post("/problems/{problem_no}/actions")

@@ -95,7 +95,7 @@
     </div>
 
     <!-- 工单列表 -->
-    <el-table
+    <el-table ref="pmTbl1"
       :data="tableData"
       v-loading="loading"
       stripe
@@ -236,7 +236,25 @@
         <!-- 情况说明 -->
         <div class="dt-sec">
           <div class="dt-sec-title">情况说明</div>
-          <div class="dt-desc">{{ detailRow?.situation_desc || '—' }}</div>
+          <div class="dt-desc pre-wrap">{{ detailRow?.situation_desc || '—' }}</div>
+        </div>
+
+        <!-- 关联投诉工单明细（客诉建单联动写入，表格化展示） -->
+        <div class="dt-sec" v-if="ctxTicketRows.length">
+          <div class="dt-sec-title">关联投诉工单明细（{{ ctxTicketRows.length }} 条）</div>
+          <el-table :data="ctxTicketRows" size="small" border max-height="320">
+            <el-table-column prop="ticket_no" label="工单号" width="140">
+              <template #default="{ row }"><span class="mono text-muted">{{ row.ticket_no }}</span></template>
+            </el-table-column>
+            <el-table-column prop="day" label="日期" width="92" />
+            <el-table-column prop="content" label="投诉内容" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="solution_history" label="核查过程" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.solution_history || '待核查' }}</template>
+            </el-table-column>
+            <el-table-column prop="root_cause" label="AI 分析" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.root_cause || '待分析' }}</template>
+            </el-table-column>
+          </el-table>
         </div>
 
         <!-- 处理结果反馈 -->
@@ -282,7 +300,7 @@
         <!-- 遗留任务（人员代办任务工单） -->
         <div class="dt-sec" v-if="category === 'prod' && legacyTasks.length">
           <div class="dt-sec-title">遗留任务（人员代办任务工单）<span class="dt-sec-hint">· 类别/状态可就地修改</span></div>
-          <el-table :data="legacyTasks" size="small" border>
+          <el-table ref="pmTbl2" :data="legacyTasks" size="small" border>
             <el-table-column prop="issue_no" label="工单号" width="180" />
             <el-table-column label="责任人" width="160">
               <template #default="{ row }">
@@ -534,7 +552,7 @@
         <EnlargeInput v-model="klpSearch" placeholder="搜索标题 / 摘要" clearable style="flex:1" />
         <el-button @click="loadKnowledgeItems">查询</el-button>
       </div>
-      <el-table
+      <el-table ref="pmTbl3"
         :data="sortedKnowledgeItems"
         height="360"
         v-loading="klpLoading"
@@ -921,6 +939,36 @@ const hasStructuredAnalysis = computed(() => {
   return !!(d.root_cause_type || d.impact_scope || d.solution_type || d.root_cause || d.solution || d.lesson_learned)
 })
 
+// 客诉建单联动的关联投诉工单明细（context_tickets JSON 数组）解析
+function parseCtxTickets(raw) {
+  if (!raw) return []
+  try {
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr.filter(t => t && t.ticket_no) : []
+  } catch { return [] }
+}
+
+// 客诉建单联动的关联投诉工单明细（context_tickets JSON 数组）→ 表格渲染
+const ctxTicketRows = computed(() => parseCtxTickets(detailRow.value?.context_tickets))
+
+// 邮件正文用：明细 → markdown 表格（3210 渲染为 HTML 表）
+function ctxTicketsMarkdown(rows) {
+  if (!rows || !rows.length) return ''
+  const clamp = (s, n = 80) => String(s || '').replace(/\|/g, '／').replace(/\n/g, ' ').trim().slice(0, n)
+  const cell = (s, n, fallback) => clamp(s, n) || fallback
+  const lines = [
+    '',
+    '**关联投诉工单明细（共 ' + (rows[0]?.total || rows.length) + ' 单，列 ' + rows.length + ' 条）**',
+    '',
+    '| 工单号 | 日期 | 投诉内容 | 核查过程 | AI 分析 |',
+    '| --- | --- | --- | --- | --- |',
+  ]
+  for (const t of rows) {
+    lines.push(`| ${t.ticket_no || '—'} | ${t.day || '—'} | ${cell(t.content, 80, '—')} | ${cell(t.solution_history, 60, '待核查')} | ${cell(t.root_cause, 60, '待分析')} |`)
+  }
+  return lines.join('\n')
+}
+
 const openDetail = async (row) => {
   detailRow.value = row
   nextStatus.value = row?.status || ''
@@ -1157,7 +1205,6 @@ const submitEntry = () => {
       go_live_date: form.go_live_date || null,
       result_feedback: (form.result_feedback || '').trim() || null,
     }
-    if (isEdit.value && form.id) payload.status = detailRow.value?.status || 'pending'
     entryLoading.value = true
     try {
       let newId
@@ -1400,15 +1447,19 @@ const planFinishDate = (row) => {
 function buildSuperviseBody(row, scene = 'urge') {
   // 信息单一来源：标题带/称呼/导语/字段表由后端装配器渲染（renderer=True），
   // 正文只保留描述段与结尾句，禁止再写「## 催办通知」标题和字段表（2026-09-29 重复事故）
-  return [
+  const parts = [
     '### 问题描述',
     row.situation_desc || row.description || '（无）',
-    '',
-    '---',
+  ]
+  // 客诉建单联动的投诉工单明细：邮件按表格发送（2026-11-04 老大要求，不再糊纯文本）
+  const ctx = parseCtxTickets(row?.context_tickets)
+  const ctxMd = ctxTicketsMarkdown(ctx)
+  if (ctxMd) parts.push(ctxMd)
+  parts.push('', '---',
     scene === 'urge'
       ? '请尽快处理该工单，如有疑问请及时沟通。'
-      : '请知悉该工单最新进展，如有疑问请及时沟通。',
-  ].join('\n')
+      : '请知悉该工单最新进展，如有疑问请及时沟通。')
+  return parts.join('\n')
 }
 
 const openSupervise = (row, scene = 'urge') => {
@@ -1575,6 +1626,8 @@ onMounted(async () => {
 .dt-sec { border-top: 1px solid var(--border-subtle); padding: 18px 4px; }
 .dt-sec-title { font-size: 13px; font-weight: 700; color: var(--text-secondary); margin-bottom: 14px; }
 .dt-desc { font-size: 13.5px; line-height: 1.75; color: var(--text-secondary); background: var(--border-subtle); border-radius: 11px; padding: 14px 16px; }
+/* 情况说明保留自动总结的换行结构 */
+.dt-desc.pre-wrap { white-space: pre-wrap; }
 .dt-link-row { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid var(--border-subtle); border-radius: 9px; margin-bottom: 8px; }
 .lk-ico { width: 30px; height: 30px; border-radius: 8px; background: var(--warning-soft); color: var(--warning); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .dt-link-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }

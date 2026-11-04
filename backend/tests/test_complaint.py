@@ -256,12 +256,15 @@ def test_create_action_with_issue_link(client: TestClient, db):
 
 
 def test_create_issue_auto_context(client: TestClient, db):
-    """问题→建运营工单：situation_desc 必须自动代入问题说明与周期内投诉工单明细。
+    """问题→建运营工单：情况说明存总结、明细存 context_tickets（表格化，2026-11-04）。
 
-    背景（老大 2026-11-04 反馈）：接收工单的成员看不到客诉侧上下文，不知道怎么核查。
-    工单内容必须带上：问题说明/命中规则 + 指定周期关联工单（工单号/投诉内容/核查过程/AI 分析）。
+    背景（老大反馈）：明细原先全部糊进 situation_desc 纯文本。改造后：
+      - situation_desc = 总结（问题说明/命中规则/关联工单概况），可读；
+      - context_tickets = JSON 数组（工单号/投诉内容/核查过程/AI 分析），
+        详情页按表格渲染、邮件按 markdown 表格生成。
     """
     from db.models import PmwbComplaintProblem, PmwbComplaintRootcause
+    import json as _json
 
     _seed_dict(db)
     _add(db, PmwbComplaintRootcause(
@@ -295,16 +298,53 @@ def test_create_issue_auto_context(client: TestClient, db):
     from db.models import PmwbOperationIssue
     issue = db.query(PmwbOperationIssue).filter_by(issue_no=issue_no).first()
     d = issue.situation_desc or ""
+    # 情况说明 = 总结（含问题说明/规则/工单概况），不再逐条糊明细
     assert "【问题描述】电视账号批量同步失败" in d
-    assert "CPB-CTX-01" in d
     assert "R1 簇批量" in d
-    assert "【关联投诉工单" in d and "共 2 单" in d
-    assert "CTX-001" in d
-    assert "机顶盒开通后电视账号仍提示未开户" in d      # 投诉内容
-    assert "核查CRM状态正常" in d                       # 核查过程
-    assert "电视平台开户接口未收到CRM开通结果" in d      # AI 分析
-    assert "CTX-002" in d
+    assert "【关联投诉工单】" in d and "共 2 单" in d
+    # 逐条明细不进 desc（走表格）
+    assert "核查CRM状态正常" not in d
+    # context_tickets JSON：工单号/投诉内容/核查过程/AI 分析全在
+    ct = _json.loads(issue.context_tickets or "[]")
+    assert len(ct) == 2
+    t1 = next(t for t in ct if t["ticket_no"] == "CTX-001")
+    assert "机顶盒开通后电视账号仍提示未开户" in t1["content"]
+    assert "核查CRM状态正常" in t1["solution_history"]
+    assert "电视平台开户接口未收到CRM开通结果" in t1["root_cause"]
+    assert t1["problem_no"] == "CPB-CTX-01"
+    assert t1["span"] == "当周"
+    assert any(t["ticket_no"] == "CTX-002" for t in ct)
     assert "CPB-CTX-01" in (issue.root_cause or "")
+
+
+def test_issue_context_endpoint(client: TestClient, db):
+    """GET /problems/{no}/issue-context：返回 summary + 结构化 tickets（对话框预填用）。"""
+    from db.models import PmwbComplaintProblem, PmwbComplaintRootcause
+
+    _seed_dict(db)
+    _add(db, PmwbComplaintRootcause(
+        rootcause_no="RC-CTX2", title="测试簇标题", status="open",
+        ticket_cnt=1, fault_stage="业务激活", fault_system="CRM", first_week="2026-W45",
+    ))
+    _add(db, PmwbComplaintProblem(
+        problem_no="CPB-CTX2-01", title="测试问题", category_l2="电视与机顶盒账号未同步",
+        rootcause_no="RC-CTX2", rootcause_nos="RC-CTX2", source_type="rootcause_batch",
+        rule_hits="R1 簇批量", status="open", first_week="2026-W45", active_weeks=1,
+        week_cnt=1, total_cnt=1, peak_cnt=1,
+    ))
+    _make_ticket(db, ticket_no="CTX2-001", rootcause_no="RC-CTX2",
+                 created_time=datetime.now(), content="测试投诉内容")
+
+    resp = client.get("/api/v1/complaint/problems/CPB-CTX2-01/issue-context?weeks=1")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert "【问题描述】测试问题" in data["summary"]
+    assert "【主要根因】测试簇标题" in data["summary"]
+    assert data["tickets"] and data["tickets"][0]["ticket_no"] == "CTX2-001"
+    assert data["tickets"][0]["content"] == "测试投诉内容"
+
+    # 不存在的问题 → 404
+    assert client.get("/api/v1/complaint/problems/CPB-NONE/issue-context").status_code == 404
 
 
 def test_metrics_empty_db_returns_400(client: TestClient, db):

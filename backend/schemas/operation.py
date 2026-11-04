@@ -66,6 +66,7 @@ class OperationIssueBase(BaseModel):
     is_overdue: int = Field(0, description="是否超期")
     go_live_date: Optional[datetime] = Field(None, description="计划完成时间")
     result_feedback: Optional[str] = Field(None, description="处理结果反馈")
+    context_tickets: Optional[str] = Field(None, description="客诉关联投诉工单明细(JSON数组，建单联动写入，展示/邮件按表格渲染)")
     attachments: Optional[str] = Field(None, description="附件元信息(JSON 数组字符串)")
     root_cause_type: Optional[str] = Field(None, max_length=64, description="根因分类：system_config/business_rule/data_issue/process_gap/external_dependency/other")
     impact_scope: Optional[str] = Field(None, max_length=64, description="影响范围：single_customer/partial_region/full_region/business_line/platform")
@@ -104,6 +105,7 @@ class OperationIssueUpdate(BaseModel):
     is_overdue: Optional[int] = None
     go_live_date: Optional[datetime] = None
     result_feedback: Optional[str] = None
+    context_tickets: Optional[str] = None
     attachments: Optional[str] = None
     root_cause_type: Optional[str] = Field(None, max_length=64)
     impact_scope: Optional[str] = Field(None, max_length=64)

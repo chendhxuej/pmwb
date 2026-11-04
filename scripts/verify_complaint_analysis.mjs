@@ -385,12 +385,21 @@ async function main() {
       const d = dlgs.find(x => x.innerText.includes('建立运营工单'))
       if (!d) return null
       const txt = d.innerText
+      // 情况说明预填（textarea 有自动总结内容）与明细预览表（2026-11-04 表格化）
+      const hasDescVal = [...d.querySelectorAll('textarea')].some(t => (t.value || '').includes('【问题描述】'))
+      const dlgTbl = d.querySelector('.ctx-tickets .el-table')
+      const ctxRows = dlgTbl ? dlgTbl.querySelectorAll('.el-table__body tr').length : 0
       return {
         hasScene: txt.includes('问题场景'),
         hasAccept: txt.includes('验收标准'),
         hasProblem: txt.includes('所属问题'),
         hasLinkTip: txt.includes('双向关联') || txt.includes('联动'),
-        hasCtx: txt.includes('代入工单明细') && txt.includes('自动代入'),
+        hasCtx: txt.includes('代入工单明细'),
+        hasDescField: txt.includes('情况说明'),
+        hasDescVal,
+        hasCtxTbl: ctxRows > 0,
+        ctxRows,
+        hasMailTip: txt.includes('邮件') && txt.includes('表格'),
       }
     })()`)
     if (issueDlg && dlgInfo) {
@@ -398,7 +407,12 @@ async function main() {
       dlgInfo.hasScene ? ok('建单对话框有场景选择') : bad('建单对话框缺场景')
       dlgInfo.hasAccept ? ok('建单对话框要求验收标准') : bad('建单对话框缺验收标准')
       dlgInfo.hasLinkTip ? ok('建单对话框说明措施/工单联动') : bad('建单对话框缺联动说明')
-      dlgInfo.hasCtx ? ok('建单对话框可选代入周期并说明自动代入工单明细') : bad('建单对话框缺代入周期选项')
+      dlgInfo.hasCtx ? ok('建单对话框可选代入周期') : bad('建单对话框缺代入周期选项')
+      // 2026-11-04 表格化：情况说明自动总结预填可编辑 + 明细预览表 + 邮件表格说明
+      dlgInfo.hasDescField ? ok('建单对话框有「情况说明」输入') : bad('建单对话框缺情况说明')
+      dlgInfo.hasDescVal ? ok('情况说明预填自动总结（可编辑）') : bad('情况说明未预填自动总结')
+      dlgInfo.hasCtxTbl ? ok('对话框含代入工单明细预览表', `rows=${dlgInfo.ctxRows}`) : bad('对话框缺明细预览表')
+      dlgInfo.hasMailTip ? ok('对话框说明邮件按表格同步') : bad('对话框缺邮件表格说明')
       // 关闭对话框，保持页面干净
       await cdp.eval(`(() => {
         const dlgs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null)

@@ -50,7 +50,8 @@
     </div>
 
     <el-table ref="pmTbl1" v-loading="loading" :data="rows" size="default" border stripe>
-      <el-table-column prop="ticket_no" label="BOMC 流水号" width="150" show-overflow-tooltip />
+      <el-table-column prop="ticket_no" label="BOMC 流水号" width="150"
+        :show-overflow-tooltip="{ placement: 'top', popperClass: 'pm-square-tip' }" />
       <el-table-column prop="created_time" label="创建时间" width="150">
         <template #default="{ row }">{{ (row.created_time || '').replace('T', ' ').slice(0, 16) }}</template>
       </el-table-column>
@@ -116,10 +117,12 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="handler" label="处理人" width="92" show-overflow-tooltip />
+      <el-table-column prop="handler" label="处理人" width="92"
+        :show-overflow-tooltip="{ placement: 'top', popperClass: 'pm-square-tip' }" />
       <el-table-column prop="dispatch_count" label="派单" width="60" align="center" />
       <el-table-column prop="status" label="状态" width="84" />
-      <el-table-column prop="content_preview" label="工单内容" min-width="260" show-overflow-tooltip />
+      <el-table-column prop="content_preview" label="工单内容" min-width="260"
+        :show-overflow-tooltip="{ placement: 'top', popperClass: 'pm-square-tip' }" />
       <el-table-column label="操作" width="150" fixed="right" align="center">
         <template #default="{ row }">
           <el-button size="small" text type="primary" @click="openCorrect(row)">校正分类</el-button>
@@ -416,5 +419,19 @@ onMounted(async () => {
 .rc-no {
   font-size: 12px;
   font-weight: 600;
+}
+</style>
+
+<style>
+/* 悬浮弹窗（表格省略提示 popper，teleport 到 body 须全局样式）：
+   上方悬浮、固定宽度近似正方形、自动换行，替代默认跟随鼠标的窄长条（老大 2026-11-04） */
+.el-popper.pm-square-tip {
+  width: 360px;
+  max-width: 360px;
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.7;
+  font-size: 12.5px;
+  padding: 10px 14px;
 }
 </style>

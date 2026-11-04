@@ -263,12 +263,38 @@
             placeholder="要求完成日期" style="width: 100%" />
         </el-form-item>
         <el-form-item label="代入工单明细">
-          <el-select v-model="issueForm.context_weeks" style="width: 100%">
+          <el-select v-model="issueForm.context_weeks" style="width: 100%" @change="reloadIssueContext">
             <el-option :value="1" label="当周投诉工单（默认）" />
             <el-option :value="4" label="近 4 周" />
             <el-option :value="8" label="近 8 周" />
             <el-option :value="26" label="全周期" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="情况说明" required>
+          <el-input v-model="issueForm.desc" type="textarea" :rows="5" maxlength="2000" show-word-limit
+            placeholder="已按问题自动生成总结，可直接修改或补充您想说明的内容" />
+        </el-form-item>
+        <el-form-item label="工单明细">
+          <div v-if="ctxTickets.length" class="ctx-tickets">
+            <div class="ctx-title">
+              将代入 {{ ctxTickets.length }} 条投诉工单明细
+              <span class="text-muted">（随工单存档，接收人按表格核查；周期切换后自动更新）</span>
+            </div>
+            <el-table :data="ctxTickets" size="small" border max-height="240">
+              <el-table-column prop="ticket_no" label="工单号" width="140">
+                <template #default="{ row }"><span class="mono text-muted">{{ row.ticket_no }}</span></template>
+              </el-table-column>
+              <el-table-column prop="day" label="日期" width="92" />
+              <el-table-column prop="content" label="投诉内容" min-width="170" show-overflow-tooltip />
+              <el-table-column prop="solution_history" label="核查过程" min-width="150" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.solution_history || '待核查' }}</template>
+              </el-table-column>
+              <el-table-column prop="root_cause" label="AI 分析" min-width="150" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.root_cause || '待分析' }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <div v-else class="text-muted">所选周期内暂无关联投诉工单，将只代入问题说明</div>
         </el-form-item>
         <el-form-item label="验收标准" required>
           <el-input v-model="issueForm.acceptance" type="textarea" :rows="2"
@@ -276,9 +302,9 @@
         </el-form-item>
       </el-form>
       <div class="gl-tip">
-        提交后自动生成「改进措施 + 运营工单」并双向关联本问题。工单内容会自动代入：问题说明、命中规则、
-        以及所选周期内的关联投诉工单明细（工单号 / 投诉内容 / 核查过程 / AI 分析），接收人按单核查即可。
-        工单状态流转自动回写措施状态，措施生效后按簇周单量自动验证压降。
+        提交后自动生成「改进措施 + 运营工单」并双向关联本问题。情况说明已按问题自动总结（可编辑补充），
+        投诉工单明细按表格随工单存档，并在催办/同步邮件中以表格形式发送。工单状态流转自动回写措施状态，
+        措施生效后按簇周单量自动验证压降。
       </div>
       <template #footer>
         <el-button @click="issueVisible = false">取消</el-button>
@@ -405,7 +431,27 @@ const detailTicketTotal = ref(0)
 const ticketDrillVisible = ref(false)
 const drillFilters = ref({})
 const issueVisible = ref(false)
-const issueForm = ref({ l2: '', title: '', owner: '', due_date: '', acceptance: '', context_weeks: 1 })
+const issueForm = ref({ l2: '', title: '', owner: '', due_date: '', acceptance: '', context_weeks: 1, desc: '' })
+const ctxTickets = ref([])
+const ctxLoading = ref(false)
+
+function ctxDescPrefix() {
+  return detail.value ? `由共性问题 ${detail.value.problem_no} 发起：${detail.value.title}` : ''
+}
+
+// 拉取代入上下文：summary 预填情况说明（可编辑），tickets 预览表格
+async function reloadIssueContext() {
+  if (!detail.value) return
+  ctxLoading.value = true
+  try {
+    const r = await complaintApi.getIssueContext(detail.value.problem_no, issueForm.value.context_weeks || 1)
+    ctxTickets.value = r.tickets || []
+    issueForm.value.desc = ctxDescPrefix() + (r.summary ? `\n\n${r.summary}` : '')
+  } catch (e) {
+    ctxTickets.value = []
+    issueForm.value.desc = ctxDescPrefix()
+  } finally { ctxLoading.value = false }
+}
 const l2Catalog = ref([])
 
 const openVisible = ref(false)
@@ -697,8 +743,11 @@ async function openIssueDialog() {
     due_date: due,
     acceptance: '',
     context_weeks: 1,
+    desc: '',
   }
+  ctxTickets.value = []
   issueVisible.value = true
+  await reloadIssueContext()
 }
 
 async function saveIssue() {
@@ -706,6 +755,7 @@ async function saveIssue() {
   if (!f.l2) return ElMessage.warning('请选择问题场景')
   if (!f.title.trim()) return ElMessage.warning('请填写工单标题')
   if (!f.owner.trim()) return ElMessage.warning('请指定责任人')
+  if (!f.desc.trim()) return ElMessage.warning('情况说明必填（可修改自动总结后提交）')
   if (!f.acceptance.trim()) return ElMessage.warning('验收标准必填（可验证才算闭环）')
   saving.value = true
   try {
@@ -715,10 +765,11 @@ async function saveIssue() {
       owner: f.owner.trim(),
       due_date: f.due_date || null,
       acceptance: f.acceptance.trim(),
-      desc: `由共性问题 ${detail.value.problem_no} 发起：${detail.value.title}`,
+      desc: f.desc.trim(),
       create_issue: true,
       problem_nos: [detail.value.problem_no],
       context_weeks: f.context_weeks || 1,
+      context_tickets: JSON.stringify(ctxTickets.value || []),
     })
     ElMessage.success(`已创建措施 ${r.action_no}，运营工单 ${r.issue_no || '已生成'}`)
     issueVisible.value = false
@@ -898,5 +949,14 @@ onMounted(load)
 .sec-title .el-button {
   margin-left: 8px;
   vertical-align: baseline;
+}
+/* 建单对话框：代入工单明细预览 */
+.ctx-tickets {
+  width: 100%;
+}
+.ctx-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
 }
 </style>
