@@ -569,7 +569,8 @@ async function loadAll() {
     status.value = st || {}
     clusters.value = lib.items || []
     pager.total = lib.total || 0
-    liveTotal.value = lib.live_total ?? 0
+    // 兼容旧后端（未返回 live_total 时退回 total），避免热更新中间态显示 0 簇
+    liveTotal.value = lib.live_total ?? lib.total ?? 0
     mergedTotal.value = lib.merged_total ?? 0
     review.value = rv.items || []
     if (mt && mt.fault_stages) meta.value = mt
