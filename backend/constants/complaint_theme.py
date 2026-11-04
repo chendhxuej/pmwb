@@ -14,13 +14,23 @@
 """
 
 # (key, 中文名, 排序)  —— 排序即报表展示顺序，按业务链路先后
+#
+# 2026-11-04 老大要求「适当细化」：原「订单受理与开通交付」一个族吃掉 45% 单量
+# （560/1226 单），受理、施工、交付三拨人混在一张表里谁也看不清自己的问题；
+# 「计费与账务」同理（账单算错 vs 对账结算，处理团队不同）。故按**责任环节**拆开：
+#   订单受理与提交  ← 前台受理、订单开通
+#   施工与装维交付  ← 派单调度、装维交付、施工交付
+#   计费出账 / 账务结算  ← 原「计费与账务」拆二
+# 只拆有独立责任主体的环节，不按 fault_system（系统是技术视角，会把同一件事切两半）。
 THEMES = [
-    ("order_fulfill", "订单受理与开通交付", 10),
-    ("activation", "业务激活与状态回写", 20),
-    ("data_sync", "数据同步与建档", 30),
-    ("agreement", "电子协议签约", 40),
-    ("product_config", "产品与资费配置", 50),
-    ("billing", "计费与账务", 60),
+    ("order_intake", "订单受理与提交", 10),
+    ("fulfillment", "施工与装维交付", 20),
+    ("activation", "业务激活与状态回写", 30),
+    ("data_sync", "数据同步与建档", 40),
+    ("agreement", "电子协议签约", 50),
+    ("product_config", "产品与资费配置", 60),
+    ("billing_charge", "计费出账", 70),
+    ("billing_settle", "账务结算", 80),
     ("consult", "咨询与操作指引", 90),
     ("other", "其他", 99),
 ]
@@ -31,12 +41,13 @@ THEME_KEYS = [k for k, _, _ in THEMES]
 
 # fault_stage → 族。新增环节只需在这里加一行；未覆盖的落 other。
 STAGE_TO_THEME = {
-    # 订单受理与开通交付：从受理到施工交付的整条链路
-    "订单开通": "order_fulfill",
-    "装维交付": "order_fulfill",
-    "前台受理": "order_fulfill",
-    "施工交付": "order_fulfill",
-    "派单调度": "order_fulfill",
+    # 订单受理与提交：客户侧发起的录单、提交、规则校验
+    "前台受理": "order_intake",
+    "订单开通": "order_intake",
+    # 施工与装维交付：派单到装维上门、施工完成回单
+    "派单调度": "fulfillment",
+    "装维交付": "fulfillment",
+    "施工交付": "fulfillment",
     # 业务激活与状态回写
     "业务激活": "activation",
     "状态回写": "activation",
@@ -49,9 +60,10 @@ STAGE_TO_THEME = {
     # 产品与资费配置
     "产品配置": "product_config",
     "资费配置": "product_config",
-    # 计费与账务
-    "计费出账": "billing",
-    "账务结算": "billing",
+    # 计费出账：账单生成、金额错误
+    "计费出账": "billing_charge",
+    # 账务结算：对账、销账、回款
+    "账务结算": "billing_settle",
     # 咨询与操作指引（非缺陷，默认不进台账）
     "使用咨询": "consult",
     "操作咨询": "consult",

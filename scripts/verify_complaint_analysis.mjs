@@ -228,8 +228,23 @@ async function main() {
       else if (dash.bodyText.includes('本周没有一单能被在办问题解释')) ok('已知问题表空态合法（本周已知 0 单）')
       else bad('已知问题表为空且无空态文案')
       // 问题族表：反「散」的核心，必须是族粒度且带日均环比口径
-      dash.themeRows.length > 0 ? ok('问题族表有数据', `族=${dash.themeRows.length}`) : bad('问题族表为空')
+      // 2026-11-04 细化后 10 族：受理/施工拆开、计费出账/账务结算拆开
+      const THEME_NAMES = ['订单受理与提交', '施工与装维交付', '业务激活与状态回写', '数据同步与建档',
+        '电子协议签约', '产品与资费配置', '计费出账', '账务结算', '咨询与操作指引', '其他']
+      const themeFlat = dash.themeRows.join(' ')
+      const themeHit = THEME_NAMES.filter(n => themeFlat.includes(n))
+      dash.themeRows.length >= 9
+        ? ok('问题族表有数据（已细化）', `族=${dash.themeRows.length}，命中 ${themeHit.length}/10`)
+        : bad('问题族行数不足（细化后应 ≥9）', `族=${dash.themeRows.length}`)
+      themeHit.length === 10
+        ? ok('细化后 10 个族全部在位（受理/施工、计费出账/账务结算 已拆开）')
+        : bad('细化族缺失', THEME_NAMES.filter(n => !themeHit.includes(n)).join(','))
       dash.themeHeaders.some(h => h.includes('日均环比')) ? ok('族表含「日均环比」列（残缺周不误判）') : bad('族表缺日均环比列')
+      // 本周无单的族：环比必须显示「—」，不能算成 -100%（会被读成「已清零」）
+      const zeroRow = dash.themeRows.find(r => r.startsWith('其他'))
+      zeroRow && zeroRow.includes('—') && !zeroRow.includes('-100')
+        ? ok('本周无单的族环比显示「—」（不误报 -100%）')
+        : bad('本周无单族环比处理不对', zeroRow || '未找到「其他」族行')
       dash.hasCaseLine ? ok('一次性个案单列计数在位') : bad('缺一次性个案说明')
       dash.hasBigCluster ? ok('重点根因簇（≥5 单）独立成表') : bad('缺重点根因簇表')
 

@@ -4,7 +4,8 @@
 重点守三条：
   1. 环节 → 族是**确定性映射**（新增环节漏配会落 other，不允许静默丢数据）；
   2. 环比一律**日均对比**——历史坑：周三看当周，用 7 天摊薄会算出 -70% 假暴跌；
-  3. 一次性个案（簇仅 1 单）单独计数，不混进族的问题列表。
+  3. 一次性个案（簇仅 1 单）单独计数，不混进族的问题列表；
+  4. 本周无单的族环比给「—」而不是 -100%（2026-11-04 老大定：-100% 会被读成「已清零」）。
 """
 
 from datetime import datetime, timedelta
@@ -40,9 +41,15 @@ def _ticket(db, no, rc, week, month, day):
 
 def test_stage_to_theme_mapping():
     """环节映射确定性：已知环节落对族，未知环节落 other 不丢。"""
-    assert T.theme_of("订单开通") == "order_fulfill"
-    assert T.theme_of("装维交付") == "order_fulfill"      # 同属交付链路，必须归一
+    # 2026-11-04 细化：受理侧与施工侧拆开，各自有独立责任团队
+    assert T.theme_of("订单开通") == "order_intake"
+    assert T.theme_of("前台受理") == "order_intake"
+    assert T.theme_of("装维交付") == "fulfillment"        # 施工侧归一族
+    assert T.theme_of("派单调度") == "fulfillment"
     assert T.theme_of("业务激活") == "activation"
+    # 计费出账（账单算错）与账务结算（对账销账）分开
+    assert T.theme_of("计费出账") == "billing_charge"
+    assert T.theme_of("账务结算") == "billing_settle"
     assert T.theme_of("使用咨询") == "consult"
     assert T.theme_of("从没见过的环节") == "other"
     assert T.theme_of("") == "other"
@@ -66,7 +73,7 @@ def test_theme_stats_daily_avg_wow(db):
     assert r["wow_basis"] == "daily_avg"
     assert r["week_days"] == 1 and r["prev_days"] == 7
 
-    fam = {t["key"]: t for t in r["themes"]}["order_fulfill"]
+    fam = {t["key"]: t for t in r["themes"]}["order_intake"]
     assert fam["week_cnt"] == 3 and fam["prev_cnt"] == 7
     assert fam["avg"] == 3.0 and fam["prev_avg"] == 1.0
     assert fam["wow"] == 200.0
@@ -77,9 +84,10 @@ def test_theme_stats_marks_low_sample(db):
     _cluster(db, "RC-T3", "计费出账", cnt=1)
     _ticket(db, "B-1", "RC-T3", "2026-W40", month=9, day=29)
     r = TH.theme_stats(db, week="2026-W40")
-    fam = {t["key"]: t for t in r["themes"]}["billing"]
+    fam = {t["key"]: t for t in r["themes"]}["billing_charge"]
     assert fam["low_sample"] is True
-    assert fam["wow"] is None  # 上周 0 单，不给假增幅
+    assert fam["wow"] is None          # 上周 0 单，不给假增幅
+    assert fam["wow_note"] == "上周无单"
 
 
 def test_cases_counted_separately(db):
@@ -93,7 +101,7 @@ def test_cases_counted_separately(db):
     r = TH.theme_stats(db, week="2026-W40")
     assert r["cases"]["cluster_cnt"] == 1
     assert r["cases"]["ticket_cnt"] == 1
-    fam = {t["key"]: t for t in r["themes"]}["order_fulfill"]
+    fam = {t["key"]: t for t in r["themes"]}["order_intake"]
     assert [c["rc_no"] for c in fam["top_clusters"]] == ["RC-T5"]
     # 族单量仍包含个案单量（个案只是不单独列示，不能从统计里消失）
     assert fam["week_cnt"] == 7
@@ -107,3 +115,20 @@ def test_non_defect_theme_present(db):
     r = TH.theme_stats(db, week="2026-W40")
     fam = {t["key"]: t for t in r["themes"]}
     assert "consult" in fam and fam["consult"]["week_cnt"] == 4
+
+
+def test_zero_week_gives_dash_not_minus_100(db):
+    """本周无单的族：环比必须为 None（页面/报表显示「—」），不能算成 -100%。
+
+    反例：上周该族 7 单、本周 0 单，硬算 = -100%，读者会当成「问题已彻底清零」，
+    实际是本周这条链路没发生投诉，两者业务含义完全不同。
+    """
+    _cluster(db, "RC-T7", "订单开通", cnt=7, first_week="2026-W39")
+    for i in range(7):
+        _ticket(db, f"Z-{i}", "RC-T7", "2026-W39", month=9, day=21 + i)
+
+    r = TH.theme_stats(db, week="2026-W40")
+    fam = {t["key"]: t for t in r["themes"]}["order_intake"]
+    assert fam["week_cnt"] == 0 and fam["prev_cnt"] == 7
+    assert fam["wow"] is None
+    assert fam["wow_note"] == "本周无单"

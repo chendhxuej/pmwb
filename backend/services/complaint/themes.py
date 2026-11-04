@@ -163,15 +163,26 @@ def theme_stats(db: Session, week: Optional[str] = None, top_n: int = 3) -> Dict
         b.pop("_clusters", None)
         # 族内全部簇号：前端「下钻该族工单」用（多簇逗号透传给 /tickets?rootcause_no=）
         b["rc_nos"] = b.pop("_rc_nos", [])
-        if b["prev_cnt"] and prev_usable:
-            cur_avg = b["week_cnt"] / cur_days
-            prev_avg = b["prev_cnt"] / prev_days
-            b["wow"] = round((cur_avg - prev_avg) / prev_avg * 100, 1) if prev_avg else None
-        else:
-            # 上周该族为 0 或上周数据不完整（<5 天）：环比不可计算，不给假降幅/假增幅
+        cur_avg = b["week_cnt"] / cur_days
+        prev_avg = b["prev_cnt"] / prev_days
+        b["avg"] = round(cur_avg, 1)
+        b["prev_avg"] = round(prev_avg, 1)
+        # 环比三种「不可比」必须区分，否则报表会给出误导性数字
+        # 判定顺序有讲究：先说「有没有单」，再说「天数够不够」——上周一单没有时
+        # 说「上周仅 1 天数据」是废话，业务上就是上周这条链路没投诉。
+        if not b["week_cnt"]:
+            # 本周一单没有：硬算就是 -100%，读者会当成「问题已清零」，实际是本周未发生
             b["wow"] = None
-        b["avg"] = round(b["week_cnt"] / cur_days, 1)
-        b["prev_avg"] = round(b["prev_cnt"] / prev_days, 1)
+            b["wow_note"] = "本周无单"
+        elif not b["prev_cnt"]:
+            b["wow"] = None
+            b["wow_note"] = "上周无单"
+        elif not prev_usable:
+            b["wow"] = None
+            b["wow_note"] = f"上周仅 {prev_days} 天数据"
+        else:
+            b["wow"] = round((cur_avg - prev_avg) / prev_avg * 100, 1)
+            b["wow_note"] = ""
         # 样本过小（两周合计 <5 单）时环比数字没有决策意义，页面需要标出来
         b["low_sample"] = (b["week_cnt"] + b["prev_cnt"]) < 5
         b["is_new"] = bool(b["first_week"] == week and b["week_cnt"] > 0)

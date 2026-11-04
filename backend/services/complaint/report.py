@@ -177,7 +177,9 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     def _wow_cell(x: Dict) -> str:
         v = x.get("wow")
         if v is None:
-            return '<span style="color:#98a6ba">不可比</span>'
+            # 本周无单 / 上周无单 / 上周数据不足：一律给「—」，绝不硬算成 -100%
+            note = x.get("wow_note") or "不可比"
+            return f'<span style="color:#98a6ba" title="{note}">—</span>'
         color = "#c0392b" if v > 0 else "#1f8a5c"
         tag = ' <span style="color:#98a6ba;font-size:11px">样本小</span>' if x.get("low_sample") else ""
         return f'<b style="color:{color}">{v:+.1f}%</b>{tag}'
@@ -347,6 +349,7 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
       直接列表会又散又不准。按业务链路归并后才能看出「哪条链路在恶化」。{_wow_basis}</div>
     <table><thead><tr><th>问题族</th><th>本周</th><th>本周日均</th><th>上周日均</th><th>日均环比</th><th>累计</th><th>涉及问题簇</th><th>主要问题</th></tr></thead>
     <tbody>{theme_rows}</tbody></table>
+    <div class="note" style="margin-top:8px">环比「—」= 本周该链路无单、或上周无单/数据不足 5 天，不做强行计算（避免把"本周没发生"误读成"已清零"）。</div>
     <div class="note" style="margin-top:10px">{case_note}</div>
 
     <div class="sub-h">按投诉性质看（五类，分母 = 已根因分析 {rc.get('covered', 0)} 单）</div>

@@ -162,7 +162,8 @@
             </el-table-column>
             <el-table-column label="日均环比" width="110" align="center">
               <template #default="{ row }">
-                <span v-if="row.wow === null || row.wow === undefined" class="text-muted">不可比</span>
+                <!-- 「—」三种情况：本周无单 / 上周无单 / 上周数据不足。硬算 -100% 会被误读成已清零 -->
+                <span v-if="row.wow === null || row.wow === undefined" class="text-muted" :title="row.wow_note || '缺少可比基期'">—</span>
                 <span v-else :class="row.wow > 0 ? 'num-red' : 'num-green'">
                   {{ row.wow > 0 ? '+' : '' }}{{ row.wow }}%
                 </span>
