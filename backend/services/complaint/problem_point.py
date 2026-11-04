@@ -24,17 +24,27 @@ from constants import complaint_problem as P
 
 # 判定通道标识：随每条结论留痕；与生成通道不同，即「生成与判定分离」的可核验凭据
 JUDGE_CHANNEL = "deterministic-v1"
-MAX_EVIDENCE_SPANS = 12
+MAX_EVIDENCE_SPANS = 16
 ANCHOR_WINDOW = 4          # 证据片段中连续 4 字出现在问题点里，即视为锚定
 EVIDENCE_TEXT_LIMIT = 6000  # 单侧原文截取上限（防超长，且保证可复现）
 
 # 证据抽取规则（确定性、有序；不依赖语义通道）
 _QUOTED_RE = re.compile(r"[「『\"']([^「」『』\"']{2,40})[」』\"']")
+# 2026-11-05 真实库诊断：原文里「提交系统报错」「触发了审批拦截」「显示报错」等
+# 此前完全抽不到片段，导致模型明明引用了原词仍被判 P02（无证据锚点）。
+# 触发词只从 P.FAILURE_MARKERS 派生，不另造第二份清单。
 _FAILURE_RE = re.compile(
-    r"(?:显示|提示|停在|处于|状态为|仍为|返回|拦截|超时|未收到|收不到|查不到|搜不到|"
-    r"无法|失败|为空|缺失|不一致|未回传|未生成|未下发|未释放|未归档|未触发|无结果)"
+    r"(?:显示|提示|报错|停在|处于|状态为|仍为|返回|拦截|阻断|受阻|卡在|超时|"
+    r"未收到|收不到|查不到|搜不到|无法|不能|没有|失败|为空|空白|缺失|不一致|"
+    r"未回传|未生成|未下发|未释放|未归档|未触发|未到账|未生效|未开通|无结果|"
+    r"不支持|不允许|需先|请走|需走|被要求|被退回|驳回|不通过|无记录|查无|掉单|"
+    r"审批拦截|走审批|退不了|办不了|回不了单|提交不了|多收费|不生效|重复)"
     r"[^，。；|\n]{0,24}"
 )
+# 句子级兜底片段：整句含失败词即整句作可指认证据，只用于 D1 锚点判定，
+# 不参与 D2 的四要素/归并键（否则原文细微措辞差异会把同类拆散）。
+_SENTENCE_RE = re.compile(r"[^，,。.；;！!？?\n|]+")
+_SENTENCE_FAILURE_WORDS = tuple(w for w in P.FAILURE_MARKERS if len(w) >= 2)
 _FIELD_RE = re.compile(r"[\u4e00-\u9fa5A-Za-z]{0,10}(?:字段|接口|报文|单号|编号|编码)[^，。；|\n]{0,12}")
 _ID_RE = re.compile(r"\d{8,}")
 # 咨询/规则类工单的「被什么规则挡住」（§2.5）：也算可观察事实，不算证据不足
@@ -43,9 +53,11 @@ _RULE_RE = re.compile(
     r"需等待|不允许|被拦截|被强制)[^，。；|\n]{0,24}"
 )
 
-_EVIDENCE_KINDS = ("error_text", "failure", "field", "rule_block", "identifier")
+_EVIDENCE_KINDS = ("error_text", "failure", "field", "rule_block", "identifier", "sentence")
 # 能支撑「可观察失败/卡点」的证据类型；identifier 只作追溯锚点，不算依据
 FAILURE_EVIDENCE_KINDS = ("error_text", "failure", "field", "rule_block")
+# D1 专用：句子级片段也可作证据锚点（但 D2/D3 的四要素与门禁不用它）
+POINT_FAILURE_KINDS = FAILURE_EVIDENCE_KINDS + ("sentence",)
 
 
 def extract_evidence_spans(content: str, solution_history: str = "") -> List[Dict[str, Any]]:
@@ -56,6 +68,18 @@ def extract_evidence_spans(content: str, solution_history: str = "") -> List[Dic
     """
     out: List[Dict[str, Any]] = []
     seen = set()
+
+    def _add(kind: str, frag: str, source: str, start: int) -> bool:
+        frag = (frag or "").strip()
+        # 同一段原文可能被多条规则命中（如「请走审批流程」既是规则阻断也是失败片段）：
+        # 按 (类型, 文本) 去重，保留各类判据的独立留痕。
+        key = (kind, frag)
+        if not frag or key in seen:
+            return False
+        seen.add(key)
+        out.append({"kind": kind, "text": frag, "source": source, "start": start})
+        return len(out) >= MAX_EVIDENCE_SPANS
+
     for source, raw in (("content", content or ""), ("solution", solution_history or "")):
         s = raw[:EVIDENCE_TEXT_LIMIT]
         buckets: List[tuple] = []
@@ -63,14 +87,21 @@ def extract_evidence_spans(content: str, solution_history: str = "") -> List[Dic
         buckets.extend(("failure", m) for m in _FAILURE_RE.finditer(s))
         buckets.extend(("field", m) for m in _FIELD_RE.finditer(s))
         buckets.extend(("rule_block", m) for m in _RULE_RE.finditer(s))
-        buckets.extend(("identifier", m) for m in _ID_RE.finditer(s))
         for kind, m in sorted(buckets, key=lambda x: x[1].start()):
-            frag = (m.group(1) if kind == "error_text" else m.group(0)).strip()
-            if not frag or frag in seen:
+            frag = m.group(1) if kind == "error_text" else m.group(0)
+            if _add(kind, frag, source, m.start()):
+                return out
+        # 句子级兜底：整句含失败词即作可指认片段，专治「提交系统报错」这类
+        # 触发词在句末、精确正则只能抽到 2 个字的情况。
+        for m in _SENTENCE_RE.finditer(s):
+            seg = m.group(0).strip()
+            if len(seg) < 4 or not any(w in seg for w in _SENTENCE_FAILURE_WORDS):
                 continue
-            seen.add(frag)
-            out.append({"kind": kind, "text": frag, "source": source, "start": m.start()})
-            if len(out) >= MAX_EVIDENCE_SPANS:
+            if _add("sentence", seg[:45], source, m.start()):
+                return out
+        # 长编号只作追溯锚点，放最后且不作「可观察失败」依据
+        for m in _ID_RE.finditer(s):
+            if _add("identifier", m.group(0), source, m.start()):
                 return out
     return out
 
@@ -97,11 +128,37 @@ def anchor_hits(point: str, spans: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return hits
 
 
-def validate_point(point: str, spans: List[Dict[str, Any]]) -> Dict[str, Any]:
+def raw_anchor(point: str, raw_text: str) -> Optional[Dict[str, Any]]:
+    """原文级兜底锚点：问题点必须真的引用了「含失败词的原文句子」里的连续 4 字。
+
+    只放宽「片段抽取是否覆盖到」，不放宽「是否原文有据」——模型凭空编造仍过不了；
+    返回的可指认片段是原文整句，供 D2/D3 继续作证据依据。
+    """
+    s = (raw_text or "")[:EVIDENCE_TEXT_LIMIT]
+    for m in _SENTENCE_RE.finditer(s):
+        seg = m.group(0).strip()
+        if len(seg) < ANCHOR_WINDOW:
+            continue
+        if not any(w in seg for w in _SENTENCE_FAILURE_WORDS):
+            continue
+        for i in range(0, len(seg) - ANCHOR_WINDOW + 1):
+            if seg[i:i + ANCHOR_WINDOW] in (point or ""):
+                return {"kind": "failure", "text": seg[:45], "source": "raw",
+                        "anchor": seg[i:i + ANCHOR_WINDOW]}
+    return None
+
+
+def validate_point(point: str, spans: List[Dict[str, Any]],
+                   raw_text: str = "") -> Dict[str, Any]:
     """**判定通道**：只用确定性规则，不复用生成结果自证、不含任何人工动作。"""
     checked = P.check_l1_point(point)
     hits = anchor_hits(point, spans)
-    failure_anchors = [h for h in hits if h["kind"] in FAILURE_EVIDENCE_KINDS]
+    failure_anchors = [h for h in hits if h["kind"] in POINT_FAILURE_KINDS]
+    if not failure_anchors and raw_text:
+        hit = raw_anchor(point, raw_text)
+        if hit:
+            hits.append(hit)
+            failure_anchors.append(hit)
     gaps: List[str] = list(checked["violations"])
     if not any(w in (point or "") for w in P.APPEAL_VERBS):
         gaps.append("P01 未写出客户/一线要办的事（诉求动词）")
@@ -146,7 +203,7 @@ def build_point(ticket: Dict[str, Any],
     }
 
     # ① 证据不足（§3.2 E6）：原文无报错/状态值/缺失片段 → 自动拒识，不编造
-    if not any(sp["kind"] in FAILURE_EVIDENCE_KINDS for sp in spans):
+    if not any(sp["kind"] in POINT_FAILURE_KINDS for sp in spans):
         base["status"] = P.UNCLASSIFIED_STATUS
         base["gaps"] = [P.DEGRADED_REASON_EVIDENCE]
         return base
@@ -162,7 +219,18 @@ def build_point(ticket: Dict[str, Any],
     # ③ 生成 → 独立判定（分离）：生成结果必须重新过确定性闸门
     base["generator_channel"] = getattr(generator, "channel_name", "semantic-plugin")
     point = (generator(ticket, spans) or "").strip()
-    judged = validate_point(point, spans)
+    if not point:
+        # 区分「模型按 §1.3 判证据不足而显式返回空」与「批量回包漏返该单」：
+        # 前者是自动拒识（不排队等人），后者是分析未完成，待通道恢复自动补跑。
+        has = getattr(generator, "has", None)
+        if callable(has) and has(tno):
+            base["status"] = P.UNCLASSIFIED_STATUS
+            base["gaps"] = [P.DEGRADED_REASON_EVIDENCE, "语义通道判定该单无可观察失败"]
+            return base
+        base["status"] = P.DEGRADED_STATUS
+        base["gaps"] = [P.DEGRADED_REASON_CHANNEL, "语义通道漏返该单，待自动补跑"]
+        return base
+    judged = validate_point(point, spans, content + " " + solution)
     base["point"] = point
     base["anchors"] = judged["anchors"]
     base["gaps"] = judged["gaps"]

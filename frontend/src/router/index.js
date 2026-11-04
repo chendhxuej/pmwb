@@ -156,6 +156,13 @@ const routes = [
             meta: { title: '根因库' },
           },
           {
+            // 2026-11-04 v4.2 客诉逐单问题点自动化：分析过程不依赖人，描述具体到一句话
+            path: 'problem-v42',
+            name: 'ComplaintProblemV42',
+            component: () => import('@/views/complaint/ProblemV42.vue'),
+            meta: { title: '问题点类(v4.2)' },
+          },
+          {
             path: 'problems',
             name: 'ComplaintProblemLedger',
             component: () => import('@/views/complaint/ProblemLedger.vue'),

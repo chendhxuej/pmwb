@@ -114,10 +114,18 @@ def test_auto_rerun_when_channel_returns(db):
     assert st["last_run"]["veto"] == []
 
 
+def fake_channel_junk(db, system, user, **kw):
+    """每单都给出不合格问题点 → 系统自动拒识（已分析但未归类），用于测数量闭合陷阱。"""
+    nos = re.findall(r"单号：(\S+)", user)
+    return {"used_llm": True, "provider_name": "fake",
+            "text": json.dumps({"results": [{"no": n, "point": "其他问题无法处理"}
+                                            for n in nos]}, ensure_ascii=False)}
+
+
 def test_publish_requires_content_closure_not_only_count_closure(db):
     """仅数量闭合达标（全部未归类）必须被闸门拦截，且不发布任何类。"""
     _seed(db)
-    out = pp.run_full(db, dry_run=False, allow_semantic=False)
+    out = pp.run_full(db, dry_run=False, caller=fake_channel_junk)
     assert out["publish"] is False
     assert out["metrics"]["count_closure"] == 100.0
     assert out["metrics"]["content_closure"] < 95.0

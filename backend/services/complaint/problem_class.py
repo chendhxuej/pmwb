@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from constants import complaint_problem as P
 from constants.complaint_pattern import OBJECTS
@@ -45,15 +45,44 @@ def strip_user_level(text: str) -> str:
     return re.sub(r"\s{2,}", " ", s).strip()
 
 
+# 主语前缀：抽对象时先剥掉，避免「客户申请」「一线查询」这类主语被当业务对象
+_SUBJECT_PREFIXES: Tuple[str, ...] = (
+    "客户", "一线", "用户", "装维", "营业员", "客户经理", "系统", "反馈",
+    "反映", "表示", "要求", "咨询", "针对", "在", "因",
+)
+
+
+def _object_from_point(point: str) -> str:
+    """词表未命中时，从 L1 原句确定性抽「具体对象」——只取原文出现过的字。
+
+    不查第二份受控清单、不猜测语义、不限制新对象：新业务的对象原样进入四要素，
+    写法差异仍由 canonical() 的拼写归一处理（§7.3 两层结构）。
+    """
+    s = strip_user_level((point or "").strip())
+    for pref in sorted(_SUBJECT_PREFIXES, key=len, reverse=True):
+        if s.startswith(pref):
+            s = s[len(pref):]
+            break
+    hits = [(s.find(v), v) for v in P.APPEAL_VERBS if v in s]
+    hits = [h for h in hits if h[0] >= 0]
+    idx, verb = min(hits, key=lambda x: (x[0], -len(x[1]))) if hits else (0, "")
+    tail = s[idx + len(verb):] if hits else s
+    tail = re.split(r"[，,。.；;：:！!？?、|（）()]", tail)[0]
+    tail = re.sub(r"^(的|了|在|把|将|给|为|对|向|从|以|中|时|后)+", "", tail)
+    return tail[:8].strip()
+
+
 def extract_elements(res: Dict[str, Any]) -> Dict[str, str]:
     """从 L1 结论里抽取四要素（机器可判，全部绑定证据片段，不靠语义猜测）。"""
     point = res.get("point") or ""
     anchors = res.get("anchors") or []
     failure_anchors = [a for a in anchors if a.get("kind") in FAILURE_EVIDENCE_KINDS]
 
-    # 具体对象：复用受控对象词表，取最长命中；未命中即留空（该类不得发布）
+    # 具体对象（§7.3 收口）：受控对象词表只作「常见写法的一致性提示」，
+    # 不再是白名单、不再决定能否立类。未命中时从 L1 原句确定性抽取业务名词，
+    # 因此新业务/新场景的对象不会被词表挡住，词表也不作类名。
     obj_hits = [o for o in OBJECTS if o in point]
-    obj = max(obj_hits, key=len) if obj_hits else ""
+    obj = max(obj_hits, key=len) if obj_hits else _object_from_point(point)
 
     # 动作：复用诉求动词，取最长命中
     act_hits = [v for v in P.APPEAL_VERBS if v in point]
@@ -73,24 +102,39 @@ def extract_elements(res: Dict[str, Any]) -> Dict[str, str]:
             "trigger": strip_user_level(trigger)}
 
 
+def _fit_description(text: str) -> str:
+    """把 L1 句收敛成合规的 L2 一句描述：只做确定性截断，不改写语义、不臆造。"""
+    s = strip_user_level((text or "").strip())
+    if s and P.check_description(s)["ok"]:
+        return s
+    # 超长时按分句取能独立成立的最长前缀（仍是原文原词，不补字）
+    cand = ""
+    for part in re.split(r"[，,；;]", s):
+        nxt = (cand + "，" + part) if cand else part
+        if len(nxt) > P.DESC_HARD_MAX_CHARS:
+            break
+        cand = nxt
+    return cand if cand and P.check_description(cand)["ok"] else ""
+
+
 def compose_description(elements: Dict[str, str],
                         members: Optional[List[Dict[str, Any]]] = None) -> str:
     """由共性事实产出一句描述（确定性，不用枚举词拼接、不臆造）。
 
-    D5 修正（2026-11-04 端到端实测发现）：原实现把四要素用逗号机械拼成
-    「施工单，申请，无法生成」——那是标签不是一句话，长度不足 15 字会被 D0
-    判不合格，导致**语义通道恢复后所有类仍永远 draft、闸门永远不发布**。
-    成员 L1 问题点归一后完全一致时，那句话本身就是共性事实（不是任一一单的
-    个案措辞），可直接作类描述；措辞不一致时退回确定性拼接并标 draft，
-    不臆造、不等人、不引入人工编制。
+    D7 收口（2026-11-05 真实库诊断）：四要素用逗号机械拼成「施工单，申请，
+    无法生成」是标签不是一句话，D0 必判不合格 → 类永远 draft、闸门永远不发布。
+    本桶的成员四要素已全部相等（同一问题点），因此取**成员中第一条通过 D0
+    校验的 L1 问题点句**作描述：它来自真实原文、具体、可复现，且仍须过 D3
+    双向门禁与判定卡；若与任一成员证据不对应，描述由 D3 自动作废，不靠改写
+    描述把错配「解释进去」。措辞不一致不再退回标签拼接，也不引入人工编制。
     """
     if members:
         pts = [strip_user_level((m.get("point") or "").strip())
                for m in members if isinstance(m, dict) and (m.get("point") or "").strip()]
-        if pts and len({canonical(p) for p in pts}) == 1:
-            cand = pts[0]
-            if P.check_description(cand)["ok"]:
-                return cand
+        for cand in pts:
+            fitted = _fit_description(cand)
+            if fitted:
+                return fitted
     obj, act, fail, trig = (elements.get(k, "") for k in P.ELEMENT_KEYS)
     parts: List[str] = []
     if trig and trig not in fail:

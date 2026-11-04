@@ -20,6 +20,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -38,6 +40,39 @@ REQUEST_TIMEOUT = 45            # 单次语义调用超时（秒）
 MAX_BATCHES = 0                 # 0=不限；演练可限量，防止意外全量调用
 
 CHANNEL_NAME = "llm-point-v1"
+
+# ---------------------------------------------------------------------------
+# 限流退避（D7 全量重跑兜底）：429 / 「频率限制」不算通道不可用，应等到重置后重试
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_PATTERNS = ("429", "频率限制", "使用量已超出", "rate limit",
+                        "too many requests", "quota", "请求过于频繁", "限流")
+_RESET_TIME_RE = re.compile(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})")
+MAX_RATE_LIMIT_RETRIES = 40
+_RATE_MAX_WAIT = 6 * 3600          # 单次退避上限 6 小时
+_RATE_FLOOR_WAIT = 60             # 无法解析重置时间时的指数退避底
+
+
+def _is_rate_limited(notice: str, err: Optional[Exception]) -> bool:
+    blob = (str(notice or "") + " " + str(err or "")).lower()
+    return any(p in blob for p in _RATE_LIMIT_PATTERNS)
+
+
+def _wait_seconds_for_reset(notice: str) -> int:
+    """解析『将在 … 重置』的时间，返回需等待秒数（含 15s 缓冲）；解析不出返回 0。"""
+    m = _RESET_TIME_RE.search(notice or "")
+    if m:
+        try:
+            reset = datetime.strptime(m.group(1).replace("T", " "), "%Y-%m-%d %H:%M:%S")
+            wait = (reset - datetime.now()).total_seconds()
+            if wait > 0:
+                return min(int(wait) + 15, _RATE_MAX_WAIT)
+        except Exception:  # noqa: BLE001
+            pass
+    return 0
+
+
+def _backoff_sleep(attempt: int) -> int:
+    return min(_RATE_FLOOR_WAIT * (2 ** attempt), 10 * 60)
 
 _SYSTEM_PROMPT = (
     "你是电信运营商政企/商客业务客诉工单的分析员。任务：为每张工单写出「一句逐单投诉问题点」。\n"
@@ -114,21 +149,44 @@ class SemanticPointGenerator:
         self.policy_version = P.POLICY_VERSION
 
     def _user_prompt(self, batch: List[Dict[str, Any]],
-                     evidence_map: Dict[str, List[Dict[str, Any]]]) -> str:
+                     evidence_map: Dict[str, List[Dict[str, Any]]],
+                     feedback: Optional[Dict[str, List[str]]] = None) -> str:
         blocks: List[str] = []
         for t in batch:
             no = str(t.get("ticket_no") or "")
             spans = evidence_map.get(no) or []
             ev = " | ".join(_clip(str(s.get("text", "")), EVIDENCE_CHARS)
                             for s in spans[:EVIDENCE_LIMIT] if s.get("text"))
-            blocks.append(
+            block = (
                 f"【工单】单号：{no}\n"
                 f"投诉原文：{_clip(str(t.get('content') or ''), self.text_limit)}\n"
                 f"处理过程：{_clip(str(t.get('solution_history') or ''), SOLUTION_LIMIT)}\n"
                 f"证据片段：{ev or '（无）'}"
             )
-        return ("请逐单写出一句投诉问题点，单号必须原样回传，不要漏单。\n\n"
-                + "\n\n".join(blocks))
+            if feedback and feedback.get(no):
+                gs = feedback[no]
+                blob = " ".join(gs)
+                block += "\n上一轮未过自动判定的原因：" + "；".join(gs[:4])
+                hints: List[str] = []
+                if "P02" in blob:
+                    hints.append("必须原样复制上方「证据片段」里至少连续 4 个汉字，不要同义改写")
+                if "D07" in blob:
+                    hints.append("必须写出一处可观察失败：报错/状态值/未收到/无法/不一致/缺失/被拦截")
+                if "D03" in blob:
+                    hints.append("只写一个问题点，不要用分号、以及、并且并列")
+                if "P01" in blob:
+                    hints.append("必须写出客户或一线要办的事：办理/查询/申请/提交/开通/核实")
+                hints.append("只写一句、不以结论收尾、不写账号单号")
+                block += "\n改写要求：" + "；".join(hints) + "。"
+            blocks.append(block)
+        lead = "请逐单写出一句投诉问题点，单号必须原样回传，不要漏单。"
+        if feedback:
+            lead = "以下工单上一轮未通过确定性判定，请逐单按标注的缺口改写（仍需原词锚定）。"
+        return (lead + "\n\n" + "\n\n".join(blocks))
+
+    def has(self, ticket_no: str) -> bool:
+        """该单是否在回包里出现（含显式空串），用于区分「证据不足」与「漏返」。"""
+        return str(ticket_no) in self._cache
 
     def prefetch(self, tickets: List[Dict[str, Any]],
                  evidence_map: Optional[Dict[str, List[Dict[str, Any]]]] = None) -> bool:
@@ -148,15 +206,10 @@ class SemanticPointGenerator:
         offsets = list(range(0, len(tickets), self.batch_size))
         if self.max_batches:
             offsets = offsets[:self.max_batches]
+        last_err_notice = ""
         for bi, i in enumerate(offsets):
             batch = tickets[i:i + self.batch_size]
-            try:
-                res = self._caller(self.db, _SYSTEM_PROMPT,
-                                   self._user_prompt(batch, evidence_map),
-                                   timeout=self.timeout)
-            except Exception as exc:  # noqa: BLE001 —— 通道异常一律按不可用处理
-                logger.warning("客诉语义通道调用异常：%s", str(exc)[:200])
-                res = {"used_llm": False, "notice": str(exc)[:300], "text": ""}
+            res = self._invoke(batch, evidence_map)
             self.calls += 1
             if not res.get("used_llm"):
                 self.available = False
@@ -172,11 +225,77 @@ class SemanticPointGenerator:
                 self._cache.clear()
                 return False
             for item in parsed:
-                if item["point"]:
-                    self._cache[item["no"]] = item["point"]
-        self.generated = len(self._cache)
+                # 空串也要缓存：它代表模型按 §1.3 判「证据不足」，与漏返不同
+                self._cache[item["no"]] = item["point"]
+        self.generated = sum(1 for v in self._cache.values() if v)
         self.available = True
         return True
+
+    def _invoke(self, batch: List[Dict[str, Any]],
+                evidence_map: Dict[str, List[Dict[str, Any]]],
+                feedback: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+        """带限流退避的语义通道调用。
+
+        命中 429/频率限制 → 解析重置时间（或指数退避）后重试，绝不立即判死；
+        仅当非限流错误、或退避耗尽仍限流时才返回 ``used_llm=False``。
+        """
+        last_notice = ""
+        for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+            try:
+                res = self._caller(self.db, _SYSTEM_PROMPT,
+                                   self._user_prompt(batch, evidence_map, feedback),
+                                   timeout=self.timeout)
+                err: Optional[Exception] = None
+            except Exception as exc:  # noqa: BLE001 —— 通道异常按不可用/限流处理
+                logger.warning("客诉语义通道调用异常：%s", str(exc)[:200])
+                res = {"used_llm": False, "notice": str(exc)[:300], "text": ""}
+                err = exc
+            if res.get("used_llm"):
+                return res
+            notice = str(res.get("notice") or "")
+            if _is_rate_limited(notice, err):
+                wait = _wait_seconds_for_reset(notice)
+                if wait <= 0:
+                    wait = _backoff_sleep(attempt)
+                logger.warning("客诉语义通道触发频率限制，第 %d/%d 次重试前等待 %d 秒",
+                               attempt + 1, MAX_RATE_LIMIT_RETRIES, wait)
+                time.sleep(wait)
+                last_notice = notice
+                continue
+            # 非限流不可用：立即返回，交由编排层按通道不可用处理
+            res.setdefault("notice", "语义通道不可用")
+            return res
+        return {"used_llm": False, "notice": last_notice or "语义通道持续频率限制", "text": ""}
+
+    def regenerate(self, tickets: List[Dict[str, Any]],
+                   evidence_map: Dict[str, List[Dict[str, Any]]],
+                   feedback: Dict[str, List[str]],
+                   max_batches: int = 0) -> Dict[str, Any]:
+        """自动二轮改写（不依赖人）：把每单的确定性判定缺口回灌给模型重生成。
+
+        只覆盖本轮回包里出现且非空的单；通道失败或回包无有效结果时原样保留，
+        由编排层把未解决的单标「自动拒识」并写明缺口，绝不无限循环、绝不转人工。
+        """
+        offsets = list(range(0, len(tickets), self.batch_size))
+        if max_batches:
+            offsets = offsets[:max_batches]
+        changed = 0
+        batches = 0
+        for i in offsets:
+            batch = tickets[i:i + self.batch_size]
+            res = self._invoke(batch, evidence_map, feedback)
+            self.calls += 1
+            batches += 1
+            if not res.get("used_llm"):
+                break
+            parsed = _parse_results(str(res.get("text") or ""))
+            if not any(x["point"] for x in parsed):
+                break           # 二轮无有效回包即停，不空转烧 token
+            for item in parsed:
+                if item["point"] and item["no"] in self._cache:
+                    self._cache[item["no"]] = item["point"]
+                    changed += 1
+        return {"batches": batches, "changed": changed, "calls": self.calls}
 
     def __call__(self, ticket: Dict[str, Any], spans: List[Dict[str, Any]]) -> str:
         """D1 生成入口；漏返返回空串（编排层标待自动补跑，绝不猜）。"""

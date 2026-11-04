@@ -184,4 +184,21 @@ export const complaintApi = {
   correctTicketRootcause(id, data) {
     return request.put(`/complaint/tickets/${id}/rootcause`, data)
   },
+
+  // ── 客诉 v4.2 逐单问题点自动化分析（分析过程不依赖人）──
+  problemV42Status() {
+    return request.get('/complaint/problem-v42/status')
+  },
+  problemV42Classes(params) {
+    return request.get('/complaint/problem-v42/classes', { params })
+  },
+  problemV42Unclassified(params) {
+    return request.get('/complaint/problem-v42/unclassified', { params })
+  },
+  problemV42Run(data) {
+    return request.post('/complaint/problem-v42/run', data)
+  },
+  problemV42RerunPending(data) {
+    return request.post('/complaint/problem-v42/rerun-pending', data)
+  },
 }

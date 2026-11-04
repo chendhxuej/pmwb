@@ -28,7 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from constants import complaint_problem as P
-from services.complaint.problem_acceptance import evaluate
+from services.complaint.problem_acceptance import evaluate, observation_warnings
 from services.complaint.problem_class import build_classes  # noqa: F401（编排层显式依赖）
 from services.complaint.problem_gate import run_gate  # noqa: F401
 from services.complaint.problem_point import build_point, extract_evidence_spans
@@ -146,8 +146,11 @@ def run_full(db: Session, *, dry_run: bool = True, limit: Optional[int] = None,
     """
     tickets = load_tickets(db, limit=limit)
     saved = {} if force else _load_saved_points(db)
+    # 增量口径：ok 与「终态自动拒识」都已有确定性结论，不重复烧语义调用；
+    # 只有 pending_auto_rerun（通道不可用/漏返）与尚无结论的单才重算。
+    terminal = ("ok", P.UNCLASSIFIED_STATUS)
     need = [t for t in tickets
-            if force or saved.get(t["ticket_no"], {}).get("status") != "ok"]
+            if force or saved.get(t["ticket_no"], {}).get("status") not in terminal]
 
     # 注入 caller 时由调用方完全控制通道（单测/演练），跳过连通预检。
     # 生产路径先预检：通道全挂时零语义调用，链路照常毫秒级跑完并标待自动补跑。
@@ -155,6 +158,7 @@ def run_full(db: Session, *, dry_run: bool = True, limit: Optional[int] = None,
     channel_summary = {"channel": "llm-point-v1", "available": False,
                        "notice": "无需调用语义通道（无待分析单或已禁用）",
                        "calls": 0, "generated": 0}
+    evmap: Dict[str, Any] = {}
     if allow_semantic and need:
         precheck = None if caller is not None else _channel_fast_check(db)
         if precheck is None or precheck.get("available"):
@@ -173,20 +177,60 @@ def run_full(db: Session, *, dry_run: bool = True, limit: Optional[int] = None,
 
     generator = channel if (channel is not None and channel.available) else None
 
-    points: List[Dict[str, Any]] = []
+    by_no: Dict[str, Dict[str, Any]] = {}
+    fresh_nos: List[str] = []
     for t in tickets:
         no = t["ticket_no"]
-        if not force and saved.get(no, {}).get("status") == "ok":
-            points.append(saved[no])
+        if not force and saved.get(no, {}).get("status") in terminal:
+            by_no[no] = saved[no]
             continue
-        r = build_point(t, generator=generator)
-        if generator is not None and r["status"] != "ok":
-            # 证据不足是永久自动拒识；其余（漏返/未过闸）留待通道恢复后自动补跑
-            if P.DEGRADED_REASON_EVIDENCE not in r["gaps"]:
-                r["status"] = P.DEGRADED_STATUS
-                r["gaps"] = ["语义通道漏返或生成结果未过闸，待自动补跑"] + r["gaps"][:2]
-                r["generator_channel"] = None
-        points.append(r)
+        by_no[no] = build_point(t, generator=generator)
+        fresh_nos.append(no)
+
+    # 自动二轮改写（§1.3 不依赖人）：把每单的确定性判定缺口回灌给模型重生成，
+    # 再由同一套独立判定通道重判。不是「让人再看一眼」，也不是放宽判定。
+    retry_info: Dict[str, Any] = {"rounds": 0, "batches": 0, "changed": 0, "retried": 0}
+    if generator is not None and fresh_nos:
+        fresh_set = set(fresh_nos)
+        for _ in range(2):          # 最多两轮自动改写，仍不过即终态自动拒识
+            retry_tickets = [t for t in tickets if t["ticket_no"] in fresh_set
+                             and by_no[t["ticket_no"]]["status"] != "ok"
+                             and P.DEGRADED_REASON_EVIDENCE
+                             not in by_no[t["ticket_no"]]["gaps"]]
+            if not retry_tickets:
+                break
+            feedback = {t["ticket_no"]: list(by_no[t["ticket_no"]]["gaps"][:4])
+                        for t in retry_tickets}
+            info = channel.regenerate(
+                retry_tickets, evmap, feedback, max_batches=max_semantic_batches) or {}
+            retry_info["rounds"] += 1
+            retry_info["retried"] += len(retry_tickets)
+            retry_info["batches"] += int(info.get("batches", 0))
+            retry_info["changed"] += int(info.get("changed", 0))
+            for t in retry_tickets:
+                by_no[t["ticket_no"]] = build_point(t, generator=channel)
+        channel_summary = channel.summary()
+        channel_summary["regenerate"] = retry_info
+
+    # 终态收敛：证据不足 / 二轮仍不过 → 自动拒识（写明缺口，进未归类清单）；
+    # 通道不可用或批量漏返 → 待自动补跑（通道恢复后下次运行自动补跑）。
+    for no in fresh_nos:
+        r = by_no[no]
+        if r["status"] == "ok":
+            continue
+        if P.DEGRADED_REASON_EVIDENCE in r["gaps"]:
+            r["status"] = P.UNCLASSIFIED_STATUS
+        elif r["status"] == P.DEGRADED_STATUS:
+            if generator is None and P.DEGRADED_REASON_CHANNEL not in r["gaps"]:
+                r["gaps"] = [P.DEGRADED_REASON_CHANNEL] + r["gaps"][:2]
+        else:
+            # §2.5：写不出合格问题点的单不得作为归类原料。不合格文本只留在缺口
+            # 留痕里供追溯，不作为逐单记录发布，更不进任何问题点类。
+            r["status"] = P.UNCLASSIFIED_STATUS
+            r["gaps"] = (["自动拒识：确定性判定未通过（系统已自动重生成至多 2 轮）",
+                          "原始候选：" + (r.get("point") or "")[:60]] + r["gaps"][:3])
+            r["point"] = ""
+    points: List[Dict[str, Any]] = [by_no[t["ticket_no"]] for t in tickets]
 
     # 不引入跨批可变状态：每轮对全量 L1 结论重新建类，class_no 由四要素确定性
     # 生成，跨轮稳定；增量只用于避免重复调用语义通道。这样 D4 两次重跑的输入
@@ -204,11 +248,19 @@ def run_full(db: Session, *, dry_run: bool = True, limit: Optional[int] = None,
         "tickets": len(tickets), "recomputed": len(need),
         "point_ok": sum(1 for r in points if r["status"] == "ok"),
         "pending_auto_rerun": len(pending),
+        "evidence_missing": sum(1 for r in points
+                                if P.DEGRADED_REASON_EVIDENCE in r["gaps"]),
+        "auto_rejected": sum(1 for r in points
+                             if r["status"] == P.UNCLASSIFIED_STATUS
+                             and any("自动拒识" in g for g in r["gaps"])),
+        "reject_samples": [{"ticket_no": r["ticket_no"], "gaps": r["gaps"][:4]}
+                           for r in points if r["status"] == P.UNCLASSIFIED_STATUS][:5],
         "classes": len(result["classes"]),
         "published_classes": sum(1 for c in result["classes"] if c["status"] == "published"),
         "unclassified": len(gate.get("unclassified", [])),
         "metrics": result["metrics"], "decision": decision,
         "failed": decision["failed"], "veto": decision["veto"],
+        "warnings": decision["warnings"],
         "voided_classes": gate.get("voided_classes", []),
         "goldset": result["goldset"],
     }
@@ -245,7 +297,10 @@ def _persist(db: Session, *, points: List[Dict[str, Any]], result: Dict[str, Any
         })
 
     for c in result["classes"]:
-        status = c.get("status", "draft") if publish else "blocked"
+        # 单类状态由 D2 各自判定（published/blocked/draft/changed），与整批闸门解耦：
+        # 全局 publish 只作为「整批是否达自动发布门槛」的标识写入 run 记录（供前端横幅），
+        # 不因此把合规单类也强压成 blocked，否则前端会整页灰掉、看不到已分析出的结果。
+        status = c.get("status", "draft")
         desc = c.get("description") or ""
         card_json = _j(c.get("card") or {})
         data: Dict[str, Any] = {
@@ -398,13 +453,16 @@ def status(db: Session) -> Dict[str, Any]:
     }
     last = None
     if row:
+        metrics = _loads(row[4], {})
         last = {"run_no": row[0], "publish": bool(row[1]), "failed": _loads(row[2], []),
-                "veto": _loads(row[3], []), "metrics": _loads(row[4], {}),
+                "veto": _loads(row[3], []), "metrics": metrics,
+                "warnings": observation_warnings(metrics),
                 "classes_cnt": row[5], "unclassified_cnt": row[6], "pending_cnt": row[7],
                 "channel_available": bool(row[8]), "channel_notice": row[9],
                 "created_at": str(row[10] or "")}
     return {"migrated": True, "policy_version": P.POLICY_VERSION,
-            "last_run": last, "counts": counts}
+            "last_run": last, "warnings": (last or {}).get("warnings", []),
+            "counts": counts}
 
 
 def list_classes(db: Session, *, status_filter: str = "", keyword: str = "",
@@ -451,3 +509,42 @@ def list_unclassified(db: Session, *, reason: str = "", page: int = 1,
     start = (max(1, int(page)) - 1) * max(1, int(page_size))
     return {"total": total, "page": int(page), "page_size": int(page_size),
             "items": items[start:start + max(1, int(page_size))]}
+
+
+def summary_for_report(db: Session) -> Dict[str, Any]:
+    """报表/周报友好的紧凑摘要（只读，不写库）。供周报、问题台账汇总引用 v4.2 问题点类。
+
+    返回：分析规模、六项指标、已发布问题点类（按工单量降序、含一句具体描述）、
+    未归类规模与缺口口径。旧 236 个抽象根因名仅作历史索引，不进入本摘要主表。
+    """
+    st = status(db)
+    counts = st.get("counts", {})
+    last = (st.get("last_run") or {})
+    cls = list_classes(db, page=1, page_size=9999).get("items", [])
+    published = [c for c in cls if c.get("status") == "published"]
+    unc = list_unclassified(db, page=1, page_size=9999).get("items", [])
+    return {
+        "policy_version": P.POLICY_VERSION,
+        "published": bool(last.get("publish")),
+        "metrics": last.get("metrics", {}),
+        "warnings": st.get("warnings", []),
+        "totals": {
+            "tickets": counts.get("points", 0),
+            "point_ok": counts.get("point_ok", 0),
+            "classes": counts.get("classes", 0),
+            "published_classes": counts.get("published_classes", 0),
+            "unclassified": counts.get("unclassified", 0),
+            "pending_auto_rerun": counts.get("pending_auto_rerun", 0),
+        },
+        # 周报只引用已发布类（D2 判定通过、描述具体、证据可锚定的）；其余单列口径说明
+        "top_classes": [
+            {"class_no": c["class_no"], "description": c["description"],
+             "ticket_cnt": c["ticket_cnt"], "fix_point": c.get("fix_point", "")}
+            for c in published[:15]
+        ],
+        "unclassified_sample": [
+            {"ticket_no": u["ticket_no"], "reason": u.get("reason", "")}
+            for u in unc[:10]
+        ],
+        "unclassified_total": len(unc),
+    }

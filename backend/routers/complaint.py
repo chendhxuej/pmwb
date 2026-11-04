@@ -1158,3 +1158,9 @@ def problem_v42_run(body: ProblemV42RunIn, db: Session = Depends(get_db)):
 def problem_v42_rerun_pending(body: ProblemV42RunIn, db: Session = Depends(get_db)):
     """对「待自动补跑」单重跑全链；通道仍不可用时原样保留、不中断、不排队等人。"""
     return success(problem_pipeline.rerun_pending(db, dry_run=body.dry_run))
+
+
+@router.get("/problem-v42/summary")
+def problem_v42_summary(db: Session = Depends(get_db)):
+    """报表/周报友好的紧凑摘要：已发布问题点类 + 指标 + 未归类口径（只读）。"""
+    return success(problem_pipeline.summary_for_report(db))

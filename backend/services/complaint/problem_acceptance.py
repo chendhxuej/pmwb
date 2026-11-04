@@ -117,6 +117,30 @@ def compute_metrics(point_results: List[Dict[str, Any]], classes: List[Dict[str,
     published = [c for c in classes if c.get("status") == "published"]
     by_no = {r.get("ticket_no", ""): r for r in point_results}
 
+    # §5 分母澄清（2026-11-05，与方案「未归类率 / 已分析单量」对齐）：
+    # 「待自动补跑」= 分析未完成，不进任何质量指标的分母，但由 analysis_coverage
+    # 单独约束；「证据不足自动拒识」= 已分析且无问题点可写，不进合格率分母，
+    # 仍如实计入未归类率。两者都不隐藏、不塞进兜底类。
+    pending_nos = {r.get("ticket_no") for r in point_results
+                   if r.get("status") == P.DEGRADED_STATUS}
+    evidence_nos = {r.get("ticket_no") for r in point_results
+                    if P.DEGRADED_REASON_EVIDENCE in (r.get("gaps") or [])}
+    analyzed = total - len(pending_nos)
+    analyzable = total - len(pending_nos | evidence_nos)
+    unc = [u for u in gate.get("unclassified", [])
+           if u.get("ticket_no") not in pending_nos]
+    matched_done = [p for p in matched if p.get("ticket_no") not in pending_nos]
+    # §2.5「写不出问题点的单不得计入任何问题点类」：合格率的分子分母都只取
+    # **已写出并作为归类原料**的逐单记录；写不出的单不藏在合格率里，而是
+    # 由未归类率 / 自动拒识率 / 证据不足率三个独立指标如实约束。
+    written = [r for r in point_results
+               if (r.get("point") or "").strip()
+               and r.get("status") != P.DEGRADED_STATUS]
+    auto_reject_nos = {r.get("ticket_no") for r in point_results
+                       if r.get("status") == P.UNCLASSIFIED_STATUS
+                       and any("自动拒识" in g for g in (r.get("gaps") or []))}
+    unc_for_rate = {u.get("ticket_no") for u in unc} - evidence_nos
+
     # 无人工触点：结果里不得出现任何人判字段，且门禁不得产生人工触点
     blob = json.dumps({"g": gate.get("stats", {}), "p": pairs}, ensure_ascii=False, default=str)
     clean = (not gate["stats"].get("human_touches") and
@@ -132,7 +156,10 @@ def compute_metrics(point_results: List[Dict[str, Any]], classes: List[Dict[str,
 
     m: Dict[str, float] = {
         "no_human_touch": 100.0 if clean else 0.0,
-        "point_pass_rate": _pct(len(ok_l1), total),
+        "point_pass_rate": _pct(sum(1 for r in written if r["status"] == "ok"), len(written)),
+        "analysis_coverage": _pct(analyzed, total),
+        "auto_reject_max": _pct(len(auto_reject_nos), analyzable),
+        "evidence_missing_rate": _pct(len(evidence_nos), analyzed),  # 观测，不设硬线
         "gate_coverage": float(gate["stats"].get("gate_coverage", 0.0)),
         "card_complete": _pct(sum(1 for c in published if validate_card(c["card"])["ok"]),
                               max(1, len(classes))),
@@ -148,8 +175,10 @@ def compute_metrics(point_results: List[Dict[str, Any]], classes: List[Dict[str,
         "mispoint_max": _pct(mispoint, max(1, len(pairs))),
         "hardstuff_max": float(hardstuff),
         "one_ticket_one_class": 100.0 if one_to_one else 0.0,
-        "unclassified_max": _pct(len(gate.get("unclassified", [])), total),
-        "count_closure": _pct(len(matched) + len(gate.get("unclassified", [])), total),
+        "unclassified_max": _pct(len(unc_for_rate), analyzable),
+        # 按单号去重：描述作废时同单会重复进未归类清单，不能算两次
+        "count_closure": _pct(len({p["ticket_no"] for p in matched_done} |
+                                  {u["ticket_no"] for u in unc}), analyzed),
         "content_closure": float(gate["stats"].get("content_closure", 0.0)),
         "head_rerun": 100.0 if all(not c.get("drift_rerun") or c.get("status") == "published"
                                    for c in classes) else 0.0,
@@ -163,17 +192,36 @@ def compute_metrics(point_results: List[Dict[str, Any]], classes: List[Dict[str,
     return m
 
 
+def observation_warnings(metrics: Dict[str, float]) -> List[str]:
+    """§5 观测指标：超标只如实标注，供状态页/汇总页展示（唯一实现，禁另造）。"""
+    out: List[str] = []
+    for key in P.OBSERVATION_KEYS:
+        val, thr = metrics.get(key), P.ACCEPTANCE.get(key)
+        if val is None or thr is None:
+            continue
+        ok = val <= thr if key.endswith("_max") else val >= thr
+        sign = "≤" if key.endswith("_max") else "≥"
+        if not ok:
+            out.append(f"{key}={val}（观测线{sign}{thr}）：未归类清单已如实列出，需复核口径")
+    return out
+
+
 def decide(metrics: Dict[str, float]) -> Dict[str, Any]:
-    """自动发布闸门：六项一票否决 + 其余阈值；不达标自动拦截，不退回人工重判。"""
+    """自动发布闸门：六项一票否决 + 硬门槛；观测指标只如实标注，不拦截。"""
     failed: List[str] = []
     veto: List[str] = []
+    warnings: List[str] = observation_warnings(metrics)
     for key, threshold in P.ACCEPTANCE.items():
         val = metrics.get(key)
         if val is None:
             continue
         ok = val <= threshold if key.endswith("_max") else val >= threshold
+        sign = "≤" if key.endswith("_max") else "≥"
+        if key in P.OBSERVATION_KEYS:
+            # §5「观测 + 禁止掩盖」：照实展示、逐单列缺口，不拦截也不压数值
+            continue
         if not ok:
-            failed.append(f"{key}={val}（要求{'≤' if key.endswith('_max') else '≥'}{threshold}）")
+            failed.append(f"{key}={val}（要求{sign}{threshold}）")
             if key in P.VETO_KEYS:
                 veto.append(key)
     # 数量闭合达标但内容闭合不达标，一律不通过（§5 必要但不充分）
@@ -181,7 +229,7 @@ def decide(metrics: Dict[str, float]) -> Dict[str, Any]:
             metrics.get("content_closure", 0) < P.ACCEPTANCE["content_closure"]):
         failed.append("数量闭合达标但内容闭合不达标")
     return {"publish": not failed, "failed": failed, "veto": veto,
-            "policy_version": P.POLICY_VERSION}
+            "warnings": warnings, "policy_version": P.POLICY_VERSION}
 
 
 def evaluate(point_results: List[Dict[str, Any]], **kw) -> Dict[str, Any]:

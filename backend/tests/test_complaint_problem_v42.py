@@ -266,10 +266,24 @@ def test_d4_reproducible_and_publish():
 
 def test_d4_veto_blocks_publication():
     pts = _points()
-    pts[1]["status"] = P.DEGRADED_STATUS          # 源头合格率掉到 75%
+    # 已分析但未写出合格问题点 → 逐单合格率 75%，一票否决
+    pts[1]["status"] = P.UNCLASSIFIED_STATUS
+    pts[1]["gaps"] = ["自动拒识：确定性判定未通过（系统已自动重生成 1 轮）"]
     r = evaluate(pts, generator=_gen)
     assert r["decision"]["publish"] is False
     assert "point_pass_rate" in r["decision"]["veto"]
+
+
+def test_d4_pending_excluded_from_quality_but_blocks_coverage():
+    """§5 分母澄清：待自动补跑不拖垮「已分析部分」的合格率，
+    但分析覆盖率单独拦截整期发布——通道全挂时绝不能假绿灯。"""
+    pts = _points()
+    pts[1]["status"] = P.DEGRADED_STATUS
+    r = evaluate(pts, generator=_gen)
+    assert r["metrics"]["point_pass_rate"] == 100.0
+    assert r["metrics"]["analysis_coverage"] < P.ACCEPTANCE["analysis_coverage"]
+    assert r["decision"]["publish"] is False
+    assert any("analysis_coverage" in x for x in r["decision"]["failed"])
 
 
 def test_d4_count_closure_alone_is_not_enough():
