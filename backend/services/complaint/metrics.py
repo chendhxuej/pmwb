@@ -58,6 +58,36 @@ def recent_weeks(week: str, n: int = 8) -> List[str]:
     return list(reversed(out))
 
 
+def shift_weeks(week: str, n: int) -> str:
+    """week 往前推 n 个自然周（n 可为负=往后），保持星期对齐。"""
+    cur = week
+    step = prev_week
+    for _ in range(abs(n)):
+        cur = step(cur)
+    return cur
+
+
+def _daily_series(db: Session, start: datetime, end: datetime) -> Dict[str, int]:
+    """按日单量（缺日补 0）—— 日趋势三线对标的**唯一取数实现**。
+
+    本周 / 上周同期 / 上月同期共用本函数，禁止在调用处另写 SQL。
+    区间天数须一致，调用方按同一周内偏移（周一..周日）对齐三条线。
+    """
+    out: Dict[str, int] = {}
+    cur = start
+    while cur < end:
+        out[cur.date().isoformat()] = 0
+        cur += timedelta(days=1)
+    for d, cnt in db.execute(text(
+        "SELECT DATE(created_time) AS d, COUNT(*) AS c FROM pmwb_complaint_ticket "
+        "WHERE created_time >= :s AND created_time < :e GROUP BY DATE(created_time)"
+    ), {"s": start, "e": end}).fetchall():
+        k = d.isoformat() if hasattr(d, "isoformat") else str(d)[:10]
+        if k in out:
+            out[k] = int(cnt)
+    return out
+
+
 def latest_week(db: Session) -> str:
     row = db.execute(text(
         "SELECT week FROM pmwb_complaint_ticket WHERE week IS NOT NULL AND week <> '' "
@@ -250,16 +280,14 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
         if r["is_recur"] and r["category_l2"]:
             recur_l2[r["category_l2"]] = recur_l2.get(r["category_l2"], 0) + 1
 
-    # 日趋势
-    daily: Dict[str, int] = {}
-    cur = start
-    while cur < end:
-        daily[cur.date().isoformat()] = 0
-        cur += timedelta(days=1)
-    for r in rows:
-        if r["created_time"]:
-            k = r["created_time"].date().isoformat()
-            daily[k] = daily.get(k, 0) + 1
+    # 日趋势（三线对标）：本周 / 上周同期 / 上月同期
+    # 「上月同期」取 4 周前同一自然周（星期结构完全对齐），
+    # 不用自然月同号日期——同号日期会错位到不同星期，周末分布差异会被误读成涨跌。
+    daily = _daily_series(db, start, end)
+    m_start, m_end = start - timedelta(days=28), end - timedelta(days=28)
+    mw = shift_weeks(week, 4)
+    daily_prev_week = _daily_series(db, p_start, p_end)
+    daily_prev_month = _daily_series(db, m_start, m_end)
 
     # 近 8 周趋势
     weeks8 = recent_weeks(week, 8)
@@ -344,6 +372,10 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
                      sorted(recur_l2.items(), key=lambda kv: -kv[1])[:5]],
         },
         "daily": daily,
+        "daily_prev_week": daily_prev_week,
+        "daily_prev_month": daily_prev_month,
+        "prev_month": mw,
+        "prev_month_total": sum(daily_prev_month.values()),
         "trend": trend,
         "actions": [dict(a) for a in actions],
         "action_stats": {

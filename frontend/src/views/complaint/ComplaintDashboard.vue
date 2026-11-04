@@ -51,7 +51,20 @@
             本页不给环比结论，不用残缺数据硬算（否则会把导入节奏误判成暴涨暴跌）。
           </div>
 
-          <ChartLine :x-data="dailyX" :series="dailySeries" height="240px" />
+          <div class="sub-h cmp-title">
+            日走势三线对标
+            <span class="hint">同口径按「周内第几天」对齐：上周同星期 vs 上月同期（{{ metrics.prev_month }}，4 周前）</span>
+          </div>
+          <div class="cmp-line">
+            <span class="cmp-item"><i class="dot dot-cur"></i>本周（已过 {{ cmpDays }} 天）<b>{{ cmpCurTotal }}</b> 单 / 日均 {{ cmpCurAvg }}</span>
+            <span class="cmp-sep">｜</span>
+            <span class="cmp-item"><i class="dot dot-prev"></i>上周同期 <b>{{ cmpPrevWeekTotal }}</b> 单 / 日均 {{ cmpPrevWeekAvg }}</span>
+            <span class="cmp-sep">｜</span>
+            <span class="cmp-item"><i class="dot dot-month"></i>上月同期 <b>{{ cmpPrevMonthTotal }}</b> 单 / 日均 {{ cmpPrevMonthAvg }}</span>
+            <span class="cmp-tip">三线同按 {{ cmpDays }} 天截断对比；折线里基准线为整周实际走势</span>
+          </div>
+
+          <ChartLine :x-data="dailyX" :series="dailySeries" height="260px" />
         </div>
       </section>
 
@@ -412,11 +425,39 @@ function drillTheme(row) {
 function drillCases() {
   drill({ rc_max_tickets: 1 }, '一次性个案工单（所在簇仅 1 单）')
 }
-const dailyX = computed(() => Object.keys(metrics.value.daily || {}).map(k => k.slice(5)))
-const dailySeries = computed(() => [{
-  name: '当日单量',
-  data: Object.values(metrics.value.daily || {}),
-}])
+// 日走势三线对标：横轴取本周日期，基准线按「周内偏移」索引对齐（周一..周日同一位置）
+const dailyKeys = computed(() => Object.keys(metrics.value.daily || {}))
+const dailyX = computed(() => dailyKeys.value.map(k => k.slice(5)))
+const todayIso = computed(() => {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+})
+function alignSeries(dict, cutFuture = false) {
+  const vals = Object.values(dict || {})
+  return dailyKeys.value.map((k, i) => {
+    // 本周未到的日期是「未发生」不是「0 单」，落 null 让线止于今天，避免误读成断崖归零
+    if (cutFuture && k > todayIso.value) return null
+    return i < vals.length ? vals[i] : null
+  })
+}
+const dailySeries = computed(() => [
+  { name: '本周单量', data: alignSeries(metrics.value.daily, true), width: 2.5, area: true },
+  { name: '上周同期', data: alignSeries(metrics.value.daily_prev_week), dash: true, area: false, color: '#7c8ba1' },
+  { name: '上月同期（4 周前）', data: alignSeries(metrics.value.daily_prev_month), dash: true, area: false, width: 1.5, color: '#c2a06a' },
+])
+const weekElapsed = computed(() => dailyKeys.value.filter(k => k <= todayIso.value).length)
+
+// 对标口径：三条线都按「本周已过天数」截断，否则本周 3 天 vs 上周 7 天必然假性暴跌
+const cmpDays = computed(() => weekElapsed.value || dailyKeys.value.length)
+const sliceSum = (dict) => Object.values(dict || {}).slice(0, cmpDays.value).reduce((s, v) => s + (v || 0), 0)
+const cmpCurTotal = computed(() => sliceSum(metrics.value.daily))
+const cmpPrevWeekTotal = computed(() => sliceSum(metrics.value.daily_prev_week))
+const cmpPrevMonthTotal = computed(() => sliceSum(metrics.value.daily_prev_month))
+const avgOf = (total) => (cmpDays.value ? Math.round((total / cmpDays.value) * 10) / 10 : 0)
+const cmpCurAvg = computed(() => avgOf(cmpCurTotal.value))
+const cmpPrevWeekAvg = computed(() => avgOf(cmpPrevWeekTotal.value))
+const cmpPrevMonthAvg = computed(() => avgOf(cmpPrevMonthTotal.value))
 
 const winCnt = computed(() => (rc.value.batch || []).reduce((s, x) => s + (x.cnt || 0), 0))
 const winPct = computed(() => {
@@ -513,6 +554,27 @@ onMounted(loadAll)
   color: var(--text-primary);
   margin: 18px 0 8px;
 }
+.cmp-title .hint { font-weight: 400; margin-left: 8px; }
+.cmp-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0 0 6px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary, #f7f9fc);
+  border-radius: 8px;
+}
+.cmp-item { display: inline-flex; align-items: center; gap: 6px; }
+.cmp-item b { color: var(--text-primary); font-family: var(--font-mono); font-size: 13.5px; }
+.cmp-sep { color: var(--text-muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-cur { background: var(--accent); }
+.dot-prev { background: #7c8ba1; }
+.dot-month { background: #c2a06a; }
+.cmp-tip { margin-left: auto; font-size: 11.5px; color: var(--text-muted); }
 .pm-note {
   margin: 12px 0;
   padding: 10px 14px;

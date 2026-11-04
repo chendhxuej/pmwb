@@ -45,16 +45,24 @@ const chartOption = computed(() => {
       axisLabel: { color: '#909399', fontSize: 11 },
     },
     series: hasMultiSeries
-      ? props.series.map((s, i) => ({
-          name: s.name,
-          type: 'line',
-          data: s.data,
-          smooth: props.smooth,
-          areaStyle: props.area ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: PMWB_COLORS[i] + '33' }, { offset: 1, color: PMWB_COLORS[i] + '05' }] } } : undefined,
-          lineStyle: { width: 2, color: PMWB_COLORS[i] },
-          symbol: 'circle',
-          symbolSize: 6,
-        }))
+      ? props.series.map((s, i) => {
+          // 系列级样式可覆盖：dash=虚线 / width=线宽 / area=是否铺面积 / color=指定色
+          // 多线对比时基准线（上周、上月）应关面积、走虚线，避免面积层叠糊成一片。
+          const color = s.color || PMWB_COLORS[i]
+          const width = s.width || 2
+          const withArea = s.area === undefined ? props.area : !!s.area
+          return {
+            name: s.name,
+            type: 'line',
+            data: s.data,
+            smooth: props.smooth,
+            areaStyle: withArea ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: color + '33' }, { offset: 1, color: color + '05' }] } } : undefined,
+            lineStyle: { width, color, type: s.dash ? 'dashed' : 'solid' },
+            symbol: 'circle',
+            symbolSize: s.dash ? 4 : 6,
+            z: s.dash ? 1 : 3,
+          }
+        })
       : [{
           type: 'line',
           data: props.data.map(d => d.value),

@@ -10,7 +10,7 @@
     </PageHeader>
 
     <div v-if="data.week" class="hot-body">
-      <div class="pm-stat-grid pm-stat-grid--4 hot-kpis">
+      <div class="pm-stat-grid pm-stat-grid--2 hot-kpis">
         <div class="pm-stat">
           <div class="pm-stat__top"><span class="pm-stat__label">本周新增投诉</span></div>
           <div class="pm-stat__val is-accent">{{ data.total }}<span class="pm-stat__unit">单</span></div>
@@ -18,7 +18,7 @@
         <div class="pm-stat">
           <div class="pm-stat__top"><span class="pm-stat__label">热点场景</span></div>
           <div class="pm-stat__val">{{ data.items.length }}<span class="pm-stat__unit">个</span></div>
-          <div class="pm-stat__sub">按二级场景统计，凸显当下投诉集中点</div>
+          <div class="pm-stat__sub">按二级场景统计</div>
         </div>
       </div>
 

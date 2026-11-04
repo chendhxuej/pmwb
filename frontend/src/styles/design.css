@@ -254,28 +254,53 @@ body {
   gap: 14px;
   width: 100%;
 }
+.pm-stat-grid--2 { --pm-stat-cols: 2 }
 .pm-stat-grid--3 { --pm-stat-cols: 3 }
 .pm-stat-grid--4 { --pm-stat-cols: 4 }
 .pm-stat-grid--5 { --pm-stat-cols: 5 }
 .pm-stat-grid--6 { --pm-stat-cols: 6 }
 .pm-stat-grid--7 { --pm-stat-cols: 7 }
 
-/* ── 指标卡本体（蓝本：TodoView .stat-tile / OperationView .cat-tile） ── */
+/* ── 指标卡本体（蓝本：TodoView .stat-tile / OperationView .cat-tile）
+   ★ 2026-11-04 基础要求：卡内信息一律居中（标签/数值/单位/副标）；
+     显性化 = 静态阴影 + 顶部 3px 语义色条（色条跟随数值 is-* 或 tone-*）。 ── */
 .pm-stat {
   position: relative;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 16px 18px;
+  padding: 16px 14px;
+  text-align: center;
   background: var(--surface);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border);
   border-radius: 12px;
+  box-shadow: var(--shadow-card);
   overflow: hidden;
   transition: transform var(--transition-fast),
               box-shadow var(--transition-fast),
               border-color var(--transition-fast);
 }
+/* 顶部语义色条：默认中性，按数值色/卡片 tone 自动染色（:has 实时跟随动态 class） */
+.pm-stat::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--border);
+}
+.pm-stat:has(.pm-stat__val.is-accent)::before  { background: var(--accent) }
+.pm-stat:has(.pm-stat__val.is-success)::before { background: var(--success) }
+.pm-stat:has(.pm-stat__val.is-warning)::before { background: var(--warning) }
+.pm-stat:has(.pm-stat__val.is-danger)::before  { background: var(--danger) }
+.pm-stat:has(.pm-stat__val.is-muted)::before   { background: var(--text-muted) }
+.pm-stat.tone-accent::before  { background: var(--accent) }
+.pm-stat.tone-success::before { background: var(--success) }
+.pm-stat.tone-warning::before { background: var(--warning) }
+.pm-stat.tone-danger::before  { background: var(--danger) }
+.pm-stat.tone-violet::before  { background: var(--violet) }
+.pm-stat.tone-muted::before   { background: var(--text-muted) }
 .pm-stat:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-elevated);
@@ -289,8 +314,9 @@ body {
 .pm-stat__top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 8px;
+  width: 100%;
 }
 .pm-stat__label {
   min-width: 0;
@@ -314,9 +340,10 @@ body {
 .pm-stat__val {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 4px;
   font-family: var(--font-mono);
-  font-size: 28px;          /* = TodoView .stat-count，页面级指标卡尺度 */
+  font-size: 30px;          /* 显性化：28 → 30，页面级指标卡主视觉 */
   font-weight: 800;
   line-height: 1;
   letter-spacing: -.5px;
@@ -332,6 +359,7 @@ body {
 }
 .pm-stat__sub {
   margin-top: -2px;
+  width: 100%;
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--text-muted);
@@ -451,12 +479,13 @@ body.pm-col-resizing .el-table__header th.el-table__cell {
 /* ── 响应式：1400 / 1100 / 960 三档（必须排在所有 .pm-stat-grid--* 之后） ── */
 @media (max-width: 1400px) {
   .pm-stat-grid { gap: 12px }
-  .pm-stat { padding: 14px 16px }
-  .pm-stat__val { font-size: 26px }
+  .pm-stat { padding: 14px 12px }
+  .pm-stat__val { font-size: 28px }
   .pm-stat__val.is-sm { font-size: 22px }
 }
 @media (max-width: 1100px) {
   .pm-stat-grid,
+  .pm-stat-grid--2,
   .pm-stat-grid--3,
   .pm-stat-grid--4,
   .pm-stat-grid--5,
@@ -466,6 +495,7 @@ body.pm-col-resizing .el-table__header th.el-table__cell {
 }
 @media (max-width: 960px) {
   .pm-stat-grid,
+  .pm-stat-grid--2,
   .pm-stat-grid--3,
   .pm-stat-grid--4,
   .pm-stat-grid--5,
@@ -771,6 +801,7 @@ body,
 @media (max-width: 768px) {
   /* 指标卡/栅格全部单列 */
   .pm-stat-grid,
+  .pm-stat-grid--2,
   .pm-stat-grid--3,
   .pm-stat-grid--4,
   .pm-stat-grid--5,
@@ -780,11 +811,12 @@ body,
 
   /* EP 对话框/气泡确认宽度自适应，避免横向溢出 */
   .el-dialog {
-    width: 92
+    width: 92
 /* ── 移动端第四档 ≤768（mb-3 新增；断点体系 1400/1100/960/768 四档）── */
 @media (max-width: 768px) {
   /* 指标卡/栅格全部单列 */
   .pm-stat-grid,
+  .pm-stat-grid--2,
   .pm-stat-grid--3,
   .pm-stat-grid--4,
   .pm-stat-grid--5,
@@ -806,4 +838,4 @@ body,
 
   /* 筛选行允许换行堆叠 */
   .el-form--inline .el-form-item { margin-right: 10px }
-}
+}
