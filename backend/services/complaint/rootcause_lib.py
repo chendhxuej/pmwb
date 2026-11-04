@@ -1465,11 +1465,20 @@ def move_tickets(db: Session, ticket_nos: List[str], target_no: str) -> Dict[str
 
 def list_clusters(db: Session, status: str = "", keyword: str = "",
                   page: int = 1, page_size: int = 50) -> Dict[str, Any]:
+    """根因库列表（候选在前，按单量降序）。
+
+    默认只列**在册簇**：`merged` 是 merge 留下的墓碑行（ticket_cnt=0，只服务于
+    merged_to 链追溯），若一并列出，页面「根因簇」条数会虚高——实测 1103 行里
+    867 行是墓碑，真实在册簇仅 236 个。要看已合并的，显式传 status=merged。
+    """
     where = ["1 = 1"]
     params: Dict[str, Any] = {}
     if status:
         where.append("status = :st")
         params["st"] = status
+    else:
+        where.append("status <> :nst")
+        params["nst"] = RC.RC_LIB_MERGED
     if keyword:
         where.append("(title LIKE :kw OR description LIKE :kw OR rootcause_no LIKE :kw)")
         params["kw"] = f"%{keyword}%"
@@ -1482,11 +1491,19 @@ def list_clusters(db: Session, status: str = "", keyword: str = "",
         "own_party, fix_mode, status, source, ticket_cnt, sample_tickets, first_week, "
         "last_week, merged_to, updated_at, mechanism, biz_object, pattern_key, is_defect "
         f"FROM pmwb_complaint_rootcause WHERE {w} "
-        "ORDER BY FIELD(status,'candidate','open','disabled','merged'), ticket_cnt DESC, id ASC "
+        "ORDER BY CASE status WHEN 'candidate' THEN 0 WHEN 'open' THEN 1 "
+        "  WHEN 'disabled' THEN 2 ELSE 3 END, ticket_cnt DESC, id ASC "
         "LIMIT :lim OFFSET :off"
     ), params).fetchall()
+    # 状态分布（全库，不受筛选影响）：live_total 与 KPI 卡同口径，merged 单列供追溯提示
+    counts = {str(k): int(v) for k, v in db.execute(text(
+        "SELECT status, COUNT(*) FROM pmwb_complaint_rootcause GROUP BY status")).fetchall()}
+    merged_total = counts.get(RC.RC_LIB_MERGED, 0)
+    live_total = sum(v for k, v in counts.items() if k != RC.RC_LIB_MERGED)
     return {
         "total": int(total), "page": int(page), "page_size": int(page_size),
+        "live_total": int(live_total), "merged_total": int(merged_total),
+        "counts": counts,
         "items": [{
             "rootcause_no": r[0], "title": r[1], "description": r[2] or "",
             "fault_stage": r[3] or "", "fault_system": r[4] or "",

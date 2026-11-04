@@ -187,7 +187,16 @@ async function main() {
       const reviewRows = tables[1] ? tables[1].querySelectorAll('.el-table__body tbody tr').length : 0
       const btnTexts = [...document.querySelectorAll('.rootcause-lib .el-button')]
         .map(b => (b.innerText || '').trim())
-      return { kpis, mainRows, firstTitle, firstNo, firstCnt, reviewRows, btnTexts, tableCount: tables.length }
+      // 簇数口径守护：默认只列在册簇（merged 是 merge 墓碑，不得混入列表）
+      const subtitle = (document.querySelector('.rootcause-lib .pm-page-header__subtitle')?.innerText || '').trim()
+      const mergedTip = (document.querySelector('.rootcause-lib .merged-tip')?.innerText || '').trim()
+      const rowTexts = tables[0]
+        ? [...tables[0].querySelectorAll('.el-table__body tbody tr')]
+            .map(tr => [...tr.querySelectorAll('td')].map(td => td.innerText.trim()).join(' '))
+        : []
+      const pagerTotal = (document.querySelector('.rootcause-lib .el-pagination__total')?.innerText || '').trim()
+      return { kpis, mainRows, firstTitle, firstNo, firstCnt, reviewRows, btnTexts, tableCount: tables.length,
+               subtitle, mergedTip, rowTexts, pagerTotal }
     })()`)
 
     libDom.kpis.length === 5 ? ok('KPI 卡 5 张', libDom.kpis.map(k => k.num).join('/')) : bad('KPI 卡数量异常', String(libDom.kpis.length))
@@ -200,6 +209,27 @@ async function main() {
       ? ok('有「新建根因簇」入口（按需维护）') : bad('缺少新建根因簇入口', JSON.stringify(libDom.btnTexts.slice(0, 6)))
     libDom.btnTexts.some(t => t.includes('编辑'))
       ? ok('行内「编辑」入口在位（改键自查重）') : bad('缺少行内编辑入口')
+
+    /* ── 1.0 簇数口径：只算在册簇，merged 墓碑不进列表 ── */
+    console.log('\n▶ 簇数口径（在册 / 已合并分离）')
+    const liveM = /在册\s*(\d+)\s*个簇/.exec(libDom.subtitle || '')
+    const tipM = /共\s*(\d+)\s*个在册根因簇/.exec((libDom.mergedTip || '').replace(/\s+/g, ' '))
+    liveM ? ok('副标题用「在册」口径', `${liveM[1]} 个簇`) : bad('副标题簇数口径异常', libDom.subtitle)
+    if (liveM && tipM) {
+      liveM[1] === tipM[1]
+        ? ok('副标题与提示条在册数一致', liveM[1]) : bad('两处在册数不一致', `${liveM[1]} vs ${tipM[1]}`)
+    } else {
+      bad('缺少在册/已合并提示条', libDom.mergedTip || '(空)')
+    }
+    ;(libDom.rowTexts || []).some(t => t.includes('已合并'))
+      ? bad('默认列表混入「已合并」墓碑行') : ok('默认列表不含已合并墓碑行', `${(libDom.rowTexts || []).length} 行`)
+    const pagerM = /共\s*(\d+)\s*条/.exec(libDom.pagerTotal || '')
+    if (liveM && pagerM) {
+      liveM[1] === pagerM[1]
+        ? ok('分页总数与在册簇数一致', pagerM[1]) : bad('分页总数与在册数不一致', `${pagerM[1]} vs ${liveM[1]}`)
+    } else {
+      bad('分页总数缺失', libDom.pagerTotal || '(空)')
+    }
 
     /* ── 1.1 簇详情抽屉：关联工单 ── */
     console.log('\n▶ 簇详情抽屉')

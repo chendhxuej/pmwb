@@ -61,6 +61,16 @@
         </div>
       </div>
       <div class="card-body">
+        <el-alert
+          v-if="mergedTotal && filters.status !== 'merged'"
+          type="info"
+          :closable="false"
+          show-icon
+          class="merged-tip"
+        >
+          共 <b>{{ liveTotal }}</b> 个在册根因簇；历史归并另产生 <b>{{ mergedTotal }}</b> 个「已合并」簇
+          （单量已迁到主簇，仅用于追溯，不计入簇数）。要看这些历史簇，状态筛选选「已合并」。
+        </el-alert>
         <el-table v-loading="loading" :data="clusters" size="default" border stripe>
           <el-table-column prop="rootcause_no" label="编号" width="96">
             <template #default="{ row }"><b>{{ row.rootcause_no }}</b></template>
@@ -484,6 +494,9 @@ const review = ref([])
 const status = ref({ total: 0, filled: 0, coverage: 0, quality: 0, low: 0, ai: 0, manual: 0 })
 const filters = reactive({ status: '', keyword: '' })
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
+// 簇数口径由后端给（live_total / merged_total），前端不自行推导，避免与 KPI 卡漂移
+const liveTotal = ref(0)
+const mergedTotal = ref(0)
 const meta = ref({
   fault_stages: [], fault_systems: [], fault_types: [], own_parties: [], fix_modes: [],
   mechanisms: [], objects: [],
@@ -532,7 +545,7 @@ const objectOptions = computed(() => (meta.value.objects || []).map((x) => x.val
 
 const libStats = computed(() => status.value.rootcause_lib || {})
 const subTitle = computed(() =>
-  `根因层 = 每单一句真实问题描述；根因簇 = 能一次修复的同一类问题｜共 ${pager.total} 个簇`
+  `根因层 = 每单一句真实问题描述；根因簇 = 能一次修复的同一类问题｜在册 ${liveTotal.value} 个簇`
 )
 
 function statusTone(s) {
@@ -556,6 +569,8 @@ async function loadAll() {
     status.value = st || {}
     clusters.value = lib.items || []
     pager.total = lib.total || 0
+    liveTotal.value = lib.live_total ?? 0
+    mergedTotal.value = lib.merged_total ?? 0
     review.value = rv.items || []
     if (mt && mt.fault_stages) meta.value = mt
   } finally {
@@ -912,5 +927,8 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+.merged-tip {
+  margin-bottom: 10px;
 }
 </style>
