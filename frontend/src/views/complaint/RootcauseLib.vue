@@ -3,6 +3,7 @@
     <PageHeader title="根因库" :subtitle="subTitle">
       <template #actions>
         <el-button :icon="Refresh" :loading="loading" @click="loadAll">刷新</el-button>
+        <el-button :icon="Plus" @click="openCreate">新建根因簇</el-button>
         <el-button :icon="MagicStick" :loading="clustering" @click="doCluster">
           归并根因簇
         </el-button>
@@ -89,9 +90,15 @@
               <el-tag :type="statusTone(row.status)" size="small">{{ row.status_label }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="200" fixed="right">
+          <el-table-column label="操作" width="260" fixed="right">
             <template #default="{ row }">
               <el-button size="small" text type="primary" @click="openDetail(row)">工单</el-button>
+              <el-button
+                v-if="row.status !== 'merged'"
+                size="small"
+                text
+                @click="openEdit(row)"
+              >编辑</el-button>
               <el-button
                 v-if="row.status === 'candidate'"
                 size="small"
@@ -222,6 +229,148 @@
       </template>
     </el-dialog>
 
+    <!-- 新建 / 编辑根因簇（按需动态维护：新业务、新场景可直接立簇） -->
+    <el-dialog
+      v-model="clusterVisible"
+      :title="clusterMode === 'create' ? '新建根因簇' : '编辑根因簇'"
+      width="680px"
+    >
+      <el-alert type="info" :closable="false" show-icon class="dlg-tip">
+        簇键 = 环节 × 机制 × 业务对象。新业务/新场景可直接填新的业务对象（AI 自动链路仍只用受控枚举）；
+        改动这三个要素会重算簇键，并与现存活簇查重，撞键不新建。
+      </el-alert>
+      <el-form label-width="96px">
+        <el-form-item label="订单环节" required>
+          <el-select v-model="clusterForm.fault_stage" filterable style="width: 100%" placeholder="断点所在环节">
+            <el-option v-for="x in meta.fault_stages" :key="x" :label="x" :value="x" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="失败机制" required>
+          <el-select v-model="clusterForm.mechanism" filterable style="width: 100%" placeholder="怎么断的">
+            <el-option-group v-for="g in mechanismGroups" :key="g.label" :label="g.label">
+              <el-option v-for="x in g.items" :key="x" :label="x" :value="x" />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="业务对象" required>
+          <el-select
+            v-model="clusterForm.biz_object"
+            filterable
+            allow-create
+            default-first-option
+            style="width: 100%"
+            placeholder="断在谁身上（新业务可直接输入新对象）"
+          >
+            <el-option v-for="x in objectOptions" :key="x" :label="x" :value="x" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="触发条件">
+          <el-input
+            v-model="clusterForm.trigger"
+            maxlength="32"
+            placeholder="可空；同对象同机制但修复点明显不同时才填"
+          />
+        </el-form-item>
+        <el-form-item label="簇标题">
+          <el-input
+            v-model="clusterForm.title"
+            type="textarea"
+            :rows="2"
+            maxlength="200"
+            placeholder="留空则按「对象-机制（触发条件）」自动生成"
+          />
+        </el-form-item>
+        <el-form-item label="判定边界">
+          <el-input
+            v-model="clusterForm.description"
+            type="textarea"
+            :rows="3"
+            maxlength="500"
+            placeholder="什么情况算这个根因、什么情况不算（防串簇）"
+          />
+        </el-form-item>
+        <el-form-item label="缺陷性质">
+          <el-select v-model="clusterForm.fault_type" clearable style="width: 100%">
+            <el-option v-for="x in meta.fault_types" :key="x" :label="x" :value="x" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="责任归属">
+          <el-select v-model="clusterForm.own_party" clearable style="width: 100%">
+            <el-option v-for="x in meta.own_parties" :key="x" :label="x" :value="x" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="处置方式">
+          <el-select v-model="clusterForm.fix_mode" clearable style="width: 100%">
+            <el-option v-for="x in meta.fix_modes" :key="x" :label="x" :value="x" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="clusterVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="doSaveCluster">
+          {{ clusterMode === 'create' ? '创建' : '保存' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 移出工单（拆簇 / 并入其他簇） -->
+    <el-dialog v-model="moveVisible" title="移出工单" width="620px">
+      <el-alert type="warning" :closable="false" show-icon class="dlg-tip">
+        将把选中的 {{ selectedTickets.length }} 单从「{{ detail.title }}」移出；
+        源簇单量会自动重算，移空不删簇（可随时停用）。
+      </el-alert>
+      <el-form label-width="96px">
+        <el-form-item label="移到">
+          <el-radio-group v-model="moveForm.mode">
+            <el-radio value="existing">已有簇</el-radio>
+            <el-radio value="new">新建簇</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="moveForm.mode === 'existing'" label="目标簇">
+          <el-select v-model="moveForm.target_no" filterable style="width: 100%" placeholder="选择要并入的簇">
+            <el-option
+              v-for="c in moveTargets"
+              :key="c.rootcause_no"
+              :label="`${c.rootcause_no}｜${c.title}（${c.ticket_cnt} 单）`"
+              :value="c.rootcause_no"
+            />
+          </el-select>
+        </el-form-item>
+        <template v-else>
+          <el-form-item label="订单环节" required>
+            <el-select v-model="moveForm.fault_stage" filterable style="width: 100%">
+              <el-option v-for="x in meta.fault_stages" :key="x" :label="x" :value="x" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="失败机制" required>
+            <el-select v-model="moveForm.mechanism" filterable style="width: 100%">
+              <el-option-group v-for="g in mechanismGroups" :key="g.label" :label="g.label">
+                <el-option v-for="x in g.items" :key="x" :label="x" :value="x" />
+              </el-option-group>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="业务对象" required>
+            <el-select
+              v-model="moveForm.biz_object"
+              filterable
+              allow-create
+              default-first-option
+              style="width: 100%"
+            >
+              <el-option v-for="x in objectOptions" :key="x" :label="x" :value="x" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="触发条件">
+            <el-input v-model="moveForm.trigger" maxlength="32" placeholder="可空" />
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="moveVisible = false">取消</el-button>
+        <el-button type="warning" :loading="saving" @click="doMove">确认移出</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 簇详情：关联工单 -->
     <el-drawer v-model="detailVisible" :title="detail.title || '根因簇详情'" size="52%">
       <div v-if="detail.rootcause_no" class="detail-body">
@@ -235,7 +384,27 @@
           <el-tag size="small" type="danger">{{ detail.ticket_cnt }} 单</el-tag>
         </div>
         <p v-if="detail.description" class="detail-desc">{{ detail.description }}</p>
-        <el-table :data="detail.tickets" size="small" border max-height="520">
+        <div class="detail-ops">
+          <span class="detail-ops__hint">
+            AI 归类不做人工纠偏；只有发现串簇时才勾选工单移出（拆簇或并入其他簇）
+          </span>
+          <el-button
+            class="js-move-btn"
+            size="small"
+            :disabled="!selectedTickets.length"
+            @click="openMove"
+          >移出选中 {{ selectedTickets.length }} 单</el-button>
+        </div>
+        <el-table
+          ref="detailTableRef"
+          :data="detail.tickets"
+          size="small"
+          border
+          max-height="520"
+          row-key="ticket_no"
+          @selection-change="onDetailSelect"
+        >
+          <el-table-column type="selection" width="42" reserve-selection />
           <el-table-column prop="ticket_no" label="工单号" width="132" />
           <el-table-column prop="week" label="周次" width="88" />
           <el-table-column prop="city" label="地市" width="76" />
@@ -301,7 +470,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, Refresh, Search } from '@element-plus/icons-vue'
+import { MagicStick, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import { complaintApi } from '@/api/complaint'
 
@@ -317,6 +486,7 @@ const filters = reactive({ status: '', keyword: '' })
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
 const meta = ref({
   fault_stages: [], fault_systems: [], fault_types: [], own_parties: [], fix_modes: [],
+  mechanisms: [], objects: [],
 })
 
 const confirmVisible = ref(false)
@@ -326,8 +496,39 @@ const mergeForm = reactive({ src_no: '', src_title: '', dst_no: '' })
 const mergeTargets = ref([])
 const detailVisible = ref(false)
 const detail = ref({ tickets: [] })
+const detailTableRef = ref(null)
+const selectedTickets = ref([])
 const correctVisible = ref(false)
 const correctForm = reactive({ id: null, ticket_no: '', root_cause: '', fault_stage: '', fault_system: '', fault_type: '', own_party: '', fix_mode: '' })
+
+// 簇维护（新建/编辑）与拆单移出
+const clusterVisible = ref(false)
+const clusterMode = ref('create')
+const clusterForm = reactive({
+  rootcause_no: '', fault_stage: '', mechanism: '', biz_object: '', trigger: '',
+  title: '', description: '', fault_type: '', own_party: '', fix_mode: '',
+})
+const moveVisible = ref(false)
+const moveForm = reactive({
+  mode: 'existing', target_no: '', fault_stage: '', mechanism: '', biz_object: '', trigger: '',
+})
+const moveTargets = ref([])
+
+// 机制按分组展示（meta 唯一源，前端不另存清单）
+const mechanismGroups = computed(() => {
+  const groups = []
+  const idx = {}
+  for (const it of meta.value.mechanisms || []) {
+    const g = it.group || '其他'
+    if (idx[g] === undefined) {
+      idx[g] = groups.length
+      groups.push({ label: g, items: [] })
+    }
+    groups[idx[g]].items.push(it.value)
+  }
+  return groups
+})
+const objectOptions = computed(() => (meta.value.objects || []).map((x) => x.value || x))
 
 const libStats = computed(() => status.value.rootcause_lib || {})
 const subTitle = computed(() =>
@@ -445,7 +646,166 @@ async function toggleDisable(row) {
 async function openDetail(row) {
   const d = await complaintApi.getRootcauseCluster(row.rootcause_no)
   detail.value = d || { tickets: [] }
+  selectedTickets.value = []
   detailVisible.value = true
+}
+
+function resetClusterForm() {
+  Object.assign(clusterForm, {
+    rootcause_no: '', fault_stage: '', mechanism: '', biz_object: '', trigger: '',
+    title: '', description: '', fault_type: '', own_party: '', fix_mode: '',
+  })
+}
+
+function openCreate() {
+  clusterMode.value = 'create'
+  resetClusterForm()
+  clusterVisible.value = true
+}
+
+function fillClusterForm(c) {
+  Object.assign(clusterForm, {
+    rootcause_no: c.rootcause_no || '',
+    fault_stage: c.fault_stage || '',
+    mechanism: c.mechanism || '',
+    biz_object: c.biz_object || '',
+    trigger: triggerOf(c.title),
+    title: c.title || '',
+    description: c.description || '',
+    fault_type: c.fault_type || '',
+    own_party: c.own_party || '',
+    fix_mode: c.fix_mode || '',
+  })
+}
+
+/** 标题里的（触发条件）——编辑时回填，避免保存后被清掉。 */
+function triggerOf(title) {
+  const m = String(title || '').match(/[（(]([^）)]{1,32})[）)]/)
+  return m ? m[1] : ''
+}
+
+function openEdit(row) {
+  clusterMode.value = 'edit'
+  fillClusterForm(row)
+  clusterVisible.value = true
+}
+
+async function doSaveCluster() {
+  const f = clusterForm
+  if (!f.fault_stage || !f.mechanism || !f.biz_object) {
+    ElMessage.warning('订单环节 / 失败机制 / 业务对象都必须填')
+    return
+  }
+  saving.value = true
+  try {
+    let res
+    if (clusterMode.value === 'create') {
+      res = await complaintApi.createRootcauseCluster({
+        fault_stage: f.fault_stage,
+        mechanism: f.mechanism,
+        biz_object: f.biz_object,
+        trigger: f.trigger || '',
+        title: f.title || '',
+        description: f.description || '',
+        fault_type: f.fault_type || '',
+        own_party: f.own_party || '',
+        fix_mode: f.fix_mode || '',
+      })
+    } else {
+      res = await complaintApi.updateRootcauseCluster(f.rootcause_no, {
+        fault_stage: f.fault_stage,
+        mechanism: f.mechanism,
+        biz_object: f.biz_object,
+        trigger: f.trigger || '',
+        title: f.title || '',
+        description: f.description || '',
+        fault_type: f.fault_type || '',
+        own_party: f.own_party || '',
+        fix_mode: f.fix_mode || '',
+      })
+    }
+    if (res && res.ok === false) {
+      if (res.conflict && res.existing) {
+        if (clusterMode.value === 'create') {
+          await ElMessageBox.confirm(`${res.message}。是否改为编辑该簇？`, '已有同键簇', { type: 'warning' })
+          clusterVisible.value = false
+          const d = await complaintApi.getRootcauseCluster(res.existing.rootcause_no)
+          clusterMode.value = 'edit'
+          fillClusterForm(d || {})
+          clusterVisible.value = true
+        } else {
+          await ElMessageBox.confirm(`${res.message}。是否把本簇整体并入它？`, '簇键冲突', { type: 'warning' })
+          await complaintApi.mergeRootcauseCluster(f.rootcause_no, res.existing.rootcause_no)
+          ElMessage.success('已并入目标簇')
+          clusterVisible.value = false
+          await loadAll()
+        }
+      } else {
+        ElMessage.error(res.message || '保存失败')
+      }
+      return
+    }
+    ElMessage.success(clusterMode.value === 'create' ? '根因簇已创建' : '已保存')
+    clusterVisible.value = false
+    await loadAll()
+  } finally {
+    saving.value = false
+  }
+}
+
+function onDetailSelect(rows) {
+  selectedTickets.value = (rows || []).map((r) => r.ticket_no)
+}
+
+async function openMove() {
+  if (!selectedTickets.value.length) return
+  moveForm.mode = 'existing'
+  moveForm.target_no = ''
+  moveForm.fault_stage = detail.value.fault_stage || ''
+  moveForm.mechanism = detail.value.mechanism || ''
+  moveForm.biz_object = detail.value.biz_object || ''
+  moveForm.trigger = ''
+  const res = await complaintApi.listRootcauseClusters({ status: 'open', page: 1, page_size: 200 })
+  moveTargets.value = (res.items || []).filter((c) => c.rootcause_no !== detail.value.rootcause_no)
+  moveVisible.value = true
+}
+
+async function doMove() {
+  const f = moveForm
+  if (f.mode === 'existing' && !f.target_no) {
+    ElMessage.warning('请选择目标簇')
+    return
+  }
+  if (f.mode === 'new' && (!f.fault_stage || !f.mechanism || !f.biz_object)) {
+    ElMessage.warning('新建簇需要填订单环节 / 失败机制 / 业务对象')
+    return
+  }
+  saving.value = true
+  try {
+    const payload = { ticket_nos: selectedTickets.value }
+    if (f.mode === 'existing') {
+      payload.target_no = f.target_no
+    } else {
+      payload.target_no = ''
+      payload.new_cluster = {
+        fault_stage: f.fault_stage,
+        mechanism: f.mechanism,
+        biz_object: f.biz_object,
+        trigger: f.trigger || '',
+      }
+    }
+    const res = await complaintApi.splitRootcauseCluster(detail.value.rootcause_no, payload)
+    if (res && res.ok === false) {
+      ElMessage.error(res.message || '移出失败')
+      return
+    }
+    ElMessage.success(`已移出 ${res.moved || selectedTickets.value.length} 单`)
+    moveVisible.value = false
+    detailVisible.value = false
+    await loadAll()
+  } finally {
+    saving.value = false
+  }
 }
 
 function openCorrect(row) {
@@ -535,6 +895,18 @@ onMounted(() => {
   font-size: 13px;
   color: var(--text-secondary);
   margin: 0 0 12px;
+}
+.detail-ops {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.detail-ops__hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
 }
 .pager-bar {
   display: flex;

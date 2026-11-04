@@ -124,11 +124,30 @@ ADJACENT_STAGE_PAIRS: Tuple[Tuple[str, str], ...] = (
 )
 
 
-# ── 数量预算（防止再次膨胀；超限先报警，不硬压质量）──────────────────
-TARGET_CLUSTER_MAX = 100      # 本期目标：有效簇 ≤100
-BUCKET_CLUSTER_MAX = 2        # 同一（环节 × 机制）下最多允许的簇数，超了进兜底
-SINGLE_CLUSTER_RATE_MAX = 0.15   # 单簇率目标（当前 90.4%）
-MISMATCH_RATE_MAX = 0.10      # 未匹配率（落兜底桶的单量占比）目标
+# ── 数量参考带（不是硬指标）──────────────────────────────────────
+# 2026-11-04 老大定调：「不一定绝对控制在 100 个以内，主要归类方法没问题就行，
+# 按需，未来还会有新增根因（新业务、新场景），要支持按需动态维护根因簇」。
+# 所以这里只给「健康区间」用于看板提示，不做强制压缩：
+#   < CLUSTER_BAND_MIN  可能过粗（不同修复点被并成一簇，看描述是否讲不清）
+#   带内                健康
+#   > CLUSTER_BAND_MAX  偏碎（先看单簇率，再看是否需要月度重构）
+CLUSTER_BAND_MIN = 100
+CLUSTER_BAND_MAX = 300
+TARGET_CLUSTER_MAX = CLUSTER_BAND_MAX   # 兼容旧引用（health/meta），语义改为「软上限」
+BUCKET_CLUSTER_MAX = 8        # 同一（环节 × 机制）下最多并行簇数，超了才落兜底
+#  ↑ 原为 2，实测会压制「同机制不同对象」的新业务场景（新对象还没建簇就被塞进「其他」）
+SINGLE_CLUSTER_RATE_MAX = 0.35   # 单簇率参考上限（1 单成簇占比，>35% 说明归并不动）
+MISMATCH_RATE_MAX = 0.10      # 未匹配率（落兜底桶的单量占比）参考上限
+
+
+def cluster_count_state(n: int) -> str:
+    """簇数落在参考带哪一档：coarse / ok / fragmented（看板提示用，不阻断）。"""
+    v = int(n or 0)
+    if v < CLUSTER_BAND_MIN:
+        return "coarse"
+    if v > CLUSTER_BAND_MAX:
+        return "fragmented"
+    return "ok"
 
 
 # ── 用户级信息门禁（root_pattern 的反向要求：**必须不含**）────────────
@@ -314,5 +333,8 @@ def meta() -> Dict[str, object]:
             {"value": o, "group": g} for g, os in OBJECT_GROUPS.items() for o in os],
         "pattern_key_sep": KEY_SEP,
         "target_cluster_max": TARGET_CLUSTER_MAX,
+        "cluster_band": {"min": CLUSTER_BAND_MIN, "max": CLUSTER_BAND_MAX},
         "bucket_cluster_max": BUCKET_CLUSTER_MAX,
+        "object_free_text_note": "人工新建/编辑簇时对象可自由命名（新业务/新场景），"
+                                 "AI 自动链路仍只允许受控枚举",
     }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -138,3 +138,45 @@ class RootcauseMergeIn(BaseModel):
 class RootcauseDisableIn(BaseModel):
     """簇停用/恢复（停用后不再参与匹配，存量指针保留）。"""
     reopen: bool = Field(False, description="True=恢复为已入账")
+
+
+class RootcauseClusterIn(BaseModel):
+    """人工新建根因簇（新业务/新场景先立簇后挂单）。"""
+    fault_stage: str = Field("", max_length=32, description="订单环节（受控枚举）")
+    mechanism: str = Field("", max_length=32, description="失败机制（受控枚举）")
+    biz_object: str = Field("", max_length=32, description="业务对象（人工可自由命名）")
+    trigger: str = Field("", max_length=32, description="触发条件/场景限定（可空）")
+    title: str = Field("", max_length=200, description="簇标题；空=按 {对象}-{机制} 生成")
+    description: str = Field("", max_length=500, description="判定边界：什么算、什么不算")
+    fault_type: str = Field("", max_length=32)
+    own_party: str = Field("", max_length=32)
+    fix_mode: str = Field("", max_length=32)
+    is_defect: Optional[bool] = Field(None, description="None=按机制推断（使用咨询=非缺陷）")
+    ticket_nos: List[str] = Field(default_factory=list, description="建簇后直接挂入的工单号")
+
+
+class RootcauseClusterUpdateIn(BaseModel):
+    """人工编辑根因簇（只提交要改的字段；改三要素会重算 pattern_key 并查重）。"""
+    fault_stage: Optional[str] = Field(None, max_length=32)
+    mechanism: Optional[str] = Field(None, max_length=32)
+    biz_object: Optional[str] = Field(None, max_length=32)
+    trigger: Optional[str] = Field(None, max_length=32)
+    title: Optional[str] = Field(None, max_length=200)
+    description: Optional[str] = Field(None, max_length=500)
+    fault_type: Optional[str] = Field(None, max_length=32)
+    own_party: Optional[str] = Field(None, max_length=32)
+    fix_mode: Optional[str] = Field(None, max_length=32)
+    is_defect: Optional[bool] = None
+
+
+class RootcauseSplitIn(BaseModel):
+    """簇内拆单：并入 target_no，或按 new_cluster 新建一个簇。"""
+    ticket_nos: List[str] = Field(default_factory=list)
+    target_no: str = Field("", max_length=64, description="目标簇号（空=新建簇）")
+    new_cluster: Optional[RootcauseClusterIn] = Field(None, description="target_no 为空时用")
+
+
+class TicketsMoveIn(BaseModel):
+    """批量把工单改指到指定簇（人工纠偏）。"""
+    ticket_nos: List[str] = Field(default_factory=list)
+    target_no: str = Field("", max_length=64)

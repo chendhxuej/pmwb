@@ -185,7 +185,9 @@ async function main() {
         ? [...firstRow.querySelectorAll('td')].map(td => td.innerText.trim()).join('|')
         : ''
       const reviewRows = tables[1] ? tables[1].querySelectorAll('.el-table__body tbody tr').length : 0
-      return { kpis, mainRows, firstTitle, firstNo, firstCnt, reviewRows, tableCount: tables.length }
+      const btnTexts = [...document.querySelectorAll('.rootcause-lib .el-button')]
+        .map(b => (b.innerText || '').trim())
+      return { kpis, mainRows, firstTitle, firstNo, firstCnt, reviewRows, btnTexts, tableCount: tables.length }
     })()`)
 
     libDom.kpis.length === 5 ? ok('KPI 卡 5 张', libDom.kpis.map(k => k.num).join('/')) : bad('KPI 卡数量异常', String(libDom.kpis.length))
@@ -194,6 +196,10 @@ async function main() {
     String(libDom.firstNo).startsWith('RC-') ? ok('簇编号格式正确', libDom.firstNo) : bad('簇编号异常', libDom.firstNo)
     libDom.firstTitle.length >= 6 ? ok('根因标题有实质内容', libDom.firstTitle.slice(0, 24)) : bad('根因标题过短', libDom.firstTitle)
     libDom.tableCount >= 2 ? ok('含待人工确认队列表') : bad('待人工表缺失', String(libDom.tableCount))
+    libDom.btnTexts.some(t => t.includes('新建根因簇'))
+      ? ok('有「新建根因簇」入口（按需维护）') : bad('缺少新建根因簇入口', JSON.stringify(libDom.btnTexts.slice(0, 6)))
+    libDom.btnTexts.some(t => t.includes('编辑'))
+      ? ok('行内「编辑」入口在位（改键自查重）') : bad('缺少行内编辑入口')
 
     /* ── 1.1 簇详情抽屉：关联工单 ── */
     console.log('\n▶ 簇详情抽屉')
@@ -205,14 +211,57 @@ async function main() {
       const d = document.querySelector('.el-drawer')
       if (!d) return { rows: 0 }
       const rows = d.querySelectorAll('.el-table__body tbody tr').length
-      const cause = (d.querySelector('.el-table__body tbody tr td:nth-child(4)')?.innerText || '').trim()
-      return { rows, cause, metaTags: d.querySelectorAll('.detail-meta .el-tag').length }
+      const cause = (d.querySelector('.el-table__body tbody tr td:nth-child(5)')?.innerText || '').trim()
+      const moveBtn = d.querySelector('.js-move-btn')
+      return {
+        rows, cause, metaTags: d.querySelectorAll('.detail-meta .el-tag').length,
+        hasMove: !!moveBtn, moveDisabled: moveBtn ? moveBtn.disabled : null,
+        hasSelection: !!d.querySelector('.el-table__header .el-checkbox'),
+      }
     })()`)
     drawer.rows > 0 ? ok('抽屉内关联工单有数据', `${drawer.rows} 行`) : bad('抽屉内工单为空')
     drawer.cause.length >= 10 ? ok('工单根因文本非空', drawer.cause.slice(0, 30)) : bad('工单根因文本缺失', drawer.cause)
     drawer.metaTags >= 5 ? ok('簇标签齐全', `${drawer.metaTags} 个`) : bad('簇标签缺失', String(drawer.metaTags))
+    drawer.hasSelection ? ok('工单可多选（拆簇移出用）') : bad('缺少多选列')
+    drawer.hasMove ? ok('「移出选中」按钮在位') : bad('缺少移出按钮')
+    drawer.moveDisabled === true ? ok('未选工单时移出按钮禁用') : bad('移出按钮未禁用', String(drawer.moveDisabled))
     await cdp.eval(`(() => { const b = document.querySelector('.el-drawer__close-btn'); b && b.click(); return true })()`)
     await sleep(600)
+
+    /* ── 1.2 新建根因簇弹窗：只验证可打开与字段齐全，不提交（不写库）── */
+    console.log('\n▶ 新建根因簇弹窗')
+    const clicked = await cdp.eval(`(() => {
+      const b = [...document.querySelectorAll('.rootcause-lib .el-button')]
+        .find(x => (x.innerText || '').includes('新建根因簇'))
+      if (b) b.click()
+      return !!b
+    })()`)
+    if (clicked) {
+      const dlgOpen = await cdp.waitFor('.el-dialog', 8000)
+      dlgOpen ? ok('新建弹窗打开') : bad('新建弹窗未打开')
+      await sleep(500)
+      const dlg = await cdp.eval(`(() => {
+        const d = [...document.querySelectorAll('.el-dialog')].filter(x => x.offsetParent !== null).pop()
+        if (!d) return null
+        return {
+          selects: d.querySelectorAll('.el-select').length,
+          textareas: d.querySelectorAll('textarea').length,
+          hasTip: (d.innerText || '').includes('簇键'),
+        }
+      })()`)
+      dlg && dlg.selects >= 3 ? ok('三要素下拉齐全', `${dlg.selects} 个 select`) : bad('下拉不足', JSON.stringify(dlg))
+      dlg && dlg.textareas >= 2 ? ok('标题/判定边界输入在位', `${dlg.textareas} 个`) : bad('文本框缺失', JSON.stringify(dlg))
+      dlg && dlg.hasTip ? ok('显示簇键口径说明') : bad('缺少簇键说明')
+      await cdp.eval(`(() => {
+        const d = [...document.querySelectorAll('.el-dialog')].filter(x => x.offsetParent !== null).pop()
+        const b = d && [...d.querySelectorAll('.el-button')].find(x => (x.innerText || '').trim() === '取消')
+        if (b) b.click()
+        return true
+      })()`)
+      await sleep(400)
+    } else {
+      bad('未找到「新建根因簇」按钮')
+    }
 
     /* ── 2. 看板「分析四问」 ── */
     /* ── 2. 投诉现状：看板已重构为「五板块分析报告」（2026-11-04）

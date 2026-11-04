@@ -37,10 +37,14 @@ from schemas.complaint import (
     ProblemUpdateIn,
     ProblemUrgeIn,
     ReportGenIn,
+    RootcauseClusterIn,
+    RootcauseClusterUpdateIn,
     RootcauseConfirmIn,
     RootcauseDisableIn,
     RootcauseMergeIn,
+    RootcauseSplitIn,
     TicketRootcauseIn,
+    TicketsMoveIn,
     UrgePreviewIn,
 )
 from services.complaint import (
@@ -469,6 +473,54 @@ def disable_rootcause_cluster(rc_no: str, body: RootcauseDisableIn,
     """簇停用/恢复。"""
     from services.complaint.rootcause_lib import disable
     return success(disable(db, rc_no, reopen=body.reopen))
+
+
+@router.post("/rootcause/clusters")
+def create_rootcause_cluster(body: RootcauseClusterIn, db: Session = Depends(get_db)):
+    """人工新建根因簇（新业务/新场景先立簇，后续同键工单自动归入）。
+
+    撞键不报错而是回 `ok=false, conflict=true`——前端提示「并入已有」，
+    避免同键出现第二个簇把口径劈成两半。
+    """
+    from services.complaint.rootcause_lib import create_cluster
+    res = create_cluster(
+        db, body.fault_stage, body.mechanism, body.biz_object,
+        trigger=body.trigger, title=body.title, description=body.description,
+        fault_type=body.fault_type, own_party=body.own_party,
+        fix_mode=body.fix_mode, is_defect=body.is_defect, ticket_nos=body.ticket_nos)
+    return success(res)
+
+
+@router.put("/rootcause/clusters/{rc_no}")
+def update_rootcause_cluster(rc_no: str, body: RootcauseClusterUpdateIn,
+                            db: Session = Depends(get_db)):
+    """人工编辑根因簇。改环节/机制/对象会自动重算 pattern_key 并同步成员工单三要素。"""
+    from services.complaint.rootcause_lib import update_cluster
+    res = update_cluster(db, rc_no, body.model_dump(exclude_unset=True))
+    return success(res)
+
+
+@router.post("/rootcause/clusters/{rc_no}/split")
+def split_rootcause_cluster(rc_no: str, body: RootcauseSplitIn,
+                            db: Session = Depends(get_db)):
+    """簇内拆单：把勾选的工单并入其他簇，或另立新簇。"""
+    from services.complaint.rootcause_lib import split_cluster
+    nc = body.new_cluster.model_dump() if body.new_cluster else None
+    res = split_cluster(db, rc_no, body.ticket_nos, target_no=body.target_no,
+                        new_cluster=nc)
+    if not res.get("ok") and not res.get("conflict"):
+        raise HTTPException(status_code=400, detail=res.get("message") or "拆单失败")
+    return success(res)
+
+
+@router.post("/rootcause/tickets/move")
+def move_rootcause_tickets(body: TicketsMoveIn, db: Session = Depends(get_db)):
+    """批量改指工单归属簇（人工纠偏，不新建簇）。"""
+    from services.complaint.rootcause_lib import move_tickets
+    res = move_tickets(db, body.ticket_nos, body.target_no)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("message") or "移单失败")
+    return success(res)
 
 
 @router.put("/tickets/{ticket_id}/rootcause")

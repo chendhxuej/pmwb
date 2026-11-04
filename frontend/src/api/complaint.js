@@ -160,6 +160,18 @@ export const complaintApi = {
   getRootcauseCluster(rcNo) {
     return request.get(`/complaint/rootcause/clusters/${rcNo}`)
   },
+  createRootcauseCluster(data) {
+    return request.post('/complaint/rootcause/clusters', data)
+  },
+  updateRootcauseCluster(rcNo, data) {
+    return request.put(`/complaint/rootcause/clusters/${rcNo}`, data)
+  },
+  splitRootcauseCluster(rcNo, data) {
+    return request.post(`/complaint/rootcause/clusters/${rcNo}/split`, data)
+  },
+  moveRootcauseTickets(data) {
+    return request.post('/complaint/rootcause/tickets/move', data)
+  },
   confirmRootcauseCluster(rcNo, data) {
     return request.post(`/complaint/rootcause/clusters/${rcNo}/confirm`, data)
   },

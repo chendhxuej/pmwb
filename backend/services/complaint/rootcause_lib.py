@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -1040,6 +1041,7 @@ def cluster_health(db: Session) -> Dict[str, Any]:
         "WHERE r.status IN ('open','candidate') AND r.is_defect = 1 "
         "AND (r.biz_object = '其他' OR r.mechanism = '其他')"
     )).scalar() or 0
+    state = P.cluster_count_state(int(total))
     return {
         "clusters": int(total), "defect_clusters": int(defect),
         "single_cluster": int(single),
@@ -1047,8 +1049,11 @@ def cluster_health(db: Session) -> Dict[str, Any]:
         "coverage": round(int(in_cluster) / with_cause, 3) if with_cause else 0.0,
         "fallback_rate": round(int(fallback) / int(in_cluster), 3) if in_cluster else 0.0,
         "tickets_in_cluster": int(in_cluster), "tickets_with_cause": int(with_cause),
-        "target_over": int(total) > P.TARGET_CLUSTER_MAX,
-        "targets": {"cluster_max": P.TARGET_CLUSTER_MAX,
+        # 簇数是「参考带」不是硬指标（2026-11-04 老大定调：方法对、按需增长）
+        "cluster_state": state,
+        "target_over": state == "fragmented",
+        "targets": {"cluster_band_min": P.CLUSTER_BAND_MIN,
+                    "cluster_band_max": P.CLUSTER_BAND_MAX,
                     "single_rate_max": P.SINGLE_CLUSTER_RATE_MAX,
                     "fallback_rate_max": P.MISMATCH_RATE_MAX},
     }
@@ -1202,6 +1207,260 @@ def assign_manual(db: Session, ticket_no: str, rc_no: str) -> Dict[str, Any]:
     db.commit()
     refresh_counts(db)
     return {"ok": True}
+
+
+# ── 簇的人工维护（2026-11-04：按需动态维护，支持新业务/新场景）──────
+# 设计边界：
+#   · 环节 / 机制 必须落受控枚举（否则跨簇口径就散了）；
+#   · **业务对象允许人工自由命名**——新业务（FTTO、安防、SaaS …）出现时，
+#     先立簇再挂单，不用等改代码；AI 自动链路仍只允许枚举内（见 _ensure_cluster）；
+#   · 改键（环节/机制/对象）后自动重算 pattern_key，并与现存活簇查重，
+#     撞键时**不静默新建**，而是回冲突让前端决定「并入已有」还是「改对象」。
+def _norm_stage(v: str) -> str:
+    s = (v or "").strip()
+    return s if s in P.STAGES else ""
+
+
+def _free_object(v: str) -> str:
+    """人工对象名：允许自由命名，只做长度与空值约束（AI 侧仍走 normalize_object）。"""
+    return (v or "").strip()[:32]
+
+
+def _cluster_brief(db: Session, rc_no: str) -> Dict[str, Any]:
+    r = db.execute(text(
+        "SELECT rootcause_no, title, ticket_cnt, status FROM pmwb_complaint_rootcause "
+        "WHERE rootcause_no = :no"), {"no": rc_no}).first()
+    if not r:
+        return {}
+    return {"rootcause_no": r[0], "title": r[1], "ticket_cnt": int(r[2] or 0), "status": r[3]}
+
+
+def _key_conflict(db: Session, pkey: str, exclude: str = "") -> Dict[str, Any]:
+    """同键存活簇（排除自身）——撞键时必须让人决定，不能静默造第二个。"""
+    if not pkey:
+        return {}
+    r = db.execute(text(
+        "SELECT rootcause_no, title, ticket_cnt FROM pmwb_complaint_rootcause "
+        "WHERE pattern_key = :k AND status IN ('open','candidate') "
+        "AND (:ex = '' OR rootcause_no != :ex) ORDER BY ticket_cnt DESC LIMIT 1"
+    ), {"k": pkey, "ex": exclude or ""}).first()
+    if not r:
+        return {}
+    return {"rootcause_no": r[0], "title": r[1], "ticket_cnt": int(r[2] or 0)}
+
+
+def _sync_member_pattern(db: Session, rc_no: str, stage: str, mech: str,
+                         obj: str, pattern: str) -> int:
+    """簇级口径改了，成员工单的三要素要跟着对齐（报表按工单聚合才不会分叉）。
+
+    只改 pattern 三要素，**不动 root_cause**（个案事实仍保留各自账号单号）。
+    """
+    n = db.execute(text(
+        "UPDATE pmwb_complaint_ticket SET rc_mechanism = :mc, rc_object = :ob, "
+        "root_pattern = :pt WHERE rootcause_no = :no"
+    ), {"mc": mech, "ob": obj, "pt": pattern, "no": rc_no}).rowcount
+    return int(n or 0)
+
+
+def _move_ticket_nos(db: Session, ticket_nos: List[str], rc_no: str) -> int:
+    """批量改指工单（不 commit、不重算，由调用方统一收尾）。"""
+    moved = 0
+    for no in ticket_nos:
+        r = db.execute(text(
+            "UPDATE pmwb_complaint_ticket SET rootcause_no = :rc WHERE ticket_no = :no"
+        ), {"rc": rc_no, "no": str(no).strip()}).rowcount
+        moved += int(r or 0)
+    return moved
+
+
+def create_cluster(db: Session, stage: str, mechanism: str, biz_object: str,
+                   trigger: str = "", title: str = "", description: str = "",
+                   fault_type: str = "", own_party: str = "",
+                   fix_mode: str = "", is_defect: Optional[bool] = None,
+                   ticket_nos: Optional[List[str]] = None) -> Dict[str, Any]:
+    """人工新建根因簇（状态直接 open、source=manual，供新业务/新场景先立后挂）。
+
+    撞键（同环节同机制同对象已有活簇）时返回 `conflict`，前端应提示并入。
+    """
+    st = _norm_stage(stage)
+    mc = P.normalize_mechanism(mechanism)
+    ob = _free_object(biz_object)
+    if not st:
+        return {"ok": False, "message": f"订单环节必须从受控枚举中选：{'、'.join(P.STAGES)}"}
+    if not mc:
+        return {"ok": False, "message": f"失败机制必须从受控枚举中选：{'、'.join(P.MECHANISMS)}"}
+    if not ob:
+        return {"ok": False, "message": "业务对象不能为空"}
+    tg = (trigger or "").strip()[:32]
+    pkey = P.pattern_key(st, mc, ob)
+    conflict = _key_conflict(db, pkey)
+    if conflict:
+        return {"ok": False, "conflict": True,
+                "message": f"该（{st} × {mc} × {P.upper_object(ob) or ob}）已有簇 "
+                           f"{conflict['rootcause_no']}（{conflict['ticket_cnt']} 单），请直接并入",
+                "existing": conflict}
+    pat = (title or "").strip() or P.build_pattern(mc, ob, tg)
+    if P.pattern_violations(pat):
+        pat = P.build_pattern(mc, ob)          # 去 trigger 再试
+    bad = P.pattern_violations(pat)
+    if bad:
+        return {"ok": False, "message": "簇标题不合规：" + "；".join(bad)}
+    if is_defect is None:
+        is_defect = mc != P.MECHANISM_CONSULT
+    rc_no = _next_rc_no(db)
+    db.execute(text(
+        "INSERT INTO pmwb_complaint_rootcause "
+        "(rootcause_no, title, description, fault_stage, mechanism, biz_object, "
+        " pattern_key, fault_type, own_party, fix_mode, is_defect, status, source, "
+        " ticket_cnt, sample_tickets, created_at, updated_at) "
+        "VALUES (:no, :title, :desc, :st, :mc, :ob, :pk, :ft, :op, :fm, :df, "
+        " 'open', 'manual', 0, '[]', :ts, :ts)"
+    ), {"no": rc_no, "title": pat, "desc": (description or "").strip()[:500],
+        "st": st, "mc": mc, "ob": ob, "pk": pkey,
+        "ft": fault_type if fault_type in RC.FAULT_TYPES else None,
+        "op": own_party if own_party in RC.OWN_PARTIES else None,
+        "fm": fix_mode if fix_mode in RC.FIX_MODES else None,
+        "df": 1 if is_defect else 0, "ts": datetime.now()})
+    moved = _move_ticket_nos(db, ticket_nos or [], rc_no)
+    db.commit()
+    refresh_counts(db)
+    return {"ok": True, "rootcause_no": rc_no, "title": pat, "pattern_key": pkey,
+            "moved": moved}
+
+
+def update_cluster(db: Session, rc_no: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """人工编辑簇（含改键）。改键后自动重算 pattern_key 并查重，撞键回冲突。"""
+    cur = db.execute(text(
+        "SELECT title, description, fault_stage, mechanism, biz_object, fault_type, "
+        "own_party, fix_mode, is_defect, status FROM pmwb_complaint_rootcause "
+        "WHERE rootcause_no = :no"), {"no": rc_no}).first()
+    if not cur:
+        return {"ok": False, "message": "根因簇不存在"}
+    (c_title, c_desc, c_stage, c_mech, c_obj, c_ftype, c_party, c_fix, c_df, c_status) = cur
+
+    stage = _norm_stage(payload.get("fault_stage")) if payload.get("fault_stage") is not None \
+        else (c_stage or "")
+    mech = P.normalize_mechanism(payload.get("mechanism")) \
+        if payload.get("mechanism") is not None else (c_mech or "")
+    obj = _free_object(payload.get("biz_object")) \
+        if payload.get("biz_object") is not None else (c_obj or "")
+    trigger = payload.get("trigger")
+    if not stage or not mech or not obj:
+        return {"ok": False, "message": "环节 / 机制 / 业务对象都必须有值"}
+    if not (c_stage and c_mech and c_obj):
+        return {"ok": False, "message": "该簇缺少必要的模式要素（环节/机制/对象），请先补齐再改"}
+    # 触发条件：显式传入优先；没传则沿用原标题括号内的限定语（避免改描述时丢掉它）
+    if trigger is None:
+        m = re.search(r"[（(]([^）)]{1,32})[）)]", c_title or "")
+        tg = m.group(1).strip() if m else ""
+    else:
+        tg = str(trigger).strip()[:32]
+
+    key_changed = (stage, mech, obj) != (c_stage, c_mech, c_obj)
+    pkey = P.pattern_key(stage, mech, obj)
+    if key_changed:
+        conflict = _key_conflict(db, pkey, exclude=rc_no)
+        if conflict:
+            return {"ok": False, "conflict": True,
+                    "message": f"目标键已存在簇 {conflict['rootcause_no']}"
+                               f"（{conflict['ticket_cnt']} 单），请直接合并过去",
+                    "existing": conflict}
+
+    # 标题：显式传入优先；否则改键/改触发条件时按受控模式重建，其余情况保留人工命名
+    new_title = (payload.get("title") or "").strip()[:200]
+    if not new_title:
+        if key_changed or trigger is not None:
+            new_title = P.build_pattern(mech, obj, tg)
+        else:
+            new_title = c_title or P.build_pattern(mech, obj, tg)
+
+    sets = ["title = :title", "fault_stage = :st", "mechanism = :mc", "biz_object = :ob",
+            "pattern_key = :pk", "updated_at = :ts"]
+    params: Dict[str, Any] = {"title": new_title, "st": stage, "mc": mech, "ob": obj,
+                              "pk": pkey, "no": rc_no, "ts": datetime.now()}
+    if payload.get("description") is not None:
+        sets.append("description = :desc")
+        params["desc"] = (payload.get("description") or "").strip()[:500]
+    for fld, col, allowed in (("fault_type", "fault_type", RC.FAULT_TYPES),
+                              ("own_party", "own_party", RC.OWN_PARTIES),
+                              ("fix_mode", "fix_mode", RC.FIX_MODES)):
+        if payload.get(fld) is not None:
+            v = payload.get(fld)
+            if v and v not in allowed:
+                return {"ok": False, "message": f"{fld} 不在受控枚举内：{v}"}
+            sets.append(f"{col} = :{fld}")
+            params[fld] = v or None
+    if payload.get("is_defect") is not None:
+        sets.append("is_defect = :df")
+        params["df"] = 1 if payload["is_defect"] else 0
+    db.execute(text(
+        f"UPDATE pmwb_complaint_rootcause SET {', '.join(sets)} WHERE rootcause_no = :no"
+    ), params)
+    synced = _sync_member_pattern(db, rc_no, stage, mech, obj,
+                                  P.build_pattern(mech, obj, tg))
+    db.commit()
+    refresh_counts(db)
+    return {"ok": True, "rootcause_no": rc_no, "title": new_title,
+            "pattern_key": pkey, "key_changed": key_changed, "synced_tickets": synced}
+
+
+def split_cluster(db: Session, src_no: str, ticket_nos: List[str],
+                  target_no: str = "", new_cluster: Optional[Dict[str, Any]] = None
+                  ) -> Dict[str, Any]:
+    """把簇内部分工单拆出去：并入 target_no，或按 new_cluster 新建一个簇。"""
+    src = _cluster_brief(db, src_no)
+    if not src:
+        return {"ok": False, "message": "源根因簇不存在"}
+    nos = [str(x).strip() for x in (ticket_nos or []) if str(x).strip()]
+    if not nos:
+        return {"ok": False, "message": "请至少选择一个工单"}
+    valid = set()
+    rows = db.execute(text(
+        "SELECT ticket_no FROM pmwb_complaint_ticket WHERE rootcause_no = :no"
+    ), {"no": src_no}).fetchall()
+    valid = {r[0] for r in rows}
+    bad = [n for n in nos if n not in valid]
+    if bad:
+        return {"ok": False, "message": f"以下工单不在该簇内：{'、'.join(bad[:5])}"}
+
+    if target_no:
+        if target_no == src_no:
+            return {"ok": False, "message": "不能拆到自身"}
+        dst = _cluster_brief(db, target_no)
+        if not dst:
+            return {"ok": False, "message": "目标根因簇不存在"}
+        moved = _move_ticket_nos(db, nos, target_no)
+        db.commit()
+        refresh_counts(db)
+        return {"ok": True, "action": "move", "target_no": target_no, "moved": moved}
+
+    nc = new_cluster or {}
+    res = create_cluster(db, nc.get("fault_stage") or "", nc.get("mechanism") or "",
+                         nc.get("biz_object") or "", trigger=nc.get("trigger") or "",
+                         title=nc.get("title") or "", description=nc.get("description") or "",
+                         fault_type=nc.get("fault_type") or "",
+                         own_party=nc.get("own_party") or "",
+                         fix_mode=nc.get("fix_mode") or "",
+                         ticket_nos=nos)
+    if not res.get("ok"):
+        return res
+    res["action"] = "split"
+    res["src_no"] = src_no
+    return res
+
+
+def move_tickets(db: Session, ticket_nos: List[str], target_no: str) -> Dict[str, Any]:
+    """批量把工单改指到指定簇（人工纠偏用；不新建簇）。"""
+    dst = _cluster_brief(db, target_no)
+    if not dst:
+        return {"ok": False, "message": "目标根因簇不存在"}
+    nos = [str(x).strip() for x in (ticket_nos or []) if str(x).strip()]
+    if not nos:
+        return {"ok": False, "message": "请至少选择一个工单"}
+    moved = _move_ticket_nos(db, nos, target_no)
+    db.commit()
+    refresh_counts(db)
+    return {"ok": True, "moved": moved, "target_no": target_no}
 
 
 def list_clusters(db: Session, status: str = "", keyword: str = "",

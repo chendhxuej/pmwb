@@ -73,6 +73,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sub.add_parser("health", help="簇健康度（簇数/单簇率/覆盖率/兜底率）")
     sub.add_parser("closing", help="簇闭合校验（Σ簇单量 vs 已判定单量）")
 
+    p_new = sub.add_parser("new", help="人工新建根因簇（新业务/新场景先立簇）")
+    p_new.add_argument("--stage", required=True, help="订单环节（受控枚举）")
+    p_new.add_argument("--mechanism", required=True, help="失败机制（受控枚举）")
+    p_new.add_argument("--object", required=True, help="业务对象（可自由命名）")
+    p_new.add_argument("--trigger", default="", help="触发条件/场景限定")
+    p_new.add_argument("--title", default="")
+    p_new.add_argument("--desc", default="", help="判定边界：什么算、什么不算")
+    p_new.add_argument("--tickets", default="", help="建簇后挂入的工单号，逗号分隔")
+
+    p_ed = sub.add_parser("edit", help="人工编辑簇（改键会重算 pattern_key 并查重）")
+    p_ed.add_argument("--no", required=True, help="根因簇号 RC-xxxx")
+    p_ed.add_argument("--stage", default=None)
+    p_ed.add_argument("--mechanism", default=None)
+    p_ed.add_argument("--object", default=None)
+    p_ed.add_argument("--trigger", default=None)
+    p_ed.add_argument("--title", default=None)
+    p_ed.add_argument("--desc", default=None)
+
+    p_sp = sub.add_parser("split", help="簇内拆单（并入其他簇或另立新簇）")
+    p_sp.add_argument("--no", required=True, help="源簇号")
+    p_sp.add_argument("--tickets", required=True, help="要拆出的工单号，逗号分隔")
+    p_sp.add_argument("--target", default="", help="目标簇号（空=新建簇）")
+    p_sp.add_argument("--stage", default="")
+    p_sp.add_argument("--mechanism", default="")
+    p_sp.add_argument("--object", default="")
+
     args = ap.parse_args(argv)
     db = SessionLocal()
     try:
@@ -109,6 +135,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             out = lib.cluster_health(db)
         elif args.cmd == "closing":
             out = lib.closing_check(db)
+        elif args.cmd == "new":
+            out = lib.create_cluster(
+                db, args.stage, args.mechanism, args.object, trigger=args.trigger,
+                title=args.title, description=args.desc,
+                ticket_nos=[x.strip() for x in args.tickets.split(",") if x.strip()])
+        elif args.cmd == "edit":
+            payload = {k: v for k, v in (("fault_stage", args.stage),
+                                         ("mechanism", args.mechanism),
+                                         ("biz_object", args.object),
+                                         ("trigger", args.trigger),
+                                         ("title", args.title),
+                                         ("description", args.desc)) if v is not None}
+            out = lib.update_cluster(db, args.no, payload)
+        elif args.cmd == "split":
+            nc = {"fault_stage": args.stage, "mechanism": args.mechanism,
+                  "biz_object": args.object} if not args.target else None
+            out = lib.split_cluster(db, args.no,
+                                    [x.strip() for x in args.tickets.split(",") if x.strip()],
+                                    target_no=args.target, new_cluster=nc)
         else:
             out = lib.batch_clusters(db, week=args.week, min_cnt=args.min_cnt)
     finally:
