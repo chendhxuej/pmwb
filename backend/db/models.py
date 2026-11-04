@@ -2018,6 +2018,11 @@ class PmwbComplaintTicket(Base):
     rc_confidence = Column(Float, comment="根因归纳置信度（0~1，信息不足时宁低勿高）")
     rc_evidence = Column(Text, comment="根因原文依据（引用工单中的具体报错/账号/单号，可追溯）")
     rc_gap = Column(String(255), comment="信息缺口说明（rc_status=insufficient 时记录缺什么）")
+    # 模式层（2026-11-04 双字段解耦）：L1 记个案事实，pattern 记受控模式，簇键只取 pattern
+    root_pattern = Column(String(200), comment="可复用根因模式（{对象}-{机制}，禁用户级信息，L2 簇键唯一来源）")
+    rc_mechanism = Column(String(32), comment="失败机制（受控枚举 constants/complaint_pattern.py）")
+    rc_object = Column(String(32), comment="业务对象（受控枚举）")
+    rc_trigger = Column(String(64), comment="触发条件（短词，可空）")
     rootcause_no = Column(String(64), comment="归属根因库编号（唯一归因键，唯一写入点 rootcause.assign）")
     # 已知/新增判定（2026-11-04）：唯一写入点 known.mark，核心 KPI「已知问题率」数据源
     known_flag = Column(SmallInteger, comment="1=已知问题（命中在办问题） 0=新增问题")
@@ -2040,6 +2045,8 @@ class PmwbComplaintTicket(Base):
         Index("idx_ct_problem", "problem_no"),
         Index("idx_ct_rootcause", "rootcause_no"),
         Index("idx_ct_rc_status", "rc_status"),
+        Index("idx_ct_pattern", "root_pattern"),
+        Index("idx_ct_mechanism", "rc_mechanism"),
         {"comment": "客诉工单明细（压降分析数据底座）"},
     )
 
@@ -2066,6 +2073,11 @@ class PmwbComplaintRootcause(Base):
     fault_type = Column(String(32), comment="簇级缺陷性质（取簇内众数）")
     own_party = Column(String(32), comment="簇级责任归属（取簇内众数）")
     fix_mode = Column(String(32), comment="簇级处置方式（取簇内众数）")
+    # 三元组键（2026-11-04）：pattern_key = 环节|机制|上位对象，唯一真相源
+    # constants/complaint_pattern.pattern_key()；入库/匹配/合并三处必须走同一函数
+    mechanism = Column(String(32), comment="簇级失败机制（受控枚举，取簇内众数）")
+    biz_object = Column(String(32), comment="簇级业务对象（受控枚举，取簇内众数）")
+    pattern_key = Column(String(128), comment="簇唯一键：环节|机制|上位对象")
     status = Column(String(16), nullable=False, default="candidate",
                     comment="candidate=待确认 / open=已入账 / merged=已合并 / disabled=停用")
     source = Column(String(16), default="ai", comment="来源：ai=AI 归纳 / manual=人工新建")
@@ -2082,6 +2094,7 @@ class PmwbComplaintRootcause(Base):
     __table_args__ = (
         Index("idx_crc_status", "status"),
         Index("idx_crc_last_week", "last_week"),
+        Index("idx_crc_pattern_key", "pattern_key"),
         {"comment": "客诉根因库（根因簇，投诉分析唯一抓手）"},
     )
 

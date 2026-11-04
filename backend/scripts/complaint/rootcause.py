@@ -9,6 +9,10 @@
     python -m scripts.complaint.rootcause clusters             # 列根因库
     python -m scripts.complaint.rootcause top --week 2026-W44  # 当周簇排名（压降空间）
     python -m scripts.complaint.rootcause known --week 2026-W44 # 已知/新增判定（核心 KPI）
+    python -m scripts.complaint.rootcause relabel [--dry-run] [--only-missing]  # 簇模式标定（RC-2.0）
+    python -m scripts.complaint.rootcause consolidate [--apply]  # 按三元组合并同键簇
+    python -m scripts.complaint.rootcause health               # 簇健康度（簇数/单簇率/覆盖率）
+    python -m scripts.complaint.rootcause closing              # 簇闭合校验
 """
 
 from __future__ import annotations
@@ -54,6 +58,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_bc.add_argument("--week", default="")
     p_bc.add_argument("--min-cnt", type=int, default=3)
 
+    p_rl = sub.add_parser("relabel", help="簇模式标定（RC-2.0：环节/机制/对象三要素）")
+    p_rl.add_argument("--limit", type=int, default=None)
+    p_rl.add_argument("--only-missing", action="store_true", help="只标未标定的簇（可反复跑到收敛）")
+    p_rl.add_argument("--dry-run", action="store_true", help="只看结果不写库")
+
+    p_cs = sub.add_parser("consolidate", help="按三元组键合并同键簇（0 LLM）")
+    p_cs.add_argument("--apply", action="store_true", help="真正执行合并（默认 dry_run 只出报告）")
+
+    sub.add_parser("rekey", help="重算 pattern_key（纯规则自愈）")
+    p_lt = sub.add_parser("longtail", help="长尾归并：单量≤N 且非高危的簇并入同桶「其他」")
+    p_lt.add_argument("--max-cnt", type=int, default=1)
+    p_lt.add_argument("--apply", action="store_true", help="真正执行（默认 dry_run）")
+    sub.add_parser("health", help="簇健康度（簇数/单簇率/覆盖率/兜底率）")
+    sub.add_parser("closing", help="簇闭合校验（Σ簇单量 vs 已判定单量）")
+
     args = ap.parse_args(argv)
     db = SessionLocal()
     try:
@@ -76,6 +95,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             out = {"mark": marked, "summary": summary(db, wk)}
         elif args.cmd == "top":
             out = lib.top_clusters(db, week=args.week, limit=args.limit)
+        elif args.cmd == "relabel":
+            out = lib.relabel_clusters(db, limit=args.limit,
+                                       only_missing=args.only_missing,
+                                       dry_run=args.dry_run)
+        elif args.cmd == "consolidate":
+            out = lib.consolidate_by_pattern(db, dry_run=not args.apply)
+        elif args.cmd == "rekey":
+            out = lib.rekey_clusters(db)
+        elif args.cmd == "longtail":
+            out = lib.merge_long_tail(db, max_cnt=args.max_cnt, dry_run=not args.apply)
+        elif args.cmd == "health":
+            out = lib.cluster_health(db)
+        elif args.cmd == "closing":
+            out = lib.closing_check(db)
         else:
             out = lib.batch_clusters(db, week=args.week, min_cnt=args.min_cnt)
     finally:

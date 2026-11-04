@@ -8,6 +8,9 @@
 
 本模块的设计（与 llm_classify.py 的本质区别）：
   - **不选分类，而是写根因**：不再受字典约束，自由归纳「系统 + 环节 + 具体错误 + 影响」；
+  - **双字段解耦（2026-11-04）**：root_cause 记个案事实（允许带账号/单号，供追溯），
+    另出 root_pattern 受控模式（{对象}-{机制}，禁用户级信息），**L2 聚类只认 pattern**。
+    此前一段文本同时承担两种职责，导致 90.4% 的簇是「1 单 1 簇」；
   - **质量门禁**：根因描述必须落到真实问题点（最小有效字数 + 泛词黑名单 + 必含具体标识），
     不合格退回重写一次，仍不合格落 rc_status='insufficient' 并记 rc_gap（信息缺口）。
     **不设人工队列**（2026-11-04 原则变更）：工单层分析必须全自动，人只在问题入账时确认；
@@ -33,6 +36,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from constants import complaint_pattern as P
 from constants import complaint_rootcause as RC
 from services.complaint import config as C
 from services.complaint.llm_classify import _extract_json
@@ -41,26 +45,38 @@ from services.llm_provider import call_best_available
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "你是电信运营商政企/商客业务客诉工单的根因分析专家。逐单做三件事：\n"
+    "你是电信运营商政企/商客业务客诉工单的根因分析专家。逐单做四件事：\n"
     "第一步 判定是否存在缺陷：系统缺陷、接口映射错误、数据不同步、配置缺失、"
     "规则不合理都算缺陷；仅是使用咨询、客户理解偏差、按规则解释的，判无缺陷。"
     "注意：处理意见只写「已指导/已告知/已解释」且没有任何技术动作的，通常是无缺陷。\n"
-    "第二步 写根因（最关键）：必须回答「哪个系统 / 哪个环节 / 具体发生了什么错误 / 影响什么」，"
-    "40~90 字。严禁空话套话（如「系统异常」「数据不一致」「需要核实」「操作咨询」「失败」「报错」）。"
-    "必须带入工单中的具体事实：账号、订单号、协议号、报错原文、字段名、状态值、操作步骤。"
+    "第二步 写个案事实 root_cause（给人和追溯看）：必须回答「哪个系统 / 哪个环节 / "
+    "具体发生了什么错误 / 影响什么」，40~90 字。严禁空话套话（如「系统异常」「数据不一致」"
+    "「需要核实」「操作咨询」「失败」「报错」）。**必须带入本单的具体事实**：账号、订单号、"
+    "协议号、报错原文、字段名、状态值、操作步骤。\n"
+    "  示例对比——\n"
+    "    坏：客户电视激活失败，已协助处理。\n"
+    "    好：电视账号 50051157045 在 HDC 激活校验返回「未开通」，机顶盒开通单未随宽带订单"
+    "下发至电视平台，宽带侧已激活、电视侧无开通单。\n"
+    "第三步 抽象可复用模式（给聚类统计看，**聚类只认这一步**）：从上面的事实里抽出"
+    "「业务对象 biz_object + 失败机制 mechanism + 触发条件 trigger」，"
+    "**严禁带入账号、订单号、协议号、客户名、地市门牌、日期、金额、设备编号**——"
+    "同一类问题在不同工单只是单号不同，模式必须写成完全一样的字。\n"
+    "  · biz_object 与 mechanism 只能从给定枚举里选，不得自由造词；\n"
+    "  · trigger ≤12 字，可空；仅当「同对象同机制但修复点明显不同」时才填"
+    "（如「集团编码超长」「营销案未配置」）。\n"
+    "  · 判无缺陷（咨询类）时，mechanism 固定填「使用咨询」。\n"
+    "  · 环节按**断点所在环节**判定，不按客户投诉提到哪个环节："
+    "客户投诉「电视没激活」，但断点是施工单没下发 → 环节=装维交付、机制=未下发。\n"
+    "第四步 打结构化标签：从给定枚举中选，不得编造枚举外的值。"
     "判断处置方式 fix_mode 时，看「这一类问题能否被一次脚本/一次改造消掉」，"
-    "而不是看这单实际是怎么处理的——单笔转派不等于只能逐单处理。"
-    "示例对比——\n"
-    "  坏：客户电视激活失败，已协助处理。\n"
-    "  好：电视账号 50051157045 在 HDC 激活校验返回「未开通」，机顶盒开通单未随宽带订单下发至"
-    "电视平台，宽带侧已激活、电视侧无开通单。\n"
-    "第三步 打结构化标签：从给定枚举中选，不得编造枚举外的值。\n"
+    "而不是看这单实际是怎么处理的——单笔转派不等于只能逐单处理。\n"
     "置信度 confidence（0~1）表示「工单信息是否足够判断根因」，信息不足时宁低勿高，不要硬猜。"
     "锚点参考：工单内有明确报错原文/订单号/账号可追溯到具体环节 → 0.8 以上；"
     "只能从处理意见反推根因 → 0.6~0.75；处理意见只有「已指导/已告知」或内容残缺 → 0.5 以下。\n"
     "evidence 给出工单原文中支持该根因的具体片段（原样摘录，不要改写）。\n"
     "输出要求：仅输出 JSON，不要任何其他文字。格式："
     '{"results": [{"no": "工单号", "has_defect": true, "root_cause": "...", '
+    '"mechanism": "...", "biz_object": "...", "trigger": "", '
     '"fault_stage": "...", "fault_system": "...", "fault_type": "...", '
     '"own_party": "...", "fix_mode": "...", "repro": "yes|no|unknown", '
     '"confidence": 0.0, "evidence": "..."}]}'
@@ -76,7 +92,10 @@ def _enum_block() -> str:
         f"缺陷性质 fault_type：{'、'.join(RC.FAULT_TYPES)}\n"
         f"责任归属 own_party：{'、'.join(RC.OWN_PARTIES)}\n"
         f"处置方式 fix_mode：{'、'.join(RC.FIX_MODES)}\n"
-        f"可复现性 repro：{'、'.join(RC.REPRO_VALUES)}（yes=同一路径可稳定重现）"
+        f"可复现性 repro：{'、'.join(RC.REPRO_VALUES)}（yes=同一路径可稳定重现）\n"
+        + P.enum_block() + "\n"
+        "【机制判定参考（按现象特征对号，不要自由发挥）】\n"
+        + P.mechanism_rules_block()
     )
 
 
@@ -150,6 +169,7 @@ def build_user_prompt(few_shots: Sequence[Dict[str, str]],
     parts.append(
         f"\n请逐单输出根因（共 {len(tickets)} 单），仅输出 JSON："
         '{"results": [{"no": "...", "has_defect": true, "root_cause": "...", '
+        '"mechanism": "...", "biz_object": "...", "trigger": "", '
         '"fault_stage": "...", "fault_system": "...", "fault_type": "...", '
         '"own_party": "...", "fix_mode": "...", "repro": "yes", '
         '"confidence": 0.8, "evidence": "..."}]}'
@@ -190,6 +210,9 @@ def quality_check(rc: Dict[str, Any]) -> List[str]:
       G3 必须带具体标识（长数字/引号原文/系统-接口-字段类实词），否则仍是泛泛而谈
       G4 五个受控枚举必须落在枚举内（normalize 后非空）
       G5 has_defect=false 时 fault_type 必须是「无缺陷」，反之不得为「无缺陷」
+      G6 模式三要素必须落枚举（机制/对象）；咨询类机制必须是「使用咨询」
+      G7 模式**反向门禁**：不得含用户级信息（账号/单号/门牌）、禁泛词、不得超长
+         —— 与 G3 恰好相反，这正是双字段解耦的意义：事实要具体，模式要抽象
     """
     reasons: List[str] = []
     cause = (rc.get("root_cause") or "").strip()
@@ -208,6 +231,22 @@ def quality_check(rc: Dict[str, Any]) -> List[str]:
         reasons.append("G5 有缺陷却标「无缺陷」")
     if (not rc.get("has_defect")) and rc.get("fault_type") not in ("无缺陷", None, ""):
         reasons.append("G5 无缺陷却标了缺陷性质")
+
+    # G6/G7 模式层（2026-11-04 新增）
+    mech = (rc.get("mechanism") or "").strip()
+    obj = (rc.get("biz_object") or "").strip()
+    if mech not in P.MECHANISMS:
+        reasons.append("G6 失败机制未落枚举")
+    if obj not in P.OBJECTS:
+        reasons.append("G6 业务对象未落枚举")
+    if not rc.get("has_defect") and mech and mech != P.MECHANISM_CONSULT:
+        reasons.append("G6 无缺陷但机制不是「使用咨询」")
+    if rc.get("has_defect") and mech == P.MECHANISM_CONSULT:
+        reasons.append("G6 有缺陷却标「使用咨询」")
+    if mech in P.MECHANISMS and obj in P.OBJECTS:
+        pattern = rc.get("root_pattern") or P.build_pattern(mech, obj, rc.get("trigger") or "")
+        for v in P.pattern_violations(pattern):
+            reasons.append("G7 " + v)
     return reasons
 
 
@@ -233,9 +272,16 @@ def _normalize(item: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(has_defect, str):
         has_defect = has_defect.strip().lower() in ("true", "1", "yes", "是")
     repro = RC.normalize_choice(str(item.get("repro") or ""), RC.REPRO_VALUES)
+    mech = P.normalize_mechanism(str(item.get("mechanism") or ""))
+    obj = P.normalize_object(str(item.get("biz_object") or ""))
+    trigger = str(item.get("trigger") or "").strip()[:64]
     return {
         "has_defect": bool(has_defect),
         "root_cause": str(item.get("root_cause") or "").strip()[:500],
+        "mechanism": mech,
+        "biz_object": obj,
+        "trigger": trigger,
+        "root_pattern": P.build_pattern(mech, obj, trigger),
         "fault_stage": RC.normalize_choice(str(item.get("fault_stage") or ""), RC.FAULT_STAGES),
         "fault_system": RC.normalize_choice(str(item.get("fault_system") or ""), RC.FAULT_SYSTEMS),
         "fault_type": RC.normalize_choice(str(item.get("fault_type") or ""), RC.FAULT_TYPES),
@@ -254,12 +300,16 @@ def _save(db: Session, ticket_no: str, rc: Dict[str, Any], status: str,
         "UPDATE pmwb_complaint_ticket SET "
         "root_cause = :rc, fault_stage = :fs, fault_system = :fy, fault_type = :ft, "
         "own_party = :op, fix_mode = :fm, repro = :rp, rc_status = :st, "
-        "rc_confidence = :cf, rc_evidence = :ev, rc_gap = :gp "
+        "rc_confidence = :cf, rc_evidence = :ev, rc_gap = :gp, "
+        "root_pattern = :pt, rc_mechanism = :mc, rc_object = :ob, rc_trigger = :tg "
         "WHERE ticket_no = :no AND (rc_status != 'manual' OR rc_status IS NULL)"
     ), {"rc": rc["root_cause"], "fs": rc["fault_stage"], "fy": rc["fault_system"],
         "ft": rc["fault_type"], "op": rc["own_party"], "fm": rc["fix_mode"],
         "rp": rc["repro"], "st": status, "cf": rc["confidence"],
-        "ev": rc["evidence"], "gp": gap or None, "no": ticket_no})
+        "ev": rc["evidence"], "gp": gap or None,
+        "pt": rc.get("root_pattern") or None, "mc": rc.get("mechanism") or None,
+        "ob": rc.get("biz_object") or None, "tg": rc.get("trigger") or None,
+        "no": ticket_no})
 
 
 def _rewrite_batch(db: Session, tasks: List[Tuple[Dict[str, Any], List[str], Dict[str, Any]]]
@@ -285,7 +335,8 @@ def _rewrite_batch(db: Session, tasks: List[Tuple[Dict[str, Any], List[str], Dic
         notes.append(
             "要求：必须写清「哪个系统 + 哪个环节 + 具体报错/字段/状态 + 影响什么」，"
             "带入工单里的账号/订单号/报错原文，不要使用「系统异常」「数据不一致」"
-            "「需要核实」「操作咨询」这类空话。仅输出 JSON（格式同前）。"
+            "「需要核实」「操作咨询」这类空话。机制 mechanism 与对象 biz_object 必须落枚举，"
+            "**模式里的对象/机制不得带任何账号、单号、门牌、日期、金额**。仅输出 JSON（格式同前）。"
         )
         res = call_best_available(
             db, _SYSTEM_PROMPT, base + "\n".join(notes),
@@ -410,8 +461,8 @@ def rejudge(db: Session) -> Dict[str, Any]:
     """
     rows = db.execute(text(
         "SELECT ticket_no, root_cause, fault_stage, fault_system, fault_type, "
-        "own_party, fix_mode, rc_confidence FROM pmwb_complaint_ticket "
-        "WHERE rc_status = :st"
+        "own_party, fix_mode, rc_confidence, rc_mechanism, rc_object, rc_trigger, root_pattern "
+        "FROM pmwb_complaint_ticket WHERE rc_status = :st"
     ), {"st": RC.RC_STATUS_INSUFFICIENT}).fetchall()
     promoted = 0
     for r in rows:
@@ -419,6 +470,8 @@ def rejudge(db: Session) -> Dict[str, Any]:
             "root_cause": r[1] or "", "fault_stage": r[2] or "", "fault_system": r[3] or "",
             "fault_type": r[4] or "", "own_party": r[5] or "", "fix_mode": r[6] or "",
             "confidence": float(r[7] or 0),
+            "mechanism": r[8] or "", "biz_object": r[9] or "",
+            "trigger": r[10] or "", "root_pattern": r[11] or "",
             "has_defect": (r[4] or "") not in ("", "无缺陷"),
         }
         reasons = quality_check(rc)
@@ -447,6 +500,9 @@ def update_manual(db: Session, ticket_no: str, payload: Dict[str, Any]) -> Dict[
         return {"ok": False, "message": "工单不存在"}
     rc = {
         "root_cause": (payload.get("root_cause") or "").strip()[:500],
+        "mechanism": P.normalize_mechanism(str(payload.get("mechanism") or "")),
+        "biz_object": P.normalize_object(str(payload.get("biz_object") or "")),
+        "trigger": (payload.get("trigger") or "").strip()[:64],
         "fault_stage": RC.normalize_choice(str(payload.get("fault_stage") or ""), RC.FAULT_STAGES),
         "fault_system": RC.normalize_choice(str(payload.get("fault_system") or ""), RC.FAULT_SYSTEMS),
         "fault_type": RC.normalize_choice(str(payload.get("fault_type") or ""), RC.FAULT_TYPES),
@@ -456,6 +512,7 @@ def update_manual(db: Session, ticket_no: str, payload: Dict[str, Any]) -> Dict[
         "confidence": 1.0,
         "evidence": (payload.get("evidence") or "").strip()[:500],
     }
+    rc["root_pattern"] = P.build_pattern(rc["mechanism"], rc["biz_object"], rc["trigger"])
     has_defect = payload.get("has_defect")
     if isinstance(has_defect, str):
         has_defect = has_defect.strip().lower() in ("true", "1", "yes", "是")
@@ -463,11 +520,14 @@ def update_manual(db: Session, ticket_no: str, payload: Dict[str, Any]) -> Dict[
     db.execute(text(
         "UPDATE pmwb_complaint_ticket SET root_cause = :rc, fault_stage = :fs, "
         "fault_system = :fy, fault_type = :ft, own_party = :op, fix_mode = :fm, "
-        "repro = :rp, rc_status = 'manual', rc_confidence = 1.0, rc_evidence = :ev "
+        "repro = :rp, rc_status = 'manual', rc_confidence = 1.0, rc_evidence = :ev, "
+        "root_pattern = :pt, rc_mechanism = :mc, rc_object = :ob, rc_trigger = :tg "
         "WHERE ticket_no = :no"
     ), {"rc": rc["root_cause"], "fs": rc["fault_stage"], "fy": rc["fault_system"],
         "ft": rc["fault_type"], "op": rc["own_party"], "fm": rc["fix_mode"],
-        "rp": rc["repro"], "ev": rc["evidence"], "no": ticket_no})
+        "rp": rc["repro"], "ev": rc["evidence"],
+        "pt": rc["root_pattern"] or None, "mc": rc["mechanism"] or None,
+        "ob": rc["biz_object"] or None, "tg": rc["trigger"] or None, "no": ticket_no})
     db.commit()
     logger.info("根因人工校正 %s", ticket_no)
     return {"ok": True, "root_cause": rc["root_cause"],

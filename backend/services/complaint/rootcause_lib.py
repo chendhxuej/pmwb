@@ -13,14 +13,25 @@
   4. 同义簇用 merge 合并，工单指针统一改指主簇，不删历史；
   5. 库内代表单回流作 few-shot（见 rootcause.load_few_shots），越用越准。
 
-写入边界：pmwb_complaint_ticket.rootcause_no 的**唯一写入点**是本模块 assign/build_clusters。
+RC-2.0 改造（2026-11-04，老大拍板「不涉及用户级信息、簇数 ≤100」）：
+  - **簇键 = (环节, 机制, 上位对象) 三元组**，唯一实现 `constants.complaint_pattern.pattern_key`；
+    原来只按 (系统, 环节) 分桶，而系统是「断点归因」不是「问题身份」——实测同一问题
+    被拆到 CRM/电视平台/订单中心 3 个桶合计 28 单，故系统降级为属性、不进键。
+  - 分桶由 `(fault_system, fault_stage)` 改为 `(fault_stage, rc_mechanism)`；
+  - 三个新动作：
+      `relabel_clusters`     历史簇一次性结构化标定（簇级 22 批，比重跑 1476 单便宜 7 倍）
+      `consolidate_by_pattern` 按三元组合并簇（纯规则、0 LLM、可回滚）
+      `cluster_health` / `closing_check`  质量指标与闭合校验
+
+写入边界：pmwb_complaint_ticket.rootcause_no 的**唯一写入点**是本模块 build_clusters/merge。
+         root_pattern / rc_mechanism / rc_object 的写入点：rootcause.py（新单 L1）
+         与 relabel_clusters（历史回填），两者口径同源 constants/complaint_pattern。
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import re
 from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -28,6 +39,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from constants import complaint_pattern as P
 from constants import complaint_rootcause as RC
 from services.complaint import config as C
 from services.complaint.llm_classify import _extract_json
@@ -36,31 +48,46 @@ from services.llm_provider import call_best_available
 logger = logging.getLogger(__name__)
 
 CLUSTER_BATCH = 20          # 每批送 LLM 归并的根因条数
+RELABEL_BATCH = 10          # 每批做模式标定的簇数（实测 20/40 都会漏返，10 最稳；漏的下轮 only_missing 补）
+CONSULT_RATIO_MAX = 0.5     # 单批内「无咨询特征却标使用咨询」占比上限，超了判该批退化、整批拒收
+# 咨询/非缺陷的文本特征（与 LLM 判定做双向校验：模型说是咨询，原文也得像咨询）
+CONSULT_HINTS: Tuple[str, ...] = (
+    "非缺陷", "非系统缺陷", "无缺陷", "解释", "咨询", "理解偏差", "认知",
+    "操作问题", "操作不当", "正常", "规则说明", "查询确认", "待查证", "符合规则",
+)
+
+
+def _looks_consult(title: str, desc: str = "") -> bool:
+    s = f"{title or ''}{desc or ''}"
+    return any(h in s for h in CONSULT_HINTS)
 LIB_IN_PROMPT_MAX = 60      # prompt 中展示的库内簇上限（控 token）
 
 # 桶内归并（主动分组）—— 2026-11-03 重构说明：
 #   原先「逐条判定归入哪个已有簇 / 或 NEW」在实测中退化成 1 单 1 簇（228 单 → 140 簇）：
 #   每条根因都带不同的单号账号，模型逐条看就都觉得「机制不同」，且天然倾向 NEW。
-#   改为「先按 系统+环节 分桶，再让模型在桶内主动分组」——一次看到全桶样本，
-#   分组是全局视角，能自然收敛成「同对象同机制」的簇。
+#   改为「先分桶，再让模型在桶内主动分组」——一次看到全桶样本，分组是全局视角。
+# 2026-11-04 RC-2.0：桶键由 (系统+环节) 改为 (环节+机制)，桶内只按**业务对象**分组。
+#   机制已被上游锁定，模型不再需要判断「怎么断的」，只需判断「断在谁身上」，任务更窄更稳。
 _CLUSTER_PROMPT = (
-    "你是电信运营商政企/商客业务客诉根因归并专家。下面给出同一个「系统 + 故障环节」桶内的"
-    "若干条工单根因，请把它们**分组**成尽可能少的根因簇。\n"
-    "分组标准（重要）：同一簇内必须是「同一个缺陷对象 + 同一套失败机制」；"
-    "仅仅因为具体单号、账号、客户名、日期不同而措辞有差异的，属于**同一个簇**，不得拆开。\n"
-    "例：以下三条应归一簇——\n"
-    "  「电视账号 A 激活校验返回未开通，机顶盒开通单未下发」\n"
-    "  「电视账号 B 提示未开通，无电视开通单」\n"
-    "  「电视账号 C 激活校验失败，机顶盒开通单缺失」\n"
-    "  → 簇：机顶盒开通单未下发致电视激活校验不通过\n"
-    "反之，若失败机制不同（一个是开通单未下发、一个是账号密码错），必须分属不同簇。\n"
-    "簇标题规范：{缺陷对象}-{失败机制}，10~30 字，不用「异常/问题/失败」等空词，"
-    "不重复系统名与环节名（外层已标明）。\n"
-    "必须覆盖给出的全部工单，不能漏。\n"
+    "你是电信运营商政企/商客业务客诉根因归并专家。下面给出同一个「订单环节 + 失败机制」"
+    "桶内的若干条工单根因，请按**业务对象**把它们分成尽可能少的组（通常 1~3 组）。\n"
+    "分组标准（重要）：同一组内的对象必须是同一个业务实体（订单 / 施工单 / 产品实例 / "
+    "宽带账号 / 账单 …）；仅仅因为单号、账号、客户名、日期不同而措辞有差异的，属于**同一组**，不得拆开。\n"
+    "业务对象只能从给定枚举里选，不得自由造词。\n"
+    "若同对象但**修复点明显不同**，填 trigger（≤12 字）区分，例如「集团编码超长」与「营销案未配置」"
+    "同为「校验拦截 + 客户资料/营销案」但一个改字段长度、一个补配置，必须分开。\n"
+    "必须覆盖给出的全部工单号，不能漏。\n"
     "输出仅 JSON："
-    '{"clusters": [{"title": "...", "description": "判定边界一句话", '
-    '"members": ["工单号", "..."]}]}'
+    '{"clusters": [{"biz_object": "...", "trigger": "", '
+    '"description": "判定边界一句话", "members": ["工单号", "..."]}]}'
 )
+
+
+def _short_title_from_pattern(t: Dict[str, Any]) -> str:
+    """无模式可用的极端兜底标题（不含用户级信息，绝不截 L1 原文）。"""
+    obj = (t.get("rc_object") or "").strip() or P.OBJECT_FALLBACK
+    mech = (t.get("rc_mechanism") or "").strip() or P.MECHANISM_FALLBACK
+    return f"{obj}-{mech}"
 
 def _next_rc_no(db: Session) -> str:
     row = db.execute(text(
@@ -95,43 +122,84 @@ def load_lib(db: Session, statuses: tuple = (RC.RC_LIB_OPEN, RC.RC_LIB_CANDIDATE
 def _tickets_to_group(db: Session, limit: Optional[int]) -> List[Dict[str, Any]]:
     lim = f" LIMIT {int(limit)}" if limit else ""
     rows = db.execute(text(
-        "SELECT ticket_no, root_cause, fault_system, fault_stage, fault_type, rc_status, week "
+        "SELECT ticket_no, root_cause, fault_system, fault_stage, fault_type, rc_status, week, "
+        "rc_mechanism, rc_object, rc_trigger, root_pattern "
         "FROM pmwb_complaint_ticket "
         "WHERE root_cause IS NOT NULL AND root_cause != '' "
         "AND (rootcause_no IS NULL OR rootcause_no = '') "
         f"ORDER BY rc_status DESC, fault_system ASC, fault_stage ASC, id ASC{lim}"
     )).fetchall()
     return [{"ticket_no": r[0], "root_cause": r[1], "fault_system": r[2],
-             "fault_stage": r[3], "fault_type": r[4], "rc_status": r[5], "week": r[6]}
+             "fault_stage": r[3], "fault_type": r[4], "rc_status": r[5], "week": r[6],
+             "rc_mechanism": r[7] or "", "rc_object": r[8] or "",
+             "rc_trigger": r[9] or "", "root_pattern": r[10] or ""}
             for r in rows]
 
 
+def find_by_key(db: Session, key: str) -> Optional[str]:
+    """按三元组键查存活簇（open 优先于 candidate）——入库前必匹配的第一道闸。"""
+    if not key:
+        return None
+    row = db.execute(text(
+        "SELECT rootcause_no FROM pmwb_complaint_rootcause "
+        "WHERE pattern_key = :k AND status IN ('open','candidate') "
+        "ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, ticket_cnt DESC, id ASC LIMIT 1"
+    ), {"k": key}).scalar()
+    return row
+
+
+def count_bucket_clusters(db: Session, stage: str, mechanism: str,
+                          exclude: str = "") -> int:
+    """某（环节 × 机制）下现存存活簇数（配额熔断用）。"""
+    row = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_rootcause "
+        "WHERE fault_stage = :st AND mechanism = :mc AND status IN ('open','candidate') "
+        "AND (:ex = '' OR rootcause_no != :ex)"
+    ), {"st": stage, "mc": mechanism, "ex": exclude or ""}).scalar()
+    return int(row or 0)
+
+
 def _create_cluster(db: Session, title: str, description: str,
-                    tickets: List[Dict[str, Any]], key: Optional[tuple] = None) -> str:
-    """新建候选簇（同标题复用已有簇，保证增量归并口径一致）。"""
+                    tickets: List[Dict[str, Any]], key: Optional[tuple] = None,
+                    stage: str = "", mechanism: str = "", biz_object: str = "") -> str:
+    """新建候选簇。**先按三元组键复用**（未命中再按标题），保证增量不重复造簇。"""
+    pkey = P.pattern_key(stage, mechanism, biz_object) if (stage and mechanism) else ""
+    if pkey:
+        exist = find_by_key(db, pkey)
+        if exist:
+            return exist
     title = title.strip()[:200]
     if not title:
         return ""
     exist = db.execute(text(
-        "SELECT rootcause_no FROM pmwb_complaint_rootcause WHERE title = :t LIMIT 1"
+        "SELECT rootcause_no FROM pmwb_complaint_rootcause WHERE title = :t "
+        "AND status IN ('open','candidate') LIMIT 1"
     ), {"t": title}).scalar()
     if exist:
         return exist
     no = _next_rc_no(db)
     first = tickets[0] if tickets else {}
-    cnt = Counter(t.get("fault_system") or "" for t in tickets).most_common(1)
-    stage = Counter(t.get("fault_stage") or "" for t in tickets).most_common(1)
+    sys_cnt = Counter(t.get("fault_system") or "" for t in tickets).most_common(1)
+    stage_cnt = Counter(t.get("fault_stage") or "" for t in tickets).most_common(1)
     ftype = Counter(t.get("fault_type") or "" for t in tickets).most_common(1)
+    mech_cnt = Counter(t.get("rc_mechanism") or "" for t in tickets).most_common(1)
+    obj_cnt = Counter(t.get("rc_object") or "" for t in tickets).most_common(1)
+    is_defect = 0 if (mechanism or (mech_cnt[0][0] if mech_cnt else "")) == P.MECHANISM_CONSULT else 1
     db.execute(text(
         "INSERT INTO pmwb_complaint_rootcause "
         "(rootcause_no, title, description, fault_system, fault_stage, fault_type, "
+        " mechanism, biz_object, pattern_key, is_defect, "
         " status, source, ticket_cnt, sample_tickets, first_week, last_week, "
         " created_at, updated_at) "
-        "VALUES (:no, :title, :desc, :sys, :stage, :ftype, 'candidate', 'ai', 0, :samples, "
-        " :wk, :wk, :ts, :ts)"
+        "VALUES (:no, :title, :desc, :sys, :stage, :ftype, :mc, :ob, :pk, :df, "
+        " 'candidate', 'ai', 0, :samples, :wk, :wk, :ts, :ts)"
     ), {"no": no, "title": title, "desc": (description or "").strip()[:500],
-        "sys": cnt[0][0] if cnt else "", "stage": stage[0][0] if stage else "",
+        "sys": sys_cnt[0][0] if sys_cnt else "",
+        "stage": stage or (stage_cnt[0][0] if stage_cnt else ""),
         "ftype": ftype[0][0] if ftype else "",
+        "mc": mechanism or (mech_cnt[0][0] if mech_cnt else "") or None,
+        "ob": biz_object or (obj_cnt[0][0] if obj_cnt else "") or None,
+        "pk": pkey or None, "df": is_defect,
         "samples": json.dumps([t["ticket_no"] for t in tickets[:8]], ensure_ascii=False),
         "wk": first.get("week") or "", "ts": datetime.now()})
     return no
@@ -144,17 +212,17 @@ def _point(db: Session, ticket_no: str, rc_no: str) -> None:
 
 
 def _existing_titles(db: Session, key: tuple) -> List[str]:
-    """该桶已有的簇标题（去前缀），供桶内分组复用，保证增量不重复造簇。"""
-    sys_name, stage = key
-    prefix = f"{sys_name}-{stage}-"
+    """该 (环节×机制) 桶已有的簇（对象 + 模式），供桶内分组复用，保证增量不重复造簇。"""
+    stage, mech = key
     try:
         rows = db.execute(text(
-            "SELECT title FROM pmwb_complaint_rootcause "
-            "WHERE status IN ('open', 'candidate') AND title LIKE :p ORDER BY ticket_cnt DESC LIMIT 20"
-        ), {"p": prefix + "%"}).fetchall()
+            "SELECT title, biz_object, pattern_key FROM pmwb_complaint_rootcause "
+            "WHERE status IN ('open','candidate') AND fault_stage = :st AND mechanism = :mc "
+            "ORDER BY ticket_cnt DESC LIMIT 20"
+        ), {"st": stage, "mc": mech}).fetchall()
     except Exception:  # noqa: BLE001
         return []
-    return [r[0][len(prefix):] for r in rows if r[0].startswith(prefix)]
+    return [f"{(r[1] or '?')}｜{r[0]}" for r in rows]
 
 
 _MERGE_PROMPT = (
@@ -214,6 +282,14 @@ def auto_merge_similar(db: Session, limit_groups: int = 200) -> Dict[str, Any]:
             src = str(src).strip()
             if src not in valid or src == keep:
                 continue
+            # 三元组键不同不得合并：否则 ticket.pattern_key 与簇键失配，
+            # 后续按键匹配会全部打空（RC-2.0 口径保护）
+            pair = db.execute(text(
+                "SELECT (SELECT pattern_key FROM pmwb_complaint_rootcause WHERE rootcause_no = :a), "
+                "       (SELECT pattern_key FROM pmwb_complaint_rootcause WHERE rootcause_no = :b)"
+            ), {"a": src, "b": keep}).first()
+            if pair and pair[0] and pair[1] and pair[0] != pair[1]:
+                continue
             r = merge(db, src, keep)
             if r.get("ok"):
                 merged += int(r.get("moved") or 0)
@@ -226,33 +302,36 @@ def auto_merge_similar(db: Session, limit_groups: int = 200) -> Dict[str, Any]:
 
 def _bucket_prompt(key: tuple, tickets: List[Dict[str, Any]],
                    existing: Optional[List[str]] = None) -> str:
-    sys_name, stage = key
-    parts = [f"【桶】系统={sys_name}｜故障环节={stage}｜共 {len(tickets)} 单"]
+    stage, mech = key
+    parts = [f"【桶】订单环节={stage}｜失败机制={mech}｜共 {len(tickets)} 单"]
     if existing:
-        parts.append("【该桶已有根因簇（同机制的请直接沿用下列标题，不要另造近义名）】")
+        parts.append("【该桶已有根因簇（对象相同的请直接沿用其对象名，不要另造）】")
         parts.extend(f"- {t}" for t in existing)
-    parts.append("\n【根因列表】")
+    parts.append(f"\n【业务对象枚举（只能从中选）】{'、'.join(P.OBJECTS)}")
+    parts.append("\n【根因列表】（机制与环节已定，只需判断业务对象）")
     for t in tickets:
-        parts.append(f'工单 {t["ticket_no"]}（{t.get("fault_type") or "?"}）：{t.get("root_cause") or ""}')
-    parts.append("\n请分组并输出 JSON（clusters 数组，必须覆盖全部工单号）。")
+        parts.append(f'工单 {t["ticket_no"]}：{t.get("root_cause") or ""}')
+    parts.append("\n请按业务对象分组并输出 JSON（clusters 数组，必须覆盖全部工单号）。")
     return "\n".join(parts)
 
 
 def _group_bucket(db: Session, key: tuple, tickets: List[Dict[str, Any]]
-                  ) -> Tuple[List[Tuple[str, str, List[Dict[str, Any]]]], int]:
-    """桶内主动分组：返回 ([(簇标题, 判定边界, 成员工单)], 失败数)。
+                  ) -> Tuple[List[Dict[str, Any]], int]:
+    """桶内主动分组：返回 ([{obj, trigger, desc, members}], LLM 失败单数)。
 
-    LLM 不可用或漏单时，剩余工单按「单条成簇」兜底（不丢数据）。
+    单条 chunk 不再「从原文截标题」——直接用 L1 已定的对象，标题=受控模式，
+    因此不会再退化成 1 单 1 簇（历史上 `_short_title` 单条成簇是碎片产线）。
     """
-    sys_name, stage = key
     existing = _existing_titles(db, key)
-    groups: List[Tuple[str, str, List[Dict[str, Any]]]] = []
+    groups: List[Dict[str, Any]] = []
     failed = 0
     for i in range(0, len(tickets), CLUSTER_BATCH):
         chunk = tickets[i:i + CLUSTER_BATCH]
         if len(chunk) == 1:
             t = chunk[0]
-            groups.append((_short_title(t), "", [t]))
+            groups.append({"obj": t.get("rc_object") or P.OBJECT_FALLBACK,
+                           "trigger": t.get("rc_trigger") or "",
+                           "desc": "", "members": [t]})
             continue
         res = call_best_available(db, _CLUSTER_PROMPT,
                                   _bucket_prompt(key, chunk, existing),
@@ -260,7 +339,9 @@ def _group_bucket(db: Session, key: tuple, tickets: List[Dict[str, Any]]
         if not res.get("used_llm"):
             failed += len(chunk)
             for t in chunk:
-                groups.append((_short_title(t), "", [t]))
+                groups.append({"obj": t.get("rc_object") or P.OBJECT_FALLBACK,
+                               "trigger": t.get("rc_trigger") or "",
+                               "desc": "", "members": [t]})
             continue
         data = _extract_json(res.get("text") or "") or {}
         by_no = {t["ticket_no"]: t for t in chunk}
@@ -268,64 +349,185 @@ def _group_bucket(db: Session, key: tuple, tickets: List[Dict[str, Any]]
         for c in (data.get("clusters") or []):
             if not isinstance(c, dict):
                 continue
-            title = str(c.get("title") or "").strip()
+            obj = P.normalize_object(str(c.get("biz_object") or ""))
             members = [str(m).strip() for m in (c.get("members") or [])]
             ts = [by_no[m] for m in members if m in by_no and m not in covered]
-            if not title or not ts:
+            if not ts:
                 continue
             covered.update(members)
-            groups.append((title[:120], str(c.get("description") or "").strip()[:500], ts))
-        # 漏单兜底
+            groups.append({
+                "obj": obj or (ts[0].get("rc_object") or P.OBJECT_FALLBACK),
+                "trigger": str(c.get("trigger") or "").strip()[:64],
+                "desc": str(c.get("description") or "").strip()[:500],
+                "members": ts})
         for t in chunk:
             if t["ticket_no"] not in covered:
-                groups.append((_short_title(t), "", [t]))
+                groups.append({"obj": t.get("rc_object") or P.OBJECT_FALLBACK,
+                               "trigger": t.get("rc_trigger") or "",
+                               "desc": "", "members": [t]})
     return groups, failed
 
 
-def _short_title(t: Dict[str, Any]) -> str:
-    """单条成簇时从根因提炼短标题（去掉开头单号类噪音，截 40 字）。"""
-    cause = (t.get("root_cause") or "").strip()
-    cause = re.sub(r"^[\d\s,，、./:-]{6,}", "", cause)
-    return (cause[:40] or t["ticket_no"])
+def _ensure_cluster(db: Session, stage: str, mech: str, obj: str, trigger: str,
+                    desc: str, members: List[Dict[str, Any]]) -> Tuple[str, str]:
+    """入库前必匹配 → 配额熔断 → 才允许新建。返回 (簇号, 命中方式)。
+
+    四道闸里的第 2、3 道：先按 (环节,机制,上位对象) 精确匹配；未命中且该桶簇数
+    已达 BUCKET_CLUSTER_MAX 时，强制归入该桶「其他」兜底簇（记 quota，等月度重构）。
+    """
+    obj = P.normalize_object(obj) or P.OBJECT_FALLBACK
+    rc_no = find_by_key(db, P.pattern_key(stage, mech, obj))
+    if rc_no:
+        return rc_no, "matched"
+    if mech != P.MECHANISM_FALLBACK and \
+            count_bucket_clusters(db, stage, mech) >= P.BUCKET_CLUSTER_MAX:
+        obj, how = P.OBJECT_FALLBACK, "quota"
+        rc_no = find_by_key(db, P.pattern_key(stage, mech, obj))
+        if rc_no:
+            return rc_no, how
+    title = P.build_pattern(mech, obj, trigger)
+    if P.pattern_violations(title):      # trigger 违规就去掉 trigger，模式本身仍合法
+        title = P.build_pattern(mech, obj)
+    rc_no = _create_cluster(db, title, desc, members,
+                            stage=stage, mechanism=mech, biz_object=obj)
+    return rc_no, "new"
+
+
+_LABEL_PROMPT = (
+    "你是客诉根因标定专家。请把每条根因抽象成**可复用模式三要素**，"
+    "**严禁带入账号、订单号、协议号、客户名、地市门牌、日期、金额**。\n"
+    " · fault_stage 订单环节（按**断点所在环节**判定，不按客户投诉提到的环节）\n"
+    " · mechanism 失败机制（怎么断的）\n"
+    " · biz_object 业务对象（断在谁身上）\n"
+    " · trigger ≤12 字，可空；仅当同对象同机制但修复点明显不同时才填\n"
+    "三个要素都必须从给定枚举里选，不得自由造词。\n"
+    "输出仅 JSON："
+    '{"items": [{"no": "...", "fault_stage": "...", "mechanism": "...", '
+    '"biz_object": "...", "trigger": ""}]}'
+)
+
+
+def _label_user_prompt(rows: List[str]) -> str:
+    return (P.enum_block() + "\n【机制判定参考】\n" + P.mechanism_rules_block()
+            + "\n\n【待标定条目】\n" + "\n".join(rows)
+            + f"\n\n请逐条输出三要素（共 {len(rows)} 条），仅输出 JSON。")
+
+
+def label_ticket_patterns(db: Session, tickets: List[Dict[str, Any]]) -> int:
+    """给缺模式的工单补三要素并回填（L1 已输出的不会重复调用）。
+
+    历史数据回填的**唯一入口之一**（另一个是 relabel_clusters，簇级更便宜）。
+    """
+    todo = [t for t in tickets
+            if (t.get("rc_mechanism") or "") not in P.MECHANISMS
+            or (t.get("rc_object") or "") not in P.OBJECTS]
+    if not todo:
+        return 0
+    filled = 0
+    for i in range(0, len(todo), C.RC_BATCH_SIZE):
+        chunk = todo[i:i + C.RC_BATCH_SIZE]
+        rows = [f'工单 {t["ticket_no"]}：{(t.get("root_cause") or "")[:200]}' for t in chunk]
+        res = call_best_available(db, _LABEL_PROMPT, _label_user_prompt(rows),
+                                  max_tokens=4000, timeout=300)
+        if not res.get("used_llm"):
+            break
+        data = _extract_json(res.get("text") or "") or {}
+        by_no = {t["ticket_no"]: t for t in chunk}
+        for it in (data.get("items") or []):
+            if not isinstance(it, dict):
+                continue
+            no = str(it.get("no") or "").strip()
+            t = by_no.get(no)
+            if not t:
+                continue
+            stage = RC.normalize_choice(str(it.get("fault_stage") or ""), RC.FAULT_STAGES)
+            mech = P.normalize_mechanism(str(it.get("mechanism") or ""))
+            obj = P.normalize_object(str(it.get("biz_object") or ""))
+            trig = str(it.get("trigger") or "").strip()[:64]
+            pattern = P.build_pattern(mech, obj, trig)
+            if not mech or not obj or P.pattern_violations(pattern):
+                pattern = P.build_pattern(mech, obj)
+            db.execute(text(
+                "UPDATE pmwb_complaint_ticket SET rc_mechanism = :mc, rc_object = :ob, "
+                "rc_trigger = :tg, root_pattern = :pt, "
+                "fault_stage = COALESCE(NULLIF(:st, ''), fault_stage) "
+                "WHERE ticket_no = :no"
+            ), {"mc": mech or None, "ob": obj or None, "tg": trig or None,
+                "pt": pattern or None, "st": stage or "", "no": no})
+            if mech and obj:
+                filled += 1
+            # 内存同步，避免后续分桶还按旧值
+            t["rc_mechanism"], t["rc_object"] = mech, obj
+            t["rc_trigger"], t["root_pattern"] = trig, pattern
+            if stage:
+                t["fault_stage"] = stage
+        db.commit()
+    return filled
 
 
 def build_clusters(db: Session, limit: Optional[int] = None) -> Dict[str, Any]:
     """把未归属的 L1 根因归并进根因库（新簇先落 candidate，人工确认后 open）。
 
-    两步走：
-      ① 规则分桶：按 fault_system + fault_stage 分桶（同系统同环节才可能同机制）；
-      ② 桶内主动分组：LLM 一次看全桶样本，按「缺陷对象 + 失败机制」打成若干簇。
-    这样既避免跨系统乱并，也避免逐条判定的「全都 NEW」退化。
+    三步走（RC-2.0，2026-11-04）：
+      ① 补标：缺模式三要素的单先补（新单由 L1 直接产出，只有历史/异常单会走这里）；
+      ② 规则分桶：按 **环节 + 失败机制** 分桶（机制是收敛轴，系统降级为属性不进桶）；
+      ③ 桶内分组：LLM 一次看全桶样本，只判断「断在哪个业务对象上」；
+         然后按三元组键精确匹配库内簇，未命中才在配额内新建。
+    这样既消除「同机制跨系统被拆 4 簇」，也不会退化成 1 单 1 簇。
     """
     pending = _tickets_to_group(db, limit)
     if not pending:
         return {"scanned": 0, "assigned": 0, "new_clusters": [], "failed": 0,
                 "used_llm": False, "notice": "没有待归并的根因"}
 
-    buckets: Dict[tuple, List[Dict[str, Any]]] = {}
-    for t in pending:
-        key = ((t.get("fault_system") or "").strip() or "未标注",
-               (t.get("fault_stage") or "").strip() or "未标注")
-        buckets.setdefault(key, []).append(t)
+    relabeled = label_ticket_patterns(db, pending)
 
-    assigned = failed = 0
+    consult: List[Dict[str, Any]] = []
+    buckets: Dict[tuple, List[Dict[str, Any]]] = {}
+    skipped = 0
+    for t in pending:
+        stage = (t.get("fault_stage") or "").strip()
+        mech = (t.get("rc_mechanism") or "").strip()
+        if mech not in P.MECHANISMS or not stage:
+            skipped += 1          # 模式补不出来：不造簇，等下一轮（宁缺不碎）
+            continue
+        if mech == P.MECHANISM_CONSULT:
+            consult.append(t)
+            continue
+        buckets.setdefault((stage, mech), []).append(t)
+
+    assigned = failed = quota_hits = 0
     new_clusters: List[str] = []
     used_llm = False
-    notice = ""
 
-    # 大桶先处理（主题优先），小桶后处理
+    # 咨询单：单列一簇，不参与缺陷簇统计（is_defect=0）
+    if consult:
+        rc_no, how = _ensure_cluster(db, P.MECHANISM_CONSULT, P.MECHANISM_CONSULT,
+                                     P.OBJECT_FALLBACK, "",
+                                     "操作不熟或认知偏差，系统与流程均正常（非缺陷）",
+                                     consult)
+        for t in consult:
+            _point(db, t["ticket_no"], rc_no)
+            assigned += 1
+        if rc_no and rc_no not in new_clusters:
+            new_clusters.append(rc_no)
+        db.commit()
+
+    # 大桶先处理（主题优先）
     for key in sorted(buckets.keys(), key=lambda k: -len(buckets[k])):
         ts = buckets[key]
         groups, bad = _group_bucket(db, key, ts)
         failed += bad
         used_llm = used_llm or (bad < len(ts))
-        for title, desc, members in groups:
-            full_title = f"{key[0]}-{key[1]}-{title}"[:200]
-            rc_no = _create_cluster(db, full_title, desc, members, key)
+        for g in groups:
+            rc_no, how = _ensure_cluster(db, key[0], key[1], g["obj"], g["trigger"],
+                                         g["desc"], g["members"])
+            if how == "quota":
+                quota_hits += len(g["members"])
             if not rc_no:
-                failed += len(members)
+                failed += len(g["members"])
                 continue
-            for t in members:
+            for t in g["members"]:
                 _point(db, t["ticket_no"], rc_no)
                 assigned += 1
             if rc_no not in new_clusters:
@@ -335,8 +537,10 @@ def build_clusters(db: Session, limit: Optional[int] = None) -> Dict[str, Any]:
     refresh_counts(db, update_labels=True)
     return {
         "scanned": len(pending), "assigned": assigned, "failed": failed,
-        "new_clusters": new_clusters, "buckets": len(buckets), "used_llm": used_llm,
-        "notice": notice or ("根因归并完成" if used_llm else "大模型不可用，未做归并"),
+        "new_clusters": new_clusters, "buckets": len(buckets),
+        "relabeled": relabeled, "skipped": skipped, "quota_fallback": quota_hits,
+        "used_llm": used_llm,
+        "notice": ("根因归并完成" if used_llm else "大模型不可用，未做归并"),
     }
 
 
@@ -355,7 +559,8 @@ def refresh_counts(db: Session, commit: bool = True,
     rows = db.execute(text(
         "SELECT rootcause_no, COUNT(*), MIN(week), MAX(week), "
         "  GROUP_CONCAT(fault_stage), GROUP_CONCAT(fault_type), "
-        "  GROUP_CONCAT(own_party), GROUP_CONCAT(fix_mode) "
+        "  GROUP_CONCAT(own_party), GROUP_CONCAT(fix_mode), "
+        "  GROUP_CONCAT(rc_mechanism), GROUP_CONCAT(rc_object) "
         "FROM pmwb_complaint_ticket WHERE rootcause_no IS NOT NULL AND rootcause_no != '' "
         "GROUP BY rootcause_no"
     )).fetchall()
@@ -375,7 +580,7 @@ def refresh_counts(db: Session, commit: bool = True,
         vals = [v for v in str(raw).split(",") if v]
         return Counter(vals).most_common(1)[0][0] if vals else ""
 
-    for rc_no, cnt, fw, lw, stages, ftypes, parties, fixes in rows:
+    for rc_no, cnt, fw, lw, stages, ftypes, parties, fixes, mechs, objs in rows:
         sets = ["ticket_cnt = :c", "first_week = :fw", "last_week = :lw",
                 "sample_tickets = :s", "updated_at = :ts"]
         params: Dict[str, Any] = {
@@ -383,16 +588,470 @@ def refresh_counts(db: Session, commit: bool = True,
             "s": json.dumps(samples_map.get(rc_no) or [], ensure_ascii=False),
             "no": rc_no, "ts": datetime.now()}
         if update_labels:
+            stage_v, mech_v, obj_v = _mode(stages), _mode(mechs), _mode(objs)
             sets += ["fault_stage = :stage", "fault_type = :ftype",
-                     "own_party = :party", "fix_mode = :fix"]
-            params.update({"stage": _mode(stages), "ftype": _mode(ftypes),
-                           "party": _mode(parties), "fix": _mode(fixes)})
+                     "own_party = :party", "fix_mode = :fix",
+                     "mechanism = :mech", "biz_object = :obj"]
+            params.update({"stage": stage_v, "ftype": _mode(ftypes),
+                           "party": _mode(parties), "fix": _mode(fixes),
+                           "mech": mech_v or None, "obj": obj_v or None})
+            # 三元组键：环节/机制/上位对象都在时才写（缺一不猜）
+            if stage_v and mech_v and obj_v:
+                sets.append("pattern_key = :pk")
+                params["pk"] = P.pattern_key(stage_v, mech_v, obj_v)
         db.execute(text(
             f"UPDATE pmwb_complaint_rootcause SET {', '.join(sets)} WHERE rootcause_no = :no"
         ), params)
     if commit:
         db.commit()
     return {"clusters": len(rows)}
+
+
+# ── RC-2.0 簇重建（历史数据一次性收敛）────────────────────────
+_CLUSTER_LABEL_PROMPT = (
+    "你是客诉根因库的标定专家。下面每个簇已经是一个「同类根因」，请为每个簇标定三要素，"
+    "用于跨簇归并（同一「环节 + 机制 + 业务对象」应当收敛成一个簇）。\n"
+    " · fault_stage 订单环节，按**断点所在环节**判定，不按客户投诉提到的环节\n"
+    " · mechanism 失败机制（怎么断的）\n"
+    " · biz_object 业务对象（断在谁身上）\n"
+    " · trigger ≤12 字，可空；仅当同对象同机制但修复点明显不同时才填\n"
+    "判定只看断点在哪、怎么断的、断在谁身上，**不要被具体单号账号干扰**。\n"
+    "三个要素必须从给定枚举中选，不得自由造词；咨询/非缺陷簇的 mechanism 填「使用咨询」。\n"
+    "输出仅 JSON："
+    '{"items": [{"no": "RC-0001", "fault_stage": "...", "mechanism": "...", '
+    '"biz_object": "...", "trigger": ""}]}'
+)
+
+
+def relabel_clusters(db: Session, limit: Optional[int] = None,
+                     only_missing: bool = False, retitle: bool = True,
+                     dry_run: bool = False) -> Dict[str, Any]:
+    """给存量簇做模式标定（环节 / 机制 / 对象 / 触发条件），并回填成员工单。
+
+    为什么走「簇级」而不是重跑 1476 单 L1：858 簇 ÷ 40 ≈ 22 批，
+    比重跑工单（≈150 批）便宜 7 倍；且模型一次看 40 个簇是全局视角，天然收敛。
+    这是历史 `root_pattern` 回填的**唯一入口**（另一个是 L1 对新单的直接产出）。
+
+    dry_run=True 只返回标定结果不动库（含每簇 before/after），用于先看质量。
+    """
+    cond = "status IN ('open','candidate')"
+    if only_missing:
+        cond += " AND (mechanism IS NULL OR mechanism = '')"
+    lim = f" LIMIT {int(limit)}" if limit else ""
+    rows = db.execute(text(
+        "SELECT rootcause_no, title, description, fault_stage, fault_system, ticket_cnt, "
+        f"sample_tickets, status, source, is_defect FROM pmwb_complaint_rootcause WHERE {cond}{lim}"
+    )).fetchall()
+    if not rows:
+        return {"scanned": 0, "labeled": 0, "failed": 0, "changed_stage": 0,
+                "notice": "没有需要标定的簇"}
+
+    # 代表单根因摘要（跨库安全：sample_tickets 是 JSON，Python 侧解析）
+    samples: Dict[str, List[str]] = {}
+    for rc_no, raw in db.execute(text(
+        "SELECT rootcause_no, sample_tickets FROM pmwb_complaint_rootcause "
+        f"WHERE {cond}{lim}"
+    )).fetchall():
+        try:
+            samples[rc_no] = json.loads(raw or "[]")[:2]
+        except (TypeError, ValueError):
+            samples[rc_no] = []
+    ex_rows = db.execute(text(
+        "SELECT ticket_no, rootcause_no, LEFT(root_cause, 120) FROM pmwb_complaint_ticket "
+        "WHERE rootcause_no IS NOT NULL AND rootcause_no != '' ORDER BY id ASC"
+    )).fetchall()
+    ex_map: Dict[str, List[str]] = {}
+    for tno, rc_no, cause in ex_rows:
+        lst = ex_map.setdefault(rc_no, [])
+        if len(lst) < 2 and cause:
+            lst.append(cause)
+
+    labeled = failed = changed_stage = 0
+    used_llm = False
+    preview: List[Dict[str, Any]] = []
+    for i in range(0, len(rows), RELABEL_BATCH):
+        chunk = rows[i:i + RELABEL_BATCH]
+        # 漏返重试：实测模型偶发只返回前几条（20 条只回 4 条），对剩余条目补调一次
+        todo_rows = list(chunk)
+        for attempt in range(3):
+            if not todo_rows:
+                break
+            lines = []
+            for r in todo_rows:
+                ex = "；".join(ex_map.get(r[0]) or [])
+                lines.append(f"{r[0]}｜{r[5]} 单｜原环节={r[3] or '?'}｜{r[1]}"
+                             + (f"｜例：{ex}" if ex else ""))
+            res = call_best_available(db, _CLUSTER_LABEL_PROMPT, _label_user_prompt(lines),
+                                      max_tokens=8000, timeout=300)
+            if not res.get("used_llm"):
+                break
+            used_llm = True
+            data = _extract_json(res.get("text") or "") or {}
+            raw_items = [it for it in (data.get("items") or []) if isinstance(it, dict)]
+            if not raw_items:
+                continue
+            # 批次退化防护：模型「偷懒」时会整批填「使用咨询」（实测 40 条一批时出现）。
+            # 只统计「原文毫无咨询特征却标咨询」的数量——真咨询簇允许被标为咨询。
+            by_no = {r[0]: r for r in todo_rows}
+            consult_hits = 0
+            for it in raw_items:
+                r = by_no.get(str(it.get("no") or "").strip())
+                if not r:
+                    continue
+                if P.normalize_mechanism(str(it.get("mechanism") or "")) != P.MECHANISM_CONSULT:
+                    continue
+                if (r[3] or "") == P.MECHANISM_CONSULT or int(r[9] or 1) == 0:
+                    continue
+                if not _looks_consult(r[1], r[2]):
+                    consult_hits += 1
+            if len(raw_items) >= 5 and consult_hits / len(raw_items) > CONSULT_RATIO_MAX:
+                logger.warning("簇标定批次退化（无据标咨询 %d/%d），整批拒收",
+                               consult_hits, len(raw_items))
+                failed += len(todo_rows)
+                break
+            handled = set()
+            for it in raw_items:
+                no = str(it.get("no") or "").strip()
+                r = by_no.get(no)
+                if not r or no in handled:
+                    continue
+                stage = RC.normalize_choice(str(it.get("fault_stage") or ""), RC.FAULT_STAGES)
+                mech = P.normalize_mechanism(str(it.get("mechanism") or ""))
+                obj = P.normalize_object(str(it.get("biz_object") or ""))
+                trig = str(it.get("trigger") or "").strip()[:64]
+                if not mech or not obj:
+                    # 落不到枚举（模型可能填了分组名）：不标记 handled，下一轮重试
+                    continue
+                # 「使用咨询」门禁：模型判咨询，原文必须有咨询特征（防偷懒降级）。
+                # 判据双向对齐后，is_defect 也统一按机制派生（不再按 fault_stage 猜）。
+                if mech == P.MECHANISM_CONSULT and \
+                        (r[3] or "") != P.MECHANISM_CONSULT and int(r[9] or 1) == 1 \
+                        and not _looks_consult(r[1], r[2]):
+                    continue
+                handled.add(no)
+                pattern = P.build_pattern(mech, obj, trig)
+                if P.pattern_violations(pattern):
+                    pattern = P.build_pattern(mech, obj)
+                labeled += 1
+                if stage and stage != (r[3] or ""):
+                    changed_stage += 1
+                if dry_run:
+                    preview.append({"no": no, "old_title": r[1], "old_stage": r[3] or "",
+                                    "stage": stage or r[3] or "", "mechanism": mech,
+                                    "biz_object": obj, "trigger": trig,
+                                    "pattern": pattern, "cnt": int(r[5] or 0)})
+                    continue
+                sets = ["mechanism = :mc", "biz_object = :ob", "updated_at = :ts",
+                        "is_defect = :df"]
+                params: Dict[str, Any] = {"mc": mech, "ob": obj, "no": no,
+                                          "df": 0 if mech == P.MECHANISM_CONSULT else 1,
+                                          "ts": datetime.now()}
+                eff_stage = stage or (r[3] or "")
+                if eff_stage:
+                    sets.append("fault_stage = :st")
+                    params["st"] = eff_stage
+                    sets.append("pattern_key = :pk")
+                    params["pk"] = P.pattern_key(eff_stage, mech, obj)
+                # 标题统一改为受控模式（人工命名过的不动）
+                if retitle and (r[8] or "ai") != "manual":
+                    sets.append("title = :ti")
+                    params["ti"] = pattern
+                db.execute(text(
+                    f"UPDATE pmwb_complaint_rootcause SET {', '.join(sets)} "
+                    "WHERE rootcause_no = :no"), params)
+                # 回填成员工单的 pattern（只填空，绝不覆盖 L1 已产出的结果）
+                db.execute(text(
+                    "UPDATE pmwb_complaint_ticket SET rc_mechanism = :mc, rc_object = :ob, "
+                    "root_pattern = :pt "
+                    "WHERE rootcause_no = :no AND (root_pattern IS NULL OR root_pattern = '')"
+                ), {"mc": mech, "ob": obj, "pt": pattern, "no": no})
+            todo_rows = [r for r in todo_rows if r[0] not in handled]
+        failed += len(todo_rows)      # 三轮仍落不到枚举的，计失败（下轮 only_missing 自愈）
+        if not dry_run:
+            db.commit()
+
+    out: Dict[str, Any] = {"scanned": len(rows), "labeled": labeled, "failed": failed,
+                           "changed_stage": changed_stage, "used_llm": used_llm,
+                           "dry_run": dry_run,
+                           "notice": "簇模式标定完成" if used_llm else "大模型不可用，未标定"}
+    if dry_run:
+        out["preview"] = preview
+    return out
+
+
+def consolidate_by_pattern(db: Session, dry_run: bool = True) -> Dict[str, Any]:
+    """按三元组键把同键簇合并成一个（纯规则、0 LLM、走 merged_to 可回滚）。
+
+    dry_run=True 只出报告不动库（含每组的保留/被并清单），便于先看影响面。
+    """
+    rows = db.execute(text(
+        "SELECT rootcause_no, pattern_key, title, status, ticket_cnt, is_defect "
+        "FROM pmwb_complaint_rootcause "
+        "WHERE status IN ('open','candidate') AND pattern_key IS NOT NULL AND pattern_key != '' "
+        "ORDER BY pattern_key, id ASC"
+    )).fetchall()
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for rc_no, key, title, status, cnt, df in rows:
+        groups.setdefault(key, []).append(
+            {"no": rc_no, "title": title, "status": status,
+             "cnt": int(cnt or 0), "is_defect": int(df or 1)})
+
+    plan: List[Dict[str, Any]] = []
+    for key, items in groups.items():
+        if len(items) < 2:
+            continue
+        # 保留规则：open 优先 → 单量大 → 簇号小（可预测，便于复核）
+        keep = sorted(items, key=lambda x: (0 if x["status"] == "open" else 1,
+                                            -x["cnt"], x["no"]))[0]
+        absorb = [x["no"] for x in items if x["no"] != keep["no"]]
+        plan.append({"key": key, "keep": keep["no"], "absorb": absorb,
+                     "single_hits": sum(1 for x in items if x["cnt"] <= 1)})
+
+    before = len(rows)
+    after = before - sum(len(p["absorb"]) for p in plan)
+    out: Dict[str, Any] = {
+        "dry_run": dry_run, "clusters_before": before, "clusters_after_est": after,
+        "groups": len(plan), "absorb_count": sum(len(p["absorb"]) for p in plan),
+        "plan": plan[:80],
+    }
+    if dry_run:
+        return out
+
+    merged = 0
+    for p in plan:
+        # 主簇标题统一为受控模式 `{对象}-{机制}`（人工命名过的不动）
+        _st, _mc, _ob = p["key"].split(P.KEY_SEP)
+        db.execute(text(
+            "UPDATE pmwb_complaint_rootcause SET title = :t, updated_at = :ts "
+            "WHERE rootcause_no = :no AND (source IS NULL OR source != 'manual')"
+        ), {"t": P.build_pattern(_mc, _ob), "no": p["keep"], "ts": datetime.now()})
+        # 批量迁移指针 + 置 merged（不逐簇调 merge()：那样每簇都全表重算，483 簇要走几十分钟）
+        if p["absorb"]:
+            marks = ",".join(f":a{i}" for i in range(len(p["absorb"])))
+            aparams: Dict[str, Any] = {f"a{i}": v for i, v in enumerate(p["absorb"])}
+            aparams.update({"keep": p["keep"], "ts": datetime.now()})
+            db.execute(text(
+                f"UPDATE pmwb_complaint_ticket SET rootcause_no = :keep "
+                f"WHERE rootcause_no IN ({marks})"), aparams)
+            db.execute(text(
+                f"UPDATE pmwb_complaint_rootcause SET status = 'merged', merged_to = :keep, "
+                f"ticket_cnt = 0, updated_at = :ts WHERE rootcause_no IN ({marks})"), aparams)
+            merged += len(p["absorb"])
+        db.commit()
+    # 收尾统一做一次：锚点跟随 + 派生值重算（顺序不可倒，锚点迁移依赖 merged_to 已写）
+    anchors = sync_entity_anchors(db)
+    refresh_counts(db)
+    out["merged"] = merged
+    out["anchors"] = anchors
+    out["clusters_after"] = int(db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_rootcause WHERE status IN ('open','candidate')"
+    )).scalar() or 0)
+    return out
+
+
+def closing_check(db: Session) -> Dict[str, Any]:
+    """簇闭合校验：**簇成员汇总 必须等于 指向活簇的工单指针数**。
+
+    口径说明（2026-11-04 对齐）：
+      - disabled（人工停用）簇的存量指针**合法保留**，不算悬空；
+      - merged 簇的指针必须已迁到终簇，残留才算悬空（sync_entity_anchors 漏做）；
+      - insufficient（信息不足）单历史上也进簇，此处只做计数提示，不参与闭合判定。
+    """
+    assigned = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket t "
+        "JOIN pmwb_complaint_rootcause r ON r.rootcause_no = t.rootcause_no "
+        "WHERE r.status IN ('open','candidate')"
+    )).scalar() or 0
+    summed = db.execute(text(
+        "SELECT COALESCE(SUM(ticket_cnt), 0) FROM pmwb_complaint_rootcause "
+        "WHERE status IN ('open','candidate')"
+    )).scalar() or 0
+    dangling = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket t "
+        "LEFT JOIN pmwb_complaint_rootcause r ON r.rootcause_no = t.rootcause_no "
+        "WHERE t.rootcause_no IS NOT NULL AND t.rootcause_no != '' "
+        "AND (r.rootcause_no IS NULL OR r.status = 'merged')"
+    )).scalar() or 0
+    disabled_ptr = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket t "
+        "JOIN pmwb_complaint_rootcause r ON r.rootcause_no = t.rootcause_no "
+        "WHERE r.status = 'disabled'"
+    )).scalar() or 0
+    insuff = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket WHERE rc_status = :st "
+        "AND rootcause_no IS NOT NULL AND rootcause_no != ''"
+    ), {"st": RC.RC_STATUS_INSUFFICIENT}).scalar() or 0
+    return {"assigned": int(assigned), "cluster_sum": int(summed or 0),
+            "diff": int(assigned) - int(summed or 0),
+            "dangling": int(dangling), "disabled_pointer": int(disabled_ptr),
+            "insufficient_in_cluster": int(insuff),
+            "balanced": int(assigned) == int(summed or 0) and int(dangling) == 0}
+
+
+# 高危机制：涉及资金/合规/批量的，单量再小也不并入兜底（方案 §5.4 第 5 条「永不淘汰」）
+HIGH_RISK_MECHANISMS: Tuple[str, ...] = (
+    "计费错误", "未级联", "脏数据残留", "重复开通", "校验拦截",
+)
+
+
+def merge_long_tail(db: Session, max_cnt: int = 1, dry_run: bool = True) -> Dict[str, Any]:
+    """长尾归并（方案 §5.4 降级第 1 条）：单量 ≤ max_cnt 且机制非高危的簇，
+    并入同（环节 × 机制）的「其他」兜底簇。
+
+    只压簇数、不丢单量：兜底簇承接全部成员，单量、周轨迹、问题锚点都随指针迁移。
+    """
+    rows = db.execute(text(
+        "SELECT rootcause_no, pattern_key, fault_stage, mechanism, biz_object, ticket_cnt "
+        "FROM pmwb_complaint_rootcause "
+        "WHERE status IN ('open','candidate') AND pattern_key IS NOT NULL AND pattern_key != '' "
+        "AND ticket_cnt <= :n ORDER BY pattern_key, id ASC"
+    ), {"n": int(max_cnt)}).fetchall()
+
+    # 按 (环节, 机制) 归组，找出需要下沉的簇
+    sink: Dict[Tuple[str, str], List[str]] = {}
+    for rc_no, key, st, mc, ob, cnt in rows:
+        if mc in HIGH_RISK_MECHANISMS or mc == P.MECHANISM_CONSULT:
+            continue          # 高危/咨询不参与长尾归并
+        if (ob or "") == P.OBJECT_FALLBACK:
+            continue          # 已经是兜底簇
+        sink.setdefault((st, mc), []).append(rc_no)
+
+    # 已有兜底簇先复用
+    holders: Dict[Tuple[str, str], str] = {}
+    for st, mc in sink:
+        exist = find_by_key(db, P.pattern_key(st, mc, P.OBJECT_FALLBACK))
+        if exist:
+            holders[(st, mc)] = exist
+
+    plan = [{"key": P.KEY_SEP.join((st, mc, P.OBJECT_FALLBACK)),
+             "keep": holders.get((st, mc), ""),
+             "absorb": nos,
+             "new_holder": (st, mc) not in holders}
+            for (st, mc), nos in sink.items()]
+    absorb_total = sum(len(p["absorb"]) for p in plan)
+    out: Dict[str, Any] = {
+        "dry_run": dry_run, "max_cnt": int(max_cnt),
+        "clusters_now": int(db.execute(text(
+            "SELECT COUNT(*) FROM pmwb_complaint_rootcause "
+            "WHERE status IN ('open','candidate')")).scalar() or 0),
+        "groups": len(plan), "absorb_count": absorb_total,
+        "protect_mechanisms": list(HIGH_RISK_MECHANISMS),
+        "plan": plan[:60],
+    }
+    out["clusters_after_est"] = out["clusters_now"] - absorb_total + \
+        sum(1 for p in plan if p["new_holder"])
+    if dry_run:
+        return out
+
+    merged = 0
+    for p in plan:
+        keep = p["keep"]
+        if not keep:
+            st, mc = p["key"].split(P.KEY_SEP)[0], p["key"].split(P.KEY_SEP)[1]
+            title = P.build_pattern(mc, P.OBJECT_FALLBACK)
+            keep = _create_cluster(db, title, f"{st}环节下未单独成簇的零星个案（长尾归并）",
+                                   [], stage=st, mechanism=mc,
+                                   biz_object=P.OBJECT_FALLBACK)
+        if not keep:
+            continue
+        marks = ",".join(f":a{i}" for i in range(len(p["absorb"])))
+        params: Dict[str, Any] = {f"a{i}": v for i, v in enumerate(p["absorb"])}
+        params.update({"keep": keep, "ts": datetime.now()})
+        db.execute(text(
+            f"UPDATE pmwb_complaint_ticket SET rootcause_no = :keep "
+            f"WHERE rootcause_no IN ({marks})"), params)
+        db.execute(text(
+            f"UPDATE pmwb_complaint_rootcause SET status = 'merged', merged_to = :keep, "
+            f"ticket_cnt = 0, updated_at = :ts WHERE rootcause_no IN ({marks})"), params)
+        merged += len(p["absorb"])
+        db.commit()
+    anchors = sync_entity_anchors(db)
+    refresh_counts(db)
+    out["merged"] = merged
+    out["anchors"] = anchors
+    out["clusters_after"] = int(db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_rootcause "
+        "WHERE status IN ('open','candidate')")).scalar() or 0)
+    return out
+
+
+def rekey_clusters(db: Session) -> Dict[str, Any]:
+    """按当前 mechanism / biz_object / fault_stage 重算 pattern_key（纯规则、0 LLM）。
+
+    派生字段必须有「从源重建」的路径：relabel 早期版本模型漏返 fault_stage 时
+    会写下 mechanism 却不写 key，本函数把它补回来（也用于口径调整后的批量重算）。
+    """
+    rows = db.execute(text(
+        "SELECT rootcause_no, fault_stage, mechanism, biz_object, pattern_key "
+        "FROM pmwb_complaint_rootcause WHERE status IN ('open','candidate')"
+    )).fetchall()
+    fixed = cleared = retitled = 0
+    for no, st, mc, ob, pk in rows:
+        if not (st and mc and ob):
+            if pk:
+                db.execute(text(
+                    "UPDATE pmwb_complaint_rootcause SET pattern_key = NULL, "
+                    "updated_at = :ts WHERE rootcause_no = :no"),
+                    {"no": no, "ts": datetime.now()})
+                cleared += 1
+            continue
+        want = P.pattern_key(st, mc, ob)
+        if want != (pk or ""):
+            db.execute(text(
+                "UPDATE pmwb_complaint_rootcause SET pattern_key = :pk, updated_at = :ts "
+                "WHERE rootcause_no = :no"), {"pk": want, "no": no, "ts": datetime.now()})
+            fixed += 1
+        # 标题格式自愈：早期合并版本把 key 分隔符直接当标题（「环节-机制-对象」三段式）
+        title = db.execute(text(
+            "SELECT title FROM pmwb_complaint_rootcause WHERE rootcause_no = :no"
+        ), {"no": no}).scalar() or ""
+        if title and "（" not in title and len(title.split("-")) >= 3 and title != P.build_pattern(mc, ob):
+            db.execute(text(
+                "UPDATE pmwb_complaint_rootcause SET title = :t, updated_at = :ts "
+                "WHERE rootcause_no = :no AND (source IS NULL OR source != 'manual')"
+            ), {"t": P.build_pattern(mc, ob), "no": no, "ts": datetime.now()})
+            retitled += 1
+    db.commit()
+    return {"scanned": len(rows), "fixed": fixed, "cleared": cleared,
+            "retitled": retitled}
+
+
+def cluster_health(db: Session) -> Dict[str, Any]:
+    """簇健康度（看板数据源）：簇数 / 单簇率 / 覆盖率 / 未匹配率 / 咨询占比。"""
+    total = db.execute(text("SELECT COUNT(*) FROM pmwb_complaint_rootcause "
+                            "WHERE status IN ('open','candidate')")).scalar() or 0
+    single = db.execute(text("SELECT COUNT(*) FROM pmwb_complaint_rootcause "
+                             "WHERE status IN ('open','candidate') AND ticket_cnt <= 1"
+                             )).scalar() or 0
+    defect = db.execute(text("SELECT COUNT(*) FROM pmwb_complaint_rootcause "
+                             "WHERE status IN ('open','candidate') AND is_defect = 1"
+                             )).scalar() or 0
+    # 覆盖率分母用「有根因文本的单」：insufficient 单也归了簇，若只算 ai/manual 会 >100%
+    with_cause = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket "
+        "WHERE root_cause IS NOT NULL AND root_cause != ''")).scalar() or 0
+    in_cluster = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket t "
+        "JOIN pmwb_complaint_rootcause r ON r.rootcause_no = t.rootcause_no "
+        "WHERE r.status IN ('open','candidate')")).scalar() or 0
+    fallback = db.execute(text(
+        "SELECT COUNT(*) FROM pmwb_complaint_ticket t "
+        "JOIN pmwb_complaint_rootcause r ON r.rootcause_no = t.rootcause_no "
+        "WHERE r.status IN ('open','candidate') AND r.is_defect = 1 "
+        "AND (r.biz_object = '其他' OR r.mechanism = '其他')"
+    )).scalar() or 0
+    return {
+        "clusters": int(total), "defect_clusters": int(defect),
+        "single_cluster": int(single),
+        "single_rate": round(single / total, 3) if total else 0.0,
+        "coverage": round(int(in_cluster) / with_cause, 3) if with_cause else 0.0,
+        "fallback_rate": round(int(fallback) / int(in_cluster), 3) if in_cluster else 0.0,
+        "tickets_in_cluster": int(in_cluster), "tickets_with_cause": int(with_cause),
+        "target_over": int(total) > P.TARGET_CLUSTER_MAX,
+        "targets": {"cluster_max": P.TARGET_CLUSTER_MAX,
+                    "single_rate_max": P.SINGLE_CLUSTER_RATE_MAX,
+                    "fallback_rate_max": P.MISMATCH_RATE_MAX},
+    }
 
 
 # ── 人工操作 ─────────────────────────────────────────────────
@@ -562,7 +1221,7 @@ def list_clusters(db: Session, status: str = "", keyword: str = "",
     rows = db.execute(text(
         "SELECT rootcause_no, title, description, fault_stage, fault_system, fault_type, "
         "own_party, fix_mode, status, source, ticket_cnt, sample_tickets, first_week, "
-        "last_week, merged_to, updated_at "
+        "last_week, merged_to, updated_at, mechanism, biz_object, pattern_key, is_defect "
         f"FROM pmwb_complaint_rootcause WHERE {w} "
         "ORDER BY FIELD(status,'candidate','open','disabled','merged'), ticket_cnt DESC, id ASC "
         "LIMIT :lim OFFSET :off"
@@ -579,6 +1238,8 @@ def list_clusters(db: Session, status: str = "", keyword: str = "",
             "first_week": r[12] or "", "last_week": r[13] or "",
             "merged_to": r[14] or "",
             "updated_at": r[15].strftime("%Y-%m-%d %H:%M") if r[15] else "",
+            "mechanism": r[16] or "", "biz_object": r[17] or "",
+            "pattern_key": r[18] or "", "is_defect": int(r[19] or 1),
         } for r in rows],
     }
 
@@ -645,13 +1306,15 @@ def rootcause_detail(db: Session, rc_no: str) -> Optional[Dict[str, Any]]:
     """簇详情 + 关联工单（分析下钻用）。"""
     r = db.execute(text(
         "SELECT rootcause_no, title, description, fault_stage, fault_system, fault_type, "
-        "own_party, fix_mode, status, ticket_cnt, sample_tickets, first_week, last_week "
+        "own_party, fix_mode, status, ticket_cnt, sample_tickets, first_week, last_week, "
+        "mechanism, biz_object, pattern_key "
         "FROM pmwb_complaint_rootcause WHERE rootcause_no = :no"
     ), {"no": rc_no}).first()
     if not r:
         return None
     tickets = db.execute(text(
-        "SELECT ticket_no, week, city, LEFT(root_cause, 200), rc_status, rc_confidence "
+        "SELECT ticket_no, week, city, LEFT(root_cause, 200), rc_status, rc_confidence, "
+        "root_pattern "
         "FROM pmwb_complaint_ticket WHERE rootcause_no = :no ORDER BY id DESC LIMIT 50"
     ), {"no": rc_no}).fetchall()
     return {
@@ -661,7 +1324,9 @@ def rootcause_detail(db: Session, rc_no: str) -> Optional[Dict[str, Any]]:
         "status_label": RC.RC_LIB_STATUS_LABELS.get(r[8], r[8]),
         "ticket_cnt": int(r[9] or 0), "sample_tickets": json.loads(r[10] or "[]"),
         "first_week": r[11] or "", "last_week": r[12] or "",
+        "mechanism": r[13] or "", "biz_object": r[14] or "", "pattern_key": r[15] or "",
         "tickets": [{"ticket_no": t[0], "week": t[1] or "", "city": t[2] or "",
                      "root_cause": t[3] or "", "rc_status": t[4] or "",
-                     "rc_confidence": float(t[5] or 0)} for t in tickets],
+                     "rc_confidence": float(t[5] or 0),
+                     "root_pattern": t[6] or ""} for t in tickets],
     }

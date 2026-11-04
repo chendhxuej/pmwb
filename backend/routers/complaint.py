@@ -321,6 +321,41 @@ def run_rootcause_cluster_api(
     return success(build_clusters(db, limit=limit))
 
 
+@router.get("/rootcause/health")
+def get_rootcause_health(db: Session = Depends(get_db)):
+    """簇健康度（RC-2.0 验收指标）：簇数 / 单簇率 / 覆盖率 / 兜底率。"""
+    from services.complaint.rootcause_lib import cluster_health
+    return success(cluster_health(db))
+
+
+@router.get("/rootcause/closing")
+def get_rootcause_closing(db: Session = Depends(get_db)):
+    """簇闭合校验：Σ簇单量 必须等于已判定单量，差额单即「未归属」。"""
+    from services.complaint.rootcause_lib import closing_check
+    return success(closing_check(db))
+
+
+@router.post("/rootcause/relabel")
+def run_rootcause_relabel_api(
+    db: Session = Depends(get_db),
+    limit: Optional[int] = Query(None, ge=1, le=2000),
+    only_missing: bool = Query(False, description="只标未标定的簇（可反复跑到收敛）"),
+):
+    """簇模式标定（环节/机制/对象三要素），历史 root_pattern 回填的唯一入口。"""
+    from services.complaint.rootcause_lib import relabel_clusters
+    return success(relabel_clusters(db, limit=limit, only_missing=only_missing))
+
+
+@router.post("/rootcause/consolidate")
+def run_rootcause_consolidate_api(
+    db: Session = Depends(get_db),
+    apply: bool = Query(False, description="False=只出合并报告（dry_run）"),
+):
+    """按三元组键合并同键簇（纯规则，走 merged_to 可回滚）。"""
+    from services.complaint.rootcause_lib import consolidate_by_pattern
+    return success(consolidate_by_pattern(db, dry_run=not apply))
+
+
 @router.get("/rootcause/top")
 def get_rootcause_top(
     db: Session = Depends(get_db),

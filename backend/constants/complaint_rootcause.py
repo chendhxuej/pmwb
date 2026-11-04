@@ -161,6 +161,7 @@ def fix_mode_options() -> List[str]:
 
 def enum_meta() -> Dict[str, object]:
     """前端 /meta 端点统一导出（根因枚举唯一出口）。"""
+    from constants import complaint_pattern as _P
     return {
         "fault_stages": fault_stage_options(),
         "fault_systems": fault_system_options(),
@@ -171,6 +172,8 @@ def enum_meta() -> Dict[str, object]:
         "rc_statuses": [{"value": k, "label": v} for k, v in RC_STATUS_LABELS.items()],
         "rc_lib_statuses": [{"value": k, "label": v} for k, v in RC_LIB_STATUS_LABELS.items()],
         "generic_terms": list(GENERIC_TERMS),
+        # RC-2.0 模式层（机制/对象，唯一源 constants/complaint_pattern.py）
+        **_P.meta(),
     }
 
 
