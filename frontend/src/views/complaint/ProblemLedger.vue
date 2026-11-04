@@ -165,16 +165,26 @@
             @click="ticketDrillVisible = true">查看全部</el-button>
         </h4>
         <el-table v-if="detailTickets.length" :data="detailTickets" size="small" border>
-          <el-table-column prop="ticket_no" label="工单号" width="152">
-            <template #default="{ row }"><span class="mono">{{ row.ticket_no }}</span></template>
+          <!-- 老大 2026-11-04：明细要能看出「这单怎么核查」，处理信息与 AI 分析必须直达；
+               工单号/时间等运维字段弱化（窄列、灰字） -->
+          <el-table-column prop="ticket_no" label="工单号" width="118">
+            <template #default="{ row }"><span class="mono text-muted">{{ row.ticket_no }}</span></template>
           </el-table-column>
-          <el-table-column label="创建时间" width="140">
-            <template #default="{ row }">{{ fmtTime(row.created_time) }}</template>
+          <el-table-column prop="content" label="投诉内容" min-width="190" show-overflow-tooltip />
+          <el-table-column label="核查过程（处理信息）" min-width="150" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.solution_history">{{ row.solution_history }}</span>
+              <span v-else class="text-muted">—</span>
+            </template>
           </el-table-column>
-          <el-table-column prop="city" label="地市" width="76" />
-          <el-table-column prop="content" label="投诉内容" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="status" label="状态" width="86" />
-          <el-table-column label="已知/新增" width="92" align="center">
+          <el-table-column label="AI 分析总结" min-width="150" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.root_cause">{{ row.root_cause }}</span>
+              <span v-else class="text-muted">待分析</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" width="80" />
+          <el-table-column label="已知/新增" width="88" align="center">
             <template #default="{ row }">
               <el-tag v-if="row.known_flag === 1" size="small" type="warning">已知</el-tag>
               <el-tag v-else-if="row.known_flag === 0" size="small" type="danger">新增</el-tag>
@@ -252,13 +262,23 @@
           <el-date-picker v-model="issueForm.due_date" type="date" value-format="YYYY-MM-DD"
             placeholder="要求完成日期" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="代入工单明细">
+          <el-select v-model="issueForm.context_weeks" style="width: 100%">
+            <el-option :value="1" label="当周投诉工单（默认）" />
+            <el-option :value="4" label="近 4 周" />
+            <el-option :value="8" label="近 8 周" />
+            <el-option :value="26" label="全周期" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="验收标准" required>
           <el-input v-model="issueForm.acceptance" type="textarea" :rows="2"
             placeholder="可验证，如：上线后连续 3 周该簇周单量降至 3 单以下" />
         </el-form-item>
       </el-form>
       <div class="gl-tip">
-        提交后自动生成「改进措施 + 运营工单」并双向关联本问题：工单状态流转自动回写措施状态，措施生效后按簇周单量自动验证压降。
+        提交后自动生成「改进措施 + 运营工单」并双向关联本问题。工单内容会自动代入：问题说明、命中规则、
+        以及所选周期内的关联投诉工单明细（工单号 / 投诉内容 / 核查过程 / AI 分析），接收人按单核查即可。
+        工单状态流转自动回写措施状态，措施生效后按簇周单量自动验证压降。
       </div>
       <template #footer>
         <el-button @click="issueVisible = false">取消</el-button>
@@ -385,7 +405,7 @@ const detailTicketTotal = ref(0)
 const ticketDrillVisible = ref(false)
 const drillFilters = ref({})
 const issueVisible = ref(false)
-const issueForm = ref({ l2: '', title: '', owner: '', due_date: '', acceptance: '' })
+const issueForm = ref({ l2: '', title: '', owner: '', due_date: '', acceptance: '', context_weeks: 1 })
 const l2Catalog = ref([])
 
 const openVisible = ref(false)
@@ -676,6 +696,7 @@ async function openIssueDialog() {
     owner: detail.value.owner || '',
     due_date: due,
     acceptance: '',
+    context_weeks: 1,
   }
   issueVisible.value = true
 }
@@ -697,6 +718,7 @@ async function saveIssue() {
       desc: `由共性问题 ${detail.value.problem_no} 发起：${detail.value.title}`,
       create_issue: true,
       problem_nos: [detail.value.problem_no],
+      context_weeks: f.context_weeks || 1,
     })
     ElMessage.success(`已创建措施 ${r.action_no}，运营工单 ${r.issue_no || '已生成'}`)
     issueVisible.value = false

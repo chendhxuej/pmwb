@@ -19,30 +19,30 @@
     </div>
 
     <el-table v-loading="loading" :data="rows" size="small" @row-click="showDetail">
-      <el-table-column prop="ticket_no" label="工单号" width="150">
-        <template #default="{ row }"><span class="mono">{{ row.ticket_no }}</span></template>
+      <!-- 老大 2026-11-04：下钻明细要直达「怎么核查」——处理信息与 AI 分析上列；
+           工单号/时间等运维字段弱化（窄列灰字，编号在详情里仍可看全） -->
+      <el-table-column prop="ticket_no" label="工单号" width="118">
+        <template #default="{ row }"><span class="mono text-muted">{{ row.ticket_no }}</span></template>
       </el-table-column>
-      <el-table-column prop="created_time" label="创建时间" width="150">
-        <template #default="{ row }">{{ fmtTime(row.created_time) }}</template>
+      <el-table-column prop="content" label="投诉内容" min-width="200" show-overflow-tooltip />
+      <el-table-column label="核查过程（处理信息）" min-width="150" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span v-if="row.solution_history">{{ row.solution_history }}</span>
+          <span v-else class="text-muted">—</span>
+        </template>
       </el-table-column>
-      <el-table-column prop="city" label="地市" width="80" />
-      <el-table-column prop="category_l1" label="一级" width="90">
+      <el-table-column label="AI 分析总结" min-width="150" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span v-if="row.root_cause">{{ row.root_cause }}</span>
+          <span v-else class="text-muted">待分析</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="category_l1" label="一级" width="84">
         <template #default="{ row }">
           <el-tag size="small" :type="l1TagType(row.category_l1)">{{ row.category_l1 || '待分析' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="category_l2" label="二级场景" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="ai_confidence" label="AI置信" width="80" align="center">
-        <template #default="{ row }">
-          <span v-if="row.ai_confidence !== null && row.ai_confidence !== undefined"
-                :class="row.ai_confidence >= 0.75 ? 'conf-hi' : 'conf-low'">
-            {{ row.ai_confidence.toFixed(2) }}
-          </span>
-          <span v-else>—</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="status" label="状态" width="86" />
-      <el-table-column prop="content" label="投诉内容" min-width="220" show-overflow-tooltip />
+      <el-table-column prop="status" label="状态" width="78" />
     </el-table>
 
     <div class="drill-pager">
@@ -81,10 +81,10 @@
           <el-descriptions-item label="二级场景">{{ detail.category_l2 || '—' }}</el-descriptions-item>
         </el-descriptions>
 
-        <!-- AI 分析块：始终展示归类来源，历史单无置信度时如实说明（不静默省略） -->
+        <!-- AI 分析块：根因总结 + 归类来源 + 依据，历史单无置信度时如实说明（不静默省略） -->
         <div class="ai-block">
           <div class="ai-title">
-            🤖 大模型分析
+            🤖 AI 分析总结
             <span
               v-if="detail.ai_confidence !== null && detail.ai_confidence !== undefined"
               class="conf"
@@ -95,6 +95,9 @@
             <el-tag size="small" :type="classifyTagType(detail.classify_by)">
               {{ classifyText(detail.classify_by) }}
             </el-tag>
+          </div>
+          <div class="ai-rc">
+            {{ detail.root_cause || '（根因待分析：下次根因任务自动补齐，或在工单明细页查看状态）' }}
           </div>
           <div class="ai-evidence">
             {{ detail.ai_evidence
@@ -244,6 +247,13 @@ function classifyTagType(by) {
   font-size: 13px;
 }
 .conf { font-size: 12px; }
+.ai-rc {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--text-primary, #1f2d3d);
+}
 .ai-evidence {
   margin-top: 6px;
   font-size: 12.5px;

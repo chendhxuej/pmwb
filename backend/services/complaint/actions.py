@@ -62,13 +62,96 @@ def _gen_issue_no(db: Session, category: str) -> str:
     raise RuntimeError("运营工单号生成连续撞号，请检查 issue_no 规则")
 
 
+# 工单内容自动代入的条数与单字段截断（防止 situation_desc 变成长篇没人看）
+_ISSUE_TICKET_LIMIT = 8
+_ISSUE_TEXT_CLAMP = 200
+
+
+def build_issue_context(db: Session, problem_nos: List[str], weeks_back: int = 1) -> str:
+    """为「问题 → 建运营工单」自动组装上下文：问题说明 + 指定周期关联投诉工单明细。
+
+    为什么必须有这段（老大 2026-11-04 反馈）：运营工单接收方拿到工单时看不到客诉侧
+    上下文，不知道查什么、拿什么当证据。把问题命中规则 + 周期内投诉工单（工单号/
+    投诉内容/核查过程/AI 根因）直接写进工单描述，接收方按单核查即可，不必回客诉模块翻。
+
+    周期口径：weeks_back=1 只取当周；N 取「当周往前 N-1 周」（按 created_time 过滤，
+    跨库安全：不用 MySQL 日期函数）。条数超限截断并注明总数，不静默丢。
+    """
+    if not problem_nos:
+        return ""
+    marks = ",".join(f":p{i}" for i in range(len(problem_nos)))
+    probs = db.execute(text(
+        f"SELECT problem_no, title, category_l2, rule_hits, week_cnt, total_cnt, "
+        f"first_week, COALESCE(rootcause_nos, ''), COALESCE(rootcause_no, '') "
+        f"FROM pmwb_complaint_problem WHERE problem_no IN ({marks})"
+    ), {f"p{i}": v for i, v in enumerate(problem_nos)}).fetchall()
+    if not probs:
+        return ""
+
+    lines: List[str] = []
+    for (pno, ptitle, l2, rule_hits, week_cnt, total_cnt,
+         first_week, rc_nos, rc_no) in probs:
+        nos = {x.strip() for x in f"{rc_nos},{rc_no}".split(",") if x.strip()}
+        lines.append(
+            f"【问题描述】{ptitle}（问题 {pno}；场景：{l2 or '—'}；"
+            f"首见 {first_week or '—'}；当周 {int(week_cnt or 0)} 单 / 累计 {int(total_cnt or 0)} 单）"
+        )
+        if rule_hits:
+            lines.append(f"【命中规则】{rule_hits}")
+        if not nos:
+            continue
+        rc_marks = ",".join(f":r{i}" for i in range(len(nos)))
+        rc_params = {f"r{i}": v for i, v in enumerate(nos)}
+        week = latest_week(db)
+        since = None
+        if week:
+            start, _ = week_bounds(week)
+            since = start - timedelta(days=max(0, weeks_back - 1) * 7)
+        if since is not None:
+            cond = "created_time >= :since"
+            rc_params["since"] = since
+        else:
+            cond = "1 = 1"
+        total = db.execute(text(
+            f"SELECT COUNT(*) FROM pmwb_complaint_ticket "
+            f"WHERE rootcause_no IN ({rc_marks}) AND {cond}"
+        ), rc_params).scalar() or 0
+        trows = db.execute(text(
+            f"SELECT ticket_no, created_time, city, content, solution_history, root_cause "
+            f"FROM pmwb_complaint_ticket "
+            f"WHERE rootcause_no IN ({rc_marks}) AND {cond} "
+            f"ORDER BY created_time DESC LIMIT :lim"
+        ), {**rc_params, "lim": _ISSUE_TICKET_LIMIT}).fetchall()
+        if not trows:
+            continue
+        span = "当周" if weeks_back <= 1 else f"近 {weeks_back} 周"
+        lines.append(f"【关联投诉工单（{span}，共 {int(total)} 单，列最新 {len(trows)} 条）】"
+                     "—— 请按单核查，定位共性根因后反馈处理方案：")
+        for i, (tno, ctime, city, content, sol, rc) in enumerate(trows, 1):
+            day = ctime.strftime("%m-%d") if hasattr(ctime, "strftime") else "—"
+            lines.append(
+                f"{i}. {tno}（{day} {city or '—'}）\n"
+                f"   投诉内容：{(content or '无')[:_ISSUE_TEXT_CLAMP]}\n"
+                f"   核查过程：{(sol or '无')[:_ISSUE_TEXT_CLAMP]}\n"
+                f"   AI 分析：{(rc or '待分析')[:_ISSUE_TEXT_CLAMP]}"
+            )
+    return "\n".join(lines)
+
+
 def _create_issue(db: Session, l1: str, l2: str, title: str, owner: str,
-                  due: Optional[date], desc: str) -> Dict:
+                  due: Optional[date], desc: str,
+                  problem_nos: Optional[List[str]] = None,
+                  context_weeks: int = 1) -> Dict:
     """进程内建运营工单（复用 operation_issue_service，不走 HTTP 自环）。"""
     from schemas.operation import OperationIssueCreate
     from services.operation import operation_issue_service
 
+    # 自动代入问题说明 + 指定周期关联投诉工单明细（接收方按单核查）
+    context = build_issue_context(db, problem_nos or [], weeks_back=context_weeks)
+    full_desc = f"{desc}\n\n{context}".strip() if context else desc
+
     category, issue_type = _ISSUE_TYPE.get(l1, ("complaint", "other"))
+    rc_note = f"；问题 {'/'.join(problem_nos)}" if problem_nos else ""
     payload = OperationIssueCreate(
         issue_no=_gen_issue_no(db, category),
         title=title,
@@ -78,8 +161,8 @@ def _create_issue(db: Session, l1: str, l2: str, title: str, owner: str,
         source="complaint_weekly",
         impact_level="P1",
         handler=owner,
-        situation_desc=desc,
-        root_cause=f"客诉周报归因：{l1} / {l2}",
+        situation_desc=full_desc,
+        root_cause=f"客诉周报归因：{l1} / {l2}{rc_note}",
         discovery_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         go_live_date=due.strftime("%Y-%m-%d 00:00:00") if due else None,
         root_cause_type="data_issue" if "数据" in l1 else "process_gap",
@@ -92,7 +175,8 @@ def _create_issue(db: Session, l1: str, l2: str, title: str, owner: str,
 
 def add(db: Session, l2: str, title: str, owner: str, due: Optional[date],
         acceptance: str, create_issue: bool, desc: str = "",
-        problem_nos: Optional[List[str]] = None) -> Dict:
+        problem_nos: Optional[List[str]] = None,
+        context_weeks: int = 1) -> Dict:
     row = db.execute(text(
         "SELECT parent_name FROM pmwb_complaint_category WHERE level = 2 AND name = :n"
     ), {"n": l2}).scalar()
@@ -106,7 +190,8 @@ def add(db: Session, l2: str, title: str, owner: str, due: Optional[date],
     issue_id = issue_no = None
     if create_issue:
         issue = _create_issue(db, l1, l2, title, owner, due,
-                              desc or f"客诉周报（{week}）识别的改进措施，针对场景：{l2}")
+                              desc or f"客诉周报（{week}）识别的改进措施，针对场景：{l2}",
+                              problem_nos=problem_nos, context_weeks=context_weeks)
         issue_id, issue_no = issue.get("id"), issue.get("issue_no")
 
     db.execute(text("""

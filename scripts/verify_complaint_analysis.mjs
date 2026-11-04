@@ -348,11 +348,14 @@ async function main() {
       const tables = [...dw.querySelectorAll('.el-table')]
       const tRows = tables.map(t => t.querySelectorAll('.el-table__body tbody tr').length)
       const hasIssueBtn = [...dw.querySelectorAll('.el-button')].some(b => b.innerText.includes('建立运营工单'))
+      const firstTbl = dw.querySelector('.el-table')
+      const ticketHeaders = firstTbl ? [...firstTbl.querySelectorAll('.el-table__header th')].map(th => th.innerText.trim()) : []
       return {
         hasTicketSec: body.includes('关联投诉工单'),
         hasActionSec: body.includes('关联措施'),
         hasIssueBtn,
         tableRowCounts: tRows,
+        ticketHeaders,
         total: (body.match(/关联投诉工单（(\\d+) 单）/) || [])[1] || '0',
       }
     })()`)
@@ -361,6 +364,12 @@ async function main() {
       dt.hasActionSec ? ok('详情含「关联措施」区块') : bad('详情缺关联措施区块')
       dt.hasIssueBtn ? ok('详情有「建立运营工单」入口') : bad('详情缺建立运营工单入口')
       dt.tableRowCounts.some(n => n > 0) ? ok('详情工单/措施表可渲染', `rows=${dt.tableRowCounts.join('/')}`) : bad('详情表全空')
+      // 老大 2026-11-04：明细要直达核查信息，AI 分析/核查过程必须上列，工单号等运维字段弱化
+      const tFlat = (dt.ticketHeaders || []).join('|')
+      tFlat.includes('AI 分析总结') && tFlat.includes('核查过程')
+        ? ok('详情工单表含「AI 分析总结」与「核查过程」列')
+        : bad('详情工单表缺核查信息列', tFlat)
+      !tFlat.includes('创建时间') ? ok('运维字段已弱化（无创建时间列）') : bad('详情工单表仍保留创建时间列（应移除）')
     } else {
       bad('问题详情抽屉未打开')
     }
@@ -381,6 +390,7 @@ async function main() {
         hasAccept: txt.includes('验收标准'),
         hasProblem: txt.includes('所属问题'),
         hasLinkTip: txt.includes('双向关联') || txt.includes('联动'),
+        hasCtx: txt.includes('代入工单明细') && txt.includes('自动代入'),
       }
     })()`)
     if (issueDlg && dlgInfo) {
@@ -388,6 +398,7 @@ async function main() {
       dlgInfo.hasScene ? ok('建单对话框有场景选择') : bad('建单对话框缺场景')
       dlgInfo.hasAccept ? ok('建单对话框要求验收标准') : bad('建单对话框缺验收标准')
       dlgInfo.hasLinkTip ? ok('建单对话框说明措施/工单联动') : bad('建单对话框缺联动说明')
+      dlgInfo.hasCtx ? ok('建单对话框可选代入周期并说明自动代入工单明细') : bad('建单对话框缺代入周期选项')
       // 关闭对话框，保持页面干净
       await cdp.eval(`(() => {
         const dlgs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null)

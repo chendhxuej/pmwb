@@ -29,6 +29,8 @@ class ActionCreateIn(BaseModel):
     desc: str = Field("", description="情况说明")
     create_issue: bool = Field(False, description="是否同步创建运营工单父子关联")
     problem_nos: list[str] = Field(default_factory=list, description="所属共性问题编号（多选）")
+    context_weeks: int = Field(1, ge=1, le=26,
+                               description="建工单时自动代入关联投诉工单的周期（1=当周，N=近N周）")
 
 
 class ActionUpdateIn(BaseModel):

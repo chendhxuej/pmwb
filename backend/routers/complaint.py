@@ -176,7 +176,7 @@ def list_tickets(
         SELECT id, ticket_no, week, created_time, city, channel, appeal_category, biz_attr,
                handler, handle_unit, dispatch_count, status, category_l1, category_l2,
                classify_by, cluster_key, is_batch, is_recur, problem_no, remark,
-               ai_confidence, ai_evidence, content,
+               ai_confidence, ai_evidence, content, solution_history,
                root_cause, fault_stage, fault_system, fault_type, own_party, fix_mode,
                repro, rc_status, rc_confidence, rc_evidence, rc_gap, rootcause_no,
                known_flag, known_problem_no
@@ -511,6 +511,7 @@ def create_action(body: ActionCreateIn, db: Session = Depends(get_db)):
             db, body.l2, body.title, body.owner, body.due_date,
             body.acceptance, body.create_issue, body.desc,
             problem_nos=body.problem_nos or None,
+            context_weeks=body.context_weeks,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

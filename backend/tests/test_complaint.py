@@ -255,6 +255,58 @@ def test_create_action_with_issue_link(client: TestClient, db):
     assert issue.status == "pending"
 
 
+def test_create_issue_auto_context(client: TestClient, db):
+    """问题→建运营工单：situation_desc 必须自动代入问题说明与周期内投诉工单明细。
+
+    背景（老大 2026-11-04 反馈）：接收工单的成员看不到客诉侧上下文，不知道怎么核查。
+    工单内容必须带上：问题说明/命中规则 + 指定周期关联工单（工单号/投诉内容/核查过程/AI 分析）。
+    """
+    from db.models import PmwbComplaintProblem, PmwbComplaintRootcause
+
+    _seed_dict(db)
+    _add(db, PmwbComplaintRootcause(
+        rootcause_no="RC-CTX", title="电视账号同步失败测试簇", status="open",
+        ticket_cnt=2, fault_stage="业务激活", fault_system="CRM", first_week="2026-W45",
+    ))
+    _add(db, PmwbComplaintProblem(
+        problem_no="CPB-CTX-01", title="电视账号批量同步失败", category_l2="电视与机顶盒账号未同步",
+        rootcause_no="RC-CTX", rootcause_nos="RC-CTX", source_type="rootcause_batch",
+        rule_hits="R1 簇批量", status="open", first_week="2026-W45", active_weeks=1,
+        week_cnt=2, total_cnt=2, peak_cnt=2,
+    ))
+    now = datetime.now()
+    _make_ticket(db, ticket_no="CTX-001", rootcause_no="RC-CTX", created_time=now,
+                 content="机顶盒开通后电视账号仍提示未开户", status="处理中",
+                 solution_history="核查CRM状态正常，电视平台查无此账号",
+                 root_cause="电视平台开户接口未收到CRM开通结果")
+    _make_ticket(db, ticket_no="CTX-002", rootcause_no="RC-CTX",
+                 created_time=now, content="宽带办理后电视业务未激活")
+
+    resp = client.post("/api/v1/complaint/actions", json={
+        "l2": "电视与机顶盒账号未同步", "title": "电视账号同步专项",
+        "owner": "吴胜捷", "acceptance": "同类单降至3单以下",
+        "desc": "由共性问题 CPB-CTX-01 发起", "create_issue": True,
+        "problem_nos": ["CPB-CTX-01"], "context_weeks": 1,
+    })
+    assert resp.status_code == 200, resp.text
+    issue_no = resp.json()["data"]["issue_no"]
+    assert issue_no
+
+    from db.models import PmwbOperationIssue
+    issue = db.query(PmwbOperationIssue).filter_by(issue_no=issue_no).first()
+    d = issue.situation_desc or ""
+    assert "【问题描述】电视账号批量同步失败" in d
+    assert "CPB-CTX-01" in d
+    assert "R1 簇批量" in d
+    assert "【关联投诉工单" in d and "共 2 单" in d
+    assert "CTX-001" in d
+    assert "机顶盒开通后电视账号仍提示未开户" in d      # 投诉内容
+    assert "核查CRM状态正常" in d                       # 核查过程
+    assert "电视平台开户接口未收到CRM开通结果" in d      # AI 分析
+    assert "CTX-002" in d
+    assert "CPB-CTX-01" in (issue.root_cause or "")
+
+
 def test_metrics_empty_db_returns_400(client: TestClient, db):
     resp = client.get("/api/v1/complaint/metrics")
     assert resp.status_code == 400
