@@ -121,8 +121,11 @@
         <el-tab-pane :label="`待确认候选（${candidates.length}）`" name="candidate">
           <div class="tab-bar">
             <span class="tab-hint">候选来源：<b>主要投诉点</b>（闭集模块问题，零 LLM）+ 旧根因簇扫描；<b>确认入账</b>后才进入台账、才能挂措施</span>
+            <el-tag v-if="anchorFilter" type="primary" size="small" effect="plain" closable @close="anchorFilter=''">
+              已定位模块·{{ anchorFilter }}
+            </el-tag>
           </div>
-          <el-table ref="pmTbl1" v-if="candidates.length" :data="candidates" size="default" border>
+          <el-table ref="pmTbl1" v-if="displayCandidates.length" :data="displayCandidates" size="default" border>
           <el-table-column prop="problem_no" label="编号" width="150">
             <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
           </el-table-column>
@@ -411,6 +414,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Plus, Promotion, ArrowDown } from '@element-plus/icons-vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
@@ -439,6 +443,8 @@ const suggestions = ref([])
 const allActions = ref([])
 const statusFilter = ref('')
 const activeTab = ref('open')
+const route = useRoute()
+const anchorFilter = ref('') // 从主要投诉点下钻进入：按 module_problem_id 定位候选
 
 const detailVisible = ref(false)
 const detail = ref(null)
@@ -500,6 +506,10 @@ const subTitle = computed(() => {
 })
 
 const candidates = computed(() => rows.value.filter(r => r.status === 'candidate'))
+const displayCandidates = computed(() =>
+  anchorFilter.value
+    ? candidates.value.filter(c => c.module_problem_id === anchorFilter.value)
+    : candidates.value)
 const inflightRows = computed(() => rows.value.filter(r => ['open', 'resolving'].includes(r.status)))
 const inflightStatusDefs = computed(() => statusDefs.value.filter(s => ['open', 'resolving'].includes(s.value)))
 
@@ -930,7 +940,14 @@ function doProblemsUrge(confirmSend) {
     .finally(() => { urging.value = false })
 }
 
-onMounted(load)
+onMounted(async () => {
+  // 从主要投诉点下钻进入：定位到对应模块问题的候选
+  if (route.query.module_problem_id) {
+    anchorFilter.value = String(route.query.module_problem_id)
+    activeTab.value = 'candidate'
+  }
+  await load()
+})
 </script>
 
 <style scoped>

@@ -96,6 +96,21 @@
           <span v-else class="unclassified">—</span>
         </template>
       </el-table-column>
+      <el-table-column label="L2 模块问题" min-width="190">
+        <template #default="{ row }">
+          <template v-if="row.module_problem_tags">
+            <el-link
+              v-for="tag in row.module_problem_tags.split('|')"
+              :key="tag"
+              type="primary"
+              :underline="false"
+              class="mp-link"
+              @click="goModuleProblem(tag.split('::')[0])"
+            >{{ tag.split('::')[1] || tag.split('::')[0] }}</el-link>
+          </template>
+          <span v-else class="unclassified">未归类</span>
+        </template>
+      </el-table-column>
       <el-table-column label="批量" width="76" align="center">
         <template #default="{ row }">
           <el-link v-if="row.cluster_key" type="danger" size="small" @click="openCluster(row)">
@@ -226,7 +241,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
@@ -235,10 +250,11 @@ import ClusterDrawer from './components/ClusterDrawer.vue'
 import { complaintApi } from '@/api/complaint'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
 const rows = ref([])
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
-const filters = reactive({ week: '', l1: '', l2: '', classify_by: '', rc_status: '', is_batch: null, keyword: '' })
+const filters = reactive({ week: '', l1: '', l2: '', classify_by: '', rc_status: '', is_batch: null, keyword: '', module_problem_id: '' })
 
 const metricsWeek = ref('')
 const categories = ref([])
@@ -289,6 +305,7 @@ async function load() {
       known_flag: filters.known_flag ?? undefined,
       is_batch: filters.is_batch ?? undefined,
       keyword: filters.keyword || undefined,
+      module_problem_id: filters.module_problem_id || undefined,
     }
     const data = await complaintApi.listTickets(params)
     rows.value = data.items || []
@@ -354,6 +371,11 @@ function goRootcause(row) {
   router.push({ path: '/complaint-center/rootcause', query: { keyword: row.rootcause_no } })
 }
 
+// L2 模块问题标签 → 跳主要投诉点（看全貌）；下钻工单走本页 ?module_problem_id 过滤
+function goModuleProblem(mid) {
+  router.push({ path: '/complaint-center/module-problem', query: { focus: mid } })
+}
+
 // 根因缺失时的说明：信息不足是 AI 的判定结论（不设人工队列），不是待办
 function rcEmptyText(row) {
   if (row.rc_status === 'insufficient') return row.rc_gap || '信息不足（AI 已判定，缺关键事实）'
@@ -390,6 +412,10 @@ function openCluster(row) {
 }
 
 onMounted(async () => {
+  // 从主要投诉点下钻进入：自动按 module_problem_id 过滤
+  if (route.query.module_problem_id) {
+    filters.module_problem_id = String(route.query.module_problem_id)
+  }
   await loadMeta()
   load()
 })

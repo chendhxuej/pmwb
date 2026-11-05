@@ -194,7 +194,12 @@ def list_tickets(
                ai_confidence, ai_evidence, content, solution_history,
                root_cause, fault_stage, fault_system, fault_type, own_party, fix_mode,
                repro, rc_status, rc_confidence, rc_evidence, rc_gap, rootcause_no,
-               known_flag, known_problem_no
+               known_flag, known_problem_no,
+               (SELECT GROUP_CONCAT(CONCAT(tm.module_problem_id, '::', mp.name) SEPARATOR '|')
+                  FROM pmwb_complaint_ticket_module tm
+                  JOIN pmwb_complaint_module_problem mp
+                    ON mp.module_problem_id = tm.module_problem_id
+                 WHERE tm.ticket_no = t.ticket_no) AS module_problem_tags
         FROM pmwb_complaint_ticket t WHERE {cond}
         ORDER BY created_time DESC
         LIMIT :limit OFFSET :offset

@@ -60,7 +60,7 @@
             <span class="block-sub">共 {{ classItems.length }} 个模块问题 · 展开看跨表象汇聚的多种说法</span>
             <el-checkbox v-model="includeConsult" class="block-chk" @change="applyDisplay">包含咨询类</el-checkbox>
           </div>
-          <el-table :data="classItems" v-loading="loading" size="small" stripe row-key="module_problem_id">
+          <el-table :data="classItems" v-loading="loading" size="small" stripe row-key="module_problem_id" :row-class-name="rowClass">
             <el-table-column label="排名" width="60" align="center">
               <template #default="{ $index }"><span class="rank">{{ $index + 1 }}</span></template>
             </el-table-column>
@@ -99,6 +99,12 @@
                   </div>
                 </div>
                 <div v-else class="surfaces-empty">暂无表象明细</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="下钻" width="158" align="center" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" plain @click="drillTickets(row)">工单 {{ row.ticket_cnt }}</el-button>
+                <el-button size="small" plain @click="drillLedger(row)">问题台账</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -156,10 +162,15 @@
 
 <script setup>
 import { ref, computed, reactive, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { Refresh, Document } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import { complaintApi as api } from '@/api/complaint'
+
+const router = useRouter()
+const route = useRoute()
+const focusId = ref('')
 
 const loading = ref(false)
 const running = ref(false)
@@ -278,6 +289,17 @@ async function override(row) {
     ElMessage.error('改派失败：' + (e?.response?.data?.message || e.message))
   }
 }
+// 下钻：主要投诉点 → 工单明细（按 module_problem_id 过滤）/ 问题台账（按锚点过滤）
+function drillTickets(row) {
+  router.push({ path: '/complaint-center/tickets', query: { module_problem_id: row.module_problem_id } })
+}
+function drillLedger(row) {
+  router.push({ path: '/complaint-center/problems', query: { module_problem_id: row.module_problem_id } })
+}
+function rowClass({ row }) {
+  return row.module_problem_id === focusId.value ? 'row-focus' : ''
+}
+
 async function confirmRerun() {
   try {
     await ElMessageBox.confirm(
@@ -297,11 +319,16 @@ async function confirmRerun() {
   }
 }
 
-onMounted(loadAll)
+onMounted(async () => {
+  if (route.query.focus) focusId.value = String(route.query.focus)
+  await loadAll()
+})
 </script>
 
 <style scoped>
 .module-problem { padding: 4px 2px 24px; }
+.row-focus { background: var(--brand-soft, #eef4ff) !important; }
+.row-focus:hover > td { background: var(--brand-soft, #eef4ff) !important; }
 .summary-card { margin-bottom: 16px; }
 .summary-kpis { margin-bottom: 12px; }
 .mp-tabs { margin-top: 4px; }
