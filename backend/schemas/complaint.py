@@ -189,3 +189,14 @@ class ProblemV42RunIn(BaseModel):
     limit: int = 0                      # 0=全量
     allow_semantic: bool = True         # False=只用确定性规则层（演练用）
     max_semantic_batches: int = 1       # 默认最多 1 批，防误触全量调用；0=不限
+
+
+class ModuleAggregateRunIn(BaseModel):
+    """L2 功能模块问题归并运行入参（dry_run 默认，显式 false 才落库）。"""
+    dry_run: bool = True
+    force: bool = False
+
+
+class ModuleOverrideIn(BaseModel):
+    """人工管理台：改派到指定模块问题（闭集内 ID）。"""
+    target_id: str

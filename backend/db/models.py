@@ -2322,3 +2322,52 @@ class PmwbComplaintProblemRun(Base):
     policy_version = Column(String(32), comment="口径版本")
     created_at = Column(DateTime, comment="运行时间")
     __table_args__ = (Index("idx_cpr_created", "created_at"),)
+
+
+class PmwbComplaintModuleProblem(Base):
+    """L2 功能模块问题（分析汇聚输出层；闭集，唯一真相源 constants/complaint_module.py）。
+
+    归并键 = 业务功能模块 × 失效对象 × 失效性质；同一模块问题下「描述不同、本质同模块」的工单
+    强制归并（跨表象汇聚）。is_defect=0 的咨询类隔离，不进缺陷主 KPI。
+    """
+    __tablename__ = "pmwb_complaint_module_problem"
+    module_problem_id = Column(String(32), primary_key=True, comment="模块问题ID（MP- 前缀，稳定）")
+    name = Column(String(255), nullable=False, comment="模块问题中文名（落地即展示，零转译）")
+    module = Column(String(64), comment="业务功能模块")
+    fail_object = Column(String(64), comment="失效对象")
+    fail_nature = Column(String(64), comment="失效性质")
+    is_defect = Column(Integer, nullable=False, default=1, server_default="1", comment="是否业务缺陷：1 是 0 咨询类(隔离)")
+    ticket_cnt = Column(Integer, nullable=False, default=0, server_default="0", comment="归入工单量")
+    first_week = Column(String(16), comment="首现周")
+    active_weeks = Column(Integer, nullable=False, default=0, server_default="0", comment="活跃周数")
+    surfaces_json = Column(Text, comment="表象集合（L1简述归一，去重保留）")
+    status = Column(String(32), nullable=False, default="published", server_default="published", comment="published/draft")
+    version = Column(Integer, nullable=False, default=1, server_default="1", comment="字典口径版本")
+    policy_version = Column(String(32), comment="口径版本")
+    created_at = Column(DateTime, comment="建立时间")
+    updated_at = Column(DateTime, comment="更新时间")
+    __table_args__ = (Index("idx_cmp_is_defect", "is_defect"),)
+
+
+class PmwbComplaintTicketModule(Base):
+    """逐单 → 模块问题映射 + 人工管理状态。
+
+    review_status：auto=高置信自动 / low=中置信(性质回退,进待复核) / unclassified=无匹配(写缺口) /
+                  accepted=人工采纳系统建议 / override=人工改派。
+    系统不依赖人工修正即可完整运行：auto+low+accepted+override 计入汇聚；unclassified 隔离为待处理队列。
+    """
+    __tablename__ = "pmwb_complaint_ticket_module"
+    ticket_no = Column(String(64), primary_key=True, comment="工单号")
+    module_problem_id = Column(String(32), comment="归入的模块问题ID（unclassified 时为空）")
+    confidence = Column(String(16), comment="high/medium（匹配置信度）")
+    surface = Column(String(255), comment="表象（L1简述归一，用于跨表象汇聚展示）")
+    evidence_json = Column(Text, comment="证据片段")
+    review_status = Column(String(32), nullable=False, default="auto", server_default="auto", comment="auto/low/unclassified/accepted/override")
+    gap = Column(String(255), comment="未归类缺口原因（unclassified 时记录缺什么）")
+    suggested_id = Column(String(32), comment="系统建议归类（供人工管理台一键采纳）")
+    policy_version = Column(String(32), comment="口径版本")
+    updated_at = Column(DateTime, comment="更新时间")
+    __table_args__ = (
+        Index("idx_ctm_module", "module_problem_id"),
+        Index("idx_ctm_review", "review_status"),
+    )

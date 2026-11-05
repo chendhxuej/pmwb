@@ -163,6 +163,13 @@ const routes = [
             meta: { title: '问题点类(v4.2)' },
           },
           {
+            // 2026-11-05 L2 功能模块问题（分析汇聚输出层）：跨表象汇聚，找出主要投诉点
+            path: 'module-problem',
+            name: 'ComplaintModuleProblem',
+            component: () => import('@/views/complaint/ModuleProblemView.vue'),
+            meta: { title: '主要投诉点' },
+          },
+          {
             path: 'problems',
             name: 'ComplaintProblemLedger',
             component: () => import('@/views/complaint/ProblemLedger.vue'),

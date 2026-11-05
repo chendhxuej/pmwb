@@ -36,6 +36,8 @@ from schemas.complaint import (
     ProblemV42RunIn,
     ProblemStatusIn,
     ProblemUpdateIn,
+    ModuleAggregateRunIn,
+    ModuleOverrideIn,
     ProblemUrgeIn,
     ReportGenIn,
     RootcauseClusterIn,
@@ -1164,3 +1166,63 @@ def problem_v42_rerun_pending(body: ProblemV42RunIn, db: Session = Depends(get_d
 def problem_v42_summary(db: Session = Depends(get_db)):
     """报表/周报友好的紧凑摘要：已发布问题点类 + 指标 + 未归类口径（只读）。"""
     return success(problem_pipeline.summary_for_report(db))
+
+
+# ───────────────────────── L2 功能模块问题（分析汇聚输出层） ─────────────────────────
+from services.complaint import module_aggregate as mod_agg
+
+
+@router.get("/module-problem/summary")
+def module_problem_summary(db: Session = Depends(get_db)):
+    """头部汇总：总工单/缺陷已归集/咨询类/未归类/低置信/缺陷类数/类单比/TOP10覆盖。"""
+    return success(mod_agg.summary(db))
+
+
+@router.get("/module-problem/classes")
+def module_problem_classes(
+    include_consult: bool = Query(False, description="是否包含咨询类"),
+    keyword: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """主要投诉点类表（模块问题级；跨表象汇聚）。"""
+    items = mod_agg.list_module_problems(db, include_consult=include_consult)
+    if keyword:
+        kw = keyword.strip()
+        items = [i for i in items if kw in i["name"] or kw in (i["module"] or "")]
+    return success({"items": items, "total": len(items)})
+
+
+@router.get("/module-problem/unclassified")
+def module_problem_unclassified(
+    page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """未归类清单：逐单写明缺口（待处理队列，不污染缺陷主 KPI）。"""
+    return success(mod_agg.list_unclassified(db, page=page, page_size=page_size))
+
+
+@router.get("/module-problem/review-queue")
+def module_problem_review_queue(
+    page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """人工管理台队列：低置信 + 未归类 + 已改派（系统可独立运行，此为可选安全网）。"""
+    return success(mod_agg.list_review_queue(db, page=page, page_size=page_size))
+
+
+@router.post("/module-problem/run")
+def module_problem_run(body: ModuleAggregateRunIn, db: Session = Depends(get_db)):
+    """L2 闭集归并。dry_run 默认；显式 dry_run=false 才落库。"""
+    return success(mod_agg.run_aggregate(db, dry_run=body.dry_run))
+
+
+@router.post("/module-problem/{ticket_no}/accept")
+def module_problem_accept(ticket_no: str, db: Session = Depends(get_db)):
+    """人工台：一键采纳系统建议（非阻塞）。"""
+    return success(mod_agg.accept_suggestion(db, ticket_no))
+
+
+@router.post("/module-problem/{ticket_no}/override")
+def module_problem_override(ticket_no: str, body: ModuleOverrideIn, db: Session = Depends(get_db)):
+    """人工台：改派到指定模块问题（闭集内 ID 才允许）。"""
+    return success(mod_agg.override_ticket(db, ticket_no, body.target_id))

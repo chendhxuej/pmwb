@@ -201,4 +201,27 @@ export const complaintApi = {
   problemV42RerunPending(data) {
     return request.post('/complaint/problem-v42/rerun-pending', data)
   },
+
+  // ── L2 功能模块问题（分析汇聚输出层）：跨表象汇聚，找出主要投诉点 ──
+  moduleProblemSummary() {
+    return request.get('/complaint/module-problem/summary')
+  },
+  moduleProblemClasses(params) {
+    return request.get('/complaint/module-problem/classes', { params })
+  },
+  moduleProblemUnclassified(params) {
+    return request.get('/complaint/module-problem/unclassified', { params })
+  },
+  moduleProblemReviewQueue(params) {
+    return request.get('/complaint/module-problem/review-queue', { params })
+  },
+  moduleProblemRun(data) {
+    return request.post('/complaint/module-problem/run', data)
+  },
+  moduleProblemAccept(ticketNo) {
+    return request.post(`/complaint/module-problem/${ticketNo}/accept`)
+  },
+  moduleProblemOverride(ticketNo, targetId) {
+    return request.post(`/complaint/module-problem/${ticketNo}/override`, { target_id: targetId })
+  },
 }
