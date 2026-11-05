@@ -9,6 +9,50 @@
       </template>
     </PageHeader>
 
+    <!-- 主要投诉点速览（新闭集 · 与「主要投诉点」页同源，定位系统改造落点） -->
+    <section class="card mp-overview">
+      <div class="card-header">
+        <h3>主要投诉点（功能模块问题 · 闭集）</h3>
+        <span class="hint">跨表象汇聚：找出主要投诉点，定位系统改造落点（vL2 闭集字典）</span>
+        <el-button class="ml-auto" size="small" type="primary" plain @click="goModuleProblemPage">查看完整主要投诉点 →</el-button>
+      </div>
+      <div class="card-body">
+        <div class="pm-stat-grid pm-stat-grid--5">
+          <div class="pm-stat">
+            <div class="pm-stat__top"><span class="pm-stat__label">总工单</span></div>
+            <div class="pm-stat__val">{{ mpSummary.total_tickets ?? 0 }}<span class="pm-stat__unit">单</span></div>
+          </div>
+          <div class="pm-stat">
+            <div class="pm-stat__top"><span class="pm-stat__label">缺陷已归集</span></div>
+            <div class="pm-stat__val is-accent">{{ mpSummary.defect_classified ?? 0 }}<span class="pm-stat__unit">单</span></div>
+          </div>
+          <div class="pm-stat">
+            <div class="pm-stat__top"><span class="pm-stat__label">缺陷类数</span></div>
+            <div class="pm-stat__val">{{ mpSummary.defect_classes ?? 0 }}<span class="pm-stat__unit">个</span></div>
+          </div>
+          <div class="pm-stat">
+            <div class="pm-stat__top"><span class="pm-stat__label">未归类</span></div>
+            <div class="pm-stat__val" :class="(mpSummary.unclassified || 0) ? 'is-warning' : 'is-success'">{{ mpSummary.unclassified ?? 0 }}<span class="pm-stat__unit">单</span></div>
+          </div>
+          <div class="pm-stat">
+            <div class="pm-stat__top"><span class="pm-stat__label">咨询类（隔离）</span></div>
+            <div class="pm-stat__val is-muted">{{ mpSummary.consult ?? 0 }}<span class="pm-stat__unit">单</span></div>
+          </div>
+        </div>
+        <div class="mp-top">
+          <div class="mp-top__title">TOP 缺陷类（按工单量，点击下钻工单）</div>
+          <div class="mp-top__list">
+            <div v-for="(c, i) in mpTop" :key="c.module_problem_id" class="mp-top__item"
+                 @click="drill({ module_problem_id: c.module_problem_id }, '主要投诉点·' + c.name)">
+              <span class="mp-rank">{{ i + 1 }}</span>
+              <span class="mp-name" :title="c.name">{{ c.name }}</span>
+              <span class="mp-cnt">{{ c.ticket_cnt }} 单</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <div v-if="data.week" class="hot-body">
       <div class="pm-stat-grid pm-stat-grid--2 hot-kpis">
         <div class="pm-stat">
@@ -93,6 +137,23 @@ const drillVisible = ref(false)
 const drillFilters = ref({})
 const drillTitle = ref('')
 
+// 主要投诉点速览（新闭集，与「主要投诉点」页同源）
+const mpSummary = ref({})
+const mpTop = ref([])
+function goModuleProblemPage() {
+  router.push({ path: '/complaint-center/module-problem' })
+}
+async function loadMp() {
+  try {
+    const [s, c] = await Promise.all([
+      complaintApi.moduleProblemSummary(),
+      complaintApi.moduleProblemClasses({ include_consult: false }),
+    ])
+    mpSummary.value = s || {}
+    mpTop.value = ((c && c.items) || []).slice(0, 6)
+  } catch (e) { /* 不影响热点主表 */ }
+}
+
 const subTitle = computed(() =>
   data.value.week
     ? `${data.value.week} 环比 ${data.value.prev_week} ｜按大模型归类结果统计`
@@ -147,6 +208,13 @@ function drillTickets(it) {
   drillVisible.value = true
 }
 
+// 通用下钻（主要投诉点速览用：按闭集模块问题过滤）
+function drill(filters, title) {
+  drillFilters.value = { ...filters }
+  drillTitle.value = title || '投诉工单下钻'
+  drillVisible.value = true
+}
+
 async function createProblem(it) {
   try {
     const { value } = await ElMessageBox.prompt(
@@ -186,7 +254,10 @@ function goProblem(problemNo) {
   router.push({ path: '/operation/complaint-center/problems', query: { problem_no: problemNo } })
 }
 
-onMounted(load)
+onMounted(() => {
+  loadMp()
+  load()
+})
 </script>
 
 <style scoped>
@@ -194,6 +265,25 @@ onMounted(load)
   display: flex;
   flex-direction: column;
 }
+.mp-overview { margin-bottom: 4px; }
+.hint { font-size: 12px; color: var(--text-muted); }
+.ml-auto { margin-left: auto; }
+.mp-top { margin-top: 14px; }
+.mp-top__title { font-size: 12.5px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; }
+.mp-top__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+.mp-top__item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border: 1px solid var(--border-light, #eef0f4); border-radius: 8px;
+  background: var(--bg-soft, #fafbfc); cursor: pointer; transition: all .15s;
+}
+.mp-top__item:hover { border-color: var(--brand, #3b6cff); background: var(--brand-soft, #eef4ff); }
+.mp-rank {
+  width: 20px; height: 20px; flex: none; border-radius: 6px;
+  font-size: 12px; font-weight: 700; color: #fff; background: var(--brand, #3b6cff);
+  display: flex; align-items: center; justify-content: center;
+}
+.mp-name { flex: 1; font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-cnt { flex: none; font-size: 12.5px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .hot-body {
   display: flex;
   flex-direction: column;
