@@ -698,6 +698,85 @@ def _merge_rule_hits(a: str, b: str) -> str:
     return ",".join(h for h in C.PROBLEM_SOURCE_STRENGTH if h in merged)
 
 
+# ── 候选问题台账：以闭集模块问题为种子（2026-11-05 新归因入口） ──
+def seed_from_module_problem(db: Session, dry_run: bool = False,
+                             only_defect: bool = True) -> Dict:
+    """以 L2 闭集模块问题为种子，生成「待确认候选问题」供人工确认入账。
+
+    设计（对应 #69）：
+      - 闭集 `pmwb_complaint_module_problem` 是「主要投诉点」唯一真相源（19 个缺陷类）；
+        它已是业务可读、跨表象汇聚、零 LLM 的产物，直接作为问题台账的种子最贴合
+        老大「识别投诉问题 → 人工确认 → 安排整改措施」的诉求；
+      - 每个缺陷类生成一条 candidate 问题，锚 module_problem_id（取代旧 rootcause 簇锚），
+        title 取模块问题中文名，evidence 含工单量/活跃周/首现周/样本单号；
+      - 幂等：同 module_problem_id 已存在 candidate/open/resolving/closed 问题则不重建；
+      - 咨询类（is_defect=0）默认不进台账（与旧逻辑一致），可通过 only_defect=False 放宽。
+    不依赖人工修正即可运行：种子只是候选，未确认前不挂措施、不影响已知问题率。
+    """
+    mp_rows = db.execute(text(
+        "SELECT module_problem_id, name, module, fail_object, fail_nature, "
+        "       ticket_cnt, first_week, active_weeks, status, is_defect "
+        "FROM pmwb_complaint_module_problem "
+        "WHERE status = 'published'"
+    )).mappings().all()
+    if only_defect:
+        mp_rows = [r for r in mp_rows if (int(r["is_defect"]) if r["is_defect"] is not None else 1) == 1]
+
+    # 已锚定的 module_problem_id（任一在办/已闭环状态都视为已生成过）
+    existing = set(r[0] for r in db.execute(text(
+        "SELECT module_problem_id FROM pmwb_complaint_problem "
+        "WHERE module_problem_id IS NOT NULL AND module_problem_id <> ''"
+    )).fetchall())
+
+    created: List[str] = []
+    skipped: List[str] = []
+    now_ts = datetime.now()
+
+    for mp in mp_rows:
+        mp_id = mp["module_problem_id"]
+        if mp_id in existing:
+            skipped.append(mp_id)
+            continue
+        if dry_run:
+            created.append(f"{mp_id}(dry)")
+            continue
+        # 样本工单（按模块问题映射取前 8 单）
+        samples = [r[0] for r in db.execute(text(
+            "SELECT t.ticket_no FROM pmwb_complaint_ticket_module tm "
+            "JOIN pmwb_complaint_ticket t ON t.ticket_no = tm.ticket_no "
+            "WHERE tm.module_problem_id = :mid ORDER BY t.created_time DESC LIMIT 8"
+        ), {"mid": mp_id}).fetchall()]
+        week = mp["first_week"] or (latest_week(db) or "")
+        problem_no = _next_problem_no(db, week or "2026-W44")
+        evidence = {
+            "module_problem_id": mp_id,
+            "ticket_cnt": int(mp["ticket_cnt"] or 0),
+            "active_weeks": int(mp["active_weeks"] or 0),
+            "first_week": week,
+            "sample_tickets": samples,
+        }
+        db.execute(text("""
+            INSERT INTO pmwb_complaint_problem
+                (problem_no, title, category_l1, category_l2, rootcause_no, rootcause_nos,
+                 module_problem_id, source_type, rule_hits, evidence, status,
+                 first_week, last_week, active_weeks, quiet_weeks, week_cnt, peak_cnt,
+                 total_cnt, recur_cnt, recur_weeks, created_at, updated_at)
+            VALUES
+                (:no, :title, :l1, :l2, NULL, NULL, :mid, 'module_seed', 'module_seed',
+                 :ev, 'candidate', :wk, :wk, :aw, 0, :cnt, :cnt, :cnt, 0, 0, :now_ts, :now_ts)
+        """), {
+            "no": problem_no, "title": (mp["name"] or mp_id)[:200],
+            "l1": mp["module"] or "", "l2": mp["fail_object"] or mp["fail_nature"] or "",
+            "mid": mp_id, "ev": json.dumps(evidence, ensure_ascii=False),
+            "wk": week, "aw": int(mp["active_weeks"] or 0),
+            "cnt": int(mp["ticket_cnt"] or 0), "now_ts": now_ts,
+        })
+        created.append(problem_no)
+    if not dry_run:
+        db.commit()
+    return {"total_modules": len(mp_rows), "created": created, "skipped": skipped}
+
+
 # ── 问题↔措施 多对多 ─────────────────────────────────────────
 def link_action(db: Session, problem_no: str, action_no: str, is_primary: bool = False,
                 linked_by: str = "", note: str = "",
@@ -847,35 +926,58 @@ def _attach_week_stats(db: Session, items: List[Dict], stat_week: str) -> None:
     """给问题列表补「指定周增量 + 截至该周累计」（2026-11-04 老大要求拆字段）。
 
     口径（唯一实现，禁别处另算）：
-      - week_delta：该问题根因簇在 stat_week 当周的新增投诉单量；
-      - cum_total ：该问题根因簇在 stat_week **及之前**的累计单量（与指定周视角一致）。
-    工单只挂单值 rootcause_no，问题可能锚多簇（rootcause_nos 快照）→ 按簇集合汇总。
+      - week_delta：该问题锚点在 stat_week 当周的新增投诉单量；
+      - cum_total ：该问题锚点在 stat_week **及之前**的累计单量（与指定周视角一致）。
+    锚点双源：旧 rootcause 簇（rootcause_no/rootcause_nos）+ 新闭集模块问题（module_problem_id），
+    按各自映射汇总；一条问题两种锚点不会同时有（种子问题只挂 module_problem_id）。
     """
     rc_to_items: Dict[str, List[Dict]] = {}
+    mp_to_items: Dict[str, List[Dict]] = {}
     for it in items:
         it["week_delta"] = 0
         it["cum_total"] = 0
         it["stat_week"] = stat_week
+        mid = (it.get("module_problem_id") or "").strip()
+        if mid:
+            mp_to_items.setdefault(mid, []).append(it)
         nos = {x.strip() for x in f"{it.get('rootcause_nos') or ''},{it.get('rootcause_no') or ''}".split(",") if x.strip()}
         for n in nos:
             rc_to_items.setdefault(n, []).append(it)
-    if not rc_to_items:
-        return
-    keys = list(rc_to_items.keys())
-    marks = ",".join(f":r{i}" for i in range(len(keys)))
-    rows = db.execute(text(
-        f"SELECT rootcause_no, week, COUNT(*) c FROM pmwb_complaint_ticket "
-        f"WHERE rootcause_no IN ({marks}) AND week IS NOT NULL AND week <> '' "
-        f"GROUP BY rootcause_no, week"
-    ), {f"r{i}": v for i, v in enumerate(keys)}).fetchall()
     st = _week_tuple(stat_week)
-    for rc, wk, c in rows:
-        cnt = int(c or 0)
-        for it in rc_to_items.get(rc, []):
-            if wk == stat_week:
-                it["week_delta"] += cnt
-            if _week_tuple(wk) <= st:
-                it["cum_total"] += cnt
+    # 根因簇路径
+    if rc_to_items:
+        keys = list(rc_to_items.keys())
+        marks = ",".join(f":r{i}" for i in range(len(keys)))
+        rows = db.execute(text(
+            f"SELECT rootcause_no, week, COUNT(*) c FROM pmwb_complaint_ticket "
+            f"WHERE rootcause_no IN ({marks}) AND week IS NOT NULL AND week <> '' "
+            f"GROUP BY rootcause_no, week"
+        ), {f"r{i}": v for i, v in enumerate(keys)}).fetchall()
+        for rc, wk, c in rows:
+            cnt = int(c or 0)
+            for it in rc_to_items.get(rc, []):
+                if wk == stat_week:
+                    it["week_delta"] += cnt
+                if _week_tuple(wk) <= st:
+                    it["cum_total"] += cnt
+    # 闭集模块问题路径（经逐单映射表聚合）
+    if mp_to_items:
+        keys = list(mp_to_items.keys())
+        marks = ",".join(f":m{i}" for i in range(len(keys)))
+        rows = db.execute(text(
+            f"SELECT tm.module_problem_id, t.week, COUNT(*) c "
+            f"FROM pmwb_complaint_ticket_module tm "
+            f"JOIN pmwb_complaint_ticket t ON t.ticket_no = tm.ticket_no "
+            f"WHERE tm.module_problem_id IN ({marks}) AND t.week IS NOT NULL AND t.week <> '' "
+            f"GROUP BY tm.module_problem_id, t.week"
+        ), {f"m{i}": v for i, v in enumerate(keys)}).fetchall()
+        for mid, wk, c in rows:
+            cnt = int(c or 0)
+            for it in mp_to_items.get(mid, []):
+                if wk == stat_week:
+                    it["week_delta"] += cnt
+                if _week_tuple(wk) <= st:
+                    it["cum_total"] += cnt
 
 
 def list_problems(db: Session, status: str = "", week: str = "", l1: str = "",

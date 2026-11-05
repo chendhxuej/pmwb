@@ -69,8 +69,11 @@
               <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
             </el-table-column>
             <el-table-column prop="title" label="问题（根因摘要）" min-width="230" show-overflow-tooltip />
-            <el-table-column prop="rootcause_no" label="根因簇" width="106">
-              <template #default="{ row }">{{ row.rootcause_no || '—' }}</template>
+            <el-table-column prop="module_problem_id" label="归因锚点" width="132">
+              <template #default="{ row }">
+                <el-tag v-if="row.module_problem_id" type="success" size="small" effect="plain">模块·{{ row.module_problem_id }}</el-tag>
+                <span v-else>{{ row.rootcause_no || '—' }}</span>
+              </template>
             </el-table-column>
             <el-table-column label="状态" width="92" align="center">
               <template #default="{ row }">
@@ -117,7 +120,7 @@
 
         <el-tab-pane :label="`待确认候选（${candidates.length}）`" name="candidate">
           <div class="tab-bar">
-            <span class="tab-hint">每周导入后 AI 自动识别；<b>确认入账</b>后才进入台账、才能挂措施</span>
+            <span class="tab-hint">候选来源：<b>主要投诉点</b>（闭集模块问题，零 LLM）+ 旧根因簇扫描；<b>确认入账</b>后才进入台账、才能挂措施</span>
           </div>
           <el-table ref="pmTbl1" v-if="candidates.length" :data="candidates" size="default" border>
           <el-table-column prop="problem_no" label="编号" width="150">
@@ -125,6 +128,12 @@
           </el-table-column>
           <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
           <el-table-column prop="category_l2" label="场景" min-width="130" show-overflow-tooltip />
+          <el-table-column label="归因锚点" width="150">
+            <template #default="{ row }">
+              <el-tag v-if="row.module_problem_id" type="success" size="small" effect="plain">模块·{{ row.module_problem_id }}</el-tag>
+              <span v-else>{{ row.rootcause_no || '—' }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="命中规则" width="180">
             <template #default="{ row }">
               <el-tag v-for="h in ruleHits(row.rule_hits)" :key="h" size="small" class="rule-tag" type="warning">{{ h }}</el-tag>
@@ -574,7 +583,9 @@ function evidenceBrief(v) {
     if (ev.wow != null) parts.push(`环比 +${ev.wow}%`)
     if (ev.rank) parts.push(`场景第 ${ev.rank} 位`)
     if (ev.recur_cnt) parts.push(`复发 ${ev.recur_cnt} 单`)
-    if (ev.cnt) parts.push(`周单量 ${ev.cnt}`)
+    if (ev.cnt) parts.push(`累计 ${ev.cnt} 单`)
+    if (ev.active_weeks) parts.push(`活跃 ${ev.active_weeks} 周`)
+    if (ev.sample_tickets && ev.sample_tickets.length) parts.push(`样本 ${ev.sample_tickets.length} 单`)
     return parts.join('；') || '—'
   } catch (e) { return '—' }
 }
@@ -764,8 +775,13 @@ function problemRcNos() {
 }
 
 async function loadDetailTickets() {
-  const rcs = problemRcNos()
-  drillFilters.value = rcs.length ? { rootcause_no: rcs.join(',') } : { problem_no: detail.value?.problem_no }
+  // 归因锚点选路：优先闭集模块问题（L2 主要投诉点），否则根因簇，再否则按问题编号
+  if (detail.value?.module_problem_id) {
+    drillFilters.value = { module_problem_id: detail.value.module_problem_id }
+  } else {
+    const rcs = problemRcNos()
+    drillFilters.value = rcs.length ? { rootcause_no: rcs.join(',') } : { problem_no: detail.value?.problem_no }
+  }
   try {
     const t = await complaintApi.listTickets({ ...drillFilters.value, page: 1, page_size: 8 })
     detailTickets.value = t?.items || []

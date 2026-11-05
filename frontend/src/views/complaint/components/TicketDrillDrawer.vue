@@ -139,7 +139,7 @@ const detailVisible = ref(false)
 const filterLabels = {
   week: '周', l1: '一级', l2: '场景', is_batch: '批量簇', is_recur: '复发',
   unclosed: '未结单', retention: '超期', problem_no: '问题', handler: '处理人',
-  city: '地市', classify_by: '归类来源',
+  city: '地市', classify_by: '归类来源', module_problem_id: '模块问题',
 }
 
 const activeFilters = computed(() => {

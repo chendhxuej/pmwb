@@ -81,6 +81,7 @@ def list_tickets(
     retention: Optional[int] = Query(None, ge=0, le=1, description="1=超期滞留（创建超N天未完结）下钻"),
     city: Optional[str] = Query(None, description="地市（精确）"),
     rootcause_no: Optional[str] = Query(None, description="按根因簇下钻"),
+    module_problem_id: Optional[str] = Query(None, description="按闭集模块问题下钻（L2主要投诉点）"),
     known_flag: Optional[int] = Query(None, ge=0, le=1, description="1=已知问题 0=新增问题"),
     rc_status: Optional[str] = Query(None, description="根因状态：ai/insufficient/manual，pending=待分析"),
     rc_max_tickets: Optional[int] = Query(None, ge=1, description="只看簇累计单量 ≤N 的工单（1=一次性个案）"),
@@ -133,6 +134,12 @@ def list_tickets(
             marks = ",".join(f":rc{i}" for i in range(len(rc_list)))
             where.append(f"rootcause_no IN ({marks})")
             params.update({f"rc{i}": v for i, v in enumerate(rc_list)})
+    if module_problem_id:
+        # 闭集模块问题下钻：经逐单映射表关联到工单（L2 主要投诉点 → 工单）
+        where.append(
+            "t.ticket_no IN (SELECT ticket_no FROM pmwb_complaint_ticket_module "
+            "WHERE module_problem_id = :mid)")
+        params["mid"] = module_problem_id
     if rc_status:
         if rc_status == "pending":
             where.append("(rc_status IS NULL OR rc_status = '')")
@@ -178,7 +185,7 @@ def list_tickets(
 
     cond = " AND ".join(where)
     total = db.execute(text(
-        f"SELECT COUNT(*) FROM pmwb_complaint_ticket WHERE {cond}"
+        f"SELECT COUNT(*) FROM pmwb_complaint_ticket t WHERE {cond}"
     ), params).scalar() or 0
     rows = db.execute(text(f"""
         SELECT id, ticket_no, week, created_time, city, channel, appeal_category, biz_attr,
@@ -188,7 +195,7 @@ def list_tickets(
                root_cause, fault_stage, fault_system, fault_type, own_party, fix_mode,
                repro, rc_status, rc_confidence, rc_evidence, rc_gap, rootcause_no,
                known_flag, known_problem_no
-        FROM pmwb_complaint_ticket WHERE {cond}
+        FROM pmwb_complaint_ticket t WHERE {cond}
         ORDER BY created_time DESC
         LIMIT :limit OFFSET :offset
     """), {**params, "limit": page_size, "offset": (page - 1) * page_size}).mappings().all()
@@ -838,6 +845,20 @@ def scan_problems(
     """手动重扫候选共性问题（R1-R4 规则；幂等，同场景在办只累加不新建）。"""
     try:
         return success(complaint_problems.scan_candidates(db, week=week, dry_run=dry_run))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/problems/seed-from-module")
+def seed_from_module(
+    db: Session = Depends(get_db),
+    dry_run: bool = Query(True, description="默认仅预览不落库"),
+    only_defect: bool = Query(True, description="只种子缺陷类（is_defect=1），咨询类不进台账"),
+):
+    """以闭集模块问题（主要投诉点）为种子生成候选问题台账（#69；幂等）。"""
+    try:
+        return success(complaint_problems.seed_from_module_problem(
+            db, dry_run=dry_run, only_defect=only_defect))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

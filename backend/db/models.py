@@ -2170,10 +2170,14 @@ class PmwbComplaintProblem(Base):
     category_l2 = Column(String(64), comment="主要二级场景（快照，仅统计用；不再作归并锚点）")
     rootcause_no = Column(String(64), comment="主根因簇编号（问题实体锚点，取代 category_l2 归并键）")
     rootcause_nos = Column(String(512), comment="覆盖的根因簇编号（逗号分隔，一问题可纳多簇）")
+    # 2026-11-05 新增：闭集模块问题锚点（取代旧根因簇锚的新一代归因入口）。
+    # problem 表既兼容旧 rootcause 锚，也支持新 module_problem_id 锚；两条路径共存，
+    #  drilling/聚合按字段有无自动选路，禁第二份真相。
+    module_problem_id = Column(String(32), index=True, comment="闭集模块问题ID锚点（MP- 前缀；为空=旧根因簇锚问题）")
 
     source_type = Column(
         String(32), nullable=False, default="candidate",
-        comment="主触发规则：rootcause_batch/surge/recur/manual",
+        comment="主触发规则：rootcause_batch/surge/recur/manual/module_seed",
     )
     rule_hits = Column(String(128), comment="全部命中规则（逗号分隔，证据不参与分支）")
     evidence = Column(Text, comment="证据快照 JSON（week/cnt/wow/簇/样本单号，只读）")
