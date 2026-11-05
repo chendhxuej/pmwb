@@ -135,6 +135,9 @@ const routes = [
         component: () => import('@/views/MeetingLayout.vue'),
         redirect: '/complaint-center/dashboard',
         meta: { title: '客诉专题', icon: 'DataAnalysis' },
+        // 2026-11-05 联动适配（低风险增量）：导航按「主要投诉点(闭集)」主干重排——
+        // 主干五页在前（现状 → 热点 → 主要投诉点 → 台账 → 措施 → 工单），
+        // 根因库/问题点类(v4.2) 降级为参考页移到末尾（工单明细可下钻到达）。
         children: [
           {
             path: 'dashboard',
@@ -147,20 +150,6 @@ const routes = [
             name: 'ComplaintHotspots',
             component: () => import('@/views/complaint/ComplaintHotspots.vue'),
             meta: { title: '热点投诉' },
-          },
-          {
-            // 2026-11-03 根因深化：根因库 = 问题台账的上游（先有真实根因，才有共性问题）
-            path: 'rootcause',
-            name: 'ComplaintRootcauseLib',
-            component: () => import('@/views/complaint/RootcauseLib.vue'),
-            meta: { title: '根因库' },
-          },
-          {
-            // 2026-11-04 v4.2 客诉逐单问题点自动化：分析过程不依赖人，描述具体到一句话
-            path: 'problem-v42',
-            name: 'ComplaintProblemV42',
-            component: () => import('@/views/complaint/ProblemV42.vue'),
-            meta: { title: '问题点类(v4.2)' },
           },
           {
             // 2026-11-05 L2 功能模块问题（分析汇聚输出层）：跨表象汇聚，找出主要投诉点
@@ -186,6 +175,20 @@ const routes = [
             name: 'ComplaintTicketLedger',
             component: () => import('@/views/complaint/ComplaintTicketLedger.vue'),
             meta: { title: '工单明细' },
+          },
+          {
+            // 2026-11-03 根因深化：根因库降级为逐单根因明细钻取（工单明细 rootcause_no 链接到达）
+            path: 'rootcause',
+            name: 'ComplaintRootcauseLib',
+            component: () => import('@/views/complaint/RootcauseLib.vue'),
+            meta: { title: '根因库' },
+          },
+          {
+            // 2026-11-04 v4.2 客诉逐单问题点自动化：分析过程不依赖人，描述具体到一句话
+            path: 'problem-v42',
+            name: 'ComplaintProblemV42',
+            component: () => import('@/views/complaint/ProblemV42.vue'),
+            meta: { title: '问题点类(v4.2)' },
           },
         ],
       },
