@@ -58,6 +58,9 @@
         <el-button @click="fetchList"><el-icon><Refresh /></el-icon> 刷新</el-button>
         <el-button @click="handleDownloadTemplate"><el-icon><Download /></el-icon> 下载模版</el-button>
         <el-button type="success" @click="triggerImport"><el-icon><Upload /></el-icon> 导入</el-button>
+        <el-button type="primary" plain @click="mailImportVisible = true">
+          <el-icon><Message /></el-icon> 从邮件导入
+        </el-button>
         <input ref="importFileRef" type="file" accept=".xlsx" style="display:none" @change="handleImportFile" />
       </div>
 
@@ -119,6 +122,9 @@
         />
       </div>
     </div>
+
+    <!-- 周反馈邮件导入抽屉 -->
+    <MailImportDrawer v-model="mailImportVisible" @applied="onMailImported" />
 
     <!-- 详情抽屉 -->
     <el-drawer
@@ -865,6 +871,7 @@ import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import StatusBadge from '@/components/Common/StatusBadge.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'
 import EmailSuperviseLog from '@/components/Common/EmailSuperviseLog.vue'
+import MailImportDrawer from '@/components/KeyWork/MailImportDrawer.vue'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
 import {
@@ -892,6 +899,13 @@ const totalCount = computed(() => {
   const b = stats.value.by_category || {}
   return Object.values(b).reduce((a, c) => a + (c || 0), 0)
 })
+
+// ---------- 邮件导入 ----------
+const mailImportVisible = ref(false)
+function onMailImported() {
+  fetchList()
+  fetchStats()
+}
 
 // ---------- 抽屉 / 详情 ----------
 const drawerVisible = ref(false)

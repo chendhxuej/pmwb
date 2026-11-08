@@ -1361,6 +1361,34 @@ class PmwbKeyWorkWeeklyPlan(Base):
     )
 
 
+class PmwbKeyWorkMailImportRun(Base):
+    """周反馈邮件导入运行记录。
+
+    既是「上次收口日」的唯一来源（页面默认区间 = 上一次 until），
+    也是每次导入的可追溯凭据：谁在什么时候把哪个区间的邮件导成了什么。
+    """
+
+    __tablename__ = "pmwb_key_work_mail_import_run"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    since_date = Column(Date, nullable=False, comment="处理区间起（邮件发送日期）")
+    until_date = Column(Date, nullable=False, comment="处理区间止")
+    mail_count = Column(Integer, default=0, comment="解析邮件封数")
+    status_count = Column(Integer, default=0, comment="状态更新项数")
+    note_count = Column(Integer, default=0, comment="备注更新项数")
+    add_count = Column(Integer, default=0, comment="新增计划/待办条数")
+    doubt_count = Column(Integer, default=0, comment="存疑条数")
+    skipped_count = Column(Integer, default=0, comment="跳过条数（取消勾选+幂等跳过）")
+    detail = Column(Text, comment="执行明细 JSON")
+    operator = Column(String(64), comment="操作人")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+
+    __table_args__ = (
+        Index("idx_kwmir_until", "until_date"),
+        {"comment": "重点工作周反馈邮件导入运行记录"},
+    )
+
+
 class PmwbKeyWorkProgress(Base):
     """重点工作进展日志表。"""
 

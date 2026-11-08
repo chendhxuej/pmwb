@@ -524,6 +524,8 @@ class WeeklyFeedbackNewTask(BaseModel):
     title: str = Field(..., max_length=500, description="待办标题")
     assignee: Optional[str] = Field(None, max_length=64, description="负责人")
     due_date: Optional[date] = Field(None, description="截止日期")
+    # 邮件/线下反馈里的待办往往已在进行中甚至已完成，落库时需保留真实状态
+    status: Optional[str] = Field(None, description="状态（取值见 constants/status_registry: keywork_task）")
     note: Optional[str] = Field(None, description="备注")
     link_type: Optional[str] = Field("none", description="关联对象类型")
     link_id: Optional[int] = Field(None, description="关联对象ID")
@@ -601,3 +603,24 @@ class KeyWorkFeedbackMailRequest(BaseModel):
 
     week: str = Field(..., max_length=10, description="周次 YYYY-Www")
     assignees: Optional[List[str]] = Field(None, description="指定责任人（缺省=全部责任人）")
+
+
+# ---------------------------------------------------------------------------
+# 周反馈邮件导入（页面化）
+# ---------------------------------------------------------------------------
+class MailImportPreviewRequest(BaseModel):
+    """预览请求：缺省区间 = 上次收口日 → 今天。"""
+
+    since: Optional[str] = Field(None, description="处理区间起 YYYY-MM-DD（邮件发送日期）")
+    until: Optional[str] = Field(None, description="处理区间止 YYYY-MM-DD")
+
+
+class MailImportApplyRequest(MailImportPreviewRequest):
+    """落库请求：按预览 key 排除取消勾选项，存疑条目给裁定动作。"""
+
+    exclude: List[str] = Field(default_factory=list, description="取消勾选的条目 key")
+    doubt_actions: Dict[str, str] = Field(
+        default_factory=dict, description="存疑裁定 {key: add_todo|update_status|skip}"
+    )
+    snapshot_id: Optional[str] = Field(None, description="预览快照标识，防区间内邮件变化后错落")
+    operator: Optional[str] = Field(None, description="操作人")

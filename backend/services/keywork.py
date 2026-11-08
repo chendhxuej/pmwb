@@ -52,6 +52,31 @@ def derive_iso_week(d: Optional[date] = None) -> str:
     return f"{iso.year}-W{iso.week:02d}"
 
 
+def sync_plan_to_progress(db: Session, kw_id: int, plan_type: str, plan) -> None:
+    """当计划状态变为 completed 时，自动向工作进展追加一条记录。
+
+    唯一实现：路由层新增/修改计划、邮件导入批量落库都走这里，
+    禁止各处再各写一份「计划完成→进展」的拼装逻辑。
+    """
+    kw = db.query(PmwbKeyWork).filter(PmwbKeyWork.id == kw_id).first()
+    reporter = plan.assignee or (kw.owner if kw else None)
+
+    title_text = plan.title or (plan.content or "")[:30]
+    plan_label = plan.month if plan_type == "monthly" else plan.week
+    content = f"【{'月计划' if plan_type == 'monthly' else '周计划'}】{plan_label} {title_text} 已完成"
+    if plan.content:
+        content += f"：{plan.content}"
+
+    db.add(
+        PmwbKeyWorkProgress(
+            key_work_id=kw_id,
+            record_date=now_cn().date(),
+            reporter=reporter,
+            content=content,
+        )
+    )
+
+
 class KeyWorkService(BaseService[PmwbKeyWork]):
     """重点工作 Service。"""
 

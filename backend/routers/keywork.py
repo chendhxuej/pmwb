@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from core.exceptions import NotFoundException
+from core.exceptions import NotFoundException, ValidationException
 from core.response import success
 from db.base import get_db
 from db.models import (
@@ -28,6 +28,8 @@ from db.models import (
 )
 from schemas.keywork import (
     KeyWorkCreate,
+    MailImportApplyRequest,
+    MailImportPreviewRequest,
     KeyWorkFeedbackMailRequest,
     KeyWorkListResponse,
     KeyWorkMemberCreate,
@@ -46,7 +48,8 @@ from schemas.keywork import (
     KeyWorkWeeklyPlanUpdate,
 )
 from services import keywork_deliverable as deliverable_svc
-from services.keywork import derive_iso_week, keywork_service
+from services import keywork_mail_import as mail_import_svc
+from services.keywork import derive_iso_week, keywork_service, sync_plan_to_progress
 from services.keywork_excel import build_template_bytes, import_key_works_from_bytes
 from services.mail_dispatch import dispatch_email
 from utils.master_service import MasterServiceClient
@@ -56,31 +59,9 @@ router = APIRouter(prefix="/key-works", tags=["重点工作"])
 
 
 # ---------------------------------------------------------------------------
-# 计划 → 进展同步 helper
+# 计划 → 进展同步 helper（实现已下沉到 service，多处复用同一份）
 # ---------------------------------------------------------------------------
-def _sync_plan_to_progress(
-    db: Session,
-    kw_id: int,
-    plan_type: str,
-    plan,
-) -> None:
-    """当计划状态变为 completed 时，自动向工作进展追加一条记录。"""
-    kw = db.query(PmwbKeyWork).filter(PmwbKeyWork.id == kw_id).first()
-    reporter = plan.assignee or (kw.owner if kw else None)
-
-    title_text = plan.title or (plan.content or "")[:30]
-    plan_label = plan.month if plan_type == "monthly" else plan.week
-    content = f"【{'月计划' if plan_type == 'monthly' else '周计划'}】{plan_label} {title_text} 已完成"
-    if plan.content:
-        content += f"：{plan.content}"
-
-    progress = PmwbKeyWorkProgress(
-        key_work_id=kw_id,
-        record_date=date.today(),
-        reporter=reporter,
-        content=content,
-    )
-    db.add(progress)
+_sync_plan_to_progress = sync_plan_to_progress
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +110,54 @@ def find_key_work_by_child(
     else:
         return success(data={"key_work_id": None, "found": False})
     return success(data={"key_work_id": kw_id, "found": kw_id is not None})
+
+
+# ---------------------------------------------------------------------------
+# 周反馈邮件导入（每人一件事专题：邮件正文 → 计划/待办更新）
+# 注意：以下三个端点必须声明在 /{kw_id} 之前（kw_id 为 int，避免路径解析冲突）
+# ---------------------------------------------------------------------------
+@router.get("/mail-import/status")
+def mail_import_status(db: Session = Depends(get_db)):
+    """导入前置状态：邮件中心库是否可读、上次收口日、区间内待处理邮件数。"""
+    return success(data=mail_import_svc.status(db))
+
+
+@router.post("/mail-import/preview")
+def mail_import_preview(payload: MailImportPreviewRequest, db: Session = Depends(get_db)):
+    """解析邮件并输出变更草案（**不写库**）。"""
+    since = payload.since or mail_import_svc.last_run_date(db)
+    try:
+        data = mail_import_svc.build_preview(db, since, payload.until)
+    except RuntimeError as exc:
+        raise NotFoundException(str(exc))
+    return success(data=data)
+
+
+@router.post("/mail-import/apply")
+def mail_import_apply(payload: MailImportApplyRequest, db: Session = Depends(get_db)):
+    """按页面确认结果落库；状态只进不退由服务层强制。"""
+    since = payload.since or mail_import_svc.last_run_date(db)
+    try:
+        data = mail_import_svc.apply_import(
+            db,
+            since,
+            payload.until,
+            exclude=payload.exclude,
+            doubt_actions=payload.doubt_actions,
+            snapshot_id=payload.snapshot_id,
+            operator=payload.operator,
+        )
+    except ValueError as exc:
+        raise ValidationException(str(exc))
+    except RuntimeError as exc:
+        raise NotFoundException(str(exc))
+    return success(data=data)
+
+
+@router.get("/mail-import/runs")
+def mail_import_runs(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    """导入运行记录（收口日追溯）。"""
+    return success(data=mail_import_svc.list_runs(db, limit))
 
 
 @router.get("/feedback-overview")

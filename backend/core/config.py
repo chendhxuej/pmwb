@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     EMAIL_CENTER_URL: str = "http://localhost:3210"
     EMAIL_CENTER_API_KEY: str = ""  # 可选，若邮件中心配置了 API_KEY 则填写
+    # 统一邮件中心的收件箱库（SQLite）。重点工作「从邮件导入」只读该库取周反馈原文；
+    # 留空则用默认部署路径。换库/换机器时只改这一处。
+    MAIL_CENTER_DB: str = ""
 
     # 邮件发送安全护栏（铁律：防 AI/程序误将测试邮件发给真实同事）
     # 默认开启 dry_run：dispatch_email 在未收到 confirm_send=True 时只落库 email_records、

@@ -210,3 +210,19 @@ export function submitWeeklyFeedback(id, data) {
 export function sendFeedbackMail(id, data) {
   return request.post(`/key-works/${id}/feedback-mails`, data)
 }
+// ── 周反馈邮件导入（页面化：预览 → 确认 → 落库） ──
+export function getMailImportStatus() {
+  return request.get('/key-works/mail-import/status')
+}
+
+export function previewMailImport(data) {
+  return request.post('/key-works/mail-import/preview', data)
+}
+
+export function applyMailImport(data) {
+  return request.post('/key-works/mail-import/apply', data)
+}
+
+export function listMailImportRuns(limit = 20) {
+  return request.get('/key-works/mail-import/runs', { params: { limit } })
+}
