@@ -81,7 +81,7 @@
           <div v-if="genForm.report_type === 'dev_overdue'" class="form-tip">
             开发超期口径：跟踪状态为「开发中」且尚未上线，进入「启动开发」环节已超该天数（默认 25 天，可手工调整）
           </div>
-          <div v-else class="form-tip">计划上线需求口径：尚未上线且进入「启动开发」环节已超该天数（默认 15 天）</div>
+          <div v-else class="form-tip">下周计划口径：期望上线日期在下周、承诺日期已到仍在途、开发中推进已超该天数（默认 15 天），或新增资费类快速配置需求；本周上线日期严格按自然周口径统计</div>
         </el-form-item>
         <el-form-item v-if="genForm.report_type !== 'dev_overdue'" label="起始日期">
           <el-date-picker v-model="genForm.date_start" type="date" value-format="YYYY-MM-DD" placeholder="缺省自动推算" style="width: 100%" />

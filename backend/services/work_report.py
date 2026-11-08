@@ -62,9 +62,24 @@ def to_out(r: PmwbWorkReport) -> Dict[str, Any]:
     }
 
 
+def _coerce_date(v) -> Optional[date]:
+    """容错解析：router 已转 date，脚本/CLI 可能直接传 "YYYY-MM-DD"（曾踩 AttributeError）。"""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+
 def _date_range(report_type: str, ds: Optional[date], de: Optional[date]):
     today = date.today()
-    end = de or today
+    ds = _coerce_date(ds)
+    end = _coerce_date(de) or today
     if ds:
         return ds, end
     if report_type == "weekly":
@@ -74,8 +89,9 @@ def _date_range(report_type: str, ds: Optional[date], de: Optional[date]):
     elif report_type == "monthly":
         start = end.replace(day=1)
     elif report_type == "requirement":
-        # 需求分析专题：默认近 7 天（含今天）
-        start = end - timedelta(days=6)
+        # 需求分析专题：默认自然周（周一 ~ 结束日）。
+        # 此前用「近 7 天」会在周五跑出上周六起的跨周区间，混入非本周上线的需求。
+        start = end - timedelta(days=end.weekday())
     elif report_type == "dev_overdue":
         # 需求开发超期专题：快照口径，只关心统计基准日（start=end）
         start = end
@@ -283,10 +299,10 @@ def generate_report(db: Session, params: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _generate_requirement_analysis(db: Session, start: date, end: date, params: Dict[str, Any]) -> Dict[str, Any]:
-    """「需求分析」专题生成：已上线/计划上线两类需求 + 能力高度概括。
+    """「需求分析」专题生成：已上线 / 在途过程进展 / 下周计划上线三节。
 
     与日常报告不同：不走 ReportDataCollector 七章管线、不做 _ensure_sections/
-    下期计划拼接，输出为固定两节的轻量结构。
+    下期计划拼接，输出为固定三节的轻量结构（团队成效反馈口吻）。
     """
     from services import requirement_analysis as ra
 
@@ -299,10 +315,11 @@ def _generate_requirement_analysis(db: Session, start: date, end: date, params: 
     data = ra.collect(db, start, end, overdue_days)
     system, user = ra.build_prompt(data, start, end, overdue_days)
     _t_collect = time.time() - _t0
+    _st = data.get("stats") or {}
     logger.info(
-        "[需求分析] 数据筛选 %.1fs：已上线 %d 条 / 计划上线(开发超%d天) %d 条，user_message %d 字符",
-        _t_collect, len(data.get("delivered") or []), overdue_days,
-        len(data.get("planned") or []), len(user),
+        "[需求分析] 数据筛选 %.1fs：已上线 %d / 在途进展 %d / 计划上线(开发超%d天) %d / 待补录 %d，user_message %d 字符",
+        _t_collect, _st.get("delivered", 0), _st.get("inflight", 0), overdue_days,
+        _st.get("planned", 0), _st.get("quality", 0), len(user),
     )
     md, used_llm, provider_name, notice = generate_report_markdown(db, system, user)
     _t_llm = time.time() - _t0 - _t_collect
@@ -313,6 +330,9 @@ def _generate_requirement_analysis(db: Session, start: date, end: date, params: 
     if not md:
         md = ra.render_rule(data, start, end, overdue_days)
         notice = notice or "所有已启用的大模型均不可用，已按规则模板生成（能力为澄清内容首句截取，非 AI 高度概括）。"
+    elif _st.get("planned_truncated") and "另有" not in md:
+        # 下周计划受篇幅上限截断时，报告需交代总量，避免读者以为只有列出的这几项
+        md = md.rstrip() + f"\n\n> 另有 {_st['planned_truncated']} 项需求同步推进，按里程碑陆续交付。\n"
     title = f"{_type_label('requirement')}（{start.isoformat()}~{end.isoformat()}）"
     r = PmwbWorkReport(
         report_type="requirement", title=title, content=md,
