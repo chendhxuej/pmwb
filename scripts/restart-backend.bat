@@ -14,7 +14,7 @@ if errorlevel 1 (
 )
 net start PMWB-Backend
 if errorlevel 1 (
-    echo [失败] 启动服务失败：看 C://pmwb-logs 或服务日志。
+    echo [失败] 启动服务失败：看 C:\pmwb-logs 或服务日志。
     pause
     exit /b 1
 )
@@ -24,10 +24,14 @@ timeout /t 8 /nobreak >nul
 echo.
 echo 自检：新接口是否上线
 curl -s -o nul -w "health=%%{http_code}\n" http://127.0.0.1:8000/api/v1/health
-curl -s http://127.0.0.1:8000/openapi.json | findstr /C:"mail-import/preview" >nul && (
+rem 用 HTTP 码判断：401=接口存在且要求鉴权，404=接口不存在
+for /f %%c in ('curl -s -o nul -w "%%{http_code}" http://127.0.0.1:8000/api/v1/key-works/mail-import/status') do set MI=%%c
+if "%MI%"=="401" (
     echo [OK] mail-import 接口已加载，可以去「重点工作 - 从邮件导入」了
-) || (
-    echo [警告] 接口未出现，请看后端日志排查
+) else if "%MI%"=="200" (
+    echo [OK] mail-import 接口已加载，可以去「重点工作 - 从邮件导入」了
+) else (
+    echo [警告] 接口返回 %MI%，未按预期上线，请看后端日志排查
 )
 echo.
 pause
