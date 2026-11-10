@@ -1240,10 +1240,11 @@ def module_problem_summary(db: Session = Depends(get_db)):
 def module_problem_classes(
     include_consult: bool = Query(False, description="是否包含咨询类"),
     keyword: str = Query(""),
+    week: Optional[str] = Query(None, description="统计周（空=库内最新周）"),
     db: Session = Depends(get_db),
 ):
-    """主要投诉点类表（模块问题级；跨表象汇聚）。"""
-    items = mod_agg.list_module_problems(db, include_consult=include_consult)
+    """主要投诉点类表（模块问题级；跨表象汇聚，含本周单量与环比）。"""
+    items = mod_agg.list_module_problems(db, include_consult=include_consult, week=week)
     if keyword:
         kw = keyword.strip()
         items = [i for i in items if kw in i["name"] or kw in (i["module"] or "")]

@@ -73,6 +73,7 @@ def run_aggregate(db: Session, dry_run: bool = True) -> Dict:
             PmwbComplaintTicket.week,
             PmwbComplaintTicket.city,
             PmwbComplaintProblemPoint.point,
+            PmwbComplaintTicket.content,
             PmwbComplaintTicket.fault_stage,
             PmwbComplaintTicket.category_l1,
         )
@@ -82,11 +83,18 @@ def run_aggregate(db: Session, dry_run: bool = True) -> Dict:
 
     ticket_rows = []  # (ticket_no, mp_id, confidence, surface, review_status, gap, suggested_id, week)
     for r in rows:
-        ticket_no, week, city, point, stage, cat = r
-        mp_id, conf, reason = match_module_problem(point or "", stage, cat)
-        surface = _norm_surface(point)
+        ticket_no, week, city, point, content, stage, cat = r
+        # 两遍匹配：先用 L1 简述(point)，未命中再用原始工单内容(content)兜底。
+        # 既保留已归类工单的稳定口径，又把「简述为空/含糊」的残留单尽量归上
+        # （空 point 正是 343 未归类的主因）。
+        signal = point or ""
+        mp_id, conf, reason = match_module_problem(signal, stage, cat)
+        if mp_id is None and content:
+            mp_id, conf, reason = match_module_problem(content or "", stage, cat)
+            signal = content or ""
+        surface = _norm_surface(signal[:80]) if signal else _norm_surface(point)
         if mp_id is None:
-            suggested = _soft_suggest(point or "", stage, cat)
+            suggested = _soft_suggest(point or content or "", stage, cat)
             ticket_rows.append((ticket_no, None, None, surface, "unclassified", reason, suggested, week))
         else:
             review = "auto" if conf == "high" else "low"
@@ -231,8 +239,19 @@ def rebuild_counters(db: Session) -> int:
     return len(cnt_map)
 
 
-def list_module_problems(db: Session, include_consult: bool = False) -> List[Dict]:
-    """模块问题类表（主视角：主要投诉点）。"""
+def list_module_problems(db: Session, include_consult: bool = False,
+                         week: Optional[str] = None) -> List[Dict]:
+    """模块问题类表（主视角：主要投诉点）。
+
+    week 为空取库内最新周；同时给出该周单量与环比（2026-11-10 由「热点投诉」页
+    并入——原热门榜单走旧 l2 口径，与闭集重复，其环比能力在此承接）。
+    """
+    from services.complaint.metrics import prev_week
+
+    if not week:
+        week = db.query(func.max(PmwbComplaintTicket.week)).scalar()
+    pw = prev_week(week) if week else ""
+
     problems = db.query(PmwbComplaintModuleProblem).all()
     out = []
     for p in problems:
@@ -242,6 +261,9 @@ def list_module_problems(db: Session, include_consult: bool = False) -> List[Dic
         surfaces = _loads(p.surfaces_json, [])
         # 近 8 周日均分布
         weekly = _weekly_distribution(db, p.module_problem_id)
+        cur_cnt = next((w["cnt"] for w in weekly if w["week"] == week), 0)
+        prev_cnt = next((w["cnt"] for w in weekly if w["week"] == pw), 0)
+        wow = round((cur_cnt - prev_cnt) / prev_cnt * 100, 1) if prev_cnt else None
         out.append({
             "module_problem_id": p.module_problem_id,
             "name": p.name,
@@ -255,8 +277,13 @@ def list_module_problems(db: Session, include_consult: bool = False) -> List[Dic
             "surface_cnt": len(surfaces),
             "surfaces": surfaces[:12],  # 展示取前 12 种说法；surface_cnt 为真实去重总数
             "weekly": weekly,
+            # 环比（承接热点投诉页能力）：本周单量 / 上周单量 / 环比百分比（上周 0 单为 None）
+            "stat_week": week,
+            "week_cnt": cur_cnt,
+            "prev_week_cnt": prev_cnt,
+            "wow_pct": wow,
         })
-    out.sort(key=lambda x: (x["is_defect"], -x["ticket_cnt"]))
+    out.sort(key=lambda x: (x["is_defect"], -x["week_cnt"], -x["ticket_cnt"]))
     return out
 
 

@@ -2,6 +2,9 @@
   <div class="module-problem">
     <PageHeader title="主要投诉点 · 功能模块问题" :subtitle="subTitle">
       <template #actions>
+        <el-select v-if="weekOptions.length" v-model="statWeek" style="width: 150px" @change="loadClasses">
+          <el-option v-for="w in weekOptions" :key="w" :label="w + '（本周对比）'" :value="w" />
+        </el-select>
         <el-button :icon="Refresh" :loading="loading" @click="loadAll">刷新</el-button>
         <el-button type="primary" :icon="Refresh" :loading="running" @click="confirmRerun">
           重新归并（落库）
@@ -74,7 +77,20 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="ticket_cnt" label="工单量" width="90" align="center" sortable />
+            <el-table-column prop="ticket_cnt" label="累计工单" width="96" align="center" sortable />
+            <el-table-column :label="statWeek ? statWeek.replace('2026-', '') : '本周'" width="88" align="center" sortable prop="week_cnt">
+              <template #default="{ row }">
+                <span class="week-cnt">{{ row.week_cnt ?? 0 }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="环比" width="100" align="center" sortable prop="wow_pct">
+              <template #default="{ row }">
+                <span v-if="row.wow_pct === null || row.wow_pct === undefined" class="wow-new">新出现</span>
+                <span v-else-if="row.wow_pct > 0" class="wow-up">+{{ row.wow_pct }}%</span>
+                <span v-else-if="row.wow_pct < 0" class="wow-down">{{ row.wow_pct }}%</span>
+                <span v-else class="wow-flat">持平</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="surface_cnt" label="表象数" width="80" align="center" sortable>
               <template #default="{ row }">
                 <el-tooltip :content="'跨表象汇聚：同一问题 ' + row.surface_cnt + ' 种不同说法归并为一类'" placement="top">
@@ -181,6 +197,9 @@ const v42Href = '#/complaint-center/problem-v42'
 
 const allItems = ref([]) // 全量（含咨询类），用于 KPI 计数
 const classItems = ref([]) // 展示列表（含咨询类开关控制）
+// 对比周（承接原热点投诉页的环比能力；默认库内最新周）
+const statWeek = ref('')
+const weekOptions = ref([])
 const unclassifiedTotal = ref(0)
 const reviewItems = ref([])
 const reviewTotal = ref(0)
@@ -236,11 +255,21 @@ function reviewTagText(s) {
 }
 
 async function loadClasses() {
-  const r = await api.moduleProblemClasses({ include_consult: true })
+  const r = await api.moduleProblemClasses({
+    include_consult: true,
+    ...(statWeek.value ? { week: statWeek.value } : {}),
+  })
   const d = r || {}
   allItems.value = d.items || []
+  if (!statWeek.value && allItems.value.length) statWeek.value = allItems.value[0].stat_week || ''
   applyDisplay()
   recomputeSummary()
+}
+async function loadWeeks() {
+  try {
+    const r = await api.listWeeks(16)
+    weekOptions.value = r?.weeks || []
+  } catch (e) { weekOptions.value = [] }
 }
 function applyDisplay() {
   // 「包含咨询类」只看展示；KPI 计数始终基于 allItems（含咨询类），避免总数低估
@@ -321,6 +350,7 @@ async function confirmRerun() {
 
 onMounted(async () => {
   if (route.query.focus) focusId.value = String(route.query.focus)
+  await loadWeeks()
   await loadAll()
 })
 </script>
@@ -341,6 +371,12 @@ onMounted(async () => {
 .cls-tags { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
 .rank { font-weight: 700; color: var(--text-secondary, #64748b); }
 .surface-cnt { font-weight: 700; color: var(--accent, #2563eb); cursor: help; }
+/* 环比：投诉上升=恶化(红)，下降=好转(绿)；新出现单列以免与 0% 混淆 */
+.wow-up { color: var(--pm-danger, #c0392b); font-weight: 600; }
+.wow-down { color: var(--pm-success, #1e8e3e); font-weight: 600; }
+.wow-flat { color: var(--pm-text-3, #909399); }
+.wow-new { color: var(--pm-warning, #e6a23c); font-size: 12px; }
+.week-cnt { font-weight: 600; }
 .trend { display: flex; align-items: flex-end; gap: 3px; height: 34px; }
 .trend-bar { width: 9px; background: var(--accent, #2563eb); border-radius: 2px 2px 0 0; opacity: 0.8; }
 .surfaces { padding: 8px 4px; }

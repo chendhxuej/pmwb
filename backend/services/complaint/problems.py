@@ -168,10 +168,15 @@ def scan_candidates(db: Session, week: Optional[str] = None,
     prev = _cluster_week_stats(db, prev_week(week))
     titles = _cluster_titles(db, list(stats.keys()))
     index = _problem_cluster_index(db)
+    # 2026-11-10 候选收敛：簇若能被某个「在办模块问题」解释，就并入该台账而不是另立候选。
+    # 背景：旧扫描只看根因簇，每周产出与 19 个闭集模块重复的新 problem_no（台账膨胀、措施分散）。
+    module_idx = _open_module_map(db)
+    rc_module = _cluster_module_map(db, list(stats.keys()), module_idx) if module_idx else {}
 
     created: List[str] = []
     updated: List[str] = []
     reopened: List[str] = []
+    absorbed: List[str] = []
     now_ts = datetime.now()
 
     for rc_no, st in stats.items():
@@ -217,6 +222,27 @@ def scan_candidates(db: Session, week: Optional[str] = None,
         rule_hits = ",".join(h for h in C.PROBLEM_SOURCE_STRENGTH if h in hits)
         source_type = rule_hits.split(",")[0]
         title = (titles.get(rc_no) or {}).get("title") or f"根因簇 {rc_no}"
+
+        # 候选收敛（2026-11-10）：簇已能被某个在办模块问题解释 → 并入该台账的 rootcause_nos。
+        # 这样 19 个闭集模块问题之外的「新簇」才会真正新建候选，台账不再按周膨胀。
+        mid = rc_module.get(rc_no)
+        if not inflight and mid:
+            target = module_idx[mid]
+            if dry_run:
+                absorbed.append(f"{rc_no}->{target}(dry)")
+                continue
+            cur = db.execute(text(
+                "SELECT rootcause_nos FROM pmwb_complaint_problem WHERE problem_no = :p"
+            ), {"p": target}).scalar() or ""
+            keys = [k.strip() for k in cur.split(",") if k.strip()]
+            if rc_no not in keys:
+                keys.append(rc_no)
+            db.execute(text(
+                "UPDATE pmwb_complaint_problem SET rootcause_nos = :v, updated_at = :t "
+                "WHERE problem_no = :p"
+            ), {"v": ",".join(keys), "t": now_ts, "p": target})
+            absorbed.append(f"{rc_no}->{target}")
+            continue
 
         if dry_run:  # 只读预演：任何分支都不得写库（含在办问题的累加分支）
             if inflight:
@@ -289,7 +315,44 @@ def scan_candidates(db: Session, week: Optional[str] = None,
 
     if not dry_run:
         db.commit()
-    return {"week": week, "created": created, "updated": updated, "reopen": reopened}
+    return {"week": week, "created": created, "updated": updated, "reopen": reopened,
+            "absorbed": absorbed}
+
+
+def _open_module_map(db: Session) -> Dict[str, str]:
+    """在办模块问题 → 台账编号（候选收敛用；模块锚是新一代归因入口）。"""
+    rows = db.execute(text(
+        "SELECT module_problem_id, problem_no FROM pmwb_complaint_problem "
+        "WHERE status IN ('open', 'resolving') "
+        "  AND module_problem_id IS NOT NULL AND module_problem_id <> ''"
+    )).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+def _cluster_module_map(db: Session, rc_list: List[str],
+                        module_idx: Dict[str, str]) -> Dict[str, str]:
+    """簇 → 最多数归属的在办模块（只保留能在 module_idx 里找到台账的模块）。
+
+    一次 GROUP BY 查完，避免逐簇回查；同簇多模块取工单量最大者（业务主归属）。
+    """
+    keys = [k for k in rc_list if k]
+    if not keys:
+        return {}
+    marks = ", ".join(f":c{i}" for i in range(len(keys)))
+    rows = db.execute(text(
+        f"SELECT t.rootcause_no, tm.module_problem_id, COUNT(*) c "
+        f"FROM pmwb_complaint_ticket t "
+        f"JOIN pmwb_complaint_ticket_module tm ON tm.ticket_no = t.ticket_no "
+        f"WHERE t.rootcause_no IN ({marks}) "
+        f"GROUP BY t.rootcause_no, tm.module_problem_id"
+    ), {f"c{i}": v for i, v in enumerate(keys)}).fetchall()
+    best: Dict[str, tuple] = {}
+    for rc, mid, c in rows:
+        if mid not in module_idx:
+            continue
+        if rc not in best or int(c or 0) > best[rc][1]:
+            best[rc] = (mid, int(c or 0))
+    return {rc: v[0] for rc, v in best.items()}
 
 
 def _merge_evidence(old_evidence: Optional[str], new_evidence: Dict) -> Dict:

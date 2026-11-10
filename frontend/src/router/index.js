@@ -95,12 +95,12 @@ const routes = [
             meta: { title: '临时交办任务', category: 'task' },
           },
           {
-            // 旧热点投诉入口：2026-10-30 整合进客诉专题热点模块（热点口径全局唯一）；
-            // hidden——菜单不再单列，统一从一级「客诉专题 → 热点投诉」进入
+            // 旧热点投诉入口：2026-10-30 整合进客诉专题；2026-11-10 热点页退出菜单，
+            // 旧入口统一跳到「主要投诉点」（闭集口径，含环比，已承接热点能力）
             path: 'complaint',
             name: 'WOComplaint',
-            redirect: '/complaint-center/hotspots',
-            meta: { title: '热点投诉', category: 'complaint', hidden: true },
+            redirect: '/complaint-center/module-problem',
+            meta: { title: '主要投诉点', category: 'complaint', hidden: true },
           },
           // ── 客诉专题分析：2026-10-30 升级为独立一级模块（见顶级 complaint-center），
           //    此处仅保留旧深链 /operation/complaint-center/** 重定向兼容 ──
@@ -135,9 +135,11 @@ const routes = [
         component: () => import('@/views/MeetingLayout.vue'),
         redirect: '/complaint-center/dashboard',
         meta: { title: '客诉专题', icon: 'DataAnalysis' },
-        // 2026-11-05 联动适配（低风险增量）：导航按「主要投诉点(闭集)」主干重排——
-        // 主干五页在前（现状 → 热点 → 主要投诉点 → 台账 → 措施 → 工单），
-        // 根因库/问题点类(v4.2) 降级为参考页移到末尾（工单明细可下钻到达）。
+        // 2026-11-10 导航瘦身（老大拍板）：客诉专题 8 页 → 5 核心页。
+        // 删除的是「菜单可见性」，路由全部保留（历史链接/钻取仍可达）：
+        //   · 热点投诉 = 与「主要投诉点」重复的 TOP 榜（旧 l2 口径），环比能力已并入主要投诉点
+        //   · 根因库   = 逐单根因中间层（1122 簇，31% 单簇），从工单明细 rootcause_no 钻取到达
+        //   · v4.2     = L1 简述中间层（1582 行/1216 种文本），纯管线输入，非人看页面
         children: [
           {
             path: 'dashboard',
@@ -146,13 +148,6 @@ const routes = [
             meta: { title: '投诉现状' },
           },
           {
-            path: 'hotspots',
-            name: 'ComplaintHotspots',
-            component: () => import('@/views/complaint/ComplaintHotspots.vue'),
-            meta: { title: '热点投诉' },
-          },
-          {
-            // 2026-11-05 L2 功能模块问题（分析汇聚输出层）：跨表象汇聚，找出主要投诉点
             path: 'module-problem',
             name: 'ComplaintModuleProblem',
             component: () => import('@/views/complaint/ModuleProblemView.vue'),
@@ -176,19 +171,24 @@ const routes = [
             component: () => import('@/views/complaint/ComplaintTicketLedger.vue'),
             meta: { title: '工单明细' },
           },
+          // ── 以下为保留路由、不显示在侧栏 ──
           {
-            // 2026-11-03 根因深化：根因库降级为逐单根因明细钻取（工单明细 rootcause_no 链接到达）
+            path: 'hotspots',
+            name: 'ComplaintHotspots',
+            component: () => import('@/views/complaint/ComplaintHotspots.vue'),
+            meta: { title: '热点投诉(旧口径)', hidden: true },
+          },
+          {
             path: 'rootcause',
             name: 'ComplaintRootcauseLib',
             component: () => import('@/views/complaint/RootcauseLib.vue'),
-            meta: { title: '根因库' },
+            meta: { title: '根因库(钻取明细)', hidden: true },
           },
           {
-            // 2026-11-04 v4.2 客诉逐单问题点自动化：分析过程不依赖人，描述具体到一句话
             path: 'problem-v42',
             name: 'ComplaintProblemV42',
             component: () => import('@/views/complaint/ProblemV42.vue'),
-            meta: { title: '问题点类(v4.2)' },
+            meta: { title: '问题点类(v4.2)(中间层)', hidden: true },
           },
         ],
       },
