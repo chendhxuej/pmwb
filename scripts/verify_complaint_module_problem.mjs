@@ -298,7 +298,7 @@ async function main() {
       review && review.rows > 0
         ? ok('人工管理台有数据（待处理队列）', `rows≈${review.rows}；${review.blockTitle}`)
         : bad('人工管理台无数据', JSON.stringify(review))
-      // 断言待管理总量（未归类343 + 低置信151 = 494）；定位 review tab 的 block-sub（含「单」）
+      // 断言待管理总量（2026-11-10 导入 96 单后：低置信238 + 未归类42 = 280）
       const reviewTotalTxt = await cdp.eval(`(() => {
         const root = document.querySelector('.module-problem')
         const subs = [...root.querySelectorAll('.block-sub')].map(b => b.innerText || '')
@@ -306,8 +306,8 @@ async function main() {
         const m = reviewSub.match(/共\\s*(\\d+)\\s*单/)
         return m ? Number(m[1]) : 0
       })()`)
-      reviewTotalTxt >= 450 && reviewTotalTxt <= 520
-        ? ok('人工管理台总量≈494（未归类+低置信）', reviewTotalTxt + ' 单')
+      reviewTotalTxt >= 268 && reviewTotalTxt <= 292
+        ? ok('人工管理台总量≈280（低置信+未归类）', reviewTotalTxt + ' 单')
         : bad('人工管理台总量异常', reviewTotalTxt)
     } catch (e) {
       bad('人工管理台 tab 验证失败 ' + e.message)

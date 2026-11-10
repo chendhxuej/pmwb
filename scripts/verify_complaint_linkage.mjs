@@ -180,8 +180,8 @@ async function main() {
     const dTotal = dashKpi.stats.find((s) => s.startsWith('总工单='))
     const dDef = dashKpi.stats.find((s) => s.startsWith('缺陷已归集='))
     const dCls = dashKpi.stats.find((s) => s.startsWith('缺陷类数='))
-    dTotal && dTotal.includes('1486') ? ok('看板速览 KPI 总工单=1486', dTotal) : bad('看板速览 KPI 总工单异常', String(dTotal))
-    dDef && dDef.includes('886') ? ok('看板速览 KPI 缺陷已归集=886', dDef) : bad('看板速览 KPI 缺陷已归集异常', String(dDef))
+    dTotal && dTotal.includes('1582') ? ok('看板速览 KPI 总工单=1582', dTotal) : bad('看板速览 KPI 总工单异常', String(dTotal))
+    dDef && dDef.includes('948') ? ok('看板速览 KPI 缺陷已归集=948', dDef) : bad('看板速览 KPI 缺陷已归集异常', String(dDef))
     dCls && dCls.includes('19') ? ok('看板速览 KPI 缺陷类数=19', dCls) : bad('看板速览 KPI 缺陷类数异常', String(dCls))
     dashKpi.tops >= 6 ? ok(`看板速览 TOP 缺陷类 ${dashKpi.tops} 项`) : bad('看板速览 TOP 缺陷类不足 6 项', `got=${dashKpi.tops}`)
     // 看板速览 TOP 点击 → 弹出下钻抽屉
@@ -236,16 +236,16 @@ async function main() {
     tkOk ? ok('工单明细页挂载') : bad('工单明细页未挂载')
     await sleep(2500)
     const tkInfo = await cdp.eval(`(() => {
-      const pager = document.querySelector('.complaint-ticket-ledger .el-pagination__total, .el-pagination__total')
+      const pager = document.querySelector('.complaint-tickets .el-pagination__total, .el-pagination__total')
       const totalTxt = pager ? pager.textContent : ''
-      const mpCells = [...document.querySelectorAll('.complaint-ticket-ledger .el-table__row')]
+      const mpCells = [...document.querySelectorAll('.complaint-tickets .el-table__row')]
         .filter(r => r.textContent.includes('MP-') || r.querySelector('.mp-link'))
         .length
       return { totalTxt, mpCells }
     })()`).catch(() => ({ totalTxt: '', mpCells: 0 }))
-    tkInfo.totalTxt.includes('86')
-      ? ok('下钻过滤 total=86（MP-BROADBAND-ACT 全量）', tkInfo.totalTxt.trim())
-      : bad('下钻过滤 total 异常（期望 86）', tkInfo.totalTxt.trim())
+    tkInfo.totalTxt.includes('87')
+      ? ok('下钻过滤 total=87（MP-BROADBAND-ACT 全量）', tkInfo.totalTxt.trim())
+      : bad('下钻过滤 total 异常（期望 87）', tkInfo.totalTxt.trim())
     tkInfo.mpCells > 0
       ? ok(`「L2 模块问题」列 ${tkInfo.mpCells}/${20} 行有标签`)
       : bad('「L2 模块问题」列无标签（若后端未重启属预期）')
