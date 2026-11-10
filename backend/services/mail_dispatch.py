@@ -685,7 +685,7 @@ def dispatch_email(
     message = "邮件发送成功"
     message_id = None
     try:
-        # 附件图片压缩兜底：避免超 3210 默认 100KB body 上限触发 413
+        # 附件图片压缩兜底：超过 3210 的 25MB body 上限前触发（安全线 20MB），常规附件原样透传
         attachments = compress_attachments_for_mail_center(attachments)
         send_res = EmailCenterClient().send_email(
             to=to_list,
@@ -715,8 +715,8 @@ def dispatch_email(
         msg = str(exc)
         if "413" in msg:
             message = (
-                "邮件发送失败：内容/附件超过邮件中心单封上限（约 100KB）。"
-                "已自动压缩截图仍超限，请减小附件，或重启统一邮件中心（已放宽至 25MB，待重启生效）后重试。"
+                "邮件发送失败：内容/附件超过邮件中心单封上限（25MB，安全线 20MB）。"
+                "已自动压缩截图仍超限，请减小附件后重试。"
             )
         else:
             message = f"邮件发送失败：{exc}"

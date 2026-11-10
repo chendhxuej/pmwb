@@ -387,7 +387,9 @@ def test_compress_falls_back_to_byte_probe_when_mime_missing():
     assert len(b64) > 70 * 1024  # 超过压缩触发阈值
 
     atts = [{"filename": "shot.png", "contentBase64": b64, "mimeType": "application/octet-stream"}]
-    out = compress_attachments_for_mail_center(atts)
+    # 3210 已放宽至 25MB（安全线 20MB），生产阈值不再压缩常规截图；
+    # 此处显式注入小阈值，验证字节探测+压缩逻辑本身仍然有效
+    out = compress_attachments_for_mail_center(atts, safe_bytes=70 * 1024)
     assert out[0]["mimeType"] == "image/jpeg"  # 识别为图片并转 JPEG
     assert len(out[0]["contentBase64"]) < len(b64)  # 体积被压缩，不会原样转发
 

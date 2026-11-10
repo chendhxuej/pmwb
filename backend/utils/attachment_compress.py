@@ -1,8 +1,8 @@
-"""附件压缩兜底：统一邮件中心(3210) 默认 JSON body 上限约 100KB，
-插件发送需求评估邮件常带 base64 截图，易触发 413 Payload Too Large。
+"""附件压缩兜底：统一邮件中心(3210) JSON body 上限 25MB（express.json limit），
+超大附件仍可能触发 413 Payload Too Large。
 
-本模块在转发 3210 前对**图片**附件自动压缩到安全体积，避免 413；
-非图片附件（如 xlsx/pdf）不处理，依赖 3210 重启放宽后的更大上限，
+本模块在转发 3210 前对**图片**附件自动压缩到安全体积（安全线 20MB），
+常规截图/文档原样透传不再压缩；非图片附件同样不处理，
 若仍超限由 dispatch_email 的 413 友好化兜底提示。
 """
 from __future__ import annotations
@@ -19,9 +19,9 @@ except Exception:  # noqa: BLE001
 
 logger = logging.getLogger("pmwb.attachment_compress")
 
-# 邮件中心单封 body 安全上限（3210 默认 100KB，留足余量避免踩线；
-# 实际 JSON 还含 HTML 正文与字段名，故目标压到 70KB 以内以确保不触发 413）
-_MAIL_CENTER_SAFE_BYTES = 70 * 1024
+# 邮件中心单封 body 安全上限（3210 已放宽至 25MB，留足余量避免踩线；
+# 实际 JSON 还含 HTML 正文与字段名，故安全线设 20MB；超过才触发图片压缩兜底）
+_MAIL_CENTER_SAFE_BYTES = 20 * 1024 * 1024
 
 
 def _compress_image(raw: bytes, max_bytes: int) -> bytes:

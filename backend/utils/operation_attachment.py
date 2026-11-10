@@ -10,8 +10,8 @@
 - 元信息：pmwb_operation_issue.attachments（JSON 数组：[{name, bytes, size}]）
 - 文件：backend/uploads/operation/{issue_id}/{name}
 
-超限策略（避免触发 3210 约 100KB body 上限导致 413）：单文件 > 20MB 或累计 > 50MB 的附件
-不随信发出，仅在正文标注，保证邮件正常送达。
+超限策略（对齐 3210 25MB body 上限，base64 编码膨胀约 37% 折算）：单文件 > 15MB 或累计 > 17MB
+的附件不随信发出，仅在正文标注下载链接，保证邮件正常送达。
 """
 from __future__ import annotations
 
@@ -24,9 +24,10 @@ from urllib.parse import quote
 
 from core.config import settings
 
-# 体积上限（MB）。超出则不作为邮件附件发出，正文标注下载链接。
-_MAX_SINGLE_MB = 20.0
-_MAX_TOTAL_MB = 50.0
+# 体积上限（MB，按原始字节计）。base64 后约膨胀 37%，须给正文留余量：
+# 15MB 文件 ≈ 20.5MB base64；17MB 合计 ≈ 23.3MB，均在 25MB 上限内。
+_MAX_SINGLE_MB = 15.0
+_MAX_TOTAL_MB = 17.0
 
 _UPLOAD_ROOT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
