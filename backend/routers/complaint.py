@@ -77,6 +77,7 @@ def _ticket_where(q: dict) -> tuple:
     week, keyword, l1, l2 = q.get("week"), q.get("keyword"), q.get("l1"), q.get("l2")
     is_batch, classify_by = q.get("is_batch"), q.get("classify_by")
     handler, problem_no, is_recur = q.get("handler"), q.get("problem_no"), q.get("is_recur")
+    known_problem_no = q.get("known_problem_no")
     unclosed, retention, city = q.get("unclosed"), q.get("retention"), q.get("city")
     rootcause_no, module_problem_id = q.get("rootcause_no"), q.get("module_problem_id")
     known_flag, rc_status, rc_max_tickets = q.get("known_flag"), q.get("rc_status"), q.get("rc_max_tickets")
@@ -104,6 +105,12 @@ def _ticket_where(q: dict) -> tuple:
     if problem_no:
         where.append("problem_no = :pno")
         params["pno"] = problem_no
+    if known_problem_no:
+        # known_problem_no = 已知判定命中的在办问题（known.summary 的分组列）；
+        # problem_no = 旧「归属共性问题」列。两列口径不同，混用会让「本周命中 N 单」
+        # 与下钻明细差一大截（W45 实测 80 单 vs 31 单），故另开独立筛选键。
+        where.append("known_problem_no = :kpno")
+        params["kpno"] = known_problem_no
     if is_recur is not None:
         where.append("is_recur = :ir")
         params["ir"] = is_recur
@@ -180,6 +187,7 @@ def list_tickets(
     classify_by: Optional[str] = Query(None, description="归类来源：ai（AI归类）/ ai_low（待人工确认）/ manual（人工校正）/ auto（待分析）"),
     handler: Optional[str] = Query(None, description="处理人（精确）"),
     problem_no: Optional[str] = Query(None, description="按归属共性问题下钻"),
+    known_problem_no: Optional[str] = Query(None, description="按已知判定命中的在办问题下钻"),
     is_recur: Optional[int] = Query(None, ge=0, le=1, description="措施后复发下钻"),
     unclosed: Optional[int] = Query(None, ge=0, le=1, description="1=未结单（非完结状态）下钻"),
     retention: Optional[int] = Query(None, ge=0, le=1, description="1=超期滞留（创建超N天未完结）下钻"),
@@ -196,7 +204,8 @@ def list_tickets(
     cond, params = _ticket_where({
         "week": week, "keyword": keyword, "l1": l1, "l2": l2,
         "is_batch": is_batch, "classify_by": classify_by, "handler": handler,
-        "problem_no": problem_no, "is_recur": is_recur, "unclosed": unclosed,
+        "problem_no": problem_no, "known_problem_no": known_problem_no,
+        "is_recur": is_recur, "unclosed": unclosed,
         "retention": retention, "city": city, "rootcause_no": rootcause_no,
         "module_problem_id": module_problem_id, "known_flag": known_flag,
         "rc_status": rc_status, "rc_max_tickets": rc_max_tickets,
@@ -258,7 +267,7 @@ _TICKET_EXPORT_COLS = [
 _TICKET_FILTER_KEYS = (
     "week", "keyword", "l1", "l2", "is_batch", "classify_by", "handler", "problem_no",
     "is_recur", "unclosed", "retention", "city", "rootcause_no", "module_problem_id",
-    "known_flag", "rc_status", "rc_max_tickets",
+    "known_flag", "known_problem_no", "rc_status", "rc_max_tickets",
 )
 _TICKET_INT_KEYS = {"is_batch", "is_recur", "unclosed", "retention", "known_flag", "rc_max_tickets"}
 

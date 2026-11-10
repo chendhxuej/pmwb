@@ -19,7 +19,7 @@
     <section class="card mp-overview">
       <div class="card-header">
         <h3>主要投诉点（功能模块问题 · 闭集）</h3>
-        <span class="hint">跨表象汇聚：找出主要投诉点，定位系统改造落点（vL2 闭集字典）</span>
+        <span class="hint">上方 KPI 为全周期累计；下方 TOP 为所选周单量（vL2 闭集字典）</span>
         <el-button class="ml-auto" size="small" type="primary" plain @click="goModuleProblemPage">查看完整主要投诉点 →</el-button>
       </div>
       <div class="card-body">
@@ -46,13 +46,13 @@
           </div>
         </div>
         <div class="mp-top">
-          <div class="mp-top__title">TOP 缺陷类（按工单量，点击下钻工单）</div>
+          <div class="mp-top__title">TOP 缺陷类（{{ metrics.week || '所选周' }} 单量，点击下钻该周工单）</div>
           <div class="mp-top__list">
             <div v-for="(c, i) in mpTop" :key="c.module_problem_id" class="mp-top__item"
-                 @click="drill({ module_problem_id: c.module_problem_id }, '主要投诉点·' + c.name)">
+                 @click="drill({ week: metrics.week, module_problem_id: c.module_problem_id }, '主要投诉点·' + c.name)">
               <span class="mp-rank">{{ i + 1 }}</span>
               <span class="mp-name" :title="c.name">{{ c.name }}</span>
-              <span class="mp-cnt">{{ c.ticket_cnt }} 单</span>
+              <span class="mp-cnt">{{ c.week_cnt ?? 0 }} 单</span>
             </div>
           </div>
         </div>
@@ -173,7 +173,7 @@
             </el-table-column>
             <el-table-column label="操作" width="88" align="center">
               <template #default="{ row }">
-                <el-button size="small" text type="primary" @click="drill({ week: metrics.week, problem_no: row.problem_no }, '已知问题工单')">下钻</el-button>
+                <el-button size="small" text type="primary" @click="drill({ week: metrics.week, known_flag: 1, known_problem_no: row.problem_no }, '已知问题·' + row.problem_no)">下钻</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -196,7 +196,7 @@
             </el-table-column>
             <el-table-column label="操作" width="88" align="center">
               <template #default="{ row }">
-                <el-button size="small" text type="primary" @click="drillRootcause(row)">下钻</el-button>
+                <el-button size="small" text type="primary" @click="drillRootcause(row, { known_flag: 0 })">下钻</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -421,14 +421,16 @@ const mpTop = ref([])
 function goModuleProblemPage() {
   router.push({ path: '/complaint-center/module-problem' })
 }
-async function loadMp() {
+async function loadMp(week) {
   try {
     const [s, c] = await Promise.all([
       complaintApi.moduleProblemSummary(),
-      complaintApi.moduleProblemClasses({ include_consult: false }),
+      // 必须与主指标同一周：后端不传 week 会取库内最新周（进行中周），与页面选周错开
+      complaintApi.moduleProblemClasses({ include_consult: false, week: week || undefined }),
     ])
     mpSummary.value = s || {}
-    mpTop.value = ((c && c.items) || []).slice(0, 6)
+    // 排序由后端按 week_cnt 降序（与展示字段同源）；0 单的类不占 TOP 位
+    mpTop.value = ((c && c.items) || []).filter(x => (x.week_cnt || 0) > 0).slice(0, 6)
   } catch (e) { /* 不影响主指标 */ }
 }
 const selectedWeek = ref('')
@@ -561,7 +563,6 @@ function weekLabel(w) {
 async function loadAll() {
   loading.value = true
   try {
-    await loadMp()
     metrics.value = await complaintApi.getMetrics(selectedWeek.value || undefined)
     if (metrics.value.week) {
       if (!selectedWeek.value) selectedWeek.value = metrics.value.week
@@ -571,6 +572,8 @@ async function loadAll() {
       }
       loadReportStatus()
     }
+    // 先定周再取 TOP：否则后端默认最新周，排序与页面选周错开（2026-11-10）
+    await loadMp(metrics.value.week || selectedWeek.value || undefined)
   } catch (e) {
     metrics.value = {}
   } finally {
@@ -583,10 +586,18 @@ function onWeekChange(w) {
   loadAll()
 }
 
-function drillRootcause(row) {
-  if (!row?.rootcause_no) return
-  drill({ week: metrics.value.week, rootcause_no: row.rootcause_no },
-    `根因簇「${row.title}」工单`)
+function drillRootcause(row, extra = {}) {
+  // extra 由调用方声明口径：新增问题表传 {known_flag: 0}，避免把已知单混进来；
+  // 「重点根因簇（累计 ≥5 单）」等全周期表格不传，保持既有行为。
+  const base = { week: metrics.value.week, ...extra }
+  if (row?.rootcause_no) {
+    drill({ ...base, rootcause_no: row.rootcause_no },
+      `根因簇「${row.title || row.rootcause_no}」工单`)
+  } else if (row?.module_problem_id) {
+    // 无根因簇的新增问题（key=mp:xxx）按模块锚下钻，避免点了没反应
+    drill({ ...base, module_problem_id: row.module_problem_id },
+      `新增问题「${row.title || row.module_problem_id}」工单`)
+  }
 }
 
 const drillVisible = ref(false)

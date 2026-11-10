@@ -269,7 +269,7 @@ const route = useRoute()
 const loading = ref(false)
 const rows = ref([])
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
-const filters = reactive({ week: '', l1: '', l2: '', classify_by: '', rc_status: '', is_batch: null, keyword: '', module_problem_id: '' })
+const filters = reactive({ week: '', l1: '', l2: '', classify_by: '', rc_status: '', is_batch: null, keyword: '', module_problem_id: '', known_problem_no: '' })
 
 const metricsWeek = ref('')
 const categories = ref([])
@@ -322,6 +322,7 @@ function activeFilters() {
     is_batch: filters.is_batch ?? undefined,
     keyword: filters.keyword || undefined,
     module_problem_id: filters.module_problem_id || undefined,
+    known_problem_no: filters.known_problem_no || undefined,
   }
 }
 
@@ -461,6 +462,16 @@ onMounted(async () => {
   // 从主要投诉点下钻进入：自动按 module_problem_id 过滤
   if (route.query.module_problem_id) {
     filters.module_problem_id = String(route.query.module_problem_id)
+  }
+  // 下钻抽屉「在台账中打开」会带全套筛选，逐项接住，否则跳转后条件静默丢失
+  if (route.query.known_problem_no) {
+    filters.known_problem_no = String(route.query.known_problem_no)
+  }
+  if (route.query.week) {
+    filters.week = String(route.query.week)
+  }
+  if (route.query.known_flag !== undefined && route.query.known_flag !== '') {
+    filters.known_flag = Number(route.query.known_flag)
   }
   await loadMeta()
   load()

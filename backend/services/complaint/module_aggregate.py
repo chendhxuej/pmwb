@@ -283,7 +283,10 @@ def list_module_problems(db: Session, include_consult: bool = False,
             "prev_week_cnt": prev_cnt,
             "wow_pct": wow,
         })
-    out.sort(key=lambda x: (x["is_defect"], -x["week_cnt"], -x["ticket_cnt"]))
+    # 缺陷类优先；主排序键必须与调用方展示的字段一致。看板 TOP 榜展示 week_cnt，
+    # 若调用方展示 ticket_cnt 却按 week_cnt 排，会出现「第 1 名 80 单、第 2 名 265 单」
+    # 的错位（2026-11-10 实测）。调用方须显式传 week，保证与页面选周同源。
+    out.sort(key=lambda x: (-x["is_defect"], -x["week_cnt"], -x["ticket_cnt"]))
     return out
 
 

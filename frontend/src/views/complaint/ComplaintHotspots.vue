@@ -13,7 +13,7 @@
     <section class="card mp-overview">
       <div class="card-header">
         <h3>主要投诉点（功能模块问题 · 闭集）</h3>
-        <span class="hint">跨表象汇聚：找出主要投诉点，定位系统改造落点（vL2 闭集字典）</span>
+        <span class="hint">上方 KPI 为全周期累计；下方 TOP 为所选周单量（vL2 闭集字典）</span>
         <el-button class="ml-auto" size="small" type="primary" plain @click="goModuleProblemPage">查看完整主要投诉点 →</el-button>
       </div>
       <div class="card-body">
@@ -40,13 +40,13 @@
           </div>
         </div>
         <div class="mp-top">
-          <div class="mp-top__title">TOP 缺陷类（按工单量，点击下钻工单）</div>
+          <div class="mp-top__title">TOP 缺陷类（{{ data.week || '所选周' }} 单量，点击下钻该周工单）</div>
           <div class="mp-top__list">
             <div v-for="(c, i) in mpTop" :key="c.module_problem_id" class="mp-top__item"
-                 @click="drill({ module_problem_id: c.module_problem_id }, '主要投诉点·' + c.name)">
+                 @click="drill({ week: data.week, module_problem_id: c.module_problem_id }, '主要投诉点·' + c.name)">
               <span class="mp-rank">{{ i + 1 }}</span>
               <span class="mp-name" :title="c.name">{{ c.name }}</span>
-              <span class="mp-cnt">{{ c.ticket_cnt }} 单</span>
+              <span class="mp-cnt">{{ c.week_cnt ?? 0 }} 单</span>
             </div>
           </div>
         </div>
@@ -143,14 +143,16 @@ const mpTop = ref([])
 function goModuleProblemPage() {
   router.push({ path: '/complaint-center/module-problem' })
 }
-async function loadMp() {
+async function loadMp(week) {
   try {
     const [s, c] = await Promise.all([
       complaintApi.moduleProblemSummary(),
-      complaintApi.moduleProblemClasses({ include_consult: false }),
+      // 必须与热点主表同一周：后端不传 week 会取库内最新周（进行中周）
+      complaintApi.moduleProblemClasses({ include_consult: false, week: week || undefined }),
     ])
     mpSummary.value = s || {}
-    mpTop.value = ((c && c.items) || []).slice(0, 6)
+    // 排序由后端按 week_cnt 降序（与展示字段同源）；0 单的类不占 TOP 位
+    mpTop.value = ((c && c.items) || []).filter(x => (x.week_cnt || 0) > 0).slice(0, 6)
   } catch (e) { /* 不影响热点主表 */ }
 }
 
@@ -174,6 +176,8 @@ async function load() {
   } finally {
     loading.value = false
   }
+  // TOP 速览与主表共用最终生效周，避免两处周次不一致
+  loadMp(selectedWeek.value || data.value.week)
 }
 
 function pct(cur) {
@@ -255,7 +259,7 @@ function goProblem(problemNo) {
 }
 
 onMounted(() => {
-  loadMp()
+  // load() 内部按最终生效周刷新 TOP 速览
   load()
 })
 </script>
