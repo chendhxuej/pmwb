@@ -1,9 +1,11 @@
 """投诉现状看板 · 口径一致性回归（2026-11-10）。
 
-针对老大反馈的两处「数字对不上」：
+针对老大反馈的三处「数字对不上」：
   1. TOP 缺陷类：排序键 == 展示字段 == 下钻字段，且统计周 == 页面选周；
-  2. 已知问题（按本周命中单量）：表格 cnt == 下钻明细数 == 导出行数。
+  2. 已知问题（按本周命中单量）：表格 cnt == 下钻明细数 == 导出行数；
+  3. 问题族分析：族「本周」week_cnt == 带周下钻数 == 导出行数（旧口径拉全周期累计）。
 
+附带守住：重点根因簇实际是本周口径（旧文案误标「累计」）、一次性个案明细刻意全周期。
 同时守住「旧口径确实不等」这一事实，避免回归退化成假绿。
 
 用法（真实 HTTP，需后端已加载新代码）：
@@ -134,6 +136,46 @@ for w in WEEKS:
         ok(f"{w} 新增簇 {r['rootcause_no']} cnt {r['cnt']} = 下钻 {t}", t == r["cnt"])
     else:
         ok(f"{w} 无带簇新增项（跳过）", True)
+
+    print(f"\n▶ {w} · 问题族分析（本周 = 带周下钻 = 导出）")
+    th = m.get("themes") or {}
+    trows = th.get("themes") or []
+    ok(f"{w} 族统计周 = 页面选周", th.get("week") == w, f"themes.week={th.get('week')}")
+    ok(f"{w} 族表有数据", len(trows) > 0, f"rows={len(trows)}")
+    unattr = int((th.get("unattributed") or {}).get("cnt") or 0)
+    theme_sum = sum(x["week_cnt"] for x in trows)
+    ok(f"{w} 族本周合计 + 未归因 = 周总量", theme_sum + unattr == th.get("total"),
+       f"{theme_sum}+{unattr} vs {th.get('total')}")
+    all_period_diff = 0
+    for r in trows:
+        rcs = r.get("rc_nos") or []
+        cond = {"week": w, "rootcause_no": ",".join(rcs)}
+        t = ticket_total(cond) if rcs else 0
+        ok(f"{w} 族「{r['name']}」本周 {r['week_cnt']} = 带周下钻 {t}",
+           t == r["week_cnt"] and (bool(rcs) or r["week_cnt"] == 0))
+        if r["week_cnt"] > 0:
+            e = export_rows(cond)
+            ok(f"{w} 族「{r['name']}」导出 {e} = 本周 {r['week_cnt']}", e == r["week_cnt"])
+            # 旧口径（不带 week）拿到的是全周期累计，不等才说明这次修的是真问题
+            if ticket_total({"rootcause_no": ",".join(rcs)}) != r["week_cnt"]:
+                all_period_diff += 1
+    ok(f"{w} 旧全周期下钻确实不等（防假绿）", all_period_diff > 0,
+       f"{all_period_diff} 族不等")
+
+    print(f"\n▶ {w} · 重点根因簇（实际本周口径）与一次性个案（刻意全周期）")
+    big = [c for c in ((m.get("rootcause") or {}).get("clusters") or [])
+           if (c.get("cnt") or 0) >= 5][:3]
+    if big:
+        for c in big:
+            no = c["rootcause_no"]
+            t = ticket_total({"week": w, "rootcause_no": no})
+            ok(f"{w} 重点簇 {no} 本周 {c['cnt']} = 带周下钻 {t}", t == c["cnt"])
+    else:
+        ok(f"{w} 无 ≥5 单簇（跳过）", True)
+    cases = th.get("cases") or {}
+    ct = ticket_total({"rc_max_tickets": 1})
+    ok(f"{w} 一次性个案明细 {ct} = cases.ticket_cnt {cases.get('ticket_cnt')}",
+       ct == int(cases.get("ticket_cnt") or 0))
 
 print("\n" + "=" * 68)
 print(f"结果：{PASS} 通过 / {FAIL} 失败")

@@ -1,9 +1,12 @@
 /**
  * 投诉现状看板 · 真实 DOM 口径回归（2026-11-10）
  *
- * 老大反馈的两处「数字对不上」，在真实页面上逐项核对：
+ * 老大反馈的三处「数字对不上」，在真实页面上逐项核对：
  *   1. TOP 缺陷类：卡片显示的单量严格降序、与接口 week_cnt 一致、点击下钻数量一致；
- *   2. 已知问题（按本周命中单量）：表格命中数 == 下钻抽屉明细数，且筛选标签用对字段。
+ *   2. 已知问题（按本周命中单量）：表格命中数 == 下钻抽屉明细数，且筛选标签用对字段；
+ *   3. 问题族分析：族「本周」数 == 下钻抽屉明细数，且下钻条件带周（不再拉全周期累计）。
+ *
+ * 附带核对「重点根因簇」文案已按实际本周口径改正（旧文案误标「累计」）。
  *
  * 用法：
  *   PMWB_BASE=http://127.0.0.1:8000 PMWB_AUTH_USER=chendh PMWB_AUTH_PW=*** \
@@ -220,6 +223,64 @@ async function main() {
       d2.tags.join(' | ').slice(0, 160))
     ok('下钻带 known_flag=1', d2.tags.some(t => t.startsWith('已知/新增：1')),
       d2.tags.join(' | ').slice(0, 160))
+
+    // ── 3. 问题族分析（本周下钻带周） ──
+    console.log('\n▶ 问题族分析（本周 = 下钻带周）')
+    await openDashboard(cdp)
+    await sleep(2800)
+    const themeInfo = await cdp.eval(`(() => {
+      const tr = document.querySelector('.theme-table .el-table__body-wrapper tbody tr')
+      if (!tr) return null
+      const td = [...tr.querySelectorAll('td')]
+      return {
+        name: td[0]?.textContent.trim() || '',
+        weekCnt: Number((td[1]?.textContent || '').replace(/[^0-9]/g, '')),
+        totalCnt: Number((td[5]?.textContent || '').replace(/[^0-9]/g, '')),
+        hasBtn: !!td[td.length - 1]?.querySelector('button'),
+      }
+    })()`).catch(() => null)
+    ok('问题族表定位到首行', !!themeInfo,
+      themeInfo ? `${themeInfo.name} 本周 ${themeInfo.weekCnt} / 累计 ${themeInfo.totalCnt}` : 'null')
+    ok('族表首行有下钻按钮', !!themeInfo?.hasBtn)
+
+    const tClicked = await cdp.eval(`(() => {
+      const tr = document.querySelector('.theme-table .el-table__body-wrapper tbody tr')
+      const td = tr && [...tr.querySelectorAll('td')]
+      const btn = td && td[td.length - 1]?.querySelector('button')
+      if (!btn) return false
+      btn.click(); return true
+    })()`).catch(() => false)
+    ok('点击族表「下钻」', tClicked)
+    await sleep(1400)
+    const d3 = await cdp.eval(DRAWER_STATE).catch(() => ({ open: false, total: -1, tags: [] }))
+    ok('族下钻抽屉弹出', d3.open)
+    ok('族下钻明细数 = 表格本周单量', !!themeInfo && d3.total === themeInfo.weekCnt,
+      `本周 ${themeInfo?.weekCnt ?? '?'} / 下钻 ${d3.total}`)
+    ok('族下钻条件带周（老大本次反馈点）',
+      d3.tags.some(t => t.startsWith('周：') && t.includes(wk)),
+      d3.tags.join(' | ').slice(0, 160))
+    ok('族下钻条件带根因簇', d3.tags.some(t => t.startsWith('根因簇：')),
+      d3.tags.join(' | ').slice(0, 160))
+    ok('旧全周期累计确实更大（防假绿）', !!themeInfo && themeInfo.totalCnt > themeInfo.weekCnt,
+      `累计 ${themeInfo?.totalCnt} > 本周 ${themeInfo?.weekCnt}`)
+
+    // ── 4. 重点根因簇：文案已按实际本周口径改正 ──
+    console.log('\n▶ 重点根因簇（本周口径文案）')
+    await openDashboard(cdp)
+    await sleep(2200)
+    const bigHeads = await cdp.eval(`(() => {
+      const h = [...document.querySelectorAll('.sub-h')].find(e => e.textContent.includes('重点根因簇'))
+      if (!h) return { title: '', heads: [] }
+      const table = h.nextElementSibling
+      const heads = table ? [...table.querySelectorAll('.el-table__header-wrapper th')]
+        .map(e => e.textContent.trim()).filter(Boolean) : []
+      return { title: h.textContent.trim(), heads }
+    })()`).catch(() => ({ title: '', heads: [] }))
+    ok('重点根因簇标题标明本周', bigHeads.title.includes('本周') && !bigHeads.title.includes('累计'),
+      bigHeads.title)
+    ok('重点根因簇列名标明本周单量',
+      bigHeads.heads.includes('本周单量') && !bigHeads.heads.some(x => x.includes('累计单量')),
+      bigHeads.heads.join(' | '))
 
     console.log('\n' + '════════════════════════════════════════════')
     console.log(`════════ 结果：${pass} 通过 / ${fail} 失败 ════════`)

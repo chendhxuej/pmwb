@@ -208,7 +208,8 @@
         <div class="card-header">
           <h3>三、问题族分析（业务链路）</h3>
           <span class="hint">
-            环比按日均对比（本周 {{ th.week_days || 0 }} 天 / 上周 {{ th.prev_days || 0 }} 天）
+            环比按日均对比（本周 {{ th.week_days || 0 }} 天 / 上周 {{ th.prev_days || 0 }} 天）；
+            下钻按 {{ th.week || metrics.week || '所选周' }} 工单，「累计」列仅供全周期参考
           </span>
         </div>
         <div class="card-body">
@@ -266,7 +267,7 @@
             {{ th.cases?.ticket_cnt || 0 }} 单，仅出现 1 次、无同类可比），不计入族汇总；
             <span v-if="th.new_case_cnt">本周新增 {{ th.new_case_cnt }} 个。</span>
             <el-button v-if="th.cases?.cluster_cnt" size="small" text type="primary"
-              @click="drillCases">查看个案明细</el-button>
+              @click="drillCases">查看个案明细（全周期）</el-button>
           </div>
           <div v-if="th.unattributed?.cnt" class="case-line warn">
             未归因工单 {{ th.unattributed.cnt }} 单（根因分析未完成），未摊入任何族。
@@ -289,7 +290,7 @@
             </div>
           </div>
 
-          <div class="sub-h">重点根因簇（累计 ≥5 单，可直接立项修复）</div>
+          <div class="sub-h">重点根因簇（本周 ≥5 单，可直接立项修复）</div>
           <el-table :data="bigClusters" size="small" empty-text="暂无达到量级的根因簇">
             <el-table-column label="根因簇" min-width="320" show-overflow-tooltip>
               <template #default="{ row }"><b>{{ row.title }}</b></template>
@@ -297,7 +298,7 @@
             <el-table-column prop="fault_system" label="系统" width="110" />
             <el-table-column prop="fault_type" label="缺陷性质" width="110" />
             <el-table-column prop="own_party" label="责任归属" width="100" />
-            <el-table-column label="累计单量" width="88" align="center">
+            <el-table-column label="本周单量" width="88" align="center">
               <template #default="{ row }"><b class="num-red">{{ row.cnt }}</b></template>
             </el-table-column>
             <el-table-column label="操作" width="88" align="center">
@@ -509,8 +510,14 @@ const bigClusters = computed(() => (rc.value.clusters || []).filter(c => (c.cnt 
 
 function drillTheme(row) {
   const rcs = row.rc_nos || []
-  if (!rcs.length) return ElMessage.info('该族本周无归因工单')
-  drill({ rootcause_no: rcs.join(',') }, `问题族「${row.name}」工单`)
+  // 族表「本周」列来自 theme_stats（按 created_time 自然周聚合族内簇）；
+  // 下钻不带 week 会拉到全周期累计（W45「订单受理与提交」实测 494 单 vs 本周 34 单）。
+  // 展示字段 = 下钻字段 = 同一周，与 TOP 榜/已知问题表同口径。
+  const week = th.value.week || metrics.value.week
+  if (!rcs.length || !(row.week_cnt > 0)) {
+    return ElMessage.info(`该族 ${week || '所选周'} 无归因工单`)
+  }
+  drill({ week, rootcause_no: rcs.join(',') }, `问题族「${row.name}」${week || ''} 工单`)
 }
 
 function drillCases() {
@@ -587,16 +594,18 @@ function onWeekChange(w) {
 }
 
 function drillRootcause(row, extra = {}) {
-  // extra 由调用方声明口径：新增问题表传 {known_flag: 0}，避免把已知单混进来；
-  // 「重点根因簇（累计 ≥5 单）」等全周期表格不传，保持既有行为。
+  // extra 由调用方声明口径：新增问题表传 {known_flag: 0}，避免把已知单混进来。
+  // 本页三张根因簇表（新增问题 / 重点根因簇 / 可整批压降）都是**本周**口径：
+  // rc.clusters[].cnt 来自 _rootcause_block 的本周 rows，旧文案误写「累计 ≥5 单」，
+  // 已按实际口径改正；下钻必须带 week，否则会拉到全周期累计（RC-1104：14 vs 19）。
   const base = { week: metrics.value.week, ...extra }
   if (row?.rootcause_no) {
     drill({ ...base, rootcause_no: row.rootcause_no },
-      `根因簇「${row.title || row.rootcause_no}」工单`)
+      `根因簇「${row.title || row.rootcause_no}」${metrics.value.week || ''} 工单`)
   } else if (row?.module_problem_id) {
     // 无根因簇的新增问题（key=mp:xxx）按模块锚下钻，避免点了没反应
     drill({ ...base, module_problem_id: row.module_problem_id },
-      `新增问题「${row.title || row.module_problem_id}」工单`)
+      `新增问题「${row.title || row.module_problem_id}」${metrics.value.week || ''} 工单`)
   }
 }
 
