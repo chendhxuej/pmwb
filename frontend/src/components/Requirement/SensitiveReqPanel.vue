@@ -381,6 +381,7 @@
       value-key="email"
       :variables="composeVariables"
       :custom-send="sendFn"
+      :with-attachments="true"
       @success="onSent"
     />
 
@@ -791,6 +792,8 @@ async function sendFn(payload) {
     operator: 'pmwb',
     confirm_send: true, // 真发唯一入口：页面显式点击
     template_data: payload.variables || null,
+    // 弹窗附件区（引用型条目由后端 mail_attachment_refs 统一解析）
+    attachments: (payload.attachments || []).length ? payload.attachments : undefined,
   })
 }
 

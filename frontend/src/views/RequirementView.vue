@@ -321,7 +321,10 @@
         body: payload.body || payload.variables?.body || '',
         template_data: payload.variables || null,
         operator: 'pmwb',
+        // 弹窗附件区（引用型条目由后端 mail_attachment_refs 统一解析）
+        attachments: (payload.attachments || []).length ? payload.attachments : undefined,
       })"
+      :with-attachments="true"
       @success="handleReminderSuccess"
     />
 

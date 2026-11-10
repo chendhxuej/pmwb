@@ -116,6 +116,7 @@
       value-key="email"
       :ref-type="'meeting_action'"
       :ref-id="mailDialogRefId"
+      :with-attachments="true"
       @success="handleMailSuccess"
     />
 

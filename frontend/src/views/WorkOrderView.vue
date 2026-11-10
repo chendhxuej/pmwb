@@ -542,6 +542,8 @@
       value-key="email"
       :ref-type="'operation'"
       :ref-id="detailRow?.issue_no"
+      :with-attachments="true"
+      :default-attachments="superviseDefaultAtts"
       @success="emailLogKey++"
     />
 
@@ -1433,6 +1435,8 @@ const mailDialogScene = ref('supervise_urge')
 // T-D：supervise_urge/sync 模板变量（no/title/category/handler/resolveDate/status/description）
 const mailDialogVariables = ref({})
 const _superviseIssue = ref(null)
+// 业务附件带出（引用型条目，后端 mail_attachment_refs 统一解析）
+const superviseDefaultAtts = ref([])
 
 /**
  * 工单「计划完成时间」取值：优先 go_live_date（工单详情「计划完成时间」列），
@@ -1465,6 +1469,13 @@ function buildSuperviseBody(row, scene = 'urge') {
 const openSupervise = (row, scene = 'urge') => {
   if (!row) return
   _superviseIssue.value = row
+  // 业务附件带出：工单附件库（uploads/operation/{id}）引用型条目，后端 mail_attachment_refs 统一解析
+  superviseDefaultAtts.value = parseAttachments(row.attachments).map((a) => ({
+    name: a.name,
+    size: a.bytes || 0,
+    refType: 'operation',
+    refId: row.id,
+  }))
   mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
   mailDialogTo.value = ownerList(row.handler)
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.issue_no || '')

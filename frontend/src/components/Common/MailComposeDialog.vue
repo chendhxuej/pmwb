@@ -198,7 +198,7 @@
           />
         </div>
 
-        <!-- 附件管理：会议附件自动关联（可裁剪，仅本邮件生效）+ 本地临时新增（仅随邮件发送） -->
+        <!-- 附件管理：业务附件自动关联（可裁剪，仅本邮件生效）+ 本地临时新增（仅随邮件发送） -->
         <div v-if="withAttachments" class="compose-row compose-attach">
           <span class="compose-label">附件</span>
           <div class="attach-box">
@@ -236,7 +236,7 @@
                 @change="onFilesPicked"
               />
               <span class="attach-hint">
-                发送时将携带以上 {{ mailAttachments.length + localFiles.length }} 个附件；蓝/灰为会议附件（移除仅对本邮件生效，不影响会议附件库），绿色为本次新添（仅随本邮件发送，不回存会议附件库）。
+                发送时将携带以上 {{ mailAttachments.length + localFiles.length }} 个附件；蓝/灰为业务附件（移除仅对本邮件生效，不影响业务附件库），绿色为本次新添（仅随本邮件发送，不回存业务附件库）。
               </span>
             </div>
           </div>
@@ -427,7 +427,9 @@ const previewSubject = ref('')
 const fieldVals = ref({})
 const extraMsg = ref('')
 
-// 附件管理（withAttachments 开启时）：会议附件可裁剪（仅本邮件生效）+ 本地临时新增（仅随邮件发送）
+// 附件管理（withAttachments 开启时）：业务附件可裁剪（仅本邮件生效）+ 本地临时新增（仅随邮件发送）
+// defaultAttachments 条目两种形态：会议 {name, size, from_meeting:true}；
+// 通用业务引用 {name, size, refType, refId}（后端 services/mail_attachment_refs 统一解析）
 const mailAttachments = ref([])
 const localFiles = ref([])
 const fileInputRef = ref(null)
@@ -483,7 +485,8 @@ function onFilesPicked(e) {
 function buildAttachmentPayload() {
   if (!props.withAttachments) return undefined
   return [
-    ...mailAttachments.value.map((a) => ({ name: a.name, size: a.size, from_meeting: true })),
+    // 引用型条目整条透传（保留 from_meeting / refType / refId 标记，后端按各自口径解析）
+    ...mailAttachments.value.map((a) => ({ ...a, name: a.name, size: a.size })),
     ...localFiles.value.map((f) => ({
       name: f.name,
       size: f.size,

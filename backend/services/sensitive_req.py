@@ -1143,6 +1143,10 @@ class SensitiveReqService:
         email_type = ("pmwb_sensitive_req_urge" if obj_in.send_type == "urge"
                       else "pmwb_sensitive_req_notify")
 
+        # 附件：引用型（业务附件带出）统一解析 + base64 条目透传（唯一实现 mail_attachment_refs）
+        from services.mail_attachment_refs import merge_attachments
+
+        mail_atts = merge_attachments(db, obj_in.attachments)
         result = dispatch_email(
             db=db, to=resolved_to, cc=resolved_cc or None,
             subject=obj_in.subject, scene=scene, variables=variables,
@@ -1153,6 +1157,7 @@ class SensitiveReqService:
             ref_type=obj_in.ref_type or "sensitive_req",
             ref_id=obj_in.ref_id or ref_key,
             raise_on_error=False, confirm_send=obj_in.confirm_send,
+            attachments=mail_atts,
         )
         main_record_id = result.get("record_id")
         record_ids = [main_record_id] if main_record_id else []

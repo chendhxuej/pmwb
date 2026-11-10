@@ -102,6 +102,9 @@ class TaskSendRequest(BaseModel):
     template_data: Optional[Dict[str, Any]] = Field(None, description="模板变量（task_center_notify/urge 模板：tasks/sendType/body）")
     ref_type: Optional[str] = Field(None, description="关联模块类型(邮件督办记录统一化): task_center")
     ref_id: Optional[str] = Field(None, description="关联业务主键/编号(source:source_id 复合键)")
+    attachments: Optional[List[Dict[str, Any]]] = Field(
+        None, description="邮件附件（[{filename, contentBase64, mimeType}] 或业务附件引用 [{refType, refId, name}]）"
+    )
 
 
 class TaskSendResponse(BaseModel):

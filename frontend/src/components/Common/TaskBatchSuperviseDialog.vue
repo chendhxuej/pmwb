@@ -76,6 +76,7 @@
       value-key="email"
       :variables="composeVariables"
       :custom-send="batchSendFn"
+      :with-attachments="true"
       @success="onSent"
     />
   </el-dialog>
@@ -222,6 +223,8 @@ async function batchSendFn(payload) {
     operator: 'pmwb',
     confirm_send: true,
     template_data: payload.variables || null,
+    // 弹窗附件区（引用型条目由后端 mail_attachment_refs 统一解析）
+    attachments: (payload.attachments || []).length ? payload.attachments : undefined,
   })
 }
 

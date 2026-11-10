@@ -199,6 +199,13 @@ def list_attachments(db, req_id: str) -> List[Dict[str, Any]]:
     return _list_attachments_from(paths["folder"])
 
 
+def attachment_folder(db, req_id: str) -> str:
+    """交付附件目录（供邮件附件引用解析 mail_attachment_refs 只读使用）。"""
+    item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
+    paths = _resolve_paths(req_id, item.req_name if item else None)
+    return paths["folder"]
+
+
 def upload_attachment(db, req_id: str, filename: str, content: bytes) -> Dict[str, Any]:
     item = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
     paths = _resolve_paths(req_id, item.req_name if item else None)

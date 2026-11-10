@@ -115,6 +115,10 @@ class ReminderService:
             "items": obj_in.body or tdata.get("items") or "",
             "body": obj_in.body or tdata.get("body") or "",
         }
+        # 附件：引用型（业务附件带出）统一解析 + base64 条目透传（唯一实现 mail_attachment_refs）
+        from services.mail_attachment_refs import merge_attachments
+
+        mail_atts = merge_attachments(db, obj_in.attachments)
         result = dispatch_email(
             db=db,
             to=resolved_to,
@@ -130,6 +134,7 @@ class ReminderService:
             ref_id=obj_in.ref_id or obj_in.req_id,
             raise_on_error=False,
             confirm_send=True,
+            attachments=mail_atts,
         )
         return result
 

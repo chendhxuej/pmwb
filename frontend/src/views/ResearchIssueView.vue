@@ -527,6 +527,8 @@
       value-key="email"
       :ref-type="'research'"
       :ref-id="detailRow?.issue_no"
+      :with-attachments="true"
+      :default-attachments="superviseDefaultAtts"
       @success="emailLogKey++"
     />
   </div>
@@ -1001,6 +1003,8 @@ const mailDialogBody = ref('')
 const mailDialogScene = ref('research_urge')
 const mailDialogVariables = ref({})
 const _researchIssue = ref(null)
+// 业务附件带出（引用型条目，后端 mail_attachment_refs 统一解析）
+const superviseDefaultAtts = ref([])
 
 /** 调研工单「计划完成日期」：go_live_date（计划完成时间）→ 回退解决时间，统一 YYYY-MM-DD */
 const planFinishDate = (row) => {
@@ -1025,6 +1029,13 @@ const buildResearchSuperviseBody = (row, scene = 'urge') => {
 const openSupervise = (row, scene = 'urge') => {
   if (!row) return
   _researchIssue.value = row
+  // 业务附件带出：工单附件库（uploads/research/{id}）引用型条目，后端 mail_attachment_refs 统一解析
+  superviseDefaultAtts.value = parseAttachments(row.attachments).map((a) => ({
+    name: a.name,
+    size: a.bytes || 0,
+    refType: 'research',
+    refId: row.id,
+  }))
   mailDialogTitle.value = scene === 'urge' ? '发送催办邮件' : '发送同步通知'
   mailDialogTo.value = ownerList(row.vendor_handlers)
   mailDialogSubject.value = (scene === 'urge' ? '催办：' : '同步：') + (row.title || row.issue_no || '')

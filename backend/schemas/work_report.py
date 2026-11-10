@@ -50,6 +50,9 @@ class WorkReportSendRequest(BaseModel):
     cc: List[str] = Field(default_factory=list, description="抄送（姓名或邮箱，可混合）")
     subject: str = Field(..., description="邮件主题")
     body: str = Field(..., description="邮件正文(Markdown/纯文本)")
+    attachments: Optional[List[Dict[str, Any]]] = Field(
+        None, description="邮件附件（[{filename, contentBase64, mimeType}] 或业务附件引用 [{refType, refId, name}]）"
+    )
 
 
 class WorkReportOut(BaseModel):

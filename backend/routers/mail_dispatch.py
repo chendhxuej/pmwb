@@ -204,6 +204,11 @@ def send_email_endpoint(req: dict, db=Depends(get_db)):
             + "。请填写真实邮箱（可在统一邮件中心通讯录按姓名查询）。"
         )
 
+    # 附件：引用型条目（业务附件带出 {refType, refId, name}）统一解析 + base64 条目透传
+    from services.mail_attachment_refs import merge_attachments
+
+    attachments = merge_attachments(db, req.get("attachments"))
+
     res = dispatch_email(
         db=db,
         to=resolved_to,
@@ -223,6 +228,7 @@ def send_email_endpoint(req: dict, db=Depends(get_db)):
         fields=req.get("fields"),
         recipient_name=req.get("recipientName") or req.get("recipient_name"),
         extra_html=req.get("extraHtml") or "",
+        attachments=attachments,
     )
     return success(data=res)
 

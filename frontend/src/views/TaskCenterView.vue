@@ -269,6 +269,7 @@
       :custom-send="mailDialogSendFn"
       :ref-type="mailDialogRefType"
       :ref-id="mailDialogRefId"
+      :with-attachments="true"
       @success="handleMailSuccess"
     />
 
@@ -731,6 +732,8 @@ async function mailDialogSendFn(payload) {
       confirm_send: true,
       // T-E：scene 模式下把模板变量透传后端（tasks HTML 列表），保证发送与预览同模板渲染
       template_data: payload.variables || null,
+      // 弹窗附件区（引用型条目由后端 mail_attachment_refs 统一解析）
+      attachments: (payload.attachments || []).length ? payload.attachments : undefined,
     })
   }
   const ctx = mailDialogContext.value
@@ -746,6 +749,8 @@ async function mailDialogSendFn(payload) {
     ref_type: mailDialogRefType.value,
     ref_id: mailDialogRefId.value,
     operator: 'pmwb',
+    // 弹窗附件区（引用型条目由后端 mail_attachment_refs 统一解析）
+    attachments: (payload.attachments || []).length ? payload.attachments : undefined,
   })
 }
 

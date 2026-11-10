@@ -857,6 +857,7 @@
     value-key="email"
     :ref-type="mailDialogRefType"
     :ref-id="mailDialogRefId"
+    :with-attachments="true"
     @success="handleFeedbackMailSuccess(); mailLogKey++"
   />
 </template>

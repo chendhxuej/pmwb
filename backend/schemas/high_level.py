@@ -118,6 +118,9 @@ class HighLevelSendRequest(BaseModel):
     )
     ref_type: Optional[str] = Field("high_level", description="邮件记录关联模块类型")
     ref_id: Optional[str] = Field(None, description="关联业务主键")
+    attachments: Optional[List[Dict[str, Any]]] = Field(
+        None, description="邮件附件（[{filename, contentBase64, mimeType}] 或业务附件引用 [{refType, refId, name}]）"
+    )
 
 
 class HighLevelSyncResult(BaseModel):

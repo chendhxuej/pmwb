@@ -65,6 +65,16 @@ CLOSED_TRACK_STATUSES = ("resolved", "dropped")
 OVERRIDES = ("lock", "escalate", "dismiss")
 
 
+# 已下线来源的历史跟踪行标签（2026-10-15：key_work 移出任务来源）。
+# 这些行不再被采集（src=None），但历史记录仍需展示中文来源名而非英文 key。
+LEGACY_SOURCE_LABELS = {"key_work": "重点工作"}
+
+
+def _source_label(source: str) -> str:
+    """来源中文名解析：当前来源 → 历史下线来源 → 原样兜底（禁静默出英文 key）。"""
+    return SOURCE_LABELS.get(source) or LEGACY_SOURCE_LABELS.get(source) or source
+
+
 @dataclass(frozen=True)
 class Judgement:
     """单条工单的高级别判定结果。"""
@@ -161,6 +171,8 @@ class HighLevelService:
                 if req_id in req_prio:
                     idx[("research_issue", str(iid))] = (f"需求{req_id}", req_prio[req_id])
 
+        # 重点工作母项索引：2026-10-15 起 key_work 已移出任务来源，采集不再产出该来源项，
+        # 故此段**当前无对象**（刻意保留，来源若恢复则 R3 母项继承立即生效）。
         kw_prio: Dict[int, Optional[str]] = {
             kid: prio for kid, prio in db.query(PmwbKeyWork.id, PmwbKeyWork.priority).all()
         }
@@ -333,7 +345,7 @@ class HighLevelService:
         )
         if src is None:
             return HighLevelItem(
-                source_label=row.source,
+                source_label=_source_label(row.source),
                 title="（源工单已删除）",
                 source_gone=True,
                 **base,
@@ -461,7 +473,7 @@ class HighLevelService:
             "escalated": sum(1 for it in pool if it.track_status == "escalated"),
             "unassigned": unassigned,
             "by_source": by_source,
-            "by_source_label": {k: SOURCE_LABELS.get(k, k) for k in by_source},
+            "by_source_label": {k: _source_label(k) for k in by_source},
             "by_level": by_level,
             "by_level_label": {k: levels.priority_label(k) for k in by_level},
             "by_track_status": by_track,
@@ -654,6 +666,10 @@ class HighLevelService:
         email_type = "pmwb_high_level_urge" if obj_in.send_type == "urge" else "pmwb_high_level_notify"
         ref_key = ";".join(f"{t.source}:{t.source_id}" for t in obj_in.tasks)[:64]
 
+        # 附件：引用型（业务附件带出）统一解析 + base64 条目透传（唯一实现 mail_attachment_refs）
+        from services.mail_attachment_refs import merge_attachments
+
+        mail_atts = merge_attachments(db, obj_in.attachments)
         result = dispatch_email(
             db=db,
             to=resolved_to,
@@ -671,6 +687,7 @@ class HighLevelService:
             ref_id=obj_in.ref_id or ref_key,
             raise_on_error=False,
             confirm_send=obj_in.confirm_send,
+            attachments=mail_atts,
         )
         main_record_id = result.get("record_id")
         record_ids = [main_record_id] if main_record_id else []

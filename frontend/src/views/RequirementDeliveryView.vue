@@ -473,6 +473,8 @@
       value-key="email"
       :ref-type="mailDialogRefType"
       :ref-id="mailDialogRefId"
+      :with-attachments="true"
+      :default-attachments="superviseDefaultAtts"
       @success="mailLogKey++"
     />
 
@@ -1673,6 +1675,25 @@ const mailDialogVariables = ref({})
 const mailDialogRefType = ref('')
 const mailDialogRefId = ref('')
 const mailLogKey = ref(0)
+// 业务附件带出（引用型条目，后端 mail_attachment_refs 统一解析）
+const superviseDefaultAtts = ref([])
+
+/** 拉取需求的交付附件作为督办邮件默认带出项（失败静默，不阻塞弹窗打开） */
+async function loadDeliveryAtts(reqId) {
+  superviseDefaultAtts.value = []
+  if (!reqId) return
+  try {
+    const list = (await listRequirementAttachments(reqId)) || []
+    superviseDefaultAtts.value = (Array.isArray(list) ? list : []).map((a) => ({
+      name: a.name,
+      size: a.bytes || 0,
+      refType: 'requirement_delivery',
+      refId: reqId,
+    }))
+  } catch (e) {
+    console.warn('[RequirementDelivery] 交付附件带出失败：', e)
+  }
+}
 
 /** 需求侧「计划完成日期」：版本要求上线时间 → 回退实际交付日期，统一 YYYY-MM-DD */
 const planFinishDate = (row) => {
@@ -1715,6 +1736,8 @@ function openSupervise(row, scene = 'urge') {
   mailDialogVisible.value = true
   mailDialogRefType.value = 'requirement'
   mailDialogRefId.value = row.req_id || ''
+  // 业务附件带出：交付附件库引用型条目（异步加载，不阻塞弹窗）
+  loadDeliveryAtts(row.req_id || '')
 }
 
 function openReqDialog(row) {

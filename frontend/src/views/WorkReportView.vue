@@ -163,6 +163,7 @@
       :variables="mailDialogVariables"
       value-key="email"
       :custom-send="handleSendMail"
+      :with-attachments="true"
       @success="handleMailSuccess"
     />
   </div>
@@ -274,6 +275,8 @@ async function handleSendMail(payload) {
     cc: payload.cc || [],
     subject: payload.subject || '',
     body: payload.body || payload.variables?.body || '',
+    // 弹窗附件区（引用型条目由后端 mail_attachment_refs 统一解析）
+    attachments: (payload.attachments || []).length ? payload.attachments : undefined,
   })
   return { success: true, data }
 }

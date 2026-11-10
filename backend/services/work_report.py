@@ -489,6 +489,10 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
         raise ValidationException("没有可用的收件人邮箱（姓名需能在人员中台解析）")
     subject = req.get("subject") or r.title or "工作总结"
     raw_body = req.get("body") or r.content or ""
+    # 附件：引用型（业务附件带出）统一解析 + base64 条目透传（唯一实现 mail_attachment_refs）
+    from services.mail_attachment_refs import merge_attachments
+
+    mail_atts = merge_attachments(db, req.get("attachments"))
     # 统一走邮件治理门面：scene=work_report 由 _render_mail 统一调用 render_work_report_html，
     # 保证预览与实发渲染路径一致；签名、落库、发信也由门面统一处理。
     result = dispatch_email(
@@ -501,6 +505,7 @@ def send_report(db: Session, report_id: int, req: Dict[str, Any]) -> Dict[str, A
         add_signature=True,
         raise_on_error=False,
         confirm_send=True,
+        attachments=mail_atts,
     )
     if not result.get("success"):
         r.error_msg = f"send: {result.get('message')}"

@@ -177,3 +177,6 @@ class SensitiveReqSendRequest(BaseModel):
     template_data: Optional[Dict[str, Any]] = None
     ref_type: Optional[str] = "sensitive_req"
     ref_id: Optional[str] = None
+    attachments: Optional[List[Dict[str, Any]]] = Field(
+        None, description="邮件附件（[{filename, contentBase64, mimeType}] 或业务附件引用 [{refType, refId, name}]）"
+    )
