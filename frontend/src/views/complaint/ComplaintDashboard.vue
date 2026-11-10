@@ -442,11 +442,13 @@ async function loadReportStatus() {
   try {
     const st = await complaintApi.reportStatus(wk)
     reportStale.value = !st?.exists || !!st?.stale
+    const pdfNote = st.pdf_stale ? '；PDF 为旧版，如需 PDF 请联系重建' : ''
     reportTip.value = !st?.exists
       ? `${wk} 周报尚未生成，点击将自动生成`
       : st.stale
-        ? `${wk} 数据已于 ${st.data_updated_at} 更新，当前文件生成于 ${st.generated_at}（点击重新生成后下载）`
-        : `${wk} 周报生成于 ${st.generated_at}，已是最新（${st.week_total} 单）`
+        ? `${wk} 数据截至 ${st.data_until || st.data_updated_at}，当前文件生成于 ${st.generated_at}` +
+          `（文件 ${st.file_total ?? '?'} 单 / 库内 ${st.week_total} 单，点击重新生成后下载）${pdfNote}`
+        : `${wk} 周报生成于 ${st.generated_at}，已是最新（${st.week_total} 单，数据截至 ${st.data_until || '—'}）${pdfNote}`
   } catch (e) { reportStale.value = false }
 }
 const batchMin = 3

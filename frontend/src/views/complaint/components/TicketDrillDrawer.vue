@@ -16,6 +16,8 @@
         @close="removeFilter(k)"
       >{{ filterLabels[k] }}：{{ v }}</el-tag>
       <el-button size="small" text type="primary" @click="openLedger">进入工单台账 →</el-button>
+      <el-button size="small" type="primary" plain :icon="Download" :loading="exporting"
+        @click="exportTickets()">导出明细（{{ total }} 单）</el-button>
     </div>
 
     <el-table v-loading="loading" :data="rows" size="small" @row-click="showDetail">
@@ -31,9 +33,13 @@
           <span v-else class="text-muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="AI 分析总结" min-width="150" show-overflow-tooltip>
+      <el-table-column label="AI 分析总结" min-width="210">
         <template #default="{ row }">
-          <span v-if="row.root_cause">{{ row.root_cause }}</span>
+          <div v-if="row.root_cause" class="ai-cell" @click.stop="openAi(row)">
+            <div class="ai-cell__text">{{ row.root_cause }}</div>
+            <el-link type="primary" :underline="false" class="ai-cell__more"
+              @click.stop="openAi(row)">查看完整分析 →</el-link>
+          </div>
           <span v-else class="text-muted">待分析</span>
         </template>
       </el-table-column>
@@ -55,6 +61,9 @@
         @current-change="load"
       />
     </div>
+
+    <!-- AI 分析全文（下钻列表一键查看，不必再点进详情抽屉） -->
+    <AiAnalysisDialog v-model="aiVisible" :ticket="aiTicket" @export-one="exportOne" />
 
     <!-- 工单详情（嵌套抽屉） -->
     <el-drawer
@@ -117,7 +126,11 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { Download } from '@element-plus/icons-vue'
 import { complaintApi } from '@/api/complaint'
+import { downloadWithAuth } from '@/utils/download.js'
+import AiAnalysisDialog from './AiAnalysisDialog.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -135,6 +148,9 @@ const page = ref(1)
 const pageSize = 20
 const detail = ref(null)
 const detailVisible = ref(false)
+const aiVisible = ref(false)
+const aiTicket = ref(null)
+const exporting = ref(false)
 
 const filterLabels = {
   week: '周', l1: '一级', l2: '场景', is_batch: '批量簇', is_recur: '复发',
@@ -189,6 +205,30 @@ function showDetail(row) {
   detailVisible.value = true
 }
 
+function openAi(row) {
+  aiTicket.value = row
+  aiVisible.value = true
+}
+
+/** 导出当前下钻条件下的全部工单明细（不分页，全文 AI 分析字段） */
+async function exportTickets(filters) {
+  exporting.value = true
+  try {
+    const f = filters || activeFilters.value
+    const name = await downloadWithAuth(complaintApi.ticketExportUrl(f))
+    ElMessage.success(`已导出 ${total.value} 单明细：${name}`)
+  } catch (e) {
+    ElMessage.error('导出失败：' + (e?.message || e))
+  } finally {
+    exporting.value = false
+  }
+}
+
+/** 从 AI 全文弹窗导出单条工单（按单号精确过滤） */
+function exportOne(row) {
+  exportTickets({ keyword: row.ticket_no })
+}
+
 function openLedger() {
   emit('update:modelValue', false)
   router.push({ path: '/operation/complaint-center/tickets', query: { ...activeFilters.value } })
@@ -227,6 +267,12 @@ function classifyTagType(by) {
 }
 .conf-hi { color: var(--success, #16a34a); font-weight: 600; }
 .conf-low { color: var(--warning, #ea580c); font-weight: 600; }
+.ai-cell { cursor: pointer; }
+.ai-cell__text {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; font-size: 12px; line-height: 1.6;
+}
+.ai-cell__more { font-size: 11.5px; margin-top: 2px; }
 .drill-pager {
   display: flex;
   justify-content: flex-end;

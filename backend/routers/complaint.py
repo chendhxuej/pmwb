@@ -13,9 +13,9 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -65,32 +65,21 @@ router = APIRouter(prefix="/complaint", tags=["客诉专题分析"])
 
 
 # ── 台账 ─────────────────────────────────────────────────────
-@router.get("/tickets")
-def list_tickets(
-    db: Session = Depends(get_db),
-    week: Optional[str] = Query(None, description="周次，如 2026-W43"),
-    keyword: Optional[str] = Query(None, description="内容关键词"),
-    l1: Optional[str] = Query(None, description="一级性质"),
-    l2: Optional[str] = Query(None, description="二级场景"),
-    is_batch: Optional[int] = Query(None, ge=0, le=1),
-    classify_by: Optional[str] = Query(None, description="归类来源：ai（AI归类）/ ai_low（待人工确认）/ manual（人工校正）/ auto（待分析）"),
-    handler: Optional[str] = Query(None, description="处理人（精确）"),
-    problem_no: Optional[str] = Query(None, description="按归属共性问题下钻"),
-    is_recur: Optional[int] = Query(None, ge=0, le=1, description="措施后复发下钻"),
-    unclosed: Optional[int] = Query(None, ge=0, le=1, description="1=未结单（非完结状态）下钻"),
-    retention: Optional[int] = Query(None, ge=0, le=1, description="1=超期滞留（创建超N天未完结）下钻"),
-    city: Optional[str] = Query(None, description="地市（精确）"),
-    rootcause_no: Optional[str] = Query(None, description="按根因簇下钻"),
-    module_problem_id: Optional[str] = Query(None, description="按闭集模块问题下钻（L2主要投诉点）"),
-    known_flag: Optional[int] = Query(None, ge=0, le=1, description="1=已知问题 0=新增问题"),
-    rc_status: Optional[str] = Query(None, description="根因状态：ai/insufficient/manual，pending=待分析"),
-    rc_max_tickets: Optional[int] = Query(None, ge=1, description="只看簇累计单量 ≤N 的工单（1=一次性个案）"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
-):
-    """客诉工单台账分页列表。"""
+def _ticket_where(q: dict) -> tuple:
+    """工单筛选条件的**唯一构造点**（分页列表 / 明细导出共用，禁第二份口径）。
+
+    下钻页面（看板 / 热点 / 主要投诉点 / 问题台账）传什么条件，导出就按同一套
+    SQL 取数——否则「页面看到 N 单、导出 M 单」会漂移（2026-11-04 已实测过）。
+    返回 (cond, params)，调用方自行拼 SELECT / COUNT。
+    """
     where = ["1 = 1"]
     params: dict = {}
+    week, keyword, l1, l2 = q.get("week"), q.get("keyword"), q.get("l1"), q.get("l2")
+    is_batch, classify_by = q.get("is_batch"), q.get("classify_by")
+    handler, problem_no, is_recur = q.get("handler"), q.get("problem_no"), q.get("is_recur")
+    unclosed, retention, city = q.get("unclosed"), q.get("retention"), q.get("city")
+    rootcause_no, module_problem_id = q.get("rootcause_no"), q.get("module_problem_id")
+    known_flag, rc_status, rc_max_tickets = q.get("known_flag"), q.get("rc_status"), q.get("rc_max_tickets")
     if week:
         where.append("week = :week")
         params["week"] = week
@@ -135,7 +124,6 @@ def list_tickets(
             where.append(f"rootcause_no IN ({marks})")
             params.update({f"rc{i}": v for i, v in enumerate(rc_list)})
     if module_problem_id:
-        # 闭集模块问题下钻：经逐单映射表关联到工单（L2 主要投诉点 → 工单）
         where.append(
             "t.ticket_no IN (SELECT ticket_no FROM pmwb_complaint_ticket_module "
             "WHERE module_problem_id = :mid)")
@@ -147,13 +135,13 @@ def list_tickets(
             where.append("rc_status = :rcst")
             params["rcst"] = rc_status
     if rc_max_tickets is not None:
-        # 一次性个案下钻：只看「所在簇累计单量 ≤ N」的工单
         where.append(
             "rootcause_no IN (SELECT rootcause_no FROM pmwb_complaint_rootcause "
             "WHERE ticket_cnt <= :rcmx)")
         params["rcmx"] = int(rc_max_tickets)
     # 完结口径与 metrics 一致：TERMINAL_STATUSES 之外视为未结单
-    from services.complaint.config import TERMINAL_STATUSES
+    from services.complaint.config import TERMINAL_STATUSES, RETENTION_DAYS
+    from datetime import datetime, timedelta
     term_params = {f"t{i}": s for i, s in enumerate(TERMINAL_STATUSES)}
     term_list = ",".join(f":t{i}" for i in range(len(TERMINAL_STATUSES)))
     if unclosed == 1:
@@ -163,8 +151,6 @@ def list_tickets(
         where.append(f"status IN ({term_list})")
         params.update(term_params)
     if retention == 1:
-        from datetime import datetime, timedelta
-        from services.complaint.config import RETENTION_DAYS
         cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
         where.append(
             f"(status IS NULL OR status = '' OR status NOT IN ({term_list})) "
@@ -173,8 +159,6 @@ def list_tickets(
         params.update(term_params)
         params["ret_cutoff"] = cutoff
     elif retention == 0:
-        from datetime import datetime, timedelta
-        from services.complaint.config import RETENTION_DAYS
         cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
         where.append(
             f"(status IN ({term_list}) OR "
@@ -182,8 +166,41 @@ def list_tickets(
         )
         params.update(term_params)
         params["ret_cutoff2"] = cutoff
+    return " AND ".join(where), params
 
-    cond = " AND ".join(where)
+
+@router.get("/tickets")
+def list_tickets(
+    db: Session = Depends(get_db),
+    week: Optional[str] = Query(None, description="周次，如 2026-W43"),
+    keyword: Optional[str] = Query(None, description="内容关键词"),
+    l1: Optional[str] = Query(None, description="一级性质"),
+    l2: Optional[str] = Query(None, description="二级场景"),
+    is_batch: Optional[int] = Query(None, ge=0, le=1),
+    classify_by: Optional[str] = Query(None, description="归类来源：ai（AI归类）/ ai_low（待人工确认）/ manual（人工校正）/ auto（待分析）"),
+    handler: Optional[str] = Query(None, description="处理人（精确）"),
+    problem_no: Optional[str] = Query(None, description="按归属共性问题下钻"),
+    is_recur: Optional[int] = Query(None, ge=0, le=1, description="措施后复发下钻"),
+    unclosed: Optional[int] = Query(None, ge=0, le=1, description="1=未结单（非完结状态）下钻"),
+    retention: Optional[int] = Query(None, ge=0, le=1, description="1=超期滞留（创建超N天未完结）下钻"),
+    city: Optional[str] = Query(None, description="地市（精确）"),
+    rootcause_no: Optional[str] = Query(None, description="按根因簇下钻"),
+    module_problem_id: Optional[str] = Query(None, description="按闭集模块问题下钻（L2主要投诉点）"),
+    known_flag: Optional[int] = Query(None, ge=0, le=1, description="1=已知问题 0=新增问题"),
+    rc_status: Optional[str] = Query(None, description="根因状态：ai/insufficient/manual，pending=待分析"),
+    rc_max_tickets: Optional[int] = Query(None, ge=1, description="只看簇累计单量 ≤N 的工单（1=一次性个案）"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+):
+    """客诉工单台账分页列表。筛选条件构造统一走 _ticket_where（导出共用）。"""
+    cond, params = _ticket_where({
+        "week": week, "keyword": keyword, "l1": l1, "l2": l2,
+        "is_batch": is_batch, "classify_by": classify_by, "handler": handler,
+        "problem_no": problem_no, "is_recur": is_recur, "unclosed": unclosed,
+        "retention": retention, "city": city, "rootcause_no": rootcause_no,
+        "module_problem_id": module_problem_id, "known_flag": known_flag,
+        "rc_status": rc_status, "rc_max_tickets": rc_max_tickets,
+    })
     total = db.execute(text(
         f"SELECT COUNT(*) FROM pmwb_complaint_ticket t WHERE {cond}"
     ), params).scalar() or 0
@@ -214,6 +231,140 @@ def list_tickets(
             for r in rows
         ],
     })
+
+
+# 导出端点必须注册在 /tickets/{ticket_id} 之前，否则 "export" 会被路径参数吞掉。
+# 列定义同时是「工单明细导出」与「AI 分析完整信息」的字段契约（前端下钻页共用）。
+_TICKET_EXPORT_COLS = [
+    ("ticket_no", "工单号", 22), ("week", "归属周", 12), ("created_time", "创建时间", 20),
+    ("city", "地市", 10), ("channel", "渠道", 14), ("appeal_category", "申告类别", 16),
+    ("biz_attr", "工单属性", 16), ("handler", "处理人", 12), ("handle_unit", "处理单位", 18),
+    ("dispatch_count", "派单次数", 10), ("status", "状态", 12),
+    ("category_l1", "一级性质", 14), ("category_l2", "二级场景", 22),
+    ("classify_by", "归类来源", 14), ("ai_confidence", "AI置信度", 12),
+    ("ai_evidence", "AI归类依据", 40),
+    ("root_cause", "AI分析总结(根因全文)", 60),
+    ("rc_evidence", "根因依据", 40), ("rc_gap", "信息缺口", 30),
+    ("fault_stage", "故障环节", 14), ("fault_system", "故障系统", 16),
+    ("fault_type", "缺陷性质", 14), ("own_party", "责任归属", 14),
+    ("fix_mode", "处置方式", 14), ("rc_status", "根因状态", 12), ("rootcause_no", "根因簇号", 16),
+    ("known_flag", "已知/新增", 12), ("known_problem_no", "关联问题号", 20),
+    ("problem_no", "共性问题号", 20), ("module_problem_tags", "L2模块问题", 34),
+    ("cluster_key", "批量簇", 20), ("is_batch", "是否批量", 10), ("is_recur", "是否复发", 10),
+    ("content", "投诉内容(全文)", 80), ("solution_history", "处理过程(全文)", 80),
+    ("remark", "备注", 30),
+]
+
+_TICKET_FILTER_KEYS = (
+    "week", "keyword", "l1", "l2", "is_batch", "classify_by", "handler", "problem_no",
+    "is_recur", "unclosed", "retention", "city", "rootcause_no", "module_problem_id",
+    "known_flag", "rc_status", "rc_max_tickets",
+)
+_TICKET_INT_KEYS = {"is_batch", "is_recur", "unclosed", "retention", "known_flag", "rc_max_tickets"}
+
+
+@router.get("/tickets/export")
+def export_tickets(request: Request, db: Session = Depends(get_db)):
+    """按当前筛选条件导出工单明细 xlsx（全文，不截断、不分页）。
+
+    筛选条件与分页列表共用 _ticket_where —— 下钻页面看到多少单就导出多少单，
+    AI 分析 / 投诉内容 / 处理过程均为全文（解决列表里字段展示不完整的痛点）。
+    """
+    from io import BytesIO
+    from urllib.parse import quote
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    q: dict = {}
+    for k in _TICKET_FILTER_KEYS:
+        v = request.query_params.get(k)
+        if v is None or v == "":
+            continue
+        if k in _TICKET_INT_KEYS:
+            try:
+                q[k] = int(v)
+            except ValueError:
+                continue
+        else:
+            q[k] = v
+    cond, params = _ticket_where(q)
+    # 主查询只取物理列：module_problem_tags 是派生列，若用 MySQL 专有
+    # GROUP_CONCAT(... SEPARATOR) 会让 SQLite 测试库报错且每行触发一次相关子查询。
+    # 改为「一次批量查映射表 + Python 组装」，跨库兼容、无 N+1。
+    phys_cols = [c for c in _TICKET_EXPORT_COLS if c[0] != "module_problem_tags"]
+    cols_sql = ", ".join(f"t.{c[0]}" for c in phys_cols)
+    rows = db.execute(text(f"""
+        SELECT {cols_sql}
+        FROM pmwb_complaint_ticket t WHERE {cond}
+        ORDER BY t.created_time DESC
+        LIMIT 20000
+    """), params).mappings().all()
+    mp_map: Dict[str, List[str]] = {}
+    if rows:
+        for ticket_no, mid, name in db.execute(text(
+            "SELECT tm.ticket_no, tm.module_problem_id, mp.name "
+            "FROM pmwb_complaint_ticket_module tm "
+            "JOIN pmwb_complaint_module_problem mp ON mp.module_problem_id = tm.module_problem_id"
+        )).fetchall():
+            mp_map.setdefault(ticket_no, []).append(f"{mid}::{name}")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "工单明细"
+    head_fill = PatternFill("solid", fgColor="2F6FED")
+    head_font = Font(color="FFFFFF", bold=True, size=11)
+    ws.append([c[1] for c in _TICKET_EXPORT_COLS])
+    for i, col in enumerate(_TICKET_EXPORT_COLS, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = col[2]
+        cell = ws.cell(row=1, column=i)
+        cell.fill = head_fill
+        cell.font = head_font
+        cell.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
+    ws.row_dimensions[1].height = 30
+    ws.freeze_panes = "A2"
+    for r in rows:
+        r = dict(r)
+        r["module_problem_tags"] = "|".join(mp_map.get(r.get("ticket_no"), []))
+        vals = []
+        for key, _, _ in _TICKET_EXPORT_COLS:
+            v = r[key]
+            if key == "known_flag":
+                v = {1: "已知问题", 0: "新增问题"}.get(v, "未判定" if v is None else v)
+            elif key in ("is_batch", "is_recur"):
+                v = {1: "是", 0: "否"}.get(v, "" if v is None else v)
+            elif key == "module_problem_tags" and v:
+                v = " | ".join(
+                    (tag.split("::", 1)[1] if "::" in tag else tag)
+                    for tag in str(v).split("|") if tag)
+            elif hasattr(v, "strftime"):
+                v = v.strftime("%Y-%m-%d %H:%M:%S")
+            if v is None:
+                v = ""
+            vals.append(str(v))
+        ws.append(vals)
+    # 长文本列自动换行，行高不设上限（Excel 打开可自行展开）
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            c.alignment = Alignment(vertical="top", wrap_text=True)
+    ws.auto_filter.ref = ws.dimensions
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    scope = q.get("week") or "全部周次"
+    fname = f"客诉工单明细_{scope}_{len(rows)}单_{stamp}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}",
+            "Cache-Control": "no-store",
+            "X-Export-Rows": str(len(rows)),
+        },
+    )
 
 
 @router.get("/tickets/{ticket_id}")
@@ -692,18 +843,31 @@ def gen_report(body: ReportGenIn, db: Session = Depends(get_db)):
 
 @router.get("/reports/{week}/status")
 def report_status(week: str, db: Session = Depends(get_db)):
-    """周报文件新鲜度（2026-11-10 新增）。
+    """周报文件新鲜度（2026-11-10 新增，11-10 二次加固）。
 
     为什么需要：周报是静态快照文件，数据更新后文件不会自动失效——老大反馈
-    「查看最新周报」下载到的还是上周内容。判定 stale = 该周工单最后更新时间晚于文件生成时间。
+    「查看最新周报」下载到的还是上周内容。
+
+    二次加固（老大 11-10 反馈「内容还没更新」）：
+      ① 取数口径与 metrics.collect 对齐，按 created_time 自然周区间统计，
+         不再依赖 week 字段（week 打标缺失/错位会让新鲜度误判为 fresh）；
+      ② 同时比对「数据行数」与「数据截止时间」，文件行数对不上也算过期；
+      ③ PDF 单独给出 pdf_stale —— HTML 重建时 with_pdf=false 会让 PDF 永远停在旧版。
     """
+    from services.complaint.metrics import week_bounds
     base = Path(r"D:\项目\个人工作台系统\docs\客诉周报")
     html = base / f"客诉周报_{week}.html"
     pdf = base / f"客诉周报_{week}.pdf"
+    try:
+        start, end = week_bounds(week)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail=f"周次格式不合法：{week}")
     row = db.execute(text(
-        "SELECT COUNT(*), MAX(updated_at) FROM pmwb_complaint_ticket WHERE week = :w"
-    ), {"w": week}).fetchone()
+        "SELECT COUNT(*), MAX(updated_at), MAX(created_time) "
+        "FROM pmwb_complaint_ticket WHERE created_time >= :s AND created_time < :e"
+    ), {"s": start, "e": end}).fetchone()
     data_updated = row[1] if row else None
+    data_until = row[2] if row else None
     out = {
         "week": week,
         "exists": html.exists(),
@@ -711,26 +875,53 @@ def report_status(week: str, db: Session = Depends(get_db)):
         "pdf": pdf.exists(),
         "week_total": int(row[0] or 0) if row else 0,
         "data_updated_at": data_updated.strftime("%Y-%m-%d %H:%M:%S") if data_updated else "",
+        "data_until": data_until.strftime("%Y-%m-%d %H:%M") if data_until else "",
         "generated_at": "",
         "stale": True,
+        "pdf_stale": False,
+        "file_total": None,
     }
     if html.exists():
         mt = datetime.fromtimestamp(html.stat().st_mtime)
         out["generated_at"] = mt.strftime("%Y-%m-%d %H:%M:%S")
         # 文件比数据新 → 新鲜；数据有更新 → 过期需重生成
         out["stale"] = bool(data_updated and data_updated > mt)
+        # 行数对不上（例如文件是旧版但 mtime 被 touch 过）也判过期
+        try:
+            txt = html.read_text(encoding="utf-8")
+            import re
+            from services.complaint.report import REPORT_VERSION
+            ver = re.search(r'<meta name="pmwb-report-version" content="(\d+)"', txt)
+            if not ver or int(ver.group(1)) < REPORT_VERSION:
+                out["stale"] = True  # 旧模板快照（无逐日明细表/水印）必须重生成
+            mm = re.search(r'<meta name="pmwb-report-week-total" content="(\d+)"', txt)
+            if mm:
+                out["file_total"] = int(mm.group(1))
+                if out["file_total"] != out["week_total"]:
+                    out["stale"] = True
+        except (OSError, ValueError):
+            pass
+        # PDF 只要比 HTML 旧就是陈旧快照（前端 with_pdf=false 不会重建它）
+        if pdf.exists():
+            out["pdf_stale"] = pdf.stat().st_mtime < html.stat().st_mtime - 1
+        else:
+            out["pdf_stale"] = False
     return success(out)
 
 
 @router.get("/reports/{week}/download")
 def download_report(week: str, ext: str = Query("html", pattern="^(html|pdf)$")):
-    """下载周报文件（HTML / PDF）。"""
+    """下载周报文件（HTML / PDF）。禁缓存：报告是按数据重生成的动态快照，
+    浏览器缓存/304 会让老大反复打开旧内容（blob 打开链路同样受益）。"""
     base = Path(r"D:\项目\个人工作台系统\docs\客诉周报")
     path = base / f"客诉周报_{week}.{ext}"
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"周报不存在：{path.name}（请先生成）")
     media = "text/html" if ext == "html" else "application/pdf"
-    return FileResponse(path, media_type=media, filename=path.name)
+    return FileResponse(
+        path, media_type=media, filename=path.name,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
 
 
 # ── 督办邮件 ─────────────────────────────────────────────────

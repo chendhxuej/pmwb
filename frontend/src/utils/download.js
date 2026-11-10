@@ -67,7 +67,8 @@ async function readError(resp) {
  * @returns {Promise<string>} 实际使用的文件名
  */
 export async function downloadWithAuth(url, filename) {
-  const resp = await fetch(url, { headers: authHeaders() })
+  // no-store：导出的明细/报告是按当前数据实时生成的，浏览器缓存会返回旧快照
+  const resp = await fetch(url, { headers: authHeaders(), cache: 'no-store' })
   if (!resp.ok) throw new Error(await readError(resp))
   const blob = await resp.blob()
   const name =
@@ -99,7 +100,8 @@ export async function downloadWithAuth(url, filename) {
 export async function openWithAuth(url, mime = 'text/html') {
   const win = window.open('', '_blank')
   try {
-    const resp = await fetch(url, { headers: authHeaders() })
+    // no-store：周报 HTML 是按当前数据重生成的动态快照，缓存/304 会让老大反复看到旧内容
+    const resp = await fetch(url, { headers: authHeaders(), cache: 'no-store' })
     if (!resp.ok) throw new Error(await readError(resp))
     const blob = await resp.blob()
     const objectUrl = URL.createObjectURL(new Blob([blob], { type: mime }))
@@ -128,7 +130,8 @@ export async function openWithAuth(url, mime = 'text/html') {
  * @returns {Promise<string>} blob URL，用完请调用 revokeBlobUrl
  */
 export async function fetchBlobUrl(url, mime) {
-  const resp = await fetch(url, { headers: authHeaders() })
+  // 报告/明细均为按当前数据实时生成，禁缓存避免旧快照
+  const resp = await fetch(url, { headers: authHeaders(), cache: 'no-store' })
   if (!resp.ok) throw new Error(await readError(resp))
   const raw = await resp.blob()
   const blob = mime ? new Blob([raw], { type: mime }) : raw

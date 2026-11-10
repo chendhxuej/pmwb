@@ -10,12 +10,17 @@ from __future__ import annotations
 
 import json
 import shutil
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from services.complaint import config as C
 
 ECHARTS_SRC = Path(r"D:\项目\个人工作台系统\frontend\node_modules\echarts\dist\echarts.min.js")
+
+# 模板版本：改了展示逻辑就 +1，report_status 据此把旧模板生成的快照判为过期
+# （否则「文件比数据新」会让老大永远打开没有逐日明细表的旧报告）。
+REPORT_VERSION = 2
 
 _ECHARTS_INLINE: Dict[str, str] = {}
 
@@ -116,7 +121,12 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     trend_total = [t["total"] for t in m["trend"]]
     trend_batch = [t["batch"] for t in m["trend"]]
     daily_keys = [k[5:] for k in m["daily"].keys()]
-    daily_vals = list(m["daily"].values())
+    # 进行中的周：未到日期不能画成 0 柱（会被误读成「那天没投诉」），改用 null 断柱
+    future_days = set(m.get("future_days") or [])
+    daily_vals = [None if k in future_days else v for k, v in m["daily"].items()]
+    in_progress = bool(m.get("in_progress"))
+    elapsed_days = int(m.get("elapsed_days") or 7)
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     k = m.get("known") or {}
     rc = m.get("rootcause") or {}
@@ -131,8 +141,39 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     judged = int(k.get("judged") or 0)
     pot_known = int(k.get("potential_known_cnt") or 0)
 
+    # 逐日投诉量明细表（2026-11-10）：老大反馈「每天投诉量信息」看不到/像没更新，
+    # 图只是一张柱图，无法核对。这里按周内第几天对齐三条线，未到日期标「—」。
+    _WD = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    _prev_w = list((m.get("daily_prev_week") or {}).values())
+    _prev_m = list((m.get("daily_prev_month") or {}).values())
+    daily_table_rows = []
+    _future_tag = '<span style="color:#98a6ba">未到</span>'
+    # 循环变量一律用私有名，禁覆盖下方的 k（known 指标）/ v（环比）等
+    for i, (_dk, _dv) in enumerate(m["daily"].items()):
+        _d = date.fromisoformat(_dk)
+        _is_future = _dk in future_days
+        _cur = "—" if _is_future else f'<b>{_dv}</b>'
+        _pw = _prev_w[i] if i < len(_prev_w) else 0
+        _pm = _prev_m[i] if i < len(_prev_m) else 0
+        _state = _future_tag if _is_future else "已过"
+        daily_table_rows.append(
+            f'<tr><td>{_dk[5:]} <span style="color:#7a8ba3">{_WD[_d.weekday()]}</span></td>'
+            f'<td>{_cur}</td><td>{_pw}</td><td>{_pm}</td>'
+            f'<td>{_state}</td></tr>')
+    daily_table = "".join(daily_table_rows)
+    data_stamp = (
+        f'数据截至 <b>{m.get("data_until") or "—"}</b>｜报告生成于 <b>{generated_at}</b>'
+        + (f'｜<b style="color:#d97706">本周进行中（已过 {elapsed_days} 天）</b>'
+           if in_progress else '｜完整自然周')
+    )
+
     # ── 一、概览与波动 ──
-    if m.get("prev_partial"):
+    if in_progress:
+        wow_cell = '<div class="num" style="font-size:17px">不可比</div>'
+        wow_note = (f'<div class="note warn">本周（{m["week"]}）尚未结束，仅 {elapsed_days} 天数据，'
+                    f'未到日期不计入日均、不参与周环比。本报告结论以已发生数据为准，'
+                    f'待本周结束后自动恢复完整周口径。</div>')
+    elif m.get("prev_partial"):
         wow_cell = f'<div class="num" style="font-size:17px">不可比</div>'
         wow_note = (f'<div class="note warn">上周（{m["prev_week"]}）仅有 {m["prev_days"]} 天数据，'
                     f'周环比不可比，本报告不给出环比结论。补导历史工单后自动恢复。</div>')
@@ -296,6 +337,9 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="pmwb-report-version" content="{REPORT_VERSION}">
+<meta name="pmwb-report-week-total" content="{m['total']}">
+<meta name="pmwb-report-generated-at" content="{generated_at}">
 <title>客诉工单专题分析 {m['week']}</title>
 <style>{_REPORT_STYLE}</style>
 </head>
@@ -304,12 +348,14 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
   <h1>商客客诉工单专题分析（{m['week']}）</h1>
   <div class="sub">统计区间 {m['range']}｜数据源：小信工单导出（逐单入库）｜
     根因与已知判定均为 AI 自动完成，人工只在问题入账时确认一次｜Vicky2号</div>
+  <div class="note" style="margin-bottom:14px">{data_stamp}。
+    每次打开周报都会按当前数据重新生成，本页内容对应上方生成时刻的库内快照。</div>
 
   <div class="card">
     <h2>一、本周概览与波动</h2>
     <div class="kpi">
       <div class="item"><div class="num">{m['total']}</div><div class="lbl">本周新增（单）</div></div>
-      <div class="item"><div class="num">{m['daily_avg']}</div><div class="lbl">日均（单）</div></div>
+      <div class="item"><div class="num">{m['daily_avg']}</div><div class="lbl">日均（单，按已过 {elapsed_days} 天）</div></div>
       <div class="item">{wow_cell.replace('class="num"', 'class="num"').replace('<div class="num"', '<div class="num"')}<div class="lbl">周环比</div></div>
       <div class="item"><div class="num">{known_rate}%</div><div class="lbl">已知问题率</div></div>
       <div class="item"><div class="num">{rc.get('coverage_pct', 0)}%</div><div class="lbl">根因分析覆盖</div></div>
@@ -317,8 +363,11 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     </div>
     {wow_note}
     <div id="daily" class="chart" style="height:260px;margin-top:10px"></div>
-    <div class="note">波动判断口径：以<b>完整自然周</b>为基期；基期不足 5 天一律标「不可比」，
-      不用残缺数据硬算环比（会把周末导入的数据算成暴跌）。</div>
+    <div class="sub-h">每日投诉量明细（可逐日核对）</div>
+    <table><thead><tr><th>日期</th><th>当日单量</th><th>上周同期</th><th>上月同期（4 周前）</th><th>状态</th></tr></thead>
+    <tbody>{daily_table}</tbody></table>
+    <div class="note">波动判断口径：以<b>完整自然周</b>为基期；基期不足 5 天或本周尚未结束一律标「不可比」，
+      不用残缺数据硬算环比（会把未到日期的 0 单算成暴跌）。未到日期显示「—」且不画柱，不计入日均。</div>
   </div>
 
   <div class="card">

@@ -70,6 +70,15 @@ export const complaintApi = {
   reportStatus(week) {
     return request.get(`/complaint/reports/${week}/status`)
   },
+  // 按当前筛选条件导出工单明细 xlsx（全文，不分页）；filters 与 listTickets 同源
+  ticketExportUrl(filters = {}) {
+    const q = new URLSearchParams()
+    Object.entries(filters || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.append(k, String(v))
+    })
+    const s = q.toString()
+    return `/api/v1/complaint/tickets/export${s ? '?' + s : ''}`
+  },
 
   // ── 每周导入（multipart，withReport=true 导入后直接出周报）──
   importWeekly(file, withReport, withPdf = true) {

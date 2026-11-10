@@ -3,6 +3,8 @@
     <PageHeader title="客诉工单台账" :subtitle="subTitle">
       <template #actions>
         <CategoryDictPopover />
+        <el-button :icon="Download" type="primary" plain :loading="exporting"
+          @click="exportTickets()">导出明细（{{ pager.total }} 单）</el-button>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
       </template>
     </PageHeader>
@@ -67,6 +69,8 @@
         <template #default="{ row }">
           <div v-if="row.root_cause" class="rc-cell">
             <div class="rc-text">{{ row.root_cause }}</div>
+            <el-link type="primary" :underline="false" class="rc-full"
+              @click="openAi(row)">查看完整 AI 分析 →</el-link>
             <div class="rc-tags">
               <el-tag size="small" type="info">{{ row.fault_system || '—' }}</el-tag>
               <el-tag size="small" type="info">{{ row.fault_stage || '—' }}</el-tag>
@@ -137,7 +141,13 @@
       <el-table-column prop="dispatch_count" label="派单" width="60" align="center" />
       <el-table-column prop="status" label="状态" width="84" />
       <el-table-column prop="content_preview" label="工单内容" min-width="260"
-        :show-overflow-tooltip="{ placement: 'top', popperClass: 'pm-square-tip' }" />
+        :show-overflow-tooltip="{ placement: 'top', popperClass: 'pm-square-tip' }">
+        <template #default="{ row }">
+          <span>{{ row.content_preview }}</span>
+          <el-link v-if="(row.content_preview || '').length >= 300" type="primary"
+            :underline="false" class="rc-full" @click="openAi(row)">全文 →</el-link>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="150" fixed="right" align="center">
         <template #default="{ row }">
           <el-button size="small" text type="primary" @click="openCorrect(row)">校正分类</el-button>
@@ -236,6 +246,9 @@
         <el-button type="primary" :loading="rcSaving" @click="saveRootcause">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- AI 分析全文（下钻落地页与下钻抽屉共用同一组件） -->
+    <AiAnalysisDialog v-model="aiVisible" :ticket="aiTicket" @export-one="exportOne" />
   </div>
 </template>
 
@@ -243,11 +256,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { Download, Refresh, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import CategoryDictPopover from './components/CategoryDictPopover.vue'
 import ClusterDrawer from './components/ClusterDrawer.vue'
+import AiAnalysisDialog from './components/AiAnalysisDialog.vue'
 import { complaintApi } from '@/api/complaint'
+import { downloadWithAuth } from '@/utils/download.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -263,6 +278,9 @@ const saving = ref(false)
 const correctForm = reactive({ id: null, l1: '', l2: '', remark: '' })
 const clusterVisible = ref(false)
 const clusterRow = ref(null)
+const aiVisible = ref(false)
+const aiTicket = ref(null)
+const exporting = ref(false)
 
 // 根因校正
 const rcVisible = ref(false)
@@ -292,21 +310,25 @@ const weekOptions = computed(() => {
   return [...s].sort().reverse()
 })
 
+// 当前筛选条件的唯一取数点：列表与导出共用，避免「页面 N 单、导出 M 单」
+function activeFilters() {
+  return {
+    week: filters.week || undefined,
+    l1: filters.l1 || undefined,
+    l2: filters.l2 || undefined,
+    classify_by: filters.classify_by || undefined,
+    rc_status: filters.rc_status || undefined,
+    known_flag: filters.known_flag ?? undefined,
+    is_batch: filters.is_batch ?? undefined,
+    keyword: filters.keyword || undefined,
+    module_problem_id: filters.module_problem_id || undefined,
+  }
+}
+
 async function load() {
   loading.value = true
   try {
-    const params = {
-      page: pager.page, page_size: pager.pageSize,
-      week: filters.week || undefined,
-      l1: filters.l1 || undefined,
-      l2: filters.l2 || undefined,
-      classify_by: filters.classify_by || undefined,
-      rc_status: filters.rc_status || undefined,
-      known_flag: filters.known_flag ?? undefined,
-      is_batch: filters.is_batch ?? undefined,
-      keyword: filters.keyword || undefined,
-      module_problem_id: filters.module_problem_id || undefined,
-    }
+    const params = { page: pager.page, page_size: pager.pageSize, ...activeFilters() }
     const data = await complaintApi.listTickets(params)
     rows.value = data.items || []
     pager.total = data.total || 0
@@ -315,6 +337,30 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+function openAi(row) {
+  aiTicket.value = row
+  aiVisible.value = true
+}
+
+async function exportTickets(filtersOverride) {
+  exporting.value = true
+  try {
+    // 防呆：@click 直传时会把 MouseEvent 当参数，只接受普通对象
+    const f = (filtersOverride && typeof filtersOverride === 'object' && !('target' in filtersOverride))
+      ? filtersOverride : activeFilters()
+    const name = await downloadWithAuth(complaintApi.ticketExportUrl(f))
+    ElMessage.success(`已导出工单明细：${name}`)
+  } catch (e) {
+    ElMessage.error('导出失败：' + (e?.message || e))
+  } finally {
+    exporting.value = false
+  }
+}
+
+function exportOne(row) {
+  exportTickets({ keyword: row.ticket_no })
 }
 
 async function loadMeta() {
@@ -441,6 +487,11 @@ onMounted(async () => {
   align-items: center;
   margin-top: 3px;
   flex-wrap: wrap;
+}
+.rc-full {
+  display: inline-block;
+  font-size: 11.5px;
+  margin-top: 2px;
 }
 .rc-no {
   font-size: 12px;

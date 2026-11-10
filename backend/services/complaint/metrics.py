@@ -323,9 +323,19 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
     action_total = len(actions)
     action_completion = round(done / action_total * 100, 1) if action_total else 0.0
 
+    # 进行中的周：未到日期不能按「0 单」参与日均/环比，否则 28 单会被算成日均 4.0、
+    # 环比 -78.1%（2026-11-10 老大反馈「每天投诉量信息没更新」的实质根因之一）。
     days = (end - start).days
+    today = datetime.now().date()
+    in_progress = start.date() <= today < end.date()
+    elapsed_days = min(days, max(1, (today - start.date()).days + 1)) if in_progress else days
+    future_days = [k for k in daily if date.fromisoformat(k) > today]
+    data_until = max((r["created_time"] for r in rows if r["created_time"]), default=None)
+
     prev_partial = int(prev_days) < 5
-    wow = None if (prev_partial or not prev_total) else round((total - prev_total) / prev_total * 100, 1)
+    # 本周进行中不完整、或上周有效天数不足：环比一律不可比，绝不硬算成暴跌
+    wow = None if (prev_partial or in_progress or not prev_total) else round(
+        (total - prev_total) / prev_total * 100, 1)
 
     rootcause = _rootcause_block(db, rows, week, total)
 
@@ -342,7 +352,11 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
         "week": week,
         "range": f"{start:%Y-%m-%d} ~ {(end - timedelta(days=1)):%Y-%m-%d}",
         "total": total,
-        "daily_avg": round(total / days, 1) if days else 0,
+        "daily_avg": round(total / elapsed_days, 1) if elapsed_days else 0,
+        "elapsed_days": elapsed_days,
+        "in_progress": in_progress,
+        "future_days": future_days,
+        "data_until": data_until.strftime("%Y-%m-%d %H:%M") if data_until else "",
         "prev_week": pw,
         "prev_total": int(prev_total),
         "prev_days": int(prev_days),
