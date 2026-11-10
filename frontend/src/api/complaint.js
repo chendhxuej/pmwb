@@ -67,6 +67,9 @@ export const complaintApi = {
   reportDownloadUrl(week, ext = 'html') {
     return `/api/v1/complaint/reports/${week}/download?ext=${ext}`
   },
+  reportStatus(week) {
+    return request.get(`/complaint/reports/${week}/status`)
+  },
 
   // ── 每周导入（multipart，withReport=true 导入后直接出周报）──
   importWeekly(file, withReport, withPdf = true) {

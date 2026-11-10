@@ -690,6 +690,38 @@ def gen_report(body: ReportGenIn, db: Session = Depends(get_db)):
     })
 
 
+@router.get("/reports/{week}/status")
+def report_status(week: str, db: Session = Depends(get_db)):
+    """周报文件新鲜度（2026-11-10 新增）。
+
+    为什么需要：周报是静态快照文件，数据更新后文件不会自动失效——老大反馈
+    「查看最新周报」下载到的还是上周内容。判定 stale = 该周工单最后更新时间晚于文件生成时间。
+    """
+    base = Path(r"D:\项目\个人工作台系统\docs\客诉周报")
+    html = base / f"客诉周报_{week}.html"
+    pdf = base / f"客诉周报_{week}.pdf"
+    row = db.execute(text(
+        "SELECT COUNT(*), MAX(updated_at) FROM pmwb_complaint_ticket WHERE week = :w"
+    ), {"w": week}).fetchone()
+    data_updated = row[1] if row else None
+    out = {
+        "week": week,
+        "exists": html.exists(),
+        "html": html.exists(),
+        "pdf": pdf.exists(),
+        "week_total": int(row[0] or 0) if row else 0,
+        "data_updated_at": data_updated.strftime("%Y-%m-%d %H:%M:%S") if data_updated else "",
+        "generated_at": "",
+        "stale": True,
+    }
+    if html.exists():
+        mt = datetime.fromtimestamp(html.stat().st_mtime)
+        out["generated_at"] = mt.strftime("%Y-%m-%d %H:%M:%S")
+        # 文件比数据新 → 新鲜；数据有更新 → 过期需重生成
+        out["stale"] = bool(data_updated and data_updated > mt)
+    return success(out)
+
+
 @router.get("/reports/{week}/download")
 def download_report(week: str, ext: str = Query("html", pattern="^(html|pdf)$")):
     """下载周报文件（HTML / PDF）。"""

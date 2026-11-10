@@ -127,6 +127,7 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     known_cnt = int(k.get("known_cnt") or 0)
     new_cnt = int(k.get("new_cnt") or 0)
     unknown_cnt = int(k.get("unknown_cnt") or 0)
+    consult_cnt = int(k.get("consult_cnt") or 0)
     judged = int(k.get("judged") or 0)
     pot_known = int(k.get("potential_known_cnt") or 0)
 
@@ -272,7 +273,8 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     if judged:
         concl_items.append(
             f"本周新增 <b>{m['total']}</b> 单，其中判为<b>已知问题</b> {known_cnt} 单"
-            f"（已知率 <b>{known_rate}%</b>），<b>新增问题</b> {new_cnt} 单。")
+            f"（已知率 <b>{known_rate}%</b>），<b>新增问题</b> {new_cnt} 单"
+            + (f"，其余 {consult_cnt} 单为使用咨询（非缺陷）。" if consult_cnt else "。"))
     if not known_cnt and new_cnt:
         concl_items.append(
             "全部工单都不是在办问题能解释的——说明台账里几乎没有在办问题，"
@@ -331,10 +333,11 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
       <div class="mini"><div class="num" style="color:#2f6fed">{new_cnt}</div><div class="lbl">新增问题（单）</div></div>
       <div class="mini"><div class="num">{judged}/{k.get('total', m['total'])}</div><div class="lbl">已判定/总量</div></div>
     </div>
-    <div class="note">判定口径：工单 → 根因簇 → 是否被<b>在办问题（open/resolving）</b>收纳。
+    <div class="note">判定口径：工单 →（根因簇 / 功能模块问题）是否被<b>在办问题（open/resolving）</b>收纳。
       已识别但<b>未确认入账</b>的候选不计为已知——没进台账就等于组织还没认账。
       本周有 <b>{pot_known}</b> 单属于「AI 已识别待入账」，入账后已知率会上升。
-      {f'另有 {unknown_cnt} 单未完成判定（无根因簇），不计入分母。' if unknown_cnt else ''}</div>
+      {f'另有 {consult_cnt} 单为使用咨询（非缺陷），不计入已知率分子分母。' if consult_cnt else ''}
+      {f'另有 {unknown_cnt} 单无法判定，不计入分母。' if unknown_cnt else ''}</div>
     <div class="sub-h">已知问题（按本周命中单量）</div>
     <table><thead><tr><th>问题编号</th><th>在办问题（根因摘要）</th><th>责任人</th><th>本周命中</th><th>状态</th></tr></thead>
     <tbody>{known_rows}</tbody></table>

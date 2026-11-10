@@ -177,7 +177,10 @@ def collect(db: Session, week: Optional[str] = None) -> Dict:
                category_l1, category_l2, cluster_key, is_batch, is_recur,
                content, solution_history, linked_issue_no,
                rootcause_no, root_cause, fault_stage, fault_system, fault_type,
-               own_party, fix_mode, rc_status, rc_confidence, known_flag, known_problem_no
+               own_party, fix_mode, rc_status, rc_confidence, known_flag, known_problem_no,
+               (SELECT GROUP_CONCAT(tm.module_problem_id ORDER BY tm.module_problem_id)
+                  FROM pmwb_complaint_ticket_module tm
+                 WHERE tm.ticket_no = pmwb_complaint_ticket.ticket_no) AS module_ids
         FROM pmwb_complaint_ticket
         WHERE created_time >= :s AND created_time < :e
         ORDER BY created_time

@@ -6,7 +6,11 @@
           <el-option v-for="w in weekOptions" :key="w" :label="weekLabel(w)" :value="w" />
         </el-select>
         <el-button :icon="Upload" type="primary" plain @click="uploadVisible = true">上传工单数据</el-button>
-        <el-button :icon="Download" :disabled="!metrics.week" @click="openReport">查看最新周报</el-button>
+        <el-tooltip :content="reportTip" placement="bottom">
+          <el-button :icon="Download" :disabled="!metrics.week" @click="openReport">
+            周报 {{ metrics.week || '' }}<span v-if="reportStale" class="stale-dot">· 数据已更新</span>
+          </el-button>
+        </el-tooltip>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
       </template>
     </PageHeader>
@@ -116,10 +120,10 @@
       <section class="card">
         <div class="card-header">
           <h3>二、已知问题 vs 新增问题（核心指标）</h3>
-          <span class="hint">判定：工单 → 根因簇 → 是否被在办问题收纳</span>
+          <span class="hint">判定：工单 →（根因簇 / 功能模块问题）是否被在办问题收纳；使用咨询不计入</span>
         </div>
         <div class="card-body">
-          <div class="pm-stat-grid pm-stat-grid--4">
+          <div class="pm-stat-grid pm-stat-grid--5">
             <div class="pm-stat">
               <div class="pm-stat__top"><span class="pm-stat__label">已知问题率</span></div>
               <div class="pm-stat__val" :class="known.known_rate >= 50 ? 'is-success' : 'is-danger'">{{ known.known_rate ?? 0 }}<span class="pm-stat__unit">%</span></div>
@@ -134,6 +138,11 @@
               <div class="pm-stat__val is-accent">{{ known.new_cnt ?? 0 }}<span class="pm-stat__unit">单</span></div>
             </div>
             <div class="pm-stat">
+              <div class="pm-stat__top"><span class="pm-stat__label">使用咨询</span></div>
+              <div class="pm-stat__val">{{ known.consult_cnt ?? 0 }}<span class="pm-stat__unit">单</span></div>
+              <div class="pm-stat__sub">非缺陷，不计入</div>
+            </div>
+            <div class="pm-stat">
               <div class="pm-stat__top"><span class="pm-stat__label">已判定 / 总量</span></div>
               <div class="pm-stat__val">{{ known.judged ?? 0 }} / {{ known.total ?? metrics.total }}</div>
             </div>
@@ -143,7 +152,8 @@
             候选问题不计为已知——<b>没进台账就等于组织还没认账</b>。
             本周有 <b>{{ known.potential_known_cnt ?? 0 }}</b> 单属于「AI 已识别、待确认入账」，
             当前在办问题 <b>{{ known.inflight_problem_cnt ?? 0 }}</b> 个。
-            <span v-if="known.unknown_cnt">另有 {{ known.unknown_cnt }} 单无根因簇，不计入分母。</span>
+            <span v-if="known.consult_cnt">另有 <b>{{ known.consult_cnt }}</b> 单为使用咨询（非缺陷），不计入已知率分母。</span>
+            <span v-if="known.unknown_cnt">另有 {{ known.unknown_cnt }} 单无法判定，不计入分母。</span>
           </div>
 
           <div class="sub-h">已知问题（按本周命中单量）</div>
@@ -423,6 +433,22 @@ async function loadMp() {
 }
 const selectedWeek = ref('')
 const weekOptions = ref([])
+// 周报新鲜度（2026-11-10）：周报是静态快照，数据更新后须提示并自动重生成
+const reportStale = ref(false)
+const reportTip = ref('周报为静态快照，数据更新后会自动重新生成')
+async function loadReportStatus() {
+  const wk = metrics.value.week
+  if (!wk) { reportStale.value = false; return }
+  try {
+    const st = await complaintApi.reportStatus(wk)
+    reportStale.value = !st?.exists || !!st?.stale
+    reportTip.value = !st?.exists
+      ? `${wk} 周报尚未生成，点击将自动生成`
+      : st.stale
+        ? `${wk} 数据已于 ${st.data_updated_at} 更新，当前文件生成于 ${st.generated_at}（点击重新生成后下载）`
+        : `${wk} 周报生成于 ${st.generated_at}，已是最新（${st.week_total} 单）`
+  } catch (e) { reportStale.value = false }
+}
 const batchMin = 3
 
 // 一级性质含义（展示用；字典与口径仍在后端唯一源自 pmwb_complaint_category）
@@ -541,6 +567,7 @@ async function loadAll() {
         weekOptions.value = [...new Set([...(metrics.value.trend || []).map(t => t.week), metrics.value.week])]
           .filter(Boolean).sort().reverse()
       }
+      loadReportStatus()
     }
   } catch (e) {
     metrics.value = {}
@@ -574,18 +601,27 @@ async function openReport() {
   const week = metrics.value.week
   const loadingMsg = ElMessage({ message: '正在准备周报…', duration: 0, type: 'info' })
   try {
+    // 周报是静态快照：数据更新后文件不会自动失效，必须先查新鲜度（2026-11-10 修）
+    let st = null
     try {
-      // 裸 window.open 不带 JWT，开启了鉴权会被 401 拦下
-      await openWithAuth(complaintApi.reportDownloadUrl(week))
+      st = await complaintApi.reportStatus(week)
     } catch (e) {
-      // 该周周报文件还没生成（历史周常见）：先让后端生成，再打开
-      if (String(e?.message || '').includes('不存在')) {
+      /* 状态查不到就退回"不存在则生成"的老路径 */
+    }
+    if (!st || !st.exists || st.stale) {
+      const why = !st || !st.exists ? '首次生成' : `数据已更新（${st.data_updated_at}），重新生成`
+      loadingMsg.close()
+      const msg2 = ElMessage({ message: `周报${why}中，约需 10~30 秒…`, duration: 0, type: 'info' })
+      try {
         await complaintApi.genReport({ week, with_pdf: false })
-        await openWithAuth(complaintApi.reportDownloadUrl(week))
-      } else {
-        throw e
+        ElMessage.success(`周报已刷新为最新数据（${week}，${st?.week_total ?? ''} 单）`)
+      } finally {
+        msg2.close()
       }
     }
+    // 裸 window.open 不带 JWT，开启了鉴权会被 401 拦下
+    await openWithAuth(complaintApi.reportDownloadUrl(week))
+    loadReportStatus()
   } catch (e) {
     ElMessage.error('周报打开失败：' + (e?.message || e))
   } finally {
@@ -607,6 +643,7 @@ onMounted(loadAll)
   gap: 16px;
 }
 .mp-overview { margin-bottom: 4px; }
+.stale-dot { color: var(--pm-warning, #e6a23c); font-size: 12px; }
 .mp-top { margin-top: 14px; }
 .mp-top__title { font-size: 12.5px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; }
 .mp-top__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
