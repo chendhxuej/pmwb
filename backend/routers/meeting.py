@@ -1,6 +1,8 @@
+import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from core.response import success
@@ -17,6 +19,7 @@ from schemas.meeting import (
     MeetingUpdate,
 )
 from services.meeting import meeting_service
+from services.meeting_attachment import meeting_attachment_service
 from services.meeting_attendee_template import meeting_attendee_template_service
 from services.meeting_attendee_template import meeting_attendee_template_service
 from services.meeting_type import meeting_type_service
@@ -126,6 +129,18 @@ def delete_attendee_template(template_id: int, db: Session = Depends(get_db)):
     return success(data=data, message="模板已删除")
 
 
+def _with_parsed_attachments(payload: dict) -> dict:
+    """把响应里 pmwb_meeting.attachments 的 JSON 文本统一解析成数组（前端不再二次解析）。"""
+    data = payload.get("data") or {}
+    rows = data.get("items") if isinstance(data, dict) and "items" in data else (
+        [data] if isinstance(data, dict) and "attachments" in data else []
+    )
+    for row in rows:
+        if isinstance(row, dict) and "attachments" in row:
+            row["attachments"] = meeting_attachment_service.parse_attachments(row.get("attachments"))
+    return payload
+
+
 @router.get("")
 def list_meetings(
     keyword: Optional[str] = Query(None, description="关键字搜索"),
@@ -136,21 +151,72 @@ def list_meetings(
     db: Session = Depends(get_db),
 ):
     """查询会议列表。"""
-    return success(data=meeting_service.list_with_filters(
+    return _with_parsed_attachments(success(data=meeting_service.list_with_filters(
         db=db,
         keyword=keyword,
         meeting_type=meeting_type,
         status=status,
         page=page,
         page_size=page_size,
-    ))
+    )))
 
 
 @router.get("/{meeting_id}")
 def get_meeting(meeting_id: int, db: Session = Depends(get_db)):
     """获取会议详情。"""
     obj = meeting_service.get(db, meeting_id)
-    return success(data=obj)
+    if obj is None:
+        raise HTTPException(status_code=404, detail=f"会议不存在：id={meeting_id}")
+    return _with_parsed_attachments(success(data=obj))
+
+
+# ---------------------------------------------------------------------------
+# 会议附件：唯一实现 services/meeting_attachment.py（上传=同名替换，删除=文件+元数据同删）
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{meeting_id}/attachments")
+async def upload_meeting_attachment(
+    meeting_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """上传会议附件（同名文件自动替换并刷新元数据）。"""
+    content = await file.read()
+    data = meeting_attachment_service.upload(db, meeting_id, file.filename or "未命名文件", content)
+    msg = f"附件「{data['entry']['name']}」已替换" if data["replaced"] else "上传成功"
+    return success(data={"items": data["items"], "replaced": data["replaced"]}, message=msg)
+
+
+@router.delete("/{meeting_id}/attachments")
+def delete_meeting_attachment(
+    meeting_id: int,
+    name: str = Query(..., description="附件文件名"),
+    db: Session = Depends(get_db),
+):
+    """删除会议附件：文件实体与元数据同删。"""
+    try:
+        data = meeting_attachment_service.delete(db, meeting_id, name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return success(data={"items": data["items"]}, message=f"附件「{data['deleted']}」已删除")
+
+
+@router.get("/{meeting_id}/attachments/download")
+def download_meeting_attachment(
+    meeting_id: int,
+    name: str = Query(..., description="附件文件名"),
+    db: Session = Depends(get_db),
+):
+    """下载会议附件（走 JWT 鉴权，前端统一 downloadWithAuth，禁裸 URL）。"""
+    items = meeting_attachment_service.list_attachments(db, meeting_id)
+    safe = meeting_attachment_service.sanitize_filename(name)
+    if not any(it.get("name") == safe for it in items):
+        raise HTTPException(status_code=404, detail=f"附件不存在：{safe}")
+    fp = meeting_attachment_service.file_path(meeting_id, safe)
+    if not os.path.exists(fp):
+        raise HTTPException(status_code=404, detail="附件文件已丢失，请重新上传")
+    return FileResponse(fp, filename=safe)
 
 
 @router.post("")
@@ -276,6 +342,8 @@ def send_meeting_mail(meeting_id: int, obj_in: MeetingMailSendRequest, db: Sessi
     - 计划中(planned)：发送会议通知，mail_type=meeting_notice
     - 已召开(held)：发送会议纪要，mail_type=meeting_minutes
     收件人邮箱严格校验，记录入 email_records，走统一邮件中心(3210)发信。
+    附件：缺省自动带出全部会议附件；attachments 为邮件弹窗手工管理结果
+    （会议附件裁剪 + 临时新增），见 MeetingMailSendRequest.attachments。
     """
     return success(data=meeting_service.send_mail(
         db,
@@ -286,5 +354,6 @@ def send_meeting_mail(meeting_id: int, obj_in: MeetingMailSendRequest, db: Sessi
         body=obj_in.body,
         mail_type=obj_in.mail_type,
         recipient_names=obj_in.recipient_names,
+        attachments=obj_in.attachments,
         confirm_send=obj_in.confirm_send,
     ))

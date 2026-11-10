@@ -94,5 +94,23 @@ export const meetingApi = {
   sendMeetingMail(meetingId, data) {
     // confirm_send 固定为 true：代表用户在页面上的显式发送操作（后端 dry_run 护栏据此放行真发）
     return request.post(`/meetings/${meetingId}/send-mail`, { ...data, confirm_send: true })
+  },
+
+  // ── 会议附件（唯一实现=后端 services/meeting_attachment.py；上传=同名替换）──
+  uploadAttachment(meetingId, file) {
+    const fd = new FormData()
+    fd.append('file', file)
+    return request.post(`/meetings/${meetingId}/attachments`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  deleteAttachment(meetingId, name) {
+    return request.delete(`/meetings/${meetingId}/attachments`, { params: { name } })
+  },
+
+  // 附件下载地址（带 JWT 须走 utils/download.js::downloadWithAuth，禁裸 URL / window.open）
+  attachmentDownloadUrl(meetingId, name) {
+    return `/api/v1/meetings/${meetingId}/attachments/download?name=${encodeURIComponent(name)}`
   }
 }

@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # 批量上传单次允许的文件数量上限（业务资料库）。超限直接 400，避免一次请求拖垮服务。
     MAX_BATCH_UPLOAD_FILES: int = 50
 
+    # ===== 会议附件：统一文件存储 =====
+    # 文件实体落 {MEETING_ATTACHMENT_DIR}/{会议主键}/；留空自动推导为项目根/data/meeting_attachments。
+    # 元数据 JSON 落 pmwb_meeting.attachments，唯一实现 services/meeting_attachment.py。
+    MEETING_ATTACHMENT_DIR: str = ""
+
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000
 

@@ -223,6 +223,15 @@ class MeetingMailSendRequest(BaseModel):
         description="邮件类型：meeting_notice(会议通知) / meeting_minutes(会议纪要)",
     )
     recipient_names: Optional[List[str]] = Field(None, description="收件人姓名列表（用于记录展示）")
+    attachments: Optional[List[dict]] = Field(
+        None,
+        description=(
+            "邮件附件名单（邮件弹窗手工管理结果）："
+            "[{name, from_meeting:true}] 为会议附件裁剪（仅本邮件生效，不动会议附件库）；"
+            "[{filename, contentBase64, mimeType}] 为弹窗临时新增（仅随本邮件发送）。"
+            "None/缺省 = 自动带出全部会议附件。"
+        ),
+    )
     confirm_send: bool = Field(
         False,
         description="显式确认发送：True 才真发（防 AI/程序误发）。前端真实点发送固定传 True。",

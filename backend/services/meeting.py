@@ -15,6 +15,7 @@ from db.models import (
     PmwbMeetingAttendee,
 )
 from services.base import BaseService
+from services.meeting_attachment import meeting_attachment_service
 from services.todo import todo_service
 from utils.email import EmailCenterClient
 from utils.markdown_mail import markdown_to_email_html
@@ -299,15 +300,34 @@ class MeetingService(BaseService[PmwbMeeting]):
         mail_type: str = "meeting_notice",
         recipient_names: Optional[List[str]] = None,
         confirm_send: bool = False,
+        attachments: Optional[List[dict]] = None,
     ) -> dict:
         """一键发送会议邮件（通知/纪要），写入 email_records 并走统一邮件中心发信。
 
         - 邮箱严格校验：非 ASCII 本地名（如中文名@domain）直接 400 拒绝，避免邮件中心 500。
         - 记录 source='pmwb_meeting'，req_id 复用 meeting_id 编号以便后续按会议追溯。
+        - 附件自动关联：attachments=None 时默认带出全部会议附件（唯一实现
+          services/meeting_attachment.py::build_mail_attachments）；前端邮件弹窗可裁剪
+          （from_meeting=true 子集，仅本邮件生效）或临时追加文件（仅随邮件发送）。
         """
         meeting = self.get(db, meeting_id)
         if not meeting:
             raise NotFoundException(f"会议不存在：id={meeting_id}")
+
+        # 附件：None=自动带全部；列表按 from_meeting 拆成「裁剪名单 + 临时追加」
+        mail_att_names: Optional[List[str]] = None
+        mail_att_extras: Optional[List[dict]] = None
+        if attachments is not None:
+            mail_att_names = [
+                a.get("name") for a in attachments if isinstance(a, dict) and a.get("from_meeting")
+            ]
+            mail_att_extras = [
+                a for a in attachments
+                if isinstance(a, dict) and not a.get("from_meeting") and a.get("contentBase64")
+            ]
+        mail_attachments = meeting_attachment_service.build_mail_attachments(
+            db, meeting, names=mail_att_names, extras=mail_att_extras
+        )
 
         to = to or []
         cc = cc or []
@@ -344,12 +364,14 @@ class MeetingService(BaseService[PmwbMeeting]):
             req_name=meeting.title,
             source="pmwb_meeting",
             recipient_name=recipient_name or None,
+            attachments=mail_attachments or None,
             confirm_send=confirm_send,
         )
         return {
             "success": result["success"],
             "record_id": result["record_id"],
             "message": result["message"],
+            "attachment_count": len(mail_attachments or []),
         }
 
     def _build_meeting_variables(

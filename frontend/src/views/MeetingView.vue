@@ -487,6 +487,24 @@
         </div>
 
 
+        <!-- 4. 会议附件 -->
+        <div class="dw-section">
+          <div class="pm-section-title">
+            会议附件
+            <span class="sec-sub">（发送通知 / 纪要时自动随邮件携带）</span>
+            <el-button link type="primary" class="sec-act" @click="editFromDetail">管理附件</el-button>
+          </div>
+          <div v-if="!(detailMeeting.attachments || []).length" class="empty-hint">
+            暂无附件，点「编辑」上传会议材料（同名文件自动替换）
+          </div>
+          <div v-else class="att-view-list">
+            <div v-for="a in detailMeeting.attachments" :key="a.name" class="att-view-item">
+              <el-button link type="primary" @click="downloadAttFromDetail(a)">{{ a.name }}</el-button>
+              <span class="att-meta">{{ fmtAttSize(a.size) }} · {{ a.uploaded_at || '' }}</span>
+            </div>
+          </div>
+        </div>
+
         <!-- 5. 知识备忘 -->
         <div class="dw-section">
           <div class="pm-section-title">
@@ -723,6 +741,48 @@
         <el-form-item label="业务领域" prop="domain_code">
           <BusinessDomainSelect v-model="form.domain_code" />
         </el-form-item>
+        <el-form-item label="附件">
+          <div class="att-edit">
+            <div v-if="!formExistingAtts.length && !formStagedFiles.length && !formPendingDelete.length" class="empty-hint">
+              无附件，可上传会议材料；发送会议通知 / 纪要时将自动随邮件携带
+            </div>
+            <div v-else class="att-chips">
+              <el-tag
+                v-for="a in formExistingAtts"
+                :key="'e-' + a.name"
+                closable
+                :title="`点击文件名下载；点 × 移除（保存后生效）`"
+                @close="markDeleteAttachment(a)"
+              >
+                <a class="att-link" @click.stop="downloadAttFromForm(a)">{{ a.name }}（{{ fmtAttSize(a.size) }}）</a>
+              </el-tag>
+              <el-tag
+                v-for="f in formStagedFiles"
+                :key="'s-' + f.name"
+                type="success"
+                closable
+                title="待保存的新附件"
+                @close="removeStagedFile(f.name)"
+              >
+                {{ f.name }}（{{ fmtAttSize(f.size) }}）· 待保存
+              </el-tag>
+              <el-tag
+                v-for="n in formPendingDelete"
+                :key="'d-' + n"
+                type="danger"
+                title="点击恢复该附件"
+                @click="undoDeleteAttachment(n)"
+              >
+                已移除待保存：{{ n }}
+              </el-tag>
+            </div>
+            <div class="att-actions">
+              <el-button size="small" @click="pickAttFiles">上传附件</el-button>
+              <input ref="attFileInput" type="file" multiple style="display: none" @change="onAttFilesPicked" />
+              <span class="att-hint">新附件与移除在点「保存」后生效（取消弹窗不变更）；同名上传自动替换原附件。</span>
+            </div>
+          </div>
+        </el-form-item>
         <el-form-item label="会议议题">
           <div class="ag-edit-list">
             <div v-for="(ag, i) in formAgendas" :key="i" class="ag-card">
@@ -906,6 +966,8 @@
       :scene="mailType === 'notice' ? 'meeting_notice' : 'meeting_minutes'"
       :variables="mailVariables"
       :custom-send="onComposeSend"
+      :with-attachments="true"
+      :default-attachments="mailAttachments"
     />
   </div>
 </template>
@@ -921,6 +983,7 @@ import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import { ownerList, ownerText, ownerLabel } from '@/utils/owner.js'
+import { downloadWithAuth } from '@/utils/download.js'
 import { domainOptions } from '@/constants/statusConfig.js'
 
 const router = useRouter()
@@ -1692,6 +1755,8 @@ const mailSubject = ref('')
 const mailBody = ref('')
 const mailVariables = ref({})
 const sendingMail = ref(false)
+// 会议附件自动带出（MailComposeDialog 附件区初始值；用户可在弹窗里裁剪/临时新增）
+const mailAttachments = ref([])
 
 /* 与后端 _build_meeting_variables 对齐的日期格式化（preview=实发） */
 const fmtBackendDateTime = (v) => {
@@ -1847,6 +1912,12 @@ const openMailDialog = (type) => {
     return true
   })
   mailCcList.value = []
+  // 自动关联会议附件（后端 send_mail 缺省也是全带，双保险一致）
+  mailAttachments.value = (detailMeeting.value?.attachments || []).map((a) => ({
+    name: a.name,
+    size: a.size,
+    from_meeting: true,
+  }))
   applyTemplate()
   mailVisible.value = true
 }
@@ -1870,7 +1941,91 @@ const onComposeSend = async (payload) => {
     body,
     mail_type: mailType.value === 'notice' ? 'meeting_notice' : 'meeting_minutes',
     recipient_names: nameOnly.length ? nameOnly : null,
+    // 邮件弹窗附件管理结果：会议附件裁剪 + 本地临时新增（后端按 from_meeting 拆分）
+    attachments: Array.isArray(payload.attachments) ? payload.attachments : null,
   })
+}
+
+/* ── 会议附件（登记弹窗内管理；保存后落库，取消不变更）── */
+const formExistingAtts = ref([])   // 已在会议附件库的（编辑态展示）
+const formOriginalAtts = ref([])   // 打开弹窗时的附件快照（撤销删除时回滚用）
+const formStagedFiles = ref([])   // 待上传的本地文件（保存后逐个上传）
+const formPendingDelete = ref([]) // 待删除的附件名（保存后逐个删除）
+const attFileInput = ref(null)
+
+const fmtAttSize = (bytes) => {
+  const n = Number(bytes) || 0
+  if (n < 1024) return `${n}B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`
+  return `${(n / 1024 / 1024).toFixed(2)}MB`
+}
+
+const pickAttFiles = () => {
+  if (attFileInput.value) attFileInput.value.click()
+}
+
+const onAttFilesPicked = (e) => {
+  const files = Array.from(e.target.files || [])
+  if (!files.length) return
+  files.forEach((file) => {
+    // 同名替换语义：库内同名 → 标记删除旧文件；本地已暂存同名 → 覆盖
+    const idx = formStagedFiles.value.findIndex((f) => f.name === file.name)
+    if (idx >= 0) formStagedFiles.value.splice(idx, 1)
+    if (formExistingAtts.value.some((a) => a.name === file.name)) {
+      markDeleteAttachment({ name: file.name }, true)
+    }
+    formStagedFiles.value.push(file)
+  })
+  e.target.value = ''
+}
+
+const markDeleteAttachment = (a, silent = false) => {
+  if (!formPendingDelete.value.includes(a.name)) formPendingDelete.value.push(a.name)
+  formExistingAtts.value = formExistingAtts.value.filter((it) => it.name !== a.name)
+  if (!silent) ElMessage.info(`「${a.name}」将在保存后删除`)
+}
+
+const undoDeleteAttachment = (name) => {
+  formPendingDelete.value = formPendingDelete.value.filter((n) => n !== name)
+  const att = formOriginalAtts.value.find((a) => a.name === name)
+  formExistingAtts.value.push(att || { name, size: 0, uploaded_at: '' })
+}
+
+const removeStagedFile = (name) => {
+  formStagedFiles.value = formStagedFiles.value.filter((f) => f.name !== name)
+}
+
+/** 附件下载统一走 downloadWithAuth（JWT；禁裸 URL） */
+const downloadMeetingAtt = async (meetingId, a) => {
+  if (!meetingId) return
+  try {
+    await downloadWithAuth(meetingApi.attachmentDownloadUrl(meetingId, a.name), a.name)
+  } catch (e) {
+    ElMessage.error(e?.message || '附件下载失败')
+  }
+}
+const downloadAttFromDetail = (a) => downloadMeetingAtt(detailMeeting.value?.id, a)
+const downloadAttFromForm = (a) => downloadMeetingAtt(form.id, a)
+
+/** 保存成功后应用附件变更：先删后传，部分失败只提示不阻断会议保存 */
+const applyAttachmentChanges = async (meetingId) => {
+  let failed = []
+  for (const name of formPendingDelete.value) {
+    try {
+      await meetingApi.deleteAttachment(meetingId, name)
+    } catch (e) {
+      failed.push(`删除「${name}」`)
+    }
+  }
+  for (const f of formStagedFiles.value) {
+    try {
+      const res = await meetingApi.uploadAttachment(meetingId, f)
+      if (res?.replaced) ElMessage.info(`同名附件「${f.name}」已替换`)
+    } catch (e) {
+      failed.push(`上传「${f.name}」`)
+    }
+  }
+  if (failed.length) ElMessage.warning(`会议已保存，但以下附件操作失败：${failed.join('、')}`)
 }
 
 /* ── 新增 / 编辑（会议登记） ── */
@@ -1960,6 +2115,11 @@ const handleAdd = () => {
   formAgendas.value = []
   formTemplates.value = []
   tplPick.value = ''
+  // 附件区清空（新建会议无既有附件，保存后统一上传）
+  formExistingAtts.value = []
+  formOriginalAtts.value = []
+  formStagedFiles.value = []
+  formPendingDelete.value = []
   dialogVisible.value = true
   loadFormTemplates()
 }
@@ -1995,6 +2155,11 @@ const handleEdit = (row) => {
   }
   attendeeChips.value = (row.attendees || []).map((a) => a.name).filter(Boolean)
   formAgendas.value = (row.agendas || []).map((a, i) => ({ seq: i + 1, topic: a.topic || '', conclusion: a.conclusion || '', division: '', background: a.background || '' }))
+  // 附件区：带出既有附件（列表/详情均已解析为数组），快照留作撤销删除回滚
+  formOriginalAtts.value = Array.isArray(row.attachments) ? [...row.attachments] : []
+  formExistingAtts.value = [...formOriginalAtts.value]
+  formStagedFiles.value = []
+  formPendingDelete.value = []
   dialogVisible.value = true
   loadFormTemplates()
 }
@@ -2061,9 +2226,14 @@ const handleSubmit = () => {
       if (isEdit.value) {
         await meetingApi.updateMeeting(form.id, payload)
         ElMessage.success('更新成功')
+        await applyAttachmentChanges(form.id)
       } else {
-        await meetingApi.createMeeting(payload)
+        const created = await meetingApi.createMeeting(payload)
         ElMessage.success('创建成功')
+        // 新建会议：先建会再传附件（同一会议主键落盘，保证数据一致）
+        if (created?.id && (formStagedFiles.value.length || formPendingDelete.value.length)) {
+          await applyAttachmentChanges(created.id)
+        }
       }
       dialogVisible.value = false
       loadMeetings()
@@ -2093,6 +2263,47 @@ onMounted(async () => {
 .meeting-view {
   padding: 22px 28px 40px;
   max-width: 1600px;
+}
+
+/* ── 会议附件 ── */
+.att-edit {
+  width: 100%;
+}
+.att-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.att-link {
+  cursor: pointer;
+}
+.att-link:hover {
+  text-decoration: underline;
+}
+.att-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.att-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.att-view-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.att-view-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.att-meta {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .page-head {

@@ -197,6 +197,50 @@
             @input="onBodyInput"
           />
         </div>
+
+        <!-- 附件管理：会议附件自动关联（可裁剪，仅本邮件生效）+ 本地临时新增（仅随邮件发送） -->
+        <div v-if="withAttachments" class="compose-row compose-attach">
+          <span class="compose-label">附件</span>
+          <div class="attach-box">
+            <div v-if="!mailAttachments.length && !localFiles.length" class="attach-empty">
+              无附件
+            </div>
+            <div v-else class="attach-list">
+              <el-tag
+                v-for="a in mailAttachments"
+                :key="'m-' + a.name"
+                closable
+                :title="a.name"
+                @close="removeMailAttach(a)"
+              >
+                {{ a.name }}（{{ fmtSize(a.size) }}）
+              </el-tag>
+              <el-tag
+                v-for="(f, i) in localFiles"
+                :key="'l-' + f.name + '-' + i"
+                type="success"
+                closable
+                :title="f.name"
+                @close="removeLocalFile(i)"
+              >
+                {{ f.name }}（{{ fmtSize(f.size) }}）
+              </el-tag>
+            </div>
+            <div class="attach-actions">
+              <el-button size="small" :icon="Plus" @click="pickLocalFiles">添加附件</el-button>
+              <input
+                ref="fileInputRef"
+                type="file"
+                multiple
+                style="display: none"
+                @change="onFilesPicked"
+              />
+              <span class="attach-hint">
+                发送时将携带以上 {{ mailAttachments.length + localFiles.length }} 个附件；蓝/灰为会议附件（移除仅对本邮件生效，不影响会议附件库），绿色为本次新添（仅随本邮件发送，不回存会议附件库）。
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 右：预览区（iframe 隔离，避免页面 CSS 污染邮件样式） -->
@@ -359,9 +403,13 @@ const props = defineProps({
   extraMsgLabel: { type: String, default: '' },
   // 自定义预览函数：async (payload) => ({ html, subject })。督办等需走自有预览接口的场景使用
   customPreview: { type: Function, default: null },
-  // 关联业务对象（用于邮件督办记录统一归并到具体工单/行动项/需求等）
+  // 关联业务对象（用于邮件督办记录统一归并到具体工单/会议/需求等）
   refType: { type: String, default: '' },
   refId: { type: String, default: '' },
+  // 是否启用附件管理区（会议等模块自动关联附件时开启）
+  withAttachments: { type: Boolean, default: false },
+  // 初始关联附件（会议附件库自动带出）：[{name, size, from_meeting:true}]
+  defaultAttachments: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['update:modelValue', 'send', 'success', 'error'])
@@ -378,6 +426,73 @@ const previewSubject = ref('')
 // 结构化字段（场景 schema 驱动）+ 补充说明
 const fieldVals = ref({})
 const extraMsg = ref('')
+
+// 附件管理（withAttachments 开启时）：会议附件可裁剪（仅本邮件生效）+ 本地临时新增（仅随邮件发送）
+const mailAttachments = ref([])
+const localFiles = ref([])
+const fileInputRef = ref(null)
+
+function fmtSize(bytes) {
+  const n = Number(bytes) || 0
+  if (n < 1024) return `${n}B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`
+  return `${(n / 1024 / 1024).toFixed(2)}MB`
+}
+
+function removeMailAttach(a) {
+  mailAttachments.value = mailAttachments.value.filter((it) => it.name !== a.name)
+}
+
+function pickLocalFiles() {
+  if (fileInputRef.value) fileInputRef.value.click()
+}
+
+function removeLocalFile(i) {
+  localFiles.value.splice(i, 1)
+}
+
+function onFilesPicked(e) {
+  const files = Array.from(e.target.files || [])
+  if (!files.length) return
+  const existing = new Set(localFiles.value.map((f) => f.name))
+  files.forEach((file) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result || '')
+      const b64 = result.includes(',') ? result.slice(result.indexOf(',') + 1) : result
+      if (existing.has(file.name)) {
+        // 同名替换：覆盖已添加的本地附件
+        const idx = localFiles.value.findIndex((f) => f.name === file.name)
+        if (idx >= 0) localFiles.value.splice(idx, 1)
+      }
+      localFiles.value.push({
+        name: file.name,
+        size: file.size,
+        filename: file.name,
+        contentBase64: b64,
+        mimeType: file.type || '',
+      })
+    }
+    reader.readAsDataURL(file)
+  })
+  // 允许重复选择同一文件
+  e.target.value = ''
+}
+
+/** 发信附件载荷：会议附件裁剪名单 + 本地临时新增（后端按 from_meeting 拆分处理） */
+function buildAttachmentPayload() {
+  if (!props.withAttachments) return undefined
+  return [
+    ...mailAttachments.value.map((a) => ({ name: a.name, size: a.size, from_meeting: true })),
+    ...localFiles.value.map((f) => ({
+      name: f.name,
+      size: f.size,
+      filename: f.filename,
+      contentBase64: f.contentBase64,
+      mimeType: f.mimeType,
+    })),
+  ]
+}
 
 // 场景 schema 缓存：{ [sceneKey]: { title, brandColor, fields: [...] } }
 let scenesCache = null
@@ -492,6 +607,9 @@ watch(
       // （工单编号/处理人/计划完成时间一律空），表现为「没取到对应工单信息」。
       fieldVals.value = { ...(props.fieldValues || props.variables || {}) }
       extraMsg.value = ''
+      // 附件区重置：会议附件按 defaultAttachments 重新带出，本地新添清空
+      mailAttachments.value = props.withAttachments ? [...(props.defaultAttachments || [])] : []
+      localFiles.value = []
       // 重置模板编辑状态，防止残留弹窗被异常打开
       showEditTemplateDialog.value = false
       showEditStaffSelectDialog.value = false
@@ -673,6 +791,8 @@ function buildSendPayload() {
     payload.fields = { ...fieldVals.value }
     payload.body_md = body.value
   }
+  const atts = buildAttachmentPayload()
+  if (atts !== undefined) payload.attachments = atts
   return payload
 }
 
@@ -926,6 +1046,33 @@ defineExpose({ sending, refreshPreview })
   display: flex;
   gap: 8px;
   align-items: flex-start;
+}
+.compose-attach .attach-box {
+  flex: 1;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fcfcfd;
+}
+.attach-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.attach-empty {
+  font-size: 12px;
+  color: #909399;
+}
+.attach-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.attach-hint {
+  font-size: 11px;
+  color: #909399;
+  line-height: 1.5;
 }
 .template-btn {
   flex-shrink: 0;

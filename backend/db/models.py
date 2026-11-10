@@ -713,6 +713,9 @@ class PmwbMeeting(Base):
     # 见 status_registry: meeting（String(32)，新增状态零迁移）
     status = Column(String(32), default="planned", comment="状态（见 status_registry: meeting）")
     minutes_required = Column(Boolean, default=True, comment="是否需要纪要（开完会无需记录纪要时置为 False，从待归档列表移除）")
+    # 会议附件元信息（JSON 数组 [{name, size, uploaded_at}]）；文件实体落
+    # settings.MEETING_ATTACHMENT_DIR/{id}/，唯一实现 services/meeting_attachment.py
+    attachments = Column(Text, comment="附件元信息(JSON 数组)")
     created_at = Column(DateTime, default=now_cn, comment="创建时间")
     updated_at = Column(
         DateTime,
