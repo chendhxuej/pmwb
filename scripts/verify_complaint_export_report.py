@@ -70,6 +70,13 @@ def build_client():
             with urllib.request.urlopen(rq, timeout=120) as resp:
                 return resp.status, dict(resp.headers), resp.read()
 
+        def post(self, path, payload=None):
+            rq = urllib.request.Request(
+                base + path, data=json.dumps(payload or {}).encode(),
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+            with urllib.request.urlopen(rq, timeout=180) as resp:
+                return resp.status, dict(resp.headers), resp.read()
+
     return Http(), {"token": token}
 
 
@@ -87,6 +94,12 @@ def main() -> int:
         st, hd, body = get(path, params)
         import json as _json
         return st, hd, _json.loads(body)
+
+    def post(path, payload=None):
+        if tc:
+            r = client.post(path, json=payload)
+            return r.status_code, dict(r.headers), r.content
+        return client.post(path, payload)
 
     print("═" * 62)
     print("客诉周报新鲜度 + 工单明细导出 回归")
@@ -130,8 +143,15 @@ def main() -> int:
     ok("全量导出 = 1582 单", hd2.get("X-Export-Rows", hd2.get("x-export-rows")) == "1582",
        str(hd2.get("x-export-rows")))
 
-    # ── 3. 报告状态（模板版本 / 数据截止 / PDF 陈旧） ──
+    # ── 3. 报告状态（模板版本 / 全貌口径 / PDF 陈旧） ──
     print("\n▶ 周报新鲜度")
+    # 报告是静态快照：模板版本升级后旧文件不会自己变，
+    # 先确保下载到的是当前模板产物（只在文件缺全貌章时才重生成，避免无谓写库）。
+    for _w in ("2026-W45", "2026-W46"):
+        _st, _, _b = get(f"/api/v1/complaint/reports/{_w}/download?ext=html")
+        if _st != 200 or "全周期投诉全貌" not in _b.decode("utf-8", "replace"):
+            _sp, _, _ = post("/api/v1/complaint/reports", {"week": _w, "with_pdf": False})
+            ok(f"{_w} 按当前模板重生成", _sp == 200, f"status={_sp}")
     st, _, d = js("/api/v1/complaint/reports/2026-W45/status")
     s = d.get("data") or {}
     ok("status 200", st == 200)
@@ -140,6 +160,12 @@ def main() -> int:
     ok("文件内总量与库一致 128", s.get("file_total") == 128, str(s.get("file_total")))
     ok("新版模板判为 fresh", s.get("stale") is False, str(s.get("stale")))
     ok("旧 PDF 被标 pdf_stale", s.get("pdf_stale") is True, str(s.get("pdf_stale")))
+    ok("status 返回全表总量 1582", s.get("overall_total") == 1582, str(s.get("overall_total")))
+    ok("报告内全貌总量与库一致", s.get("file_overall_total") == s.get("overall_total"),
+       f"{s.get('file_overall_total')} vs {s.get('overall_total')}")
+    ok("报告内全貌数据截至与库一致",
+       bool(s.get("overall_until")) and s.get("file_overall_until") == s.get("overall_until"),
+       f"{s.get('file_overall_until')} vs {s.get('overall_until')}")
     _, _, d46 = js("/api/v1/complaint/reports/2026-W46/status")
     ok("W46 报告存在且 28 单", (d46.get("data") or {}).get("week_total") == 28)
 
@@ -155,6 +181,45 @@ def main() -> int:
     txt2 = body2.decode("utf-8", errors="replace")
     ok("W46 报告含「本周进行中」", "本周进行中" in txt2)
     ok("W46 未到日期不画 0 柱（null 断柱）", "null" in txt2)
+
+    # ── 4b. 周报：全周期投诉全貌章节（2026-11-11 新增） ──
+    print("\n▶ 周报：全周期投诉全貌章节")
+    for token in ["全周期投诉全貌", "16 周投诉量趋势", "异常波动周",
+                  "问题分类占比与近 4 个完整周结构漂移", "高频问题（L2 闭集缺陷类",
+                  "处理状态与闭环", "全貌关键结论", "已回复 ≠ 结单"]:
+        ok(f"报告含「{token}」", token in txt)
+    ok("报告模板版本 = 3", '<meta name="pmwb-report-version" content="3">' in txt)
+    ok("全貌章在周维度六章之前",
+       txt.find("全周期投诉全貌") < txt.find("一、本周概览与波动"))
+    ok("全貌章标注两种口径不可加总", "不可互相加总或核对" in txt)
+    ok("16 周趋势图容器与初始化都在",
+       'id="ovTrend"' in txt and "getElementById('ovTrend')" in txt)
+    ok("W46 报告同样含全貌章（全表口径与周次无关）", "全周期投诉全貌" in txt2)
+    _, _, ov = js("/api/v1/complaint/overall")
+    o = ov.get("data") or {}
+    ok("全貌总量 meta 与 /overall 一致",
+       f'<meta name="pmwb-report-overall-total" content="{(o.get("scope") or {}).get("total")}">' in txt)
+    ok("全貌 KPI 总量与 /overall 一致",
+       f'<div class="num">{(o.get("scope") or {}).get("total")}</div>' in txt)
+    ok("全貌 KPI 闭环率与 /overall 一致",
+       f'{(o.get("closure") or {}).get("closed_pct")}%' in txt)
+    ano_cnt = (o.get("trend_summary") or {}).get("anomaly_cnt", 0)
+    ok("异常周条目数 = /overall anomaly_cnt",
+       txt.count('>突增</span>') + txt.count('>骤降</span>') == ano_cnt, str(ano_cnt))
+    ok("高频问题条目数 = /overall top_problems",
+       txt.count('>仍活跃</span>') + txt.count('>已静止</span>') == len(o.get("top_problems") or []),
+       str(len(o.get("top_problems") or [])))
+    ok("处理状态条目数 = /overall status_breakdown",
+       txt.count('>完结</span>') + txt.count('>未完结</span>')
+       == len((o.get("closure") or {}).get("status_breakdown") or []),
+       str(len((o.get("closure") or {}).get("status_breakdown") or [])))
+    ok("全貌结论条数 = /overall conclusions",
+       txt.count('<li><span class="tag ') >= len(o.get("conclusions") or []),
+       str(len(o.get("conclusions") or [])))
+    for h in ["一、本周概览与波动", "二、已知 vs 新增", "三、问题族分析",
+              "四、工单压降分析指引", "五、措施跟踪与自动验证",
+              "六、趋势（近 8 周）", "附：结论与建议动作"]:
+        ok(f"周维度「{h}」未被破坏", h in txt)
 
     # ── 5. 进行中周口径（日均按已过天数 / 环比不可比） ──
     print("\n▶ 进行中周口径")

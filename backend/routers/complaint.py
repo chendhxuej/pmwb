@@ -890,6 +890,9 @@ def report_status(week: str, db: Session = Depends(get_db)):
          不再依赖 week 字段（week 打标缺失/错位会让新鲜度误判为 fresh）；
       ② 同时比对「数据行数」与「数据截止时间」，文件行数对不上也算过期；
       ③ PDF 单独给出 pdf_stale —— HTML 重建时 with_pdf=false 会让 PDF 永远停在旧版。
+    三次加固（11-11 周报新增「全周期投诉全貌」章）：
+      ④ 报告写入「全表总量 / 全表数据截至」两个 meta，与库内全表 COUNT、MAX(created_time)
+         比对。补导历史工单时本周口径可能没变，但全貌已变，必须判 stale 自动重生成。
     """
     from services.complaint.metrics import week_bounds
     base = Path(r"D:\项目\个人工作台系统\docs\客诉周报")
@@ -905,6 +908,13 @@ def report_status(week: str, db: Session = Depends(get_db)):
     ), {"s": start, "e": end}).fetchone()
     data_updated = row[1] if row else None
     data_until = row[2] if row else None
+    # 全周期全貌口径：与 overall.collect 同源（全表 created_time 最大值，精确到分钟）
+    all_row = db.execute(text(
+        "SELECT COUNT(*), MAX(created_time) FROM pmwb_complaint_ticket"
+    )).fetchone()
+    db_ov_total = int(all_row[0] or 0) if all_row else 0
+    db_ov_until = (all_row[1].strftime("%Y-%m-%d %H:%M")
+                   if all_row and all_row[1] else "")
     out = {
         "week": week,
         "exists": html.exists(),
@@ -917,6 +927,10 @@ def report_status(week: str, db: Session = Depends(get_db)):
         "stale": True,
         "pdf_stale": False,
         "file_total": None,
+        "overall_total": db_ov_total,
+        "overall_until": db_ov_until,
+        "file_overall_total": None,
+        "file_overall_until": "",
     }
     if html.exists():
         mt = datetime.fromtimestamp(html.stat().st_mtime)
@@ -935,6 +949,20 @@ def report_status(week: str, db: Session = Depends(get_db)):
             if mm:
                 out["file_total"] = int(mm.group(1))
                 if out["file_total"] != out["week_total"]:
+                    out["stale"] = True
+            # 全貌快照：补导历史工单后全表总量/截止时间变化，必须重生成
+            # （缺 meta 或 0 表示本次生成未取到全貌，不额外判 stale，避免反复重生成死循环；
+            #  模板版本兜底已在上面处理过一次）
+            mo = re.search(r'<meta name="pmwb-report-overall-total" content="(\d+)"', txt)
+            if mo:
+                out["file_overall_total"] = int(mo.group(1))
+                if out["file_overall_total"] and out["file_overall_total"] != db_ov_total:
+                    out["stale"] = True
+            mu = re.search(r'<meta name="pmwb-report-overall-until" content="([^"]*)"', txt)
+            if mu:
+                out["file_overall_until"] = mu.group(1)
+                if (out["file_overall_until"] and db_ov_until
+                        and out["file_overall_until"] != db_ov_until):
                     out["stale"] = True
         except (OSError, ValueError):
             pass

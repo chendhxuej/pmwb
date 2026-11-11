@@ -11,8 +11,9 @@ from __future__ import annotations
 import json
 import shutil
 from datetime import date, datetime
+from html import escape
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from services.complaint import config as C
 
@@ -20,7 +21,8 @@ ECHARTS_SRC = Path(r"D:\项目\个人工作台系统\frontend\node_modules\echar
 
 # 模板版本：改了展示逻辑就 +1，report_status 据此把旧模板生成的快照判为过期
 # （否则「文件比数据新」会让老大永远打开没有逐日明细表的旧报告）。
-REPORT_VERSION = 2
+# 3 = 2026-11-11 报告开头新增「全周期投诉全貌」章（全表跨周期口径）。
+REPORT_VERSION = 3
 
 _ECHARTS_INLINE: Dict[str, str] = {}
 
@@ -105,8 +107,175 @@ _REPORT_STYLE = """
   .sub-h{font-size:14px;font-weight:700;margin:18px 0 8px;color:#1f2d3d}
 """
 
-def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
-    """渲染周分析报告（6 章，2026-11-04 重构为「分析」而非「统计」）。
+
+def _overall_block(ov: Optional[Dict]) -> Tuple[str, str]:
+    """「全周期投诉全貌」章节（2026-11-11 老大拍板：报告开头完整一章）。
+
+    数据唯一来源 services/complaint/overall.py::collect，模板只展示、不计算、不另造口径。
+    返回 (html 片段, 追加 JS)；ov 缺失时给提示块 + 空 JS——旧调用方不会白屏，
+    追加 JS 用 try/catch 包裹且放在脚本末尾，绝不连累周维度原有三张图。
+    """
+    scope = (ov or {}).get("scope") or {}
+    if not scope.get("total"):
+        return (
+            '<div class="card"><h2>全周期投诉全貌</h2>'
+            '<div class="note warn">本次生成未取到全量聚合数据，全貌章节暂缺；'
+            '请重新生成周报。下方本周分析不受影响。</div></div>', "")
+
+    ts = ov.get("trend_summary") or {}
+    cl = ov.get("closure") or {}
+    pc = ov.get("problem_coverage") or {}
+    trend = ov.get("trend") or []
+    cats = ov.get("categories") or []
+    tops = ov.get("top_problems") or []
+    concl = ov.get("conclusions") or []
+    total = int(scope.get("total") or 0)
+
+    kpis = (
+        (str(total), "累计工单（单）"),
+        (str(scope.get("weeks", 0)), "覆盖自然周"),
+        (str(ts.get("avg_week", 0)), "完整周周均（%s 周）" % scope.get("complete_weeks", 0)),
+        (str(cl.get("closed_pct", 0)) + "%", "闭环率"),
+        (str(cl.get("open", 0)), "未闭环存量（单）"),
+        (str(pc.get("defect_classes", 0)), "L2 缺陷类问题"),
+    )
+    kpi_html = "".join(
+        '<div class="item"><div class="num">%s</div><div class="lbl">%s</div></div>' % (n, l)
+        for n, l in kpis)
+
+    anomaly_rows = []
+    for a in (ts.get("anomaly_weeks") or []):
+        tag = ('<span class="tag t-red">突增</span>' if a.get("type") == "spike"
+               else '<span class="tag t-green">骤降</span>')
+        dev = a.get("vs_avg_pct")
+        anomaly_rows.append(
+            "<tr><td><b>%s</b></td><td>%s</td><td><b>%s</b> 单</td><td>%s%%</td></tr>"
+            % (a.get("week"), tag, a.get("total"), dev if dev is not None else "—"))
+    anomaly_html = "".join(anomaly_rows) or (
+        '<tr><td colspan="4" style="text-align:center;color:#98a6ba">完整周未见显著异常波动</td></tr>')
+
+    cat_rows = []
+    for c in cats:
+        d = c.get("drift_pp") or 0
+        color = "#c0392b" if d > 0 else ("#1e9e5a" if d < 0 else "#5a6b85")
+        cat_rows.append(
+            "<tr><td><b>%s</b></td><td>%s</td><td>%s%%</td><td>%s%%</td>"
+            "<td><b style=\"color:%s\">%+g pp</b></td></tr>"
+            % (escape(str(c.get("name"))), c.get("cnt"), c.get("pct"),
+               c.get("recent_pct"), color, d))
+    cat_html = "".join(cat_rows) or (
+        '<tr><td colspan="5" style="text-align:center;color:#98a6ba">暂无数据</td></tr>')
+
+    top_rows = []
+    for t in tops:
+        active = ('<span class="tag t-orange">仍活跃</span>' if t.get("still_active")
+                  else '<span class="tag t-gray">已静止</span>')
+        top_rows.append(
+            "<tr><td><b>%s</b></td><td><b>%s</b> 单</td><td>%s%%</td><td>%s</td>"
+            "<td>%s 周</td><td>%s</td><td>%s</td></tr>"
+            % (escape(str(t.get("name"))), t.get("cnt"), t.get("pct"),
+               t.get("first_week") or "—", t.get("active_weeks") or 0,
+               t.get("recent4_cnt") or 0, active))
+    top_html = "".join(top_rows) or (
+        '<tr><td colspan="7" style="text-align:center;color:#98a6ba">暂无高频问题数据</td></tr>')
+
+    st_rows = []
+    for s in (cl.get("status_breakdown") or []):
+        flag = ('<span class="tag t-green">完结</span>' if s.get("closed")
+                else '<span class="tag t-blue">未完结</span>')
+        st_rows.append("<tr><td><b>%s</b></td><td>%s</td><td>%s%%</td><td>%s</td></tr>"
+                       % (escape(str(s.get("name"))), s.get("cnt"), s.get("pct"), flag))
+    st_html = "".join(st_rows) or (
+        '<tr><td colspan="4" style="text-align:center;color:#98a6ba">暂无状态数据</td></tr>')
+
+    level_map = {"danger": ("t-red", "重点关注"), "warn": ("t-orange", "提示"),
+                 "info": ("t-blue", "说明"), "success": ("t-green", "正常")}
+    concl_rows = []
+    for c in concl:
+        cls, label = level_map.get(c.get("level"), ("t-gray", "—"))
+        note = ('<span style="color:#98a6ba;font-size:11.5px">（%s）</span>'
+                % escape(str(c["note"]))) if c.get("note") else ""
+        concl_rows.append('<li><span class="tag %s">%s</span> %s %s</li>'
+                          % (cls, label, escape(str(c.get("text") or "")), note))
+    concl_html = "".join(concl_rows) or "<li>暂无结论。</li>"
+
+    incomplete = scope.get("incomplete_weeks") or []
+    incomplete_note = (
+        "不完整周 %d 个（%s）：有效天数 &lt; %s，仅计入总量，不参与周均与异常判定。"
+        % (len(incomplete), "、".join(incomplete), scope.get("min_effective_days", 5))
+        if incomplete else "全部自然周均为完整周。")
+    scope_note = ("范围 %s ~ %s｜%s 个自然周｜数据截至 %s｜%s 个完整周参与周均与异常判定"
+                  % (scope.get("first_date", "—"), scope.get("last_date", "—"),
+                     scope.get("weeks", 0), scope.get("data_until", "—"),
+                     scope.get("complete_weeks", 0)))
+    closure_note = (
+        "未闭环 <b>%s</b> 单，其中「已回复」<b>%s</b> 单（<b>已回复 ≠ 结单</b>）；"
+        "超 %s 天滞留 <b>%s</b> 单，批量投诉 <b>%s</b> 单；"
+        "L2 闭集已归集 %s/%s 单，%s 单未归类（待自动补跑，不转人工）。"
+        % (cl.get("open", 0), cl.get("replied_not_closed", 0),
+           cl.get("retention_days", "—"), cl.get("retention", 0), cl.get("batch", 0),
+           pc.get("classified", 0), total, pc.get("unclassified", 0)))
+
+    # 图表 JS：普通字符串拼接（避开大模板 f-string 的花括号转义），
+    # 且放在脚本最后 + try/catch，失败不影响周维度 pie/daily/trend 三张图。
+    weeks_short = [t["week"].split("-", 1)[1] if "-" in t["week"] else t["week"] for t in trend]
+    vals = [t.get("total") for t in trend]
+    avg = ts.get("avg_week") or 0
+    avg_line = [avg] * len(trend)
+    chart_js = (
+        "try{echarts.init(document.getElementById('ovTrend')).setOption({"
+        "tooltip:{trigger:'axis'},"
+        "legend:{data:['周单量','完整周周均'],top:0,right:10,textStyle:{fontSize:12}},"
+        "grid:{top:44,bottom:34,left:48,right:24},"
+        "xAxis:{type:'category',data:" + json.dumps(weeks_short, ensure_ascii=False) +
+        ",axisLabel:{fontSize:10}},"
+        "yAxis:{type:'value',name:'单'},"
+        "series:["
+        "{name:'周单量',type:'line',smooth:true,symbolSize:6,data:" + json.dumps(vals) +
+        ",itemStyle:{color:'#2f6fed'},lineStyle:{width:2.5}},"
+        "{name:'完整周周均',type:'line',data:" + json.dumps(avg_line) +
+        ",symbol:'none',lineStyle:{type:'dashed',width:1.5,color:'#98a6ba'}}"
+        "]});}catch(e){}")
+
+    sigma_th = ts.get("sigma_threshold", 1.5)
+    wow_th = ts.get("wow_threshold", 50)
+    parts = [
+        '<div class="card">',
+        '  <h2>全周期投诉全貌（全表跨周期口径）</h2>',
+        '  <div class="note warn">本章为<b>库中全部工单</b>的全周期视角，与下方六章的'
+        '<b>本周单周口径</b>不同源，<b>不可互相加总或核对</b>；'
+        '全貌数字与看板「整体投诉全貌」、/overall 接口同源。</div>',
+        f'  <div class="note">{scope_note}</div>',
+        f'  <div class="kpi">{kpi_html}</div>',
+        f'  <div class="sub-h">16 周投诉量趋势（虚线 = 完整周周均 {avg} 单）</div>',
+        '  <div id="ovTrend" class="chart" style="height:280px"></div>',
+        '  <div class="sub-h">异常波动周（仅完整周参与判定）</div>',
+        '  <table><thead><tr><th>周次</th><th>类型</th><th>单量</th><th>偏离周均</th></tr></thead>'
+        f'<tbody>{anomaly_html}</tbody></table>',
+        f'  <div class="note">{incomplete_note} 异常判据：偏离周均 ≥{sigma_th}σ '
+        f'或相邻完整周环比 ≥{wow_th}%；低基数周「回到常态」不算暴涨。</div>',
+        '  <div class="sub-h">问题分类占比与近 4 个完整周结构漂移</div>',
+        '  <table><thead><tr><th>一级性质</th><th>累计单量</th><th>全周期占比</th>'
+        '<th>近 4 完整周占比</th><th>漂移</th></tr></thead>'
+        f'<tbody>{cat_html}</tbody></table>',
+        '  <div class="sub-h">高频问题（L2 闭集缺陷类 · 全周期累计，非本周单量）</div>',
+        '  <table><thead><tr><th>功能模块问题</th><th>累计单量</th><th>占比</th><th>首现周</th>'
+        '<th>持续周数</th><th>近 4 周</th><th>是否仍活跃</th></tr></thead>'
+        f'<tbody>{top_html}</tbody></table>',
+        '  <div class="sub-h">处理状态与闭环（已回复 ≠ 结单）</div>',
+        '  <table><thead><tr><th>处理状态</th><th>单量</th><th>占比</th><th>是否终态</th></tr></thead>'
+        f'<tbody>{st_html}</tbody></table>',
+        f'  <div class="note">{closure_note}</div>',
+        '  <div class="sub-h">全貌关键结论（规则生成，无需人工判定）</div>',
+        f'  <ul>{concl_html}</ul>',
+        '</div>',
+    ]
+    return "\n".join(parts), chart_js
+
+
+def render_html(m: Dict, problems: Optional[List[Dict]] = None,
+                overall: Optional[Dict] = None) -> str:
+    """渲染周分析报告（全周期全貌 1 章 + 本周分析 6 章）。
 
     叙事主线（老大定的核心诉求）：
       本周多少单 → 是不是已知问题 → 是什么问题（五类+簇）→ 能压多少 → 治了没有。
@@ -132,6 +301,12 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     rc = m.get("rootcause") or {}
     e = m["efficiency"]
     echarts_tag = _echarts_tag()
+    # 全周期全貌：只展示 overall.collect 的结果，模板不重算任何口径；
+    # meta 供 report_status 做「全表数据变化 → 快照过期」校验。
+    overall_block, overall_chart_js = _overall_block(overall)
+    ov_scope = (overall or {}).get("scope") or {}
+    ov_total = int(ov_scope.get("total") or 0)
+    ov_until = str(ov_scope.get("data_until") or "")
 
     known_rate = float(k.get("known_rate") or 0)
     known_cnt = int(k.get("known_cnt") or 0)
@@ -339,6 +514,8 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
 <meta charset="UTF-8">
 <meta name="pmwb-report-version" content="{REPORT_VERSION}">
 <meta name="pmwb-report-week-total" content="{m['total']}">
+<meta name="pmwb-report-overall-total" content="{ov_total}">
+<meta name="pmwb-report-overall-until" content="{ov_until}">
 <meta name="pmwb-report-generated-at" content="{generated_at}">
 <title>客诉工单专题分析 {m['week']}</title>
 <style>{_REPORT_STYLE}</style>
@@ -350,6 +527,8 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
     根因与已知判定均为 AI 自动完成，人工只在问题入账时确认一次｜Vicky2号</div>
   <div class="note" style="margin-bottom:14px">{data_stamp}。
     每次打开周报都会按当前数据重新生成，本页内容对应上方生成时刻的库内快照。</div>
+
+  {overall_block}
 
   <div class="card">
     <h2>一、本周概览与波动</h2>
@@ -453,7 +632,8 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None) -> str:
       返工 <b>{e['rework']}</b> 单（{e['rework_pct']}%）、周内未结 <b>{e['unclosed']}</b> 单（{e['unclosed_pct']}%）。</div>
   </div>
 
-  <div class="foot">本报告由客诉流水线自动生成｜指标口径唯一来源 services/complaint/metrics.py｜
+  <div class="foot">本报告由客诉流水线自动生成｜本周指标口径唯一来源 services/complaint/metrics.py｜
+    全周期全貌唯一来源 services/complaint/overall.py｜
     已知判定唯一来源 services/complaint/known.py｜分类口径唯一来源 pmwb_complaint_category 字典表｜{m['week']}</div>
 </div>
 
@@ -488,13 +668,15 @@ echarts.init(document.getElementById('trend')).setOption({{
       itemStyle:{{color:'#2f6fed'}},lineStyle:{{width:2.5}}}}
   ]
 }});
+{overall_chart_js}
 </script>
 </body>
 </html>"""
 
 
 def write_report(m: Dict, out_dir: Optional[Path] = None,
-                 problems: Optional[List[Dict]] = None) -> Path:
+                 problems: Optional[List[Dict]] = None,
+                 overall: Optional[Dict] = None) -> Path:
     """写出 HTML 与图表资源，返回 HTML 路径。"""
     out_dir = Path(out_dir or C.REPORT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -505,5 +687,5 @@ def write_report(m: Dict, out_dir: Optional[Path] = None,
         shutil.copy2(ECHARTS_SRC, target_js)
 
     html_path = out_dir / f"客诉周报_{m['week']}.html"
-    html_path.write_text(render_html(m, problems), encoding="utf-8")
+    html_path.write_text(render_html(m, problems, overall), encoding="utf-8")
     return html_path

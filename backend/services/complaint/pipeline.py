@@ -87,7 +87,15 @@ def run(db: Session, file: Optional[str] = None, week: Optional[str] = None,
         problem_rows = problems.list_for_report(db, m["week"])
     except Exception:
         problem_rows = None
-    html_path = report.write_report(m, problems=problem_rows)
+    # 全周期全貌：唯一实现 overall.collect，失败不阻断周报（与根因/台账同样降级）；
+    # 拿不到时模板输出「全貌暂缺」提示块，不静默留一章空数据。
+    try:
+        from services.complaint import overall as complaint_overall
+        ov = complaint_overall.collect(db)
+    except Exception as e:
+        print(f"[WARN] 全貌聚合异常，周报将标注全貌暂缺: {e}")
+        ov = None
+    html_path = report.write_report(m, problems=problem_rows, overall=ov)
     print(f"报告已生成：{html_path}")
 
     pdf_path = html_path.with_suffix(".pdf")
