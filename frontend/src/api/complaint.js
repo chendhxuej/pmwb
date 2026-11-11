@@ -58,6 +58,11 @@ export const complaintApi = {
   },
 
   // ── 指标与周报 ──
+  // 整体投诉全貌（全量/跨周期，唯一实现 services/complaint/overall.py）；不接 week，
+  // 固定全表口径，避免与单周 /metrics 在同一屏混用。
+  getOverall() {
+    return request.get('/complaint/overall')
+  },
   getMetrics(week) {
     return request.get('/complaint/metrics', { params: week ? { week } : {} })
   },

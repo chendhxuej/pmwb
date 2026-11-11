@@ -15,6 +15,10 @@
       </template>
     </PageHeader>
 
+    <!-- 整体投诉全貌（2026-11-11）：进入页面第一屏即可判断全貌 / 重点问题 / 异常波动。
+         独立组件，下钻复用本页唯一的 TicketDrillDrawer；下方周维度区块原样不动。 -->
+    <OverallOverview :data="overall" @drill="drill" />
+
     <!-- 主要投诉点速览（新闭集 · 与「主要投诉点」页同源，定位系统改造落点） -->
     <section class="card mp-overview">
       <div class="card-header">
@@ -408,6 +412,7 @@ import ChartPie from '@/components/Charts/ChartPie.vue'
 import ChartLine from '@/components/Charts/ChartLine.vue'
 import ComplaintUploadDialog from './components/ComplaintUploadDialog.vue'
 import TicketDrillDrawer from './components/TicketDrillDrawer.vue'
+import OverallOverview from './components/OverallOverview.vue'
 import { complaintApi } from '@/api/complaint'
 import { openWithAuth } from '@/utils/download.js'
 
@@ -415,6 +420,8 @@ const router = useRouter()
 const loading = ref(false)
 const uploadVisible = ref(false)
 const metrics = ref({})
+// 整体投诉全貌（全量/跨周期），与周维度 metrics 并列，不复用同一份数据
+const overall = ref({})
 
 // 主要投诉点速览（新闭集，与「主要投诉点」页同源）
 const mpSummary = ref({})
@@ -570,7 +577,14 @@ function weekLabel(w) {
 async function loadAll() {
   loading.value = true
   try {
-    metrics.value = await complaintApi.getMetrics(selectedWeek.value || undefined)
+    // 整体全貌与单周指标并行取，各自 catch：后端尚未加载 /overall 时，
+    // 周维度 6 个区块仍照常可用（整体区 v-if 自动不渲染），不会整页空白。
+    const [m, ov] = await Promise.all([
+      complaintApi.getMetrics(selectedWeek.value || undefined).catch(() => ({})),
+      complaintApi.getOverall().catch(() => ({})),
+    ])
+    overall.value = ov || {}
+    metrics.value = m || {}
     if (metrics.value.week) {
       if (!selectedWeek.value) selectedWeek.value = metrics.value.week
       if (!weekOptions.value.includes(metrics.value.week)) {

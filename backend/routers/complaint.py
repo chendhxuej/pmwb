@@ -54,6 +54,7 @@ from services.complaint import (
     actions as complaint_actions,
     classify as complaint_classify,
     metrics as complaint_metrics,
+    overall as complaint_overall,
     pipeline as complaint_pipeline,
     problems as complaint_problems,
 )
@@ -81,6 +82,7 @@ def _ticket_where(q: dict) -> tuple:
     unclosed, retention, city = q.get("unclosed"), q.get("retention"), q.get("city")
     rootcause_no, module_problem_id = q.get("rootcause_no"), q.get("module_problem_id")
     known_flag, rc_status, rc_max_tickets = q.get("known_flag"), q.get("rc_status"), q.get("rc_max_tickets")
+    status, unclassified = q.get("status"), q.get("unclassified")
     if week:
         where.append("week = :week")
         params["week"] = week
@@ -117,6 +119,17 @@ def _ticket_where(q: dict) -> tuple:
     if city:
         where.append("city = :city")
         params["city"] = city
+    if status:
+        # 处理状态下钻（整体视图闭环卡片）：精确到单个 status 值，
+        # 与 unclosed 的「非完结状态」是不同口径，不互相替代。
+        where.append("status = :st")
+        params["st"] = status
+    if unclassified == 1:
+        # L2 闭集未归类：ticket_module 有行但 module_problem_id 为空
+        # （整体视图结论「待自动补跑」的下钻入口，非人工队列）
+        where.append(
+            "ticket_no IN (SELECT ticket_no FROM pmwb_complaint_ticket_module "
+            "WHERE module_problem_id IS NULL OR module_problem_id = '')")
     if known_flag is not None:
         where.append("known_flag = :kf")
         params["kf"] = known_flag
@@ -197,6 +210,8 @@ def list_tickets(
     known_flag: Optional[int] = Query(None, ge=0, le=1, description="1=已知问题 0=新增问题"),
     rc_status: Optional[str] = Query(None, description="根因状态：ai/insufficient/manual，pending=待分析"),
     rc_max_tickets: Optional[int] = Query(None, ge=1, description="只看簇累计单量 ≤N 的工单（1=一次性个案）"),
+    status: Optional[str] = Query(None, description="处理状态精确下钻（整体视图闭环卡片）"),
+    unclassified: Optional[int] = Query(None, ge=0, le=1, description="1=L2 闭集未归类工单"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ):
@@ -209,6 +224,7 @@ def list_tickets(
         "retention": retention, "city": city, "rootcause_no": rootcause_no,
         "module_problem_id": module_problem_id, "known_flag": known_flag,
         "rc_status": rc_status, "rc_max_tickets": rc_max_tickets,
+        "status": status, "unclassified": unclassified,
     })
     total = db.execute(text(
         f"SELECT COUNT(*) FROM pmwb_complaint_ticket t WHERE {cond}"
@@ -268,8 +284,10 @@ _TICKET_FILTER_KEYS = (
     "week", "keyword", "l1", "l2", "is_batch", "classify_by", "handler", "problem_no",
     "is_recur", "unclosed", "retention", "city", "rootcause_no", "module_problem_id",
     "known_flag", "known_problem_no", "rc_status", "rc_max_tickets",
+    "status", "unclassified",
 )
-_TICKET_INT_KEYS = {"is_batch", "is_recur", "unclosed", "retention", "known_flag", "rc_max_tickets"}
+_TICKET_INT_KEYS = {"is_batch", "is_recur", "unclosed", "retention", "known_flag",
+                    "rc_max_tickets", "unclassified"}
 
 
 @router.get("/tickets/export")
@@ -824,6 +842,16 @@ def update_action(action_no: str, body: ActionUpdateIn, db: Session = Depends(ge
 
 
 # ── 指标与周报 ───────────────────────────────────────────────
+@router.get("/overall")
+def get_overall(db: Session = Depends(get_db)):
+    """整体投诉全貌（全量 / 跨周期，唯一实现 services/complaint/overall.py）。
+
+    与 /metrics 互补：/metrics 是单周（默认库内最新周）；/overall 固定全表口径，
+    **不接 week 参数**——避免同一屏出现两种汇总范围导致「数字对不上」。
+    """
+    return success(complaint_overall.collect(db))
+
+
 @router.get("/metrics")
 def get_metrics(week: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """周度指标（12 项，唯一实现 metrics.collect）。"""

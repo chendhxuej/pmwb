@@ -269,7 +269,7 @@ const route = useRoute()
 const loading = ref(false)
 const rows = ref([])
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
-const filters = reactive({ week: '', l1: '', l2: '', classify_by: '', rc_status: '', is_batch: null, keyword: '', module_problem_id: '', known_problem_no: '' })
+const filters = reactive({ week: '', l1: '', l2: '', classify_by: '', rc_status: '', is_batch: null, keyword: '', module_problem_id: '', known_problem_no: '', status: '', unclassified: '' })
 
 const metricsWeek = ref('')
 const categories = ref([])
@@ -323,6 +323,17 @@ function activeFilters() {
     keyword: filters.keyword || undefined,
     module_problem_id: filters.module_problem_id || undefined,
     known_problem_no: filters.known_problem_no || undefined,
+    // 整体视图下钻键：与后端 _ticket_where 对齐，列表 / 导出 / 「在台账中打开」共用
+    status: filters.status || undefined,
+    unclassified: filters.unclassified || undefined,
+    unclosed: filters.unclosed ?? undefined,
+    retention: filters.retention ?? undefined,
+    rootcause_no: filters.rootcause_no || undefined,
+    rc_max_tickets: filters.rc_max_tickets ?? undefined,
+    is_recur: filters.is_recur ?? undefined,
+    problem_no: filters.problem_no || undefined,
+    handler: filters.handler || undefined,
+    city: filters.city || undefined,
   }
 }
 
@@ -459,19 +470,14 @@ function openCluster(row) {
 }
 
 onMounted(async () => {
-  // 从主要投诉点下钻进入：自动按 module_problem_id 过滤
-  if (route.query.module_problem_id) {
-    filters.module_problem_id = String(route.query.module_problem_id)
-  }
-  // 下钻抽屉「在台账中打开」会带全套筛选，逐项接住，否则跳转后条件静默丢失
-  if (route.query.known_problem_no) {
-    filters.known_problem_no = String(route.query.known_problem_no)
-  }
-  if (route.query.week) {
-    filters.week = String(route.query.week)
-  }
-  if (route.query.known_flag !== undefined && route.query.known_flag !== '') {
-    filters.known_flag = Number(route.query.known_flag)
+  // 下钻抽屉「在台账中打开」带全套筛选：白名单直接取 activeFilters() 的键集合，
+  // 与列表/导出同源，避免逐项手写 if 漏接导致「下钻 N 单、台账 M 单」。
+  const intKeys = ['is_batch', 'known_flag', 'unclosed', 'retention', 'unclassified',
+                   'rc_max_tickets', 'is_recur']
+  for (const k of Object.keys(activeFilters())) {
+    const v = route.query[k]
+    if (v === undefined || v === null || v === '') continue
+    filters[k] = intKeys.includes(k) ? Number(v) : String(v)
   }
   await loadMeta()
   load()

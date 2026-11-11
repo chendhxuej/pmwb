@@ -161,8 +161,13 @@ def main() -> int:
     _, _, m46 = js("/api/v1/complaint/metrics", {"week": "2026-W46"})
     m = m46.get("data") or {}
     ok("W46 in_progress=True", m.get("in_progress") is True)
-    ok("W46 elapsed_days=2", m.get("elapsed_days") == 2, str(m.get("elapsed_days")))
-    ok("W46 日均 14.0（不再 4.0）", m.get("daily_avg") == 14.0, str(m.get("daily_avg")))
+    # 进行中周的已过天数随自然日推进（11-10 是 2 天、11-11 是 3 天…），
+    # 断言必须按口径等式动态判定，不能写死 2 / 14.0，否则隔天必然假红。
+    elapsed = m.get("elapsed_days") or 0
+    ok("W46 elapsed_days 在 1..7 且未满整周", 1 <= elapsed < 7, str(elapsed))
+    ok("W46 日均 = 总量 / elapsed_days（不按 7 天摊薄）",
+       elapsed > 0 and m.get("daily_avg") == round((m.get("total") or 0) / elapsed, 1),
+       f"total={m.get('total')} elapsed={elapsed} avg={m.get('daily_avg')}")
     ok("W46 环比不可比（不再 -78.1%）", m.get("wow_pct") is None, str(m.get("wow_pct")))
     _, _, m45 = js("/api/v1/complaint/metrics", {"week": "2026-W45"})
     ok("W45 完整周日均 18.3 不受影响", (m45.get("data") or {}).get("daily_avg") == 18.3)

@@ -157,6 +157,7 @@ const filterLabels = {
   unclosed: '未结单', retention: '超期', problem_no: '问题', handler: '处理人',
   city: '地市', classify_by: '归类来源', module_problem_id: '模块问题',
   known_problem_no: '已知问题', known_flag: '已知/新增', rootcause_no: '根因簇',
+  status: '处理状态', unclassified: '未归类',
 }
 
 const activeFilters = computed(() => {
@@ -232,7 +233,8 @@ function exportOne(row) {
 
 function openLedger() {
   emit('update:modelValue', false)
-  router.push({ path: '/operation/complaint-center/tickets', query: { ...activeFilters.value } })
+  // 直接落新路由：旧深链 /operation/complaint-center/** 经 redirect 中转可能丢 query
+  router.push({ path: '/complaint-center/tickets', query: { ...activeFilters.value } })
 }
 
 function fmtTime(v) {
