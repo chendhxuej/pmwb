@@ -50,6 +50,10 @@
       <el-button v-if="result && result.report && result.report.week" type="primary" @click="openReport">
         打开周报
       </el-button>
+      <el-button v-if="result && result.report && result.report.week"
+                 class="report-html-download" @click="downloadReport">
+        下载 HTML
+      </el-button>
       <el-button @click="$emit('update:modelValue', false)">关闭</el-button>
       <el-button type="primary" :loading="uploading" :disabled="!file" @click="doImport">
         开始导入
@@ -63,7 +67,7 @@ import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { complaintApi } from '@/api/complaint'
-import { openWithAuth } from '@/utils/download.js'
+import { downloadWithAuth, openWithAuth } from '@/utils/download.js'
 
 defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue', 'imported'])
@@ -105,6 +109,18 @@ async function openReport() {
     await openWithAuth(complaintApi.reportDownloadUrl(w, 'html'))
   } catch (e) {
     ElMessage.error('周报打开失败：' + (e?.message || e))
+  }
+}
+
+// 导入生成的周报同样支持保存 HTML 文件（与看板页共用 downloadWithAuth + 同一个下载端点）
+async function downloadReport() {
+  const w = result.value?.report?.week
+  if (!w) return
+  try {
+    const name = await downloadWithAuth(complaintApi.reportDownloadUrl(w, 'html'))
+    ElMessage.success(`已下载 ${name}`)
+  } catch (e) {
+    ElMessage.error('周报下载失败：' + (e?.message || e))
   }
 }
 </script>

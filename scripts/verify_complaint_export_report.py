@@ -175,6 +175,29 @@ def main() -> int:
     ok("download html 200", st == 200)
     ok("download 禁缓存", "no-store" in (hd.get("Cache-Control", hd.get("cache-control", "")) or ""))
     txt = body.decode("utf-8", errors="replace")
+
+    # ── 4a. HTML 文件下载契约（2026-11-11 前端新增「下载 HTML」按钮） ──
+    # 后端 FileResponse 必须给出 attachment + 中文文件名，前端 downloadWithAuth
+    # 才能从 Content-Disposition 解析出正确名字并触发浏览器保存（而非内联预览）。
+    print("\n▶ 周报 HTML 文件下载契约")
+    import re as _re
+    from urllib.parse import unquote as _unquote
+    disp = hd.get("Content-Disposition", hd.get("content-disposition", "")) or ""
+    ok("download 为 attachment（保存文件而非内联预览）", "attachment" in disp)
+    _m = _re.search(r"filename\*=(?:UTF-8|utf-8)''([^;]+)", disp, _re.I)
+    fname = _unquote(_m.group(1).strip('"')) if _m else ""
+    ok("下载文件名 = 客诉周报_2026-W45.html", fname == "客诉周报_2026-W45.html", fname)
+    ok("download Content-Type = text/html",
+       "text/html" in (hd.get("Content-Type", hd.get("content-type", "")) or ""))
+    ok("HTML 自包含：ECharts 已内联（离线双击可打开）",
+       len(body) > 500000 and 'src="assets/echarts.min.js"' not in txt,
+       f"bytes={len(body)}")
+    ok("HTML 无外链脚本/样式（离线不缺资源）",
+       not _re.search(r'<script[^>]+src="https?://', txt)
+       and not _re.search(r'<link[^>]+href="https?://', txt))
+    ok("HTML 含 4 个图表容器（全貌/每日/分类/近8周）",
+       all(f'id="{x}"' in txt for x in ("ovTrend", "daily", "pie", "trend")))
+
     for token in ["每日投诉量明细", "数据截至", "报告生成于", "pmwb-report-version", "上周同期"]:
         ok(f"报告含「{token}」", token in txt)
     st2, _, body2 = get("/api/v1/complaint/reports/2026-W46/download?ext=html")

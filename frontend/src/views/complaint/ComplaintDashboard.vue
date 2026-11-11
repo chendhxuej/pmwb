@@ -11,6 +11,12 @@
             周报 {{ metrics.week || '' }}<span v-if="reportStale" class="stale-dot">· 数据已更新</span>
           </el-button>
         </el-tooltip>
+        <el-tooltip content="保存 HTML 文件（含全周期投诉全貌，内联图表可离线打开）" placement="bottom">
+          <el-button class="report-html-download" :icon="Document" :disabled="!metrics.week"
+                     :loading="reportDownloading" @click="downloadReportHtml">
+            下载 HTML
+          </el-button>
+        </el-tooltip>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
       </template>
     </PageHeader>
@@ -406,7 +412,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Upload, Download, InfoFilled } from '@element-plus/icons-vue'
+import { Refresh, Upload, Download, InfoFilled, Document } from '@element-plus/icons-vue'
 import PageHeader from '@/components/Common/PageHeader.vue'
 import ChartPie from '@/components/Charts/ChartPie.vue'
 import ChartLine from '@/components/Charts/ChartLine.vue'
@@ -414,7 +420,7 @@ import ComplaintUploadDialog from './components/ComplaintUploadDialog.vue'
 import TicketDrillDrawer from './components/TicketDrillDrawer.vue'
 import OverallOverview from './components/OverallOverview.vue'
 import { complaintApi } from '@/api/complaint'
-import { openWithAuth } from '@/utils/download.js'
+import { downloadWithAuth, openWithAuth } from '@/utils/download.js'
 
 const router = useRouter()
 const loading = ref(false)
@@ -632,12 +638,13 @@ function drill(filters, title) {
   drillVisible.value = true
 }
 
-async function openReport() {
-  if (!metrics.value.week) return ElMessage.warning('暂无可导出的周报')
-  const week = metrics.value.week
-  const loadingMsg = ElMessage({ message: '正在准备周报…', duration: 0, type: 'info' })
+// 周报是静态快照：数据更新后文件不会自动失效，查看与下载前都必须先确保文件最新。
+// 抽成唯一实现，避免「预览」与「下载」两条链路的新鲜度逻辑漂移（2026-11-11）。
+async function prepareReport(week) {
+  const prepMsg = ElMessage({ message: '正在准备周报…', duration: 0, type: 'info' })
+  let prepClosed = false
+  const closePrep = () => { if (!prepClosed) { prepClosed = true; prepMsg.close() } }
   try {
-    // 周报是静态快照：数据更新后文件不会自动失效，必须先查新鲜度（2026-11-10 修）
     let st = null
     try {
       st = await complaintApi.reportStatus(week)
@@ -646,7 +653,7 @@ async function openReport() {
     }
     if (!st || !st.exists || st.stale) {
       const why = !st || !st.exists ? '首次生成' : `数据已更新（${st.data_updated_at}），重新生成`
-      loadingMsg.close()
+      closePrep()
       const msg2 = ElMessage({ message: `周报${why}中，约需 10~30 秒…`, duration: 0, type: 'info' })
       try {
         await complaintApi.genReport({ week, with_pdf: false })
@@ -655,13 +662,40 @@ async function openReport() {
         msg2.close()
       }
     }
-    // 裸 window.open 不带 JWT，开启了鉴权会被 401 拦下
+  } finally {
+    closePrep()
+  }
+}
+
+async function openReport() {
+  if (!metrics.value.week) return ElMessage.warning('暂无可导出的周报')
+  const week = metrics.value.week
+  try {
+    await prepareReport(week)
+    // 裸 window.open 不带 JWT，开启了鉴权会被 401 拦下；此处仍为「新标签页预览」
     await openWithAuth(complaintApi.reportDownloadUrl(week))
     loadReportStatus()
   } catch (e) {
     ElMessage.error('周报打开失败：' + (e?.message || e))
+  }
+}
+
+// 下载 HTML 文件（2026-11-11）。后端 FileResponse 已带 attachment + RFC5987 中文文件名，
+// downloadWithAuth 用 fetch+blob 触发浏览器保存；禁裸 URL（会被 JWT 拦成 401）。
+const reportDownloading = ref(false)
+async function downloadReportHtml() {
+  if (!metrics.value.week) return ElMessage.warning('暂无可下载的周报')
+  const week = metrics.value.week
+  reportDownloading.value = true
+  try {
+    await prepareReport(week)
+    const name = await downloadWithAuth(complaintApi.reportDownloadUrl(week, 'html'))
+    ElMessage.success(`已下载 ${name}`)
+    loadReportStatus()
+  } catch (e) {
+    ElMessage.error('周报下载失败：' + (e?.message || e))
   } finally {
-    loadingMsg.close()
+    reportDownloading.value = false
   }
 }
 
@@ -789,5 +823,15 @@ onMounted(loadAll)
 }
 @media (max-width: 960px) {
   .l1-row { grid-template-columns: 1fr; }
+}
+</style>
+
+<!-- 本页页头有 5 个操作（周选择/上传/预览/下载/刷新），共用 PageHeader 的
+     actions 是 flex-shrink:0 且不换行，实测 960px 视口横向溢出 7px。
+     用全局块 + 本页类名限定只让本页页头换行；禁 :deep()（scoped 中会被整条丢弃）。 -->
+<style>
+@media (max-width: 1100px) {
+  .complaint-dashboard .pm-page-header { flex-wrap: wrap; }
+  .complaint-dashboard .pm-page-header__actions { flex-wrap: wrap; justify-content: flex-end; }
 }
 </style>
