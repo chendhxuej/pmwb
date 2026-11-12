@@ -214,8 +214,9 @@ async function main() {
     const html = readFileSync(join(dlDir, file), 'utf-8')
     ok('下载件含「全周期投诉全貌」章', html.includes('全周期投诉全貌'))
     ok('下载件含 16 周趋势图容器', html.includes('id="ovTrend"'))
-    ok('下载件为当前模板 v3',
-      html.includes('<meta name="pmwb-report-version" content="3">'))
+    const ver = /<meta name="pmwb-report-version" content="(\d+)"/.exec(html)
+    ok('下载件模板版本 >= 3（含全周期全貌章）', !!ver && Number(ver[1]) >= 3,
+      ver ? `v${ver[1]}` : 'missing')
     ok('下载件 ECharts 内联（>500KB 自包含，离线不缺资源）', html.length > 500000,
       `${html.length} chars`)
     ok('下载件无外链脚本',

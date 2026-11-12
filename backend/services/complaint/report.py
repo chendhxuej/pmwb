@@ -22,7 +22,9 @@ ECHARTS_SRC = Path(r"D:\项目\个人工作台系统\frontend\node_modules\echar
 # 模板版本：改了展示逻辑就 +1，report_status 据此把旧模板生成的快照判为过期
 # （否则「文件比数据新」会让老大永远打开没有逐日明细表的旧报告）。
 # 3 = 2026-11-11 报告开头新增「全周期投诉全貌」章（全表跨周期口径）。
-REPORT_VERSION = 3
+# 4 = 2026-11-12 重点根因簇单量改与下钻同源（信息不足单仍不计分布分母），
+#     表头/章节文案「累计 ≥5 单」按实际本周口径改为「本周 ≥5 单」。
+REPORT_VERSION = 4
 
 _ECHARTS_INLINE: Dict[str, str] = {}
 
@@ -432,7 +434,7 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None,
     ) or '<tr><td colspan="4" style="color:#98a6ba;text-align:center">暂无数据</td></tr>'
 
     cluster_rows = _rows([x for x in (rc.get("clusters") or []) if int(x.get("cnt") or 0) >= 5][:15], [
-        ("重点根因簇（累计 ≥5 单）", lambda x: f'<b>{x["title"]}</b>'),
+        ("重点根因簇（本周 ≥5 单）", lambda x: f'<b>{x["title"]}</b>'),
         ("系统", lambda x: x.get("fault_system") or "—"),
         ("环节", lambda x: x.get("fault_stage") or "—"),
         ("缺陷性质", lambda x: x.get("fault_type") or "—"),
@@ -587,7 +589,7 @@ def render_html(m: Dict, problems: Optional[List[Dict]] = None,
     <table><thead><tr><th>一级性质</th><th>含义</th><th>单量</th><th>占比</th></tr></thead>
     <tbody>{l1_rows}</tbody></table>
     <div id="pie" class="chart" style="height:280px;margin-top:12px"></div>
-    <div class="sub-h">重点根因簇（累计 ≥5 单，可直接立项修复）</div>
+    <div class="sub-h">重点根因簇（本周 ≥5 单，可直接立项修复）</div>
     <table><thead><tr><th>根因簇</th><th>系统</th><th>环节</th><th>缺陷性质</th><th>责任归属</th><th>单量</th><th>占比</th></tr></thead>
     <tbody>{cluster_rows}</tbody></table>
   </div>

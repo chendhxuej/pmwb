@@ -447,9 +447,13 @@ def _rootcause_block(db: Session, rows, week: str, total: int) -> Dict:
                  "pct": round(v / covered * 100, 1) if covered else 0.0}
                 for k, v in items if v > 0 or ordered]
 
-    # 簇聚合（本周）
+    # 簇聚合（本周）：cnt 必须是「带该簇号的本周全部工单」，与下钻
+    # _ticket_where(week + rootcause_no) 同源。信息不足单不计入根因分布分母
+    # （见 analyzed），但仍带簇号且可下钻；若用 analyzed 计数会出现
+    # 「卡片 8 单 / 下钻 9 单」（2026-11-12 导入后 RC-1104 实测）。
+    # pct 分母仍为已分析单量 covered（分布口径不变），两者用途不同。
     ck: Dict[str, int] = {}
-    for r in analyzed:
+    for r in rows:
         no = (r.get("rootcause_no") or "").strip()
         if no:
             ck[no] = ck.get(no, 0) + 1

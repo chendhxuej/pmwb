@@ -105,16 +105,30 @@ def main() -> int:
     print("客诉周报新鲜度 + 工单明细导出 回归")
     print("═" * 62)
 
+    # 动态基线：每次导入新工单后全表/本周总量都会变，断言一律按口径等式判定，
+    # 禁写死快照值（2026-11-10 W46 日均 14.0 隔天假红、11-12 导入 57 单同理）。
+    _, _, _ov = js("/api/v1/complaint/overall")
+    ALL_TOTAL = ((_ov.get("data") or {}).get("scope") or {}).get("total")
+    _, _, _m45 = js("/api/v1/complaint/metrics", {"week": "2026-W45"})
+    _, _, _m46 = js("/api/v1/complaint/metrics", {"week": "2026-W46"})
+    W45_TOTAL = (_m45.get("data") or {}).get("total")
+    W46_TOTAL = (_m46.get("data") or {}).get("total")
+    ok("动态基线可取（全表/W45/W46）",
+       all(isinstance(x, int) and x > 0 for x in (ALL_TOTAL, W45_TOTAL, W46_TOTAL)),
+       f"all={ALL_TOTAL} W45={W45_TOTAL} W46={W46_TOTAL}")
+
     # ── 1. 列表口径（抽 _ticket_where 后无回归） ──
     print("\n▶ 工单列表口径")
     st, _, d = js("/api/v1/complaint/tickets", {"week": "2026-W45", "page_size": 5})
     ok("list_tickets 200", st == 200)
-    ok("W45 总量 128", (d.get("data") or {}).get("total") == 128,
+    ok("W45 列表总量 = /metrics W45", (d.get("data") or {}).get("total") == W45_TOTAL,
        str((d.get("data") or {}).get("total")))
     _, _, d2 = js("/api/v1/complaint/tickets",
                   {"week": "2026-W45", "module_problem_id": "MP-ORDER-CLOSE", "known_flag": 1})
-    ok("模块锚+已知双条件下钻 = 19", (d2.get("data") or {}).get("total") == 19,
-       str((d2.get("data") or {}).get("total")))
+    filter_total = (d2.get("data") or {}).get("total")
+    ok("模块锚+已知双条件下钻非空且不超本周总量",
+       isinstance(filter_total, int) and 0 < filter_total <= W45_TOTAL,
+       str(filter_total))
 
     # ── 2. 导出端点（路由顺序 / 全文 / 筛选一致 / 禁缓存） ──
     print("\n▶ 工单明细导出")
@@ -122,7 +136,8 @@ def main() -> int:
                        {"week": "2026-W45", "module_problem_id": "MP-ORDER-CLOSE", "known_flag": 1})
     ok("export 200", st == 200, f"status={st}")
     ok("export 返回 xlsx（PK 魔数）", body[:2] == b"PK")
-    ok("export 行数与页面一致 = 19", hd.get("X-Export-Rows", hd.get("x-export-rows")) == "19",
+    ok("export 行数与页面下钻一致",
+       hd.get("X-Export-Rows", hd.get("x-export-rows")) == str(filter_total),
        str(hd.get("x-export-rows")))
     ok("export 禁缓存", "no-store" in (hd.get("Cache-Control", hd.get("cache-control", "")) or ""))
     ok("export 中文文件名 RFC5987",
@@ -140,7 +155,8 @@ def main() -> int:
     except ImportError:
         print("  SKIP  openpyxl 不可用，跳过 xlsx 内容断言")
     _, hd2, _ = get("/api/v1/complaint/tickets/export")
-    ok("全量导出 = 1582 单", hd2.get("X-Export-Rows", hd2.get("x-export-rows")) == "1582",
+    ok("全量导出 = /overall 全表总量",
+       hd2.get("X-Export-Rows", hd2.get("x-export-rows")) == str(ALL_TOTAL),
        str(hd2.get("x-export-rows")))
 
     # ── 3. 报告状态（模板版本 / 全貌口径 / PDF 陈旧） ──
@@ -155,19 +171,23 @@ def main() -> int:
     st, _, d = js("/api/v1/complaint/reports/2026-W45/status")
     s = d.get("data") or {}
     ok("status 200", st == 200)
-    ok("库内周总量 128（按 created_time 区间）", s.get("week_total") == 128, str(s.get("week_total")))
+    ok("库内周总量 = /metrics W45（按 created_time 区间）",
+       s.get("week_total") == W45_TOTAL, str(s.get("week_total")))
     ok("有数据截止时间", bool(s.get("data_until")), s.get("data_until", ""))
-    ok("文件内总量与库一致 128", s.get("file_total") == 128, str(s.get("file_total")))
+    ok("文件内总量与库一致", s.get("file_total") == W45_TOTAL, str(s.get("file_total")))
     ok("新版模板判为 fresh", s.get("stale") is False, str(s.get("stale")))
     ok("旧 PDF 被标 pdf_stale", s.get("pdf_stale") is True, str(s.get("pdf_stale")))
-    ok("status 返回全表总量 1582", s.get("overall_total") == 1582, str(s.get("overall_total")))
+    ok("status 返回全表总量 = /overall", s.get("overall_total") == ALL_TOTAL,
+       str(s.get("overall_total")))
     ok("报告内全貌总量与库一致", s.get("file_overall_total") == s.get("overall_total"),
        f"{s.get('file_overall_total')} vs {s.get('overall_total')}")
     ok("报告内全貌数据截至与库一致",
        bool(s.get("overall_until")) and s.get("file_overall_until") == s.get("overall_until"),
        f"{s.get('file_overall_until')} vs {s.get('overall_until')}")
     _, _, d46 = js("/api/v1/complaint/reports/2026-W46/status")
-    ok("W46 报告存在且 28 单", (d46.get("data") or {}).get("week_total") == 28)
+    ok("W46 报告存在且周总量 = /metrics W46",
+       (d46.get("data") or {}).get("week_total") == W46_TOTAL,
+       str((d46.get("data") or {}).get("week_total")))
 
     # ── 4. 报告内容（每日投诉量明细 / 水印 / 禁缓存） ──
     print("\n▶ 周报内容展示")
@@ -211,7 +231,10 @@ def main() -> int:
                   "问题分类占比与近 4 个完整周结构漂移", "高频问题（L2 闭集缺陷类",
                   "处理状态与闭环", "全貌关键结论", "已回复 ≠ 结单"]:
         ok(f"报告含「{token}」", token in txt)
-    ok("报告模板版本 = 3", '<meta name="pmwb-report-version" content="3">' in txt)
+    # 模板版本会随展示逻辑升级 +1，断言按「不低于含全貌章的 v3」动态判定，禁写死
+    _vm = _re.search(r'<meta name="pmwb-report-version" content="(\d+)"', txt)
+    ok("报告模板版本 >= 3（含全周期全貌章）",
+       bool(_vm) and int(_vm.group(1)) >= 3, _vm.group(1) if _vm else "missing")
     ok("全貌章在周维度六章之前",
        txt.find("全周期投诉全貌") < txt.find("一、本周概览与波动"))
     ok("全貌章标注两种口径不可加总", "不可互相加总或核对" in txt)
@@ -256,7 +279,7 @@ def main() -> int:
     ok("W46 日均 = 总量 / elapsed_days（不按 7 天摊薄）",
        elapsed > 0 and m.get("daily_avg") == round((m.get("total") or 0) / elapsed, 1),
        f"total={m.get('total')} elapsed={elapsed} avg={m.get('daily_avg')}")
-    ok("W46 环比不可比（不再 -78.1%）", m.get("wow_pct") is None, str(m.get("wow_pct")))
+    ok("W46 进行中周环比不可比", m.get("wow_pct") is None, str(m.get("wow_pct")))
     _, _, m45 = js("/api/v1/complaint/metrics", {"week": "2026-W45"})
     ok("W45 完整周日均 18.3 不受影响", (m45.get("data") or {}).get("daily_avg") == 18.3)
 
