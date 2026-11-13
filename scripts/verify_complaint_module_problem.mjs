@@ -5,14 +5,14 @@
  * 主流投诉自动归集（不依赖人）；少量残留进入人工管理台（可选安全网）。
  *
  * 覆盖 /complaint-center/module-problem 页面：
- *   1. 页面挂载 + PageHeader 标题/副标题（含 vL2、跨表象汇聚）
+ *   1. 页面挂载 + PageHeader 标题/副标题（单失效点标准类 + 同周口径）
  *   2. 汇总 KPI：总工单/缺陷已归集/缺陷类数/最大单类/未归类/咨询类
  *   3. 主要投诉点表：有数据、含 BROADBAND-ACT 且工单量≈73、表象数>1（跨表象汇聚）
  *   4. 展开「跨表象」看同一问题多种不同说法
  *   5. 人工管理台 tab：低置信+未归类+已改派队列可见（系统不依赖此操作即可运行）
  *
  * 用法（项目根执行）：
- *   PMWB_BASE=http://127.0.0.1:8000 PMWB_AUTH_USER=chendh PMWB_AUTH_PW=Chenxue520 \
+ *   PMWB_BASE=http://127.0.0.1:8000 PMWB_AUTH_USER=chendh PMWB_AUTH_PW=*** \
  *     node scripts/verify_complaint_module_problem.mjs
  */
 import { existsSync } from 'node:fs'
@@ -200,9 +200,9 @@ async function main() {
       snap.title.includes('主要投诉点') && snap.title.includes('功能模块问题')
         ? ok('PageHeader 标题正确', snap.title)
         : bad('PageHeader 标题不对', snap.title)
-      snap.sub.includes('跨表象汇聚') || snap.sub.includes('vL2')
-        ? ok('副标题体现 vL2 闭集 + 跨表象汇聚', snap.sub.slice(0, 40))
-        : bad('副标题未体现口径', snap.sub.slice(0, 60))
+      snap.sub.includes('单失效点标准类') && snap.sub.includes('同周口径')
+        ? ok('副标题体现标准类 + 同周口径', snap.sub.slice(0, 50))
+        : bad('副标题未体现标准类口径', snap.sub.slice(0, 60))
 
       // 汇总 KPI
       const labels = snap.kpis.map(k => k.label)
@@ -220,9 +220,12 @@ async function main() {
       totalVal >= 1400 ? ok('总工单量级正确', totalVal + ' 单') : bad('总工单量异常', totalVal)
 
       // 主要投诉点表
-      snap.headers.some(h => h.includes('功能模块问题') || h.includes('一句话'))
-        ? ok('类表含「功能模块问题（一句话）」列')
-        : bad('类表缺一句话描述列', snap.headers.join('|'))
+      snap.headers.some(h => h.includes('主要投诉点（标准类）'))
+        ? ok('类表含「主要投诉点（标准类）」列')
+        : bad('类表缺标准类列', snap.headers.join('|'))
+      snap.headers.some(h => h.includes('归因锚点'))
+        ? ok('类表含「归因锚点」列（台账关联维度）')
+        : bad('类表缺归因锚点列', snap.headers.join('|'))
       snap.rowCount > 0
         ? ok('主要投诉点表有数据', `rows=${snap.rowCount}`)
         : bad('主要投诉点表为空')
@@ -231,8 +234,10 @@ async function main() {
         // 跨表象汇聚核心验收：BROADBAND-ACT 归为一类且工单量≈73、表象数>1
         const bb = snap.rows.find(r => r.name.includes('一网通宽带') || r.name.includes('宽带'))
         if (bb) {
-          // 列顺序固定：0 排名 / 1 名称 / 2 工单量 / 3 表象数 / 4 活跃周
-          const cnt = Number(String(bb.tds[2] || '').replace(/[^\d]/g, '')) || 0
+          // 2026-11-13 起列顺序：0 排名 / 1 标准类 / 2 归因锚点 / 3 累计工单。
+          // 按表头定位列索引，避免后续插列导致写死索引假红。
+          const cntIdx = snap.headers.findIndex(h => h.includes('累计工单'))
+          const cnt = Number(String(bb.tds[cntIdx] || '').replace(/[^\d]/g, '')) || 0
           const surf = Number(String(bb.surfaceCnt).replace(/[^\d]/g, '')) || 0
           ok('宽带类已归并为一行（跨表象汇聚）', bb.name.slice(0, 24))
           cnt >= 60 && cnt <= 90
@@ -298,7 +303,9 @@ async function main() {
       review && review.rows > 0
         ? ok('人工管理台有数据（待处理队列）', `rows≈${review.rows}；${review.blockTitle}`)
         : bad('人工管理台无数据', JSON.stringify(review))
-      // 断言待管理总量（2026-11-10 导入 96 单后：低置信238 + 未归类42 = 280）
+      // 动态口径断言（2026-11-13 修）：禁止写死快照值。
+      // 页面「共 N 单」与 KPI「待管理 N 单」来自同一个 reviewQueue，必须相等；
+      // 这样导入新数据后不会假红，又能真正抓出「两处数字不同源」。
       const reviewTotalTxt = await cdp.eval(`(() => {
         const root = document.querySelector('.module-problem')
         const subs = [...root.querySelectorAll('.block-sub')].map(b => b.innerText || '')
@@ -306,9 +313,17 @@ async function main() {
         const m = reviewSub.match(/共\\s*(\\d+)\\s*单/)
         return m ? Number(m[1]) : 0
       })()`)
-      reviewTotalTxt >= 268 && reviewTotalTxt <= 292
-        ? ok('人工管理台总量≈280（低置信+未归类）', reviewTotalTxt + ' 单')
-        : bad('人工管理台总量异常', reviewTotalTxt)
+      const reviewKpiTxt = await cdp.eval(`(() => {
+        const root = document.querySelector('.module-problem')
+        const subs = [...root.querySelectorAll('.summary-kpis .pm-stat__sub')].map(b => b.innerText || '')
+        const hit = subs.find(s => s.includes('待管理')) || ''
+        const m = hit.match(/待管理\\s*(\\d+)\\s*单/)
+        return m ? Number(m[1]) : -1
+      })()`)
+      reviewTotalTxt > 0 && reviewTotalTxt === reviewKpiTxt
+        ? ok('人工管理台总量 = KPI「待管理」（同源动态口径）',
+             `tab=${reviewTotalTxt} kpi=${reviewKpiTxt}`)
+        : bad('人工管理台总量与 KPI 不同源', `tab=${reviewTotalTxt} kpi=${reviewKpiTxt}`)
     } catch (e) {
       bad('人工管理台 tab 验证失败 ' + e.message)
     }

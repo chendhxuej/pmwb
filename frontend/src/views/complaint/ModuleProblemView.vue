@@ -51,7 +51,15 @@
       </div>
       <el-alert
         type="info" :closable="false" show-icon
-        title="口径 vL2：归并键 = 业务功能模块 × 失效对象 × 失效性质；同一模块问题下『描述不同、本质同模块』的工单强制归并（跨表象汇聚）。主流投诉自动归集；少量无匹配/低置信进入人工管理台，系统不依赖人工修正即可完整运行。" />
+        title="标准类口径：一个主要投诉点 = 模块 × 失效对象 × 失效性质，只表达一个失效点">
+        <template #default>
+          <div class="std-note">
+            <span>① 名称禁用斜杠并列堆叠；状态轴（在途 / 已结单 / 已归档）只作筛选与分母口径，不写进类名。</span>
+            <span>② 排序字段 = 展示字段 = 下钻字段，统一为所选周单量；「累计工单」是跨周期累计，不参与排序、不可与本周单量加总。</span>
+            <span>③ 问题台账按「归因锚点」标准类 ID 关联，簇合并只迁锚点、不改措施；未归类单列，不并入「其他」压比例。</span>
+          </div>
+        </template>
+      </el-alert>
     </section>
 
     <el-tabs v-model="activeTab" class="mp-tabs">
@@ -59,15 +67,15 @@
       <el-tab-pane label="主要投诉点" name="points">
         <section class="card">
           <div class="block-head">
-            <span class="block-title">功能模块问题（按工单量降序）</span>
-            <span class="block-sub">共 {{ classItems.length }} 个模块问题 · 展开看跨表象汇聚的多种说法</span>
+            <span class="block-title">主要投诉点 · 标准类（按所选周单量降序）</span>
+            <span class="block-sub">共 {{ classItems.length }} 个标准类 · 名称已按单失效点标准化，状态轴不进名称</span>
             <el-checkbox v-model="includeConsult" class="block-chk" @change="applyDisplay">包含咨询类</el-checkbox>
           </div>
           <el-table :data="classItems" v-loading="loading" size="small" stripe row-key="module_problem_id" :row-class-name="rowClass">
             <el-table-column label="排名" width="60" align="center">
               <template #default="{ $index }"><span class="rank">{{ $index + 1 }}</span></template>
             </el-table-column>
-            <el-table-column label="功能模块问题（一句话）" min-width="300">
+            <el-table-column label="主要投诉点（标准类）" min-width="300">
               <template #default="{ row }">
                 <div class="cls-name" :class="{ 'is-consult': !row.is_defect }">{{ row.name }}</div>
                 <div class="cls-tags">
@@ -77,7 +85,14 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="ticket_cnt" label="累计工单" width="96" align="center" sortable />
+            <el-table-column label="归因锚点" width="184" align="center">
+              <template #default="{ row }">
+                <el-tooltip content="问题台账按此标准类 ID 关联；簇合并只迁锚点、不改措施" placement="top">
+                  <el-tag size="small" effect="plain" type="info" class="anchor-tag">{{ row.module_problem_id }}</el-tag>
+                </el-tooltip>
+              </template>
+            </el-table-column>
+            <el-table-column label="累计工单（全周期）" width="130" align="center" sortable prop="ticket_cnt" />
             <el-table-column :label="statWeek ? statWeek.replace('2026-', '') : '本周'" width="88" align="center" sortable prop="week_cnt">
               <template #default="{ row }">
                 <span class="week-cnt">{{ row.week_cnt ?? 0 }}</span>
@@ -206,7 +221,11 @@ const reviewTotal = ref(0)
 const reviewPage = ref(1)
 const reviewPageSize = 30
 
-const subTitle = computed(() => '跨表象汇聚：找出主要投诉点，定位系统改造落点（vL2 闭集字典）')
+// 版本号来自后端已发布快照（不在前端另写一份字典，避免第二真相源）
+const dictVer = computed(() => allItems.value[0]?.dict_version || null)
+const subTitle = computed(() =>
+  '单失效点标准类（模块 × 失效对象 × 失效性质）· 展示 / 排序 / 下钻同周口径'
+  + (dictVer.value ? ` · 标准口径 v${dictVer.value}` : ''))
 
 // 缺陷类选项（供改派下拉），始终来自全量缺陷类
 const defectOptions = computed(() => allItems.value.filter((c) => c.is_defect))
@@ -361,6 +380,8 @@ onMounted(async () => {
 .row-focus:hover > td { background: var(--brand-soft, #eef4ff) !important; }
 .summary-card { margin-bottom: 16px; }
 .summary-kpis { margin-bottom: 12px; }
+.std-note { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; line-height: 1.6; }
+.anchor-tag { font-family: var(--pm-font-mono, monospace); font-size: 11.5px; cursor: help; }
 .mp-tabs { margin-top: 4px; }
 .block-head { display: flex; align-items: baseline; gap: 10px; margin: 4px 2px 12px; flex-wrap: wrap; }
 .block-title { font-size: 14.5px; font-weight: 600; color: var(--text-primary, #1f2d3d); }

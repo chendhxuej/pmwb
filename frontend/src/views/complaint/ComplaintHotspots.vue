@@ -12,8 +12,8 @@
     <!-- 主要投诉点速览（新闭集 · 与「主要投诉点」页同源，定位系统改造落点） -->
     <section class="card mp-overview">
       <div class="card-header">
-        <h3>主要投诉点（功能模块问题 · 闭集）</h3>
-        <span class="hint">上方 KPI 为全周期累计；下方 TOP 为所选周单量（vL2 闭集字典）</span>
+        <h3>主要投诉点（标准类 · 闭集）</h3>
+        <span class="hint">上方 KPI 为全周期累计；下方 TOP 为所选周单量（标准类：模块 × 失效对象 × 失效性质，状态轴不进名称）</span>
         <el-button class="ml-auto" size="small" type="primary" plain @click="goModuleProblemPage">查看完整主要投诉点 →</el-button>
       </div>
       <div class="card-body">

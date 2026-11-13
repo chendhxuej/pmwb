@@ -69,9 +69,11 @@
               <template #default="{ row }"><b>{{ row.problem_no }}</b></template>
             </el-table-column>
             <el-table-column prop="title" label="问题（根因摘要）" min-width="230" show-overflow-tooltip />
-            <el-table-column prop="module_problem_id" label="归因锚点" width="132">
+            <el-table-column prop="module_problem_id" label="归因锚点（主要投诉点标准类）" width="210">
               <template #default="{ row }">
-                <el-tag v-if="row.module_problem_id" type="success" size="small" effect="plain">模块·{{ row.module_problem_id }}</el-tag>
+                <el-tag v-if="row.module_problem_id" type="success" size="small" effect="plain" :title="row.module_problem_id">
+                  {{ row.module_problem_name || row.module_problem_id }}
+                </el-tag>
                 <span v-else>{{ row.rootcause_no || '—' }}</span>
               </template>
             </el-table-column>
@@ -120,9 +122,9 @@
 
         <el-tab-pane :label="`待确认候选（${candidates.length}）`" name="candidate">
           <div class="tab-bar">
-            <span class="tab-hint">候选来源：<b>主要投诉点</b>（闭集模块问题，零 LLM）+ 旧根因簇扫描；<b>确认入账</b>后才进入台账、才能挂措施</span>
+            <span class="tab-hint">候选来源：<b>主要投诉点标准类</b>（闭集，按归因锚点 ID 关联）+ 旧根因簇扫描；<b>确认入账</b>后才进入台账、才能挂措施</span>
             <el-tag v-if="anchorFilter" type="primary" size="small" effect="plain" closable @close="anchorFilter=''">
-              已定位模块·{{ anchorFilter }}
+              已定位锚点·{{ anchorFilter }}
             </el-tag>
           </div>
           <el-table ref="pmTbl1" v-if="displayCandidates.length" :data="displayCandidates" size="default" border>
@@ -131,9 +133,11 @@
           </el-table-column>
           <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip />
           <el-table-column prop="category_l2" label="场景" min-width="130" show-overflow-tooltip />
-          <el-table-column label="归因锚点" width="150">
+          <el-table-column label="归因锚点（主要投诉点标准类）" width="210">
             <template #default="{ row }">
-              <el-tag v-if="row.module_problem_id" type="success" size="small" effect="plain">模块·{{ row.module_problem_id }}</el-tag>
+              <el-tag v-if="row.module_problem_id" type="success" size="small" effect="plain" :title="row.module_problem_id">
+                {{ row.module_problem_name || row.module_problem_id }}
+              </el-tag>
               <span v-else>{{ row.rootcause_no || '—' }}</span>
             </template>
           </el-table-column>

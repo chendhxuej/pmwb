@@ -1076,6 +1076,10 @@ def list_problems(db: Session, status: str = "", week: str = "", l1: str = "",
         params["kw"] = f"%{keyword}%"
     sql = f"""
         SELECT p.*,
+               -- 归因锚点标准类名：与「主要投诉点」页同源（已发布快照表），
+               -- 台账/措施按 module_problem_id 关联，名称只作展示，不参与判定。
+               (SELECT mp.name FROM pmwb_complaint_module_problem mp
+                 WHERE mp.module_problem_id = p.module_problem_id) AS module_problem_name,
                (SELECT COUNT(*) FROM pmwb_complaint_problem_action l
                  WHERE l.problem_no = p.problem_no) AS action_cnt,
                (SELECT COUNT(*) FROM pmwb_complaint_problem_action l

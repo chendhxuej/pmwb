@@ -271,6 +271,8 @@ def list_module_problems(db: Session, include_consult: bool = False,
             "fail_object": p.fail_object,
             "fail_nature": p.fail_nature,
             "is_defect": p.is_defect,
+            # 标准口径版本（已发布快照版本，页面展示用于口径可追溯）
+            "dict_version": p.version,
             "ticket_cnt": p.ticket_cnt,
             "first_week": p.first_week,
             "active_weeks": p.active_weeks,
@@ -335,13 +337,22 @@ def list_review_queue(db: Session, page: int = 1, page_size: int = 50) -> Dict:
         .all()
     )
     out = []
+    # 标准类名统一从「已发布快照表」读取：与 list_module_problems / 工单标签同源。
+    # 2026-11-13 修复：此前此处直接读字典，字典升级后若服务进程仍加载旧字典，
+    # 同一页面会出现「类表新名 + 人工台旧名」两套名字。
+    names = {
+        r[0]: r[1]
+        for r in db.query(
+            PmwbComplaintModuleProblem.module_problem_id,
+            PmwbComplaintModuleProblem.name,
+        ).all()
+    }
     for t in items:
-        mp = M.get_module_problem(t.module_problem_id) if t.module_problem_id else None
         out.append({
             "ticket_no": t.ticket_no,
             "surface": t.surface,
             "current_id": t.module_problem_id,
-            "current_name": (mp or {}).get("name") if mp else None,
+            "current_name": names.get(t.module_problem_id) if t.module_problem_id else None,
             "review_status": t.review_status,
             "confidence": t.confidence,
             "gap": t.gap,

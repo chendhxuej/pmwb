@@ -11,6 +11,11 @@
 4. 字典由人在「过程外」一次性定口径、版本化；链路内无人工队列。
 5. 字典条目按 priority 升序判定，命中即采用 —— 越具体/越优先（含老大举的「账号未同步」例子）。
 6. is_defect=False 的咨询类单列隔离，不进缺陷主 KPI（沿用 CP-S10）。
+7. 【2026-11-13 标准名口径 v2】name = 「模块·失效对象·失效性质」三段式单失效点标准类，
+   禁止斜杠并列堆叠、禁止把工单流转状态（在途/已结单/已归档…）写进名称；
+   状态轴只作筛选与分母口径，不是投诉类型。module / fail_object / fail_nature 同步去斜杠，
+   作为页面上标准类的三元组拆解标签。判定信号（objects/natures/stages/exclude/priority）
+   本次一律冻结 —— 只修「表达口径」，不改「判定式」，归类数字不因此漂移。
 
 匹配信号来源（确定性，不依赖 LLM）：
 - point（v4.2 单工单 AI 简述，已是规范化表达）
@@ -21,7 +26,11 @@ version: 字典口径版本，口径调整时 +1，便于历史漂移比对。
 """
 from typing import List, Dict, Optional
 
-MODULE_DICT_VERSION = 1
+MODULE_DICT_VERSION = 2
+
+# 状态轴词表：工单流转状态，只作筛选/分母口径，禁止混入标准类名（v2 硬约束）
+STATUS_AXIS_TERMS = ("在途", "已结单", "已归档", "待回单", "已回复", "已派单",
+                     "处理中", "已关闭", "已完工", "已竣工", "已回单")
 
 # 失效性质回退：fault_stage -> 失效性质族（仅当 point 无明确性质关键词时使用）
 STAGE_TO_NATURE = {
@@ -60,10 +69,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 老大举例同模块问题：一网通宽带/电视 开户激活后账号未同步 ——
     {
         "id": "MP-BROADBAND-ACT",
-        "name": "一网通宽带/电视开户激活后账号未同步（业务未开通）",
+        "name": "一网通宽带·宽带电视账号·激活后未同步",
         "module": "一网通宽带开户激活",
-        "fail_object": "宽带账号/电视账号",
-        "fail_nature": "数据不同步·业务未开通",
+        "fail_object": "宽带电视账号",
+        "fail_nature": "激活后账号未同步",
         "systems": ["订单中心", "CRM", "BOSS", "电视平台", "宽带平台"],
         "is_defect": True,
         "objects": ["一网通宽带", "宽带", "宽带账号", "电视", "机顶盒", "互联网电视",
@@ -80,10 +89,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 集团业务 ——
     {
         "id": "MP-GROUP-ACT",
-        "name": "集团业务开通激活/数据同步异常",
+        "name": "集团业务·集团产品账号·开通后未同步",
         "module": "集团业务",
-        "fail_object": "集团产品/集团账号",
-        "fail_nature": "开通激活异常·数据不同步",
+        "fail_object": "集团产品账号",
+        "fail_nature": "开通后数据未同步",
         "systems": ["CRM", "订单中心", "BOSS"],
         "is_defect": True,
         "objects": ["集团"],
@@ -94,7 +103,7 @@ MODULE_PROBLEMS: List[Dict] = [
     },
     {
         "id": "MP-GROUP-BILL",
-        "name": "集团计费出账/账单异常",
+        "name": "集团业务·集团账单·出账金额错误",
         "module": "集团业务",
         "fail_object": "集团账单",
         "fail_nature": "计费出账错误",
@@ -109,9 +118,9 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 订单流程 ——
     {
         "id": "MP-ORDER-FAIL",
-        "name": "订单下单/受理失败",
+        "name": "订单中心·订单受理·下单失败",
         "module": "订单开通流程",
-        "fail_object": "订单/购物车",
+        "fail_object": "订单受理",
         "fail_nature": "下单受理失败",
         "systems": ["订单中心", "商品中心"],
         "is_defect": True,
@@ -123,23 +132,23 @@ MODULE_PROBLEMS: List[Dict] = [
     },
     {
         "id": "MP-ORDER-CLOSE",
-        "name": "订单结单/回单卡单/在途",
+        "name": "订单中心·施工单回单·卡单不流转",
         "module": "订单开通流程",
-        "fail_object": "订单/施工单",
-        "fail_nature": "结单回单卡单",
+        "fail_object": "施工单回单",
+        "fail_nature": "回单卡单不流转",
         "systems": ["订单中心", "CRM", "工维"],
         "is_defect": True,
         "objects": ["订单", "购物车", "施工单", "工维"],
-        "natures": ["无法结单", "回单", "在途", "卡单", "结单", "超时", "完工", "审核"],
+        "natures": ["无法结单", "回单", "在途", "卡单", "结单", "超时", "完工", "审核", "派单", "重新派单", "未收到", "找不到", "归档", "挂起", "转单", "未完成"],
         "stages": ["装维交付"],
         "exclude": ["受理", "下单", "开户工单查不到"],
         "priority": 31,
     },
     {
         "id": "MP-ORDER-WITHDRAW",
-        "name": "订单撤单/退订异常",
+        "name": "订单中心·订单撤单·撤单失败",
         "module": "订单开通流程",
-        "fail_object": "订单",
+        "fail_object": "订单撤单",
         "fail_nature": "撤单退订失败",
         "systems": ["订单中心", "CRM"],
         "is_defect": True,
@@ -153,9 +162,9 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 计费资费 ——
     {
         "id": "MP-BILL-ERR",
-        "name": "计费出账/账单金额错误",
+        "name": "计费出账·账单金额·出账金额不符",
         "module": "计费出账",
-        "fail_object": "账单/账务",
+        "fail_object": "账单金额",
         "fail_nature": "计费出账错误",
         "systems": ["计费系统", "CRM"],
         "is_defect": True,
@@ -167,29 +176,29 @@ MODULE_PROBLEMS: List[Dict] = [
     },
     {
         "id": "MP-BILL-CONFIG",
-        "name": "资费/带宽/套餐配置未生效",
+        "name": "产品配置·资费套餐·配置未生效",
         "module": "产品配置",
-        "fail_object": "资费/带宽/套餐",
+        "fail_object": "资费套餐",
         "fail_nature": "配置未生效",
         "systems": ["CRM", "订单中心"],
         "is_defect": True,
-        "objects": ["资费", "带宽", "套餐", "产品"],
-        "natures": ["未生效", "未更改", "更改失败", "配置", "未同步", "不一致", "做不了", "未成功", "未变更成功", "变更成功"],
+        "objects": ["资费", "带宽", "套餐", "产品", "营销案", "活动", "优惠", "免费体验"],
+        "natures": ["未生效", "未更改", "更改失败", "配置", "未同步", "不一致", "做不了", "未成功", "未变更成功", "变更成功", "生效", "免费体验", "接续", "优惠", "做不上去", "仍产生", "打折", "减免", "活动"],
         "stages": ["产品配置"],
-        "exclude": ["出账错误", "账单金额"],
+        "exclude": ["出账错误", "账单金额", "结单", "回单"],
         "priority": 41,
     },
     # —— 电子协议 ——
     {
         "id": "MP-AGREEMENT",
-        "name": "电子协议签约/起草卡住",
+        "name": "电子协议·协议起草·签约卡住",
         "module": "电子协议",
-        "fail_object": "电子协议",
-        "fail_nature": "协议签约卡住",
+        "fail_object": "协议起草",
+        "fail_nature": "签约推进卡住",
         "systems": ["电子协议"],
         "is_defect": True,
-        "objects": ["电子协议", "协议", "一网通协议", "起草"],
-        "natures": ["加盖公章", "无法提交", "拒绝请求", "签约", "起草", "卡住", "无法推进", "推进"],
+        "objects": ["电子协议", "协议", "一网通协议", "起草", "合同", "电子签名", "签名", "复核", "盖章"],
+        "natures": ["加盖公章", "无法提交", "拒绝请求", "签约", "起草", "卡住", "无法推进", "推进", "盖章", "复核", "授权人", "电子签名", "稽核"],
         "stages": ["协议签约"],
         "exclude": [],
         "priority": 50,
@@ -197,10 +206,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 安防监控 ——
     {
         "id": "MP-SECURITY-ACT",
-        "name": "安防/监控/全屋智能开通激活异常",
+        "name": "安防监控·监控设备·开通未激活",
         "module": "安防监控",
-        "fail_object": "安防/监控设备",
-        "fail_nature": "开通激活异常·数据不同步",
+        "fail_object": "监控设备",
+        "fail_nature": "开通后未激活",
         "systems": ["第三方厂家系统", "CRM"],
         "is_defect": True,
         "objects": ["安防", "监控", "全屋智能"],
@@ -212,10 +221,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 手机卡 ——
     {
         "id": "MP-SIM-ACT",
-        "name": "手机卡入网/开通异常（黑名单/失信）",
+        "name": "手机卡入网·号码入网·黑名单拦截",
         "module": "手机卡入网",
-        "fail_object": "手机卡/号码",
-        "fail_nature": "入网开通异常",
+        "fail_object": "号码入网",
+        "fail_nature": "黑名单拦截未开通",
         "systems": ["CRM", "BOSS"],
         "is_defect": True,
         "objects": ["手机卡", "号卡", "手机", "sim", "SIM"],
@@ -226,10 +235,10 @@ MODULE_PROBLEMS: List[Dict] = [
     },
     {
         "id": "MP-SIM-FAIL",
-        "name": "手机卡办理报错/失败",
+        "name": "手机卡入网·号码办理·提交报错",
         "module": "手机卡入网",
-        "fail_object": "手机卡/号码",
-        "fail_nature": "办理报错失败",
+        "fail_object": "号码办理",
+        "fail_nature": "办理提交报错",
         "systems": ["CRM", "BOSS"],
         "is_defect": True,
         "objects": ["手机卡", "号卡", "手机", "sim", "SIM"],
@@ -241,10 +250,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 专线固话 ——
     {
         "id": "MP-LEASE",
-        "name": "专线/固话开通异常",
+        "name": "专线固话·开通工单·开通失败",
         "module": "专线固话",
-        "fail_object": "专线/固话",
-        "fail_nature": "开通激活异常",
+        "fail_object": "开通工单",
+        "fail_nature": "开通激活失败",
         "systems": ["CRM", "BOSS"],
         "is_defect": True,
         "objects": ["专线", "固话"],
@@ -256,10 +265,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 短信物联网 ——
     {
         "id": "MP-IOT",
-        "name": "短信/物联网(CMIOT)业务异常",
+        "name": "短信物联网·物联网卡·开通失败",
         "module": "短信物联网",
-        "fail_object": "短信/物联网卡",
-        "fail_nature": "开通激活异常·数据不同步",
+        "fail_object": "物联网卡",
+        "fail_nature": "开通激活失败",
         "systems": ["短信平台", "CMIOT"],
         "is_defect": True,
         "objects": ["短信", "物联网", "CMIOT"],
@@ -271,14 +280,14 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 销户/过户/退费（跨模块终结类）——
     {
         "id": "MP-TERMINATE",
-        "name": "销户/过户/退费办理异常",
+        "name": "账户终结·销户过户·办理失败",
         "module": "账户终结与变更",
-        "fail_object": "账户/订单",
-        "fail_nature": "销户过户退费失败",
+        "fail_object": "销户过户",
+        "fail_nature": "终结办理失败",
         "systems": ["CRM", "计费系统", "订单中心"],
         "is_defect": True,
         "objects": ["销户", "过户", "退费", "退订", "退款"],
-        "natures": ["失败", "报错", "无法", "禁止", "异常", "不符", "无法销", "无法过户"],
+        "natures": ["失败", "报错", "无法", "禁止", "异常", "不符", "无法销", "无法过户", "注销", "不允许", "成员", "正使用", "存在", "结不了单"],
         "stages": [],
         "exclude": [],
         "priority": 100,
@@ -286,10 +295,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 信控停机/黑名单/缴费 ——
     {
         "id": "MP-CREDIT",
-        "name": "信控停机/黑名单/缴费恢复异常",
+        "name": "信控缴费·账户停机·缴费后未恢复",
         "module": "信控与缴费",
-        "fail_object": "账户状态",
-        "fail_nature": "停机黑名单缴费异常",
+        "fail_object": "账户停机状态",
+        "fail_nature": "缴费后未恢复",
         "systems": ["CRM", "计费系统", "BOSS"],
         "is_defect": True,
         "objects": ["信控", "停机", "黑名单", "失信", "缴费", "欠费"],
@@ -301,10 +310,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 增值权益 ——
     {
         "id": "MP-VALUEADD",
-        "name": "增值/权益业务异常",
+        "name": "增值权益·权益产品·开通未生效",
         "module": "增值权益",
-        "fail_object": "增值/权益产品",
-        "fail_nature": "开通激活异常",
+        "fail_object": "权益产品",
+        "fail_nature": "开通未生效",
         "systems": ["CRM", "订单中心"],
         "is_defect": True,
         "objects": ["增值", "权益"],
@@ -316,10 +325,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 订单提交/转单/派单/权限报错（跨系统的提交类异常）——
     {
         "id": "MP-ORDER-SUBMIT",
-        "name": "订单提交/转单/派单/权限报错",
+        "name": "订单中心·订单提交·转派单报错",
         "module": "订单开通流程",
-        "fail_object": "订单/转单/权限",
-        "fail_nature": "提交转单派单失败",
+        "fail_object": "订单提交",
+        "fail_nature": "转派单提交报错",
         "systems": ["订单中心", "CRM", "政企工作台"],
         "is_defect": True,
         "objects": ["转订单", "转单", "派单", "提交", "菜单", "审批", "处理人", "区县编码",
@@ -332,10 +341,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 政企工作台权限/登录异常 ——
     {
         "id": "MP-WORKBENCH",
-        "name": "政企工作台权限/登录异常",
+        "name": "政企工作台·工号权限·登录鉴权失败",
         "module": "政企工作台",
-        "fail_object": "政企工作台/4A/工号",
-        "fail_nature": "权限登录异常",
+        "fail_object": "工号权限",
+        "fail_nature": "登录鉴权失败",
         "systems": ["政企工作台", "4A"],
         "is_defect": True,
         "objects": ["政企工作台", "4A", "网格通", "工号", "登录页面", "免审批"],
@@ -347,10 +356,10 @@ MODULE_PROBLEMS: List[Dict] = [
     # —— 咨询类（非缺陷，隔离不进主 KPI）——
     {
         "id": "MP-CONSULT",
-        "name": "使用/操作/规则咨询（非缺陷）",
+        "name": "咨询类·咨询诉求·非缺陷咨询",
         "module": "咨询类",
-        "fail_object": "—",
-        "fail_nature": "咨询问答",
+        "fail_object": "咨询诉求",
+        "fail_nature": "非缺陷咨询",
         "systems": [],
         "is_defect": False,
         "objects": [],
@@ -371,6 +380,33 @@ def get_module_problem(mp_id: str) -> Optional[Dict]:
 
 def all_module_ids() -> List[str]:
     return [m["id"] for m in MODULE_PROBLEMS]
+
+
+def validate_dictionary() -> List[str]:
+    """标准名结构校验（v2 硬约束），供回归断言调用；不参与运行时归类判定。
+
+    返回错误列表，空列表 = 口径合规。检查：三段式单失效点 / 无斜杠并列 /
+    无状态轴词 / 长度≤20 / 名称唯一 / 三元组标签无斜杠堆叠。
+    """
+    errors: List[str] = []
+    seen = set()
+    for m in MODULE_PROBLEMS:
+        mid, name = m["id"], m["name"]
+        if name.count("·") != 2:
+            errors.append("%s 标准名非三段式: %s" % (mid, name))
+        if "/" in name:
+            errors.append("%s 标准名含斜杠并列: %s" % (mid, name))
+        if any(t in name for t in STATUS_AXIS_TERMS):
+            errors.append("%s 标准名混入状态轴词: %s" % (mid, name))
+        if len(name) > 20:
+            errors.append("%s 标准名超 20 字: %s" % (mid, name))
+        if name in seen:
+            errors.append("%s 标准名重复: %s" % (mid, name))
+        seen.add(name)
+        for f in ("module", "fail_object", "fail_nature"):
+            if "/" in (m.get(f) or ""):
+                errors.append("%s %s 含斜杠堆叠: %s" % (mid, f, m[f]))
+    return errors
 
 
 # 判定优先级排序（升序，命中即采用）
