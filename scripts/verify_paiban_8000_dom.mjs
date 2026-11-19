@@ -209,6 +209,13 @@ with create_engine(settings.DATABASE_URL, pool_pre_ping=True, connect_args={'con
     ok('C5 版本计划页有「交互原型 Demo」入口', demoBtn)
     ok('C6 空态正常（迁移后 0 行计划，不是接口报错）',
       bodyText.includes('有效计划') && !bodyText.includes('表不存在'), `len=${bodyText.length}`)
+    // 真点一次按钮：hook window.open 记录实参（避免 headless popup blocker 干扰），
+    // 断言「入口按钮 → /paiban-demo.html」这一跳绑定正确，而不只是按钮存在。
+    await cdp.eval(`window.__pbDemoOpen = null; window.open = (...a) => { window.__pbDemoOpen = a[0]; return null }; true`)
+    await cdp.eval(`[...document.querySelectorAll('.pb-version button')].find(b => b.innerText.includes('交互原型 Demo'))?.click(); true`)
+    await sleep(300)
+    const openedUrl = await cdp.eval('window.__pbDemoOpen')
+    ok('C7 Demo 入口按钮真绑定 /paiban-demo.html', openedUrl === '/paiban-demo.html', `opened=${openedUrl}`)
 
     console.log('\n=== D 占位页也有 Demo 入口，且 Demo 页浏览器真渲染 ===')
     let phReady = false
