@@ -37,3 +37,92 @@ export function createVersionPlan(payload) {
 export function updateVersionPlan(id, payload) {
   return request.patch(`/paiban/versions/${encodeURIComponent(id)}`, payload)
 }
+
+// ── pb-2 候选池 / 纳入 ──────────────────────────────────────────
+export function listCandidates(params) {
+  return request.get('/paiban/candidates', { params })
+}
+export function includeCandidates(payload) {
+  return request.post('/paiban/candidates/include', payload)
+}
+export function inlineInclude(payload) {
+  return request.post('/paiban/tracks/inline-include', payload)
+}
+export function syncTracks(payload) {
+  return request.post('/paiban/tracks/sync', payload)
+}
+
+// ── pb-3/4 跟踪 / 团队 ─────────────────────────────────────────
+export function listPbTracks(params) {
+  return request.get('/paiban/tracks', { params })
+}
+export function getTrackTimeline(id) {
+  return request.get(`/paiban/tracks/${encodeURIComponent(id)}/timeline`)
+}
+export function setTrackResult(id, payload) {
+  return request.post(`/paiban/tracks/${encodeURIComponent(id)}/result`, payload)
+}
+export function manualHandle(id, payload) {
+  return request.post(`/paiban/tracks/${encodeURIComponent(id)}/manual`, payload)
+}
+export function removeTrack(id, payload) {
+  return request.post(`/paiban/tracks/${encodeURIComponent(id)}/remove`, payload)
+}
+export function setTeamStage(id, payload) {
+  return request.post(`/paiban/teams/${encodeURIComponent(id)}/stage`, payload)
+}
+export function teamMatrix(params) {
+  return request.get('/paiban/team-matrix', { params })
+}
+export function simulateAdmission(params) {
+  return request.post('/paiban/admission/simulate', null, { params })
+}
+
+// ── pb-5 风险 / pb-6 督办 ───────────────────────────────────────
+export function listPbRisks(params) {
+  return request.get('/paiban/risks', { params })
+}
+export function createPbRisk(trackId, payload) {
+  return request.post(`/paiban/tracks/${encodeURIComponent(trackId)}/risks`, payload)
+}
+export function resolvePbRisk(id, payload) {
+  return request.post(`/paiban/risks/${encodeURIComponent(id)}/resolve`, payload)
+}
+export function previewSupervise(payload) {
+  return request.post('/paiban/supervise/preview', payload)
+}
+export function sendSupervise(payload) {
+  return request.post('/paiban/supervise/send', payload)
+}
+export function listSuperviseBatches(params) {
+  return request.get('/paiban/supervise/batches', { params })
+}
+export function getSuperviseBatch(no) {
+  return request.get(`/paiban/supervise/batches/${encodeURIComponent(no)}`)
+}
+
+// ── pb-7 反馈 / pb-8 概览 ───────────────────────────────────────
+export function submitPbFeedback(payload) {
+  return request.post('/paiban/feedback/submit', payload)
+}
+export function batchPbFeedback(payload) {
+  return request.post('/paiban/feedback/batch', payload)
+}
+export function pullMailFeedback(payload) {
+  return request.post('/paiban/feedback/mail/pull', payload)
+}
+export function listPendingFeedback(params) {
+  return request.get('/paiban/feedback/pending', { params })
+}
+export function reviewPbFeedback(id, payload) {
+  return request.post(`/paiban/feedback/${encodeURIComponent(id)}/review`, payload)
+}
+export function rollbackPbFeedback(id, payload) {
+  return request.post(`/paiban/feedback/${encodeURIComponent(id)}/rollback`, payload)
+}
+export function getPbOverview(planId) {
+  return request.get('/paiban/overview', { params: { plan_id: planId } })
+}
+export function listMissingPlans() {
+  return request.get('/paiban/tracks/missing-plans')
+}

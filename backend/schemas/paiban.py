@@ -42,3 +42,118 @@ class VersionPlanUpdate(BaseModel):
     next_version_id: Optional[int] = None
     remark: Optional[str] = None
     operator: Optional[str] = None
+
+
+# ── pb-2 ~ pb-9 请求体 ──────────────────────────────────────────
+class CandidateIncludeRequest(BaseModel):
+    items: list = Field(default_factory=list, description="[{ticket_type,ticket_no}]")
+    operator: Optional[str] = None
+    source: str = Field("pool", description="pool / inline / sync")
+
+
+class InlineIncludeRequest(BaseModel):
+    ticket_type: str
+    ticket_no: str
+    operator: Optional[str] = None
+
+
+class SyncRequest(BaseModel):
+    operator: Optional[str] = None
+    mark_missing: bool = Field(True, description="源消失是否置墓碑")
+
+
+class RemoveRequest(BaseModel):
+    reason: str = Field(..., min_length=1, description="移出原因必填")
+    operator: Optional[str] = None
+
+
+class TeamStageRequest(BaseModel):
+    stage: str
+    reason: Optional[str] = None
+    operator: Optional[str] = None
+    source: str = "page"
+    done: Optional[bool] = None
+    feedback_id: Optional[int] = None
+
+
+class ResultRequest(BaseModel):
+    result: str
+    reason: Optional[str] = None
+    result_date: Optional[date] = None
+    operator: Optional[str] = None
+
+
+class ManualHandleRequest(BaseModel):
+    action: str = Field(..., description="defer / allow / revoke")
+    reason: Optional[str] = Field(None, description="例外原因闭集")
+    reason_note: Optional[str] = Field(None, description="选其他时必填说明")
+    operator: Optional[str] = None
+
+
+class RiskCreateRequest(BaseModel):
+    risk_type: str
+    description: str
+    affect_release: int = Field(0, ge=0, le=1)
+    level: str = "P2"
+    source: str = "page"
+    raw_ref: Optional[str] = None
+    operator: Optional[str] = None
+
+
+class RiskResolveRequest(BaseModel):
+    resolution: str = Field(..., min_length=1)
+    operator: Optional[str] = None
+
+
+class SupervisePreviewRequest(BaseModel):
+    plan_id: int
+    team_name: Optional[str] = None
+    ticket_type: Optional[str] = None
+    ignore_cooldown: bool = False
+    exception_reason: Optional[str] = None
+
+
+class SuperviseSendRequest(SupervisePreviewRequest):
+    groups: Optional[list] = Field(None, description="选中分组 [(team_name,ticket_type)]")
+    dry_run: bool = Field(True, description="自测一律 true")
+    confirm_send: bool = Field(False, description="真发须页面显式 true")
+    operator: Optional[str] = None
+
+
+class FeedbackSubmitRequest(BaseModel):
+    channel: str = Field("inline", description="batch / inline / proxy")
+    track_id: int
+    team_id: Optional[int] = None
+    stage: Optional[str] = None
+    progress: Optional[str] = None
+    risk: Optional[str] = None
+    promise_date: Optional[str] = None
+    risk_type: Optional[str] = None
+    affect_release: int = 0
+    reason: Optional[str] = None
+    raw_text: Optional[str] = None
+    batch_no: Optional[str] = None
+    receipt_code: Optional[str] = None
+    reporter: Optional[str] = None
+    operator: Optional[str] = None
+
+
+class FeedbackBatchRequest(BaseModel):
+    items: list = Field(default_factory=list)
+    batch_no: Optional[str] = None
+    operator: Optional[str] = None
+
+
+class FeedbackMailPullRequest(BaseModel):
+    since: Optional[str] = None
+    until: Optional[str] = None
+
+
+class FeedbackReviewRequest(BaseModel):
+    action: str = Field(..., description="adopt / reject")
+    reviewer: str
+    review_note: Optional[str] = None
+
+
+class FeedbackRollbackRequest(BaseModel):
+    operator: str

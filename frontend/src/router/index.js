@@ -64,7 +64,7 @@ const routes = [
           {
             path: 'track',
             name: 'PaibanTrack',
-            component: () => import('@/views/paiban/PaibanPlaceholder.vue'),
+            component: () => import('@/views/paiban/TrackView.vue'),
             meta: { title: '排版跟踪', icon: 'DataLine', pb: 'pb-2 / pb-3 / pb-8' },
           },
           {
@@ -76,19 +76,19 @@ const routes = [
           {
             path: 'teams',
             name: 'PaibanTeams',
-            component: () => import('@/views/paiban/PaibanPlaceholder.vue'),
+            component: () => import('@/views/paiban/TeamView.vue'),
             meta: { title: '团队跟踪', icon: 'User', pb: 'pb-4' },
           },
           {
             path: 'risks',
             name: 'PaibanRisks',
-            component: () => import('@/views/paiban/PaibanPlaceholder.vue'),
+            component: () => import('@/views/paiban/RiskSuperviseView.vue'),
             meta: { title: '风险与督办', icon: 'Warning', pb: 'pb-5 / pb-6' },
           },
           {
             path: 'feedback',
             name: 'PaibanFeedback',
-            component: () => import('@/views/paiban/PaibanPlaceholder.vue'),
+            component: () => import('@/views/paiban/FeedbackView.vue'),
             meta: { title: '反馈同步', icon: 'Message', pb: 'pb-7' },
           },
         ],

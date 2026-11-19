@@ -502,6 +502,25 @@ _COMPLAINT_PROBLEM = DomainDef(
 )
 
 
+# 排版管理跟踪态（PB 批次 pb-3）：四环节逐级推进，允许带原因回退。
+# 只在本模块维护，**不进 SOURCE_DOMAIN / 任务中心来源映射**（AC-H1）。
+_PB_TRACK = DomainDef(
+    key="pb_track",
+    label="排版跟踪态",
+    statuses=(
+        StatusDef("plan_confirm", "方案确认中", "neutral", "pending",
+                  allowed_next=("dev",)),
+        StatusDef("dev", "开发中", "primary", "in_progress",
+                  allowed_next=("test", "plan_confirm")),
+        StatusDef("test", "测试中", "warning", "in_progress",
+                  allowed_next=("wait_release", "dev", "plan_confirm")),
+        StatusDef("wait_release", "等待发布", "success", "in_progress",
+                  allowed_next=("test", "dev", "plan_confirm")),
+    ),
+    description="排版管理四环节：主行环节取团队子行最慢值，回退必填原因并写留痕。",
+)
+
+
 REGISTRY: Dict[str, DomainDef] = {
     d.key: d
     for d in (
@@ -528,6 +547,7 @@ REGISTRY: Dict[str, DomainDef] = {
         _SENSITIVE_MILESTONE,
         _COMPLAINT_ACTION,
         _COMPLAINT_PROBLEM,
+        _PB_TRACK,
     )
 }
 

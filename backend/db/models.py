@@ -2464,3 +2464,269 @@ class PmwbPbVersionChangeLog(Base):
     changed_at = Column(DateTime, default=now_cn, comment="变更时间")
     remark = Column(Text, comment="说明")
     __table_args__ = (Index("idx_pb_log_plan", "plan_id"),)
+
+
+# ────────────────────────────────────────────────────────────────
+# 排版管理 PB 批次 pb-2 ~ pb-8：跟踪主行 / 团队子行 / 参与记录 / 留痕 /
+# 风险 / 督办 / 反馈。全部只存「跟踪态」，不复制源需求与源工单本体。
+# 派生字段（四环节截止、准入时点）一律由 constants/paiban.py 查询期计算，不落库。
+# ────────────────────────────────────────────────────────────────
+class PmwbPbTrack(Base):
+    """跟踪主行：工单维度、全局唯一，版本统计的唯一分母。终态仅 live / cancelled。"""
+
+    __tablename__ = "pmwb_pb_track"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_type = Column(String(8), nullable=False, comment="req / bug")
+    ticket_no = Column(String(128), nullable=False, comment="需求编号或运营工单编号")
+    title = Column(String(500), comment="工单标题（纳入时快照，展示实时取源）")
+    system_name = Column(String(128), comment="归属系统")
+    priority = Column(String(16), comment="源级别/优先级快照")
+    owner = Column(String(512), comment="责任人（多负责人逗号分隔）")
+    expected_date = Column(Date, comment="期望上线日 / 计划完成日")
+    current_plan_id = Column(Integer, comment="当前归属版本计划 ID")
+    plan_source = Column(String(16), default="default", server_default="default",
+                         comment="exclusive / default / missing")
+    stage = Column(String(16), nullable=False, default="plan_confirm", server_default="plan_confirm",
+                   comment="四环节之一，= 团队子行最慢值，禁手工直接设")
+    stage_entered_at = Column(DateTime, default=now_cn, comment="当前环节进入时间")
+    wait_release_at = Column(DateTime, comment="进入等待发布时间（准入判定唯一事实）")
+    admit_status = Column(String(16), nullable=False, default="pending", server_default="pending",
+                          comment="pending / admitted / not_admitted / exception")
+    admit_decided_at = Column(DateTime, comment="准入判定时间")
+    exception_flag = Column(Integer, nullable=False, default=0, server_default="0",
+                            comment="1=人工例外准入（不计按计划上线率分子）")
+    exception_reason = Column(String(64), comment="例外原因（闭集）")
+    exception_operator = Column(String(64), comment="例外操作人")
+    exception_at = Column(DateTime, comment="例外操作时间")
+    exception_fact = Column(Text, comment="原判定事实 JSON（时点/事实时间/差值/原结果）")
+    before_value = Column(Text, comment="采纳前值 JSON（准入状态/归属版本），供一键回滚")
+    result = Column(String(16), nullable=False, default="", server_default="",
+                    comment="'' / live / not_scheduled / failed / cancelled")
+    result_date = Column(Date, comment="结果日期")
+    result_reason = Column(String(500), comment="未达成/取消必填原因")
+    result_operator = Column(String(64), comment="结果登记人")
+    result_at = Column(DateTime, comment="结果登记时间")
+    defer_count = Column(Integer, nullable=False, default=0, server_default="0", comment="累计顺延次数")
+    fail_count = Column(Integer, nullable=False, default=0, server_default="0", comment="累计上线失败次数")
+    plan_chain = Column(Text, default="[]", server_default="[]", comment="原属版本链 JSON，追加不覆盖")
+    last_defer_reason = Column(String(128), comment="最近顺延原因")
+    last_defer_at = Column(DateTime, comment="最近顺延时间")
+    focus_flag = Column(Integer, nullable=False, default=0, server_default="0", comment="顺延≥2或失败≥1")
+    abnormal_flag = Column(Integer, nullable=False, default=0, server_default="0", comment="顺延≥3")
+    freeze_late = Column(Integer, nullable=False, default=0, server_default="0", comment="冻结后纳入")
+    source_conflict = Column(Integer, nullable=False, default=0, server_default="0", comment="结果待核对")
+    source_snapshot = Column(Text, comment="源工单快照 JSON（只读，不改本体）")
+    source_snapshot_sig = Column(String(255), comment="源快照签名，幂等同步比对用")
+    include_source = Column(String(16), default="pool", server_default="pool", comment="pool/inline/sync")
+    included_at = Column(DateTime, default=now_cn, comment="纳入时间")
+    included_by = Column(String(64), comment="纳入人")
+    active = Column(Integer, nullable=False, default=1, server_default="1", comment="0=已移出墓碑，留行不删")
+    removed_at = Column(DateTime, comment="移出时间")
+    removed_reason = Column(String(255), comment="移出原因")
+    supervise_count = Column(Integer, nullable=False, default=0, server_default="0")
+    last_supervise_at = Column(DateTime, comment="最近督办时间")
+    pending_receipt_batch = Column(String(64), comment="待回执批次号")
+    feedback_count = Column(Integer, nullable=False, default=0, server_default="0")
+    last_feedback_at = Column(DateTime, comment="最近反馈时间")
+    pending_feedback = Column(Integer, nullable=False, default=0, server_default="0", comment="待核对反馈数")
+    created_at = Column(DateTime, default=now_cn)
+    updated_at = Column(DateTime, default=now_cn, onupdate=now_cn)
+    __table_args__ = (
+        UniqueConstraint("ticket_type", "ticket_no", name="uq_pb_track_anchor"),
+        Index("idx_pb_track_plan", "current_plan_id"),
+        Index("idx_pb_track_active", "active"),
+    )
+
+
+class PmwbPbTrackTeam(Base):
+    """团队子行：工单 × 团队，团队视图唯一分母；与主行口径显式分离。"""
+
+    __tablename__ = "pmwb_pb_track_team"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    track_id = Column(Integer, nullable=False, comment="主行 ID")
+    team_name = Column(String(128), nullable=False, comment="团队/系统名；解析失败=未分配团队")
+    owner = Column(String(512), comment="团队对接人（多负责人）")
+    stage = Column(String(16), nullable=False, default="plan_confirm", server_default="plan_confirm")
+    stage_entered_at = Column(DateTime, default=now_cn)
+    done = Column(Integer, nullable=False, default=0, server_default="0", comment="1=已完成测试")
+    parse_status = Column(String(16), default="ok", server_default="ok", comment="ok / unresolved")
+    recipient_status = Column(String(16), default="unknown", server_default="unknown",
+                              comment="ok / missing / unknown；缺失进无法督办清单")
+    note = Column(String(500), comment="团队级备注")
+    last_feedback_at = Column(DateTime)
+    supervise_count = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime, default=now_cn)
+    updated_at = Column(DateTime, default=now_cn, onupdate=now_cn)
+    __table_args__ = (
+        UniqueConstraint("track_id", "team_name", name="uq_pb_team_anchor"),
+        Index("idx_pb_team_track", "track_id"),
+        Index("idx_pb_team_name", "team_name"),
+    )
+
+
+class PmwbPbParticipation(Base):
+    """主行 × 版本参与记录：按计划上线率的唯一分母来源，跨版本不复用同一行。"""
+
+    __tablename__ = "pmwb_pb_participation"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    track_id = Column(Integer, nullable=False)
+    plan_id = Column(Integer, nullable=False)
+    version_no = Column(String(64), comment="版本标识快照")
+    joined_at = Column(DateTime, default=now_cn)
+    left_at = Column(DateTime, comment="顺延离开时间")
+    admit_status = Column(String(16), default="pending", server_default="pending")
+    result = Column(String(16), default="", server_default="")
+    result_date = Column(Date)
+    is_exception = Column(Integer, nullable=False, default=0, server_default="0")
+    freeze_late = Column(Integer, nullable=False, default=0, server_default="0")
+    outcome = Column(String(16), default="in_progress", server_default="in_progress",
+                     comment="in_progress / achieved / not_achieved")
+    __table_args__ = (
+        UniqueConstraint("track_id", "plan_id", name="uq_pb_participation"),
+        Index("idx_pb_part_plan", "plan_id"),
+    )
+
+
+class PmwbPbStageLog(Base):
+    """环节流转留痕：回退必填原因、采纳前值可回滚、变更来源唯一。"""
+
+    __tablename__ = "pmwb_pb_stage_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    track_id = Column(Integer, nullable=False)
+    team_id = Column(Integer, comment="可空=主行级变更")
+    from_stage = Column(String(16))
+    to_stage = Column(String(16), nullable=False)
+    is_rollback = Column(Integer, nullable=False, default=0, server_default="0")
+    rollback_count = Column(Integer, nullable=False, default=0, server_default="0")
+    reason = Column(String(500), comment="回退原因必填")
+    source = Column(String(24), nullable=False, default="page", server_default="page")
+    operator = Column(String(64))
+    feedback_id = Column(Integer, comment="关联反馈记录")
+    risk_id = Column(Integer, comment="关联自动风险事件")
+    batch_no = Column(String(64), comment="关联督办批次")
+    before_value = Column(Text, comment="采纳前值 JSON")
+    after_value = Column(Text, comment="采纳后值 JSON")
+    new_deadline = Column(String(16), comment="改期/顺延后的新截止日")
+    changed_at = Column(DateTime, default=now_cn)
+    __table_args__ = (Index("idx_pb_stagelog_track", "track_id"),)
+
+
+class PmwbPbRisk(Base):
+    """风险事件：按工单维度，同 (工单, 类型) 未消除时合并更新不新建。"""
+
+    __tablename__ = "pmwb_pb_risk"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    track_id = Column(Integer, nullable=False)
+    plan_id = Column(Integer, comment="发现时归属版本（顺延不重置风险）")
+    risk_type = Column(String(32), nullable=False, comment="闭集 constants/paiban.py::RISK_TYPES")
+    description = Column(Text)
+    affect_release = Column(Integer, nullable=False, default=0, server_default="0",
+                            comment="1=硬门禁 + 自动进督办")
+    level = Column(String(8), default="P2", server_default="P2")
+    source = Column(String(24), default="page", server_default="page",
+                    comment="page / batch_update / inline / mail_feedback / auto")
+    raw_ref = Column(Text, comment="反馈原文引用，追加不覆盖")
+    reporter = Column(String(64))
+    status = Column(String(16), nullable=False, default="open", server_default="open",
+                    comment="open / resolved / transferred")
+    merge_count = Column(Integer, nullable=False, default=0, server_default="0")
+    resolution = Column(Text, comment="处置记录（追加）")
+    created_at = Column(DateTime, default=now_cn)
+    resolved_at = Column(DateTime)
+    __table_args__ = (
+        Index("idx_pb_risk_track", "track_id"),
+        Index("idx_pb_risk_blocking", "track_id", "affect_release", "status"),
+    )
+
+
+class PmwbPbSuperviseBatch(Base):
+    """督办批次：批次号 = 回执路由锚点；dry_run 不落库、不消耗冷却。"""
+
+    __tablename__ = "pmwb_pb_supervise_batch"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    batch_no = Column(String(64), nullable=False, unique=True)
+    team_name = Column(String(128), nullable=False)
+    ticket_type = Column(String(8), nullable=False, comment="req / bug / all")
+    plan_id = Column(Integer, nullable=False)
+    rules_snapshot = Column(Text, comment="触发规则快照 JSON")
+    item_count = Column(Integer, nullable=False, default=0, server_default="0")
+    sent_count = Column(Integer, nullable=False, default=0, server_default="0")
+    skipped_count = Column(Integer, nullable=False, default=0, server_default="0")
+    failed_count = Column(Integer, nullable=False, default=0, server_default="0")
+    mail_result = Column(Text, comment="发信返回快照 JSON")
+    dry_run = Column(Integer, nullable=False, default=1, server_default="1")
+    confirm_send = Column(Integer, nullable=False, default=0, server_default="0")
+    ignore_cooldown = Column(Integer, nullable=False, default=0, server_default="0")
+    exception_reason = Column(String(128), comment="冷却例外原因")
+    operator = Column(String(64))
+    receipt_deadline = Column(String(16), comment="回执截止日（默认发布日前 1 天）")
+    receipt_status = Column(String(16), default="none", server_default="none",
+                            comment="none / partial / all / overdue")
+    created_at = Column(DateTime, default=now_cn)
+    __table_args__ = (Index("idx_pb_batch_plan", "plan_id"),)
+
+
+class PmwbPbSuperviseItem(Base):
+    """逐单督办结果：每单唯一回执码，跳过必带可见原因。"""
+
+    __tablename__ = "pmwb_pb_supervise_item"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    batch_id = Column(Integer, nullable=False)
+    batch_no = Column(String(64), comment="批次号快照（回执路由）")
+    track_id = Column(Integer, nullable=False)
+    team_id = Column(Integer)
+    ticket_no = Column(String(128))
+    receipt_code = Column(String(128), nullable=False, unique=True)
+    send_status = Column(String(16), nullable=False, default="dry_run", server_default="dry_run",
+                         comment="sent / dry_run / skipped / failed")
+    skip_reason = Column(String(128), comment="排除规则键或可读原因")
+    failure_reason = Column(String(255))
+    supervise_seq = Column(Integer, nullable=False, default=1, server_default="1")
+    cooldown_left_h = Column(Integer, nullable=False, default=0, server_default="0")
+    triggered_rules = Column(Text, comment="命中纳入规则 JSON")
+    receipt_status = Column(String(16), default="none", server_default="none")
+    receipt_at = Column(DateTime)
+    created_at = Column(DateTime, default=now_cn)
+    __table_args__ = (
+        UniqueConstraint("batch_id", "track_id", "team_id", name="uq_pb_supervise_item"),
+        Index("idx_pb_supitem_batch", "batch_id"),
+    )
+
+
+class PmwbPbFeedback(Base):
+    """反馈记录：四通道共用一套；原文不覆盖、采纳前值可回滚、Message-ID 幂等。"""
+
+    __tablename__ = "pmwb_pb_feedback"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    track_id = Column(Integer, nullable=False)
+    team_id = Column(Integer)
+    channel = Column(String(16), nullable=False, comment="mail / batch / inline / proxy")
+    batch_no = Column(String(64), comment="邮件回执必带")
+    receipt_code = Column(String(128), comment="邮件回执必带")
+    message_id = Column(String(255), comment="Message-ID，幂等锚点")
+    source_ref = Column(String(255), comment="邮件 id / 录入来源")
+    sender = Column(String(128), comment="发件人或反馈人")
+    raw_text = Column(Text, comment="反馈原文，原样留存不覆盖")
+    parsed_json = Column(Text, comment="解析结果 JSON")
+    suggested_json = Column(Text, comment="建议变更 JSON（自由文本只出建议）")
+    adopt_status = Column(String(16), nullable=False, default="pending", server_default="pending",
+                          comment="auto / pending / conflict / parse_failed / rejected")
+    before_value = Column(Text, comment="采纳前值 JSON")
+    after_value = Column(Text, comment="采纳后值 JSON")
+    stage_log_id = Column(Integer, comment="关联流转留痕")
+    risk_id = Column(Integer, comment="关联风险事件")
+    reviewer = Column(String(64))
+    reviewed_at = Column(DateTime)
+    review_note = Column(String(500))
+    rolled_back = Column(Integer, nullable=False, default=0, server_default="0")
+    rollback_at = Column(DateTime)
+    pending_rerun = Column(Integer, nullable=False, default=0, server_default="0",
+                           comment="通道不可用=待自动补跑，不转人工判定")
+    reporter = Column(String(64), comment="代录反馈人（必填）")
+    feedback_at = Column(DateTime, default=now_cn)
+    created_at = Column(DateTime, default=now_cn)
+    __table_args__ = (
+        UniqueConstraint("message_id", "track_id", name="uq_pb_feedback_mail"),
+        Index("idx_pb_feedback_track", "track_id"),
+        Index("idx_pb_feedback_status", "adopt_status"),
+    )

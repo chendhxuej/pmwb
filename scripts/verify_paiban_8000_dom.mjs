@@ -221,14 +221,14 @@ with create_engine(settings.DATABASE_URL, pool_pre_ping=True, connect_args={'con
     let phReady = false
     for (let i = 0; i < 2 && !phReady; i++) {
       await cdp.goto(`${BASE}/paiban/track?v=pbcheck`)
-      phReady = await cdp.waitFor('.pb-placeholder', 20000)
+      phReady = await cdp.waitFor('.pb-page .pb-lanes', 20000)
       if (!phReady) await sleep(800)
     }
-    ok('D1 排版跟踪占位页渲染', phReady)
+    ok('D1 排版跟踪真页面渲染', phReady)
     const phText = await cdp.eval('document.body.innerText').catch(() => '')
-    ok('D2 占位页有「打开交互原型 Demo」', phText.includes('打开交互原型 Demo'))
-    ok('D3 占位页明确标注静态示意 / 不读写业务表',
-      phText.includes('不读写业务表') && phText.includes('结构占位'))
+    ok('D2 排版跟踪页有「从候选池纳入」入口', phText.includes('从候选池纳入'))
+    ok('D3 页面明确标注默认自动顺延与主行口径',
+      phText.includes('默认自动顺延') && phText.includes('不可加总'))
 
     await cdp.goto(`${BASE}/paiban-demo.html`)
     const demoReady = await cdp.waitFor('#app, body', 15000)
