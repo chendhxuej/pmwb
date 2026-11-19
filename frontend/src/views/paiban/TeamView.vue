@@ -42,6 +42,14 @@
           </div>
         </div>
       </template>
+      <!-- 主行 0 = 该版本还没纳入任何工单，显式引导，避免误以为系统没关联 -->
+      <el-alert v-if="!loading && !(matrix.main_row_count > 0)" type="warning" show-icon :closable="false" class="pb-empty-hint">
+        <template #title>该版本尚未纳入任何工单</template>
+        <template #default>
+          版本计划只是发布日基准，<b>不会自动抓取需求和 BUG</b>（避免把未确认的工单塞进跟踪）。
+          请先到左侧「排版跟踪」→ 点「从候选池纳入」→ 勾选要跟的需求/BUG → 纳入；纳入后系统按系统名自动归属到本版本，本页即出现团队子行。
+        </template>
+      </el-alert>
       <el-table :data="matrix.grid || []" size="small" border>
         <el-table-column prop="team_name" label="团队 / 系统" min-width="160" fixed="left" />
         <el-table-column v-for="s in matrix.stages || []" :key="s.key" :label="s.label" min-width="100" align="center">
@@ -118,6 +126,7 @@ onMounted(loadAll)
 <style scoped>
 .pb-page { padding: 4px 2px 24px; }
 .pb-alert { margin-bottom: 14px; }
+.pb-empty-hint { margin-bottom: 12px; }
 .pb-card { margin-bottom: 16px; }
 .pb-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .pb-card-title { font-weight: 600; }

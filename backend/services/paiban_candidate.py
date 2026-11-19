@@ -111,14 +111,14 @@ def scan(db: Session, *, keyword: str = "", limit: int = 200,
     limit = max(1, min(int(limit or 200), 500))
     hits, excluded = [], []
     if ticket_type != "bug":
-        q = db.query(PmwbRequirementExt, SentEmail).outerjoin(
-            SentEmail, SentEmail.req_id == PmwbRequirementExt.req_id
-        )
+        # 只按需求主表查，每行一条需求：严禁 outerjoin SentEmail —— 一个需求有多封
+        # 邮件会 join 出 N 行重复候选（运行态 2026110031 有 4 封邮件曾重复 4 次）。
+        # 邮件名/系统/版本锚点的兜底由 _source_by_no() 内部按 req_id 取首封完成。
+        q = db.query(PmwbRequirementExt)
         if keyword:
             q = q.filter(PmwbRequirementExt.req_id.like(f"%{keyword}%")
-                         | PmwbRequirementExt.req_name.like(f"%{keyword}%")
-                         | SentEmail.req_name.like(f"%{keyword}%"))
-        for ext, mail in q.order_by(PmwbRequirementExt.id.desc()).limit(limit).all():
+                         | PmwbRequirementExt.req_name.like(f"%{keyword}%"))
+        for ext in q.order_by(PmwbRequirementExt.id.desc()).limit(limit).all():
             row = _source_by_no(db, "req", (ext.req_id or "").strip())
             if row:
                 _classify(db, row, hits, excluded)

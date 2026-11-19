@@ -87,6 +87,17 @@ def test_a1_candidate_rules(db):
     assert reasons.get("BUG-2") == "excluded_type", reasons
 
 
+def test_a1b_candidate_multi_mail_no_dup(db):
+    """一个需求有多封邮件时候选池只出一条（outerjoin 一对多曾重复 4 次）。"""
+    _req(db, "REQ-1")
+    for i in range(3):
+        db.add(SentEmail(req_id="REQ-1", req_name="需求REQ-1 副本", system_name="订单中心"))
+    db.flush()
+    got = CS.scan(db)
+    hits = [x for x in got["items"] if x["ticket_no"] == "REQ-1"]
+    assert len(hits) == 1, f"REQ-1 被重复列为 {len(hits)} 条: {got['summary']}"
+
+
 def test_a2_include_idempotent(db):
     _req(db)
     a = _track(db)
