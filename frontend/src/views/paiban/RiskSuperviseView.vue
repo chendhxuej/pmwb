@@ -237,7 +237,8 @@ const overdueBatches = computed(() => (batches.value.items || []).filter(x => x.
 async function loadAll() {
   loading.value = true
   try {
-    const p = await listVersionPlans({ status: 'confirmed' })
+    meta.value = await getPaibanMeta()
+    const p = await listVersionPlans({ status: 'confirmed', future_only: true })
     plans.value = p.items || []
     if (!planId.value && plans.value.length) planId.value = plans.value[0].id
     await Promise.all([loadRisks(), loadPreview(), loadBatches()])

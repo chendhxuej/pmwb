@@ -129,7 +129,7 @@ async function loadAll() {
   loading.value = true
   try {
     meta.value = await getPaibanMeta()
-    const p = await listVersionPlans({ status: 'confirmed' })
+    const p = await listVersionPlans({ status: 'confirmed', future_only: true })
     plans.value = p.items || []
     if (!planId.value && plans.value.length) planId.value = plans.value[0].id
     await loadMatrix()
