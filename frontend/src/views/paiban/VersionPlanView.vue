@@ -4,7 +4,7 @@
       <template #actions>
         <el-button @click="openDemo">交互原型 Demo</el-button>
         <el-button :loading="loading" @click="loadAll">刷新</el-button>
-        <el-button type="primary" :disabled="!metaReady" @click="openCreate">登记版本计划</el-button>
+        <el-button type="primary" @click="openCreate">登记版本计划</el-button>
       </template>
     </PageHeader>
 
@@ -13,14 +13,15 @@
       <template #default>可继续登记，系统名将标记为「待自动补校验」；字典恢复后自动复校，无需人工判定。</template>
     </el-alert>
 
-    <!-- 枚举字典加载失败：必须显式暴露并自恢复，禁止静默降级成英文 value -->
-    <el-alert v-if="metaError" type="error" show-icon :closable="false" class="pb-alert">
-      <template #title>版本计划字典加载失败，登记入口已临时锁定</template>
+    <!-- 枚举字典单次加载失败：不锁死登记，用内置标签兜底并显式告警（权威仍是 /paiban/meta） -->
+    <el-alert v-if="metaError" :type="metaFallback ? 'warning' : 'error'" show-icon :closable="false" class="pb-alert">
+      <template #title>
+        {{ metaFallback ? '字典接口暂不可用，已用内置标签兜底，不影响登记' : '字典接口暂不可用，选项显示为参考标签' }}
+      </template>
       <template #default>
-        正在自动重试（最多 3 次）；也可
-        <el-button link type="primary" @click="retryMeta">立即重试</el-button>
-        。字典未就绪时打开弹窗会退化为英文原值（regular / draft / open），故先锁定。
-        若持续失败，请刷新页面（Ctrl+Shift+R）或检查 /paiban/meta 接口。
+        失败原因：<b>{{ metaErrorMsg }}</b>。待后端恢复会自动切回权威字典，登记/编辑照常可用。
+        <el-button link type="primary" @click="retryMeta">重试</el-button>
+        <span v-if="metaFallback" class="pb-hint">（内置标签仅用于展示兜底，枚举口径仍以 /paiban/meta 为准，恢复后自动覆盖）</span>
       </template>
     </el-alert>
 
@@ -256,6 +257,25 @@ import {
 
 const meta = ref({ system_options: [], stages: [] })
 const metaError = ref(false)
+const metaFallback = ref(false)   // 当前字典是否来自兜底（缓存 / 内置快照）
+const metaErrorMsg = ref('')
+const META_CACHE_KEY = 'pmwb_pb_meta_cache'
+// 离线只读兜底：仅用于 el-option 展示，提交值仍是固定契约 value，不参与任何业务判定。
+// 权威口径始终以 /paiban/meta（constants/paiban.py）为准，接口恢复后即被覆盖。
+const FALLBACK_META = {
+  stages: [
+    { key: 'plan_confirm', label: '方案确认中', offset_days: -15 },
+    { key: 'dev', label: '开发中', offset_days: -8 },
+    { key: 'test', label: '测试中', offset_days: -3 },
+    { key: 'wait_release', label: '等待发布', offset_days: -1 },
+  ],
+  freeze_offset_days: -15,
+  scope_types: [{ value: 'default', label: '统一默认' }, { value: 'system', label: '指定系统' }],
+  version_types: [{ value: 'regular', label: '常规版' }, { value: 'emergency', label: '紧急补丁' }, { value: 'ad_hoc', label: '临时加版' }],
+  plan_statuses: [{ value: 'draft', label: '拟定' }, { value: 'confirmed', label: '已确认' }, { value: 'published', label: '已发布' }, { value: 'closed', label: '已收口' }, { value: 'cancelled', label: '已取消' }],
+  admit_modes: [{ value: 'open', label: '开放（无提前准入闸门）' }, { value: 'wait_release_n_days', label: '提前 N 天进入等待发布才准入' }],
+  default_admit_lead_days: 7, crm_system_key: 'CRM', system_options: [], dict_degraded: true,
+}
 const rows = ref([])
 const summary = ref({})
 const loading = ref(false)
@@ -277,9 +297,6 @@ const blankForm = () => ({
 })
 const form = reactive(blankForm())
 
-// 字典就绪 = scope_types 到位；未就绪时登记入口锁定，杜绝英文原值弹窗
-const metaReady = computed(() => (meta.value.scope_types || []).length > 0)
-
 const subtitle = computed(() => {
   const offs = (meta.value.stages || []).map(s => `${s.label} ${s.offset_days}d`).join(' / ')
   return offs ? `统一倒排：${offs}；未单独配置的系统回落统一默认计划` : '版本计划是四环节截止与准入判定的唯一基准'
@@ -299,19 +316,34 @@ const statusTone = s => ({ published: 'success', confirmed: 'primary', closed: '
 
 let metaRetryTimer = null
 let metaRetryLeft = 0
+const errText = e => {
+  if (!e) return '未知错误'
+  if (typeof e === 'string') return e
+  if (e.message) return e.message
+  if (e.response?.status) return `HTTP ${e.response.status}`
+  if (e.code) return `业务码 ${e.code}`
+  return '网络请求失败'
+}
+function applyMeta(data, fallback) {
+  meta.value = data || FALLBACK_META
+  metaFallback.value = fallback
+}
 async function loadMeta(retry = true) {
   try {
     const data = await getPaibanMeta()
-    meta.value = data || { system_options: [], stages: [] }
-    if (metaReady.value) {
-      metaError.value = false
-      metaRetryLeft = 0
-    } else {
-      // 200 但字典为空（异常态）：同样视为失败，触发重试
-      throw new Error('字典为空')
-    }
+    if (!(data?.scope_types || []).length) throw new Error('接口返回的字典为空')
+    applyMeta(data, false)
+    metaError.value = false
+    metaErrorMsg.value = ''
+    metaRetryLeft = 0
+    try { localStorage.setItem(META_CACHE_KEY, JSON.stringify(data)) } catch (_) { /* 隐私模式忽略 */ }
   } catch (e) {
     metaError.value = true
+    metaErrorMsg.value = errText(e)
+    // 兜底顺序：上次成功缓存 > 内置只读快照。字典仅影响展示，绝不锁死登记。
+    let cached = null
+    try { cached = JSON.parse(localStorage.getItem(META_CACHE_KEY) || 'null') } catch (_) { /* ignore */ }
+    applyMeta((cached?.scope_types || []).length ? cached : FALLBACK_META, true)
     if (retry && metaRetryLeft < 3) {
       metaRetryLeft += 1
       clearTimeout(metaRetryTimer)
@@ -385,19 +417,11 @@ function onAdmitModeChange(v) {
 }
 
 function openCreate() {
-  if (!metaReady.value) {
-    ElMessage.warning('枚举字典尚未加载完成，请稍候或点「立即重试」后再登记')
-    return
-  }
   editing.value = false; editId.value = null
   Object.assign(form, blankForm())
   dialogVisible.value = true
 }
 function openEdit(row) {
-  if (!metaReady.value) {
-    ElMessage.warning('枚举字典尚未加载完成，请稍候或点「立即重试」后再编辑')
-    return
-  }
   editing.value = true; editId.value = row.id
   Object.assign(form, {
     version_no: row.version_no, scope_type: row.scope_type, system_name: row.system_name,

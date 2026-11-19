@@ -165,11 +165,9 @@ async function main() {
     ok('2.10 新登记默认选中「统一默认」', defaultChecked === true, `checked=${defaultChecked}`)
     console.log(`\n  [debug] selects = ${selects}`)
 
-    // === 3 降级态：字典加载失败时入口锁定，不出现英文原值弹窗 ===
-    console.log('\n=== 3 降级态：/paiban/meta 失败时登记入口锁定 ===')
+    // === 3 降级态：字典加载失败时入口不锁死、用兜底中文、显示原因 ===
+    console.log('\n=== 3 降级态：/paiban/meta 失败时仍可登记（不锁死）===')
     await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*api/v1/paiban/meta*', requestStage: 'Request' }] })
-    const dlgState = { served: false }
-    // 注册一次性的失败响应处理（用 send 的并行 listener）
     const ws2Handler = async (m) => {
       if (m.method !== 'Fetch.requestPaused') return
       const body = Buffer.from(JSON.stringify({ code: 500, message: 'mock meta down', data: null })).toString('base64')
@@ -178,18 +176,39 @@ async function main() {
         responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
         body,
       }).catch(() => {})
-      dlgState.served = true
     }
     cdp.ws.addEventListener('message', ev => { const m = JSON.parse(ev.data); ws2Handler(m).catch(() => {}) })
     await cdp.goto(`${BASE}/paiban/versions?v=metadown-${Date.now()}`)
     await sleep(2500)
     const degraded = await cdp.eval(`(() => {
       const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('登记版本计划'));
-      const alert = [...document.querySelectorAll('.el-alert')].some(x => x.innerText.includes('字典加载失败'));
-      return { disabled: b ? b.disabled : null, alert };
+      const alerts = [...document.querySelectorAll('.el-alert')].map(x => x.innerText).join(' || ');
+      return {
+        disabled: b ? b.disabled : null,
+        fallbackAlert: alerts.includes('兜底') || alerts.includes('暂不可用'),
+        reason: alerts.includes('失败原因') || alerts.includes('mock meta down') || alerts.includes('业务码'),
+      };
     })()`)
-    ok('3.1 字典失败时提示「字典加载失败」', degraded.alert === true, `alert=${degraded.alert}`)
-    ok('3.2 字典失败时登记按钮锁定', degraded.disabled === true, `disabled=${degraded.disabled}`)
+    ok('3.1 字典失败时显示兜底告警（非静默英文）', degraded.fallbackAlert === true, `alert=${degraded.fallbackAlert}`)
+    ok('3.2 字典失败时登记按钮【不锁定】', degraded.disabled === false, `disabled=${degraded.disabled}`)
+    ok('3.3 字典失败时显示失败原因', degraded.reason === true, `reason=${degraded.reason}`)
+
+    // 3.4 降级态下点开弹窗，选项仍是中文（缓存/内置快照兜底），不出现英文原值
+    const clicked2 = await cdp.eval(`(() => {
+      const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('登记版本计划'));
+      if (!b || b.disabled) return false; b.click(); return true;
+    })()`)
+    ok('3.4 降级态下登记弹窗仍能打开', clicked2 === true)
+    await cdp.waitFor('.el-dialog', 15000)
+    await sleep(400)
+    const dlg2 = await cdp.eval(`(() => {
+      const d = [...document.querySelectorAll('.el-dialog')].find(x => x.offsetParent !== null || getComputedStyle(x).display !== 'none');
+      return d ? d.innerText : '';
+    })()`)
+    ok('3.5 降级态弹窗仍有「统一默认/指定系统」', dlg2.includes('统一默认') && dlg2.includes('指定系统'))
+    ok('3.6 降级态弹窗无裸英文 regular', !/\bregular\b/.test(dlg2))
+    ok('3.7 降级态弹窗无裸英文 draft', !/\bdraft\b/.test(dlg2))
+    ok('3.8 降级态弹窗无裸英文 open', !/\bopen\b/.test(dlg2))
     await cdp.send('Fetch.disable').catch(() => {})
   } finally {
     try { chrome.kill() } catch (_) {}
