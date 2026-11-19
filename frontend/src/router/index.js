@@ -53,6 +53,47 @@ const routes = [
         ],
       },
       {
+        // 排版管理（2026-11-19 pb-1 启动）：导航置于「任务中心」与「需求与交付」之间。
+        // 5 个二级页，默认落地「排版跟踪」；MainLayout 依据 children 自动渲染二级导航。
+        // pb-1 只交付「版本计划」页，其余页为带交付编号的占位（pb-2~pb-7 逐页替换）。
+        path: 'paiban',
+        component: () => import('@/views/paiban/PaibanLayout.vue'),
+        redirect: '/paiban/track',
+        meta: { title: '排版管理', icon: 'Calendar' },
+        children: [
+          {
+            path: 'track',
+            name: 'PaibanTrack',
+            component: () => import('@/views/paiban/PaibanPlaceholder.vue'),
+            meta: { title: '排版跟踪', icon: 'DataLine', pb: 'pb-2 / pb-3 / pb-8' },
+          },
+          {
+            path: 'versions',
+            name: 'PaibanVersions',
+            component: () => import('@/views/paiban/VersionPlanView.vue'),
+            meta: { title: '版本计划', icon: 'Calendar' },
+          },
+          {
+            path: 'teams',
+            name: 'PaibanTeams',
+            component: () => import('@/views/paiban/PaibanPlaceholder.vue'),
+            meta: { title: '团队跟踪', icon: 'User', pb: 'pb-4' },
+          },
+          {
+            path: 'risks',
+            name: 'PaibanRisks',
+            component: () => import('@/views/paiban/PaibanPlaceholder.vue'),
+            meta: { title: '风险与督办', icon: 'Warning', pb: 'pb-5 / pb-6' },
+          },
+          {
+            path: 'feedback',
+            name: 'PaibanFeedback',
+            component: () => import('@/views/paiban/PaibanPlaceholder.vue'),
+            meta: { title: '反馈同步', icon: 'Message', pb: 'pb-7' },
+          },
+        ],
+      },
+      {
         path: 'requirement-delivery',
         name: 'RequirementDelivery',
         component: () => import('@/views/RequirementDeliveryView.vue'),

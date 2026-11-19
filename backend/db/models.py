@@ -2406,3 +2406,61 @@ class PmwbComplaintTicketModule(Base):
         Index("idx_ctm_module", "module_problem_id"),
         Index("idx_ctm_review", "review_status"),
     )
+
+
+# ────────────────────────────────────────────────────────────────
+# 排版管理（PB 批次 pb-1 / L1）：版本计划与变更日志
+# 四环节截止 / 准入判定时点由 constants/paiban.py 按发布日派生，不落库；
+# 准入规则只配在版本计划上，工单级手工例外放行由 pb-3 实现。
+# ────────────────────────────────────────────────────────────────
+class PmwbPbVersionPlan(Base):
+    """版本计划：统一默认 + 按系统覆盖。发布日 = 全部倒排与准入判定的唯一基准。"""
+
+    __tablename__ = "pmwb_pb_version_plan"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    version_no = Column(String(64), nullable=False, comment="版本标识，同范围内唯一")
+    scope_type = Column(String(16), nullable=False, default="system", server_default="system",
+                        comment="default=统一默认 / system=指定系统")
+    system_name = Column(String(128), comment="指定系统名（default 时为空）")
+    system_verified = Column(Integer, nullable=False, default=1, server_default="1",
+                             comment="0=中台字典不可达，待自动补校验")
+    version_type = Column(String(16), nullable=False, default="regular", server_default="regular",
+                          comment="regular/emergency/ad_hoc")
+    release_date = Column(Date, nullable=False, comment="计划发布日")
+    status = Column(String(16), nullable=False, default="draft", server_default="draft",
+                    comment="draft/confirmed/published/closed/cancelled")
+    admit_mode = Column(String(24), nullable=False, default="open", server_default="open",
+                        comment="open / wait_release_n_days（CRM=提前 7 自然日）")
+    admit_lead_days = Column(Integer, nullable=False, default=0, server_default="0",
+                             comment="提前准入天数")
+    allow_temp_merge = Column(Integer, nullable=False, default=1, server_default="1",
+                              comment="0=未准入默认自动顺延；留本版须走单据级手工例外放行")
+    next_version_id = Column(Integer, comment="人工指定顺延目标版本；空=按版本序列解析")
+    remark = Column(Text, comment="窗口说明")
+    created_at = Column(DateTime, default=now_cn, comment="建立时间")
+    updated_at = Column(DateTime, default=now_cn, onupdate=now_cn, comment="更新时间")
+    __table_args__ = (
+        UniqueConstraint("scope_type", "system_name", "version_no", name="uq_pb_plan_scope_no"),
+        Index("idx_pb_plan_release", "release_date"),
+        Index("idx_pb_plan_scope", "scope_type", "system_name"),
+    )
+
+
+class PmwbPbVersionChangeLog(Base):
+    """版本计划变更留痕：改期 / 状态 / 准入规则逐字段一条，含影响在跟工单数。"""
+
+    __tablename__ = "pmwb_pb_version_change_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    plan_id = Column(Integer, nullable=False, comment="版本计划 ID")
+    version_no = Column(String(64), comment="变更时版本标识快照")
+    change_type = Column(String(16), nullable=False, default="update", server_default="update",
+                         comment="create/update")
+    field = Column(String(64), nullable=False, comment="变更字段")
+    old_value = Column(String(255), comment="旧值")
+    new_value = Column(String(255), comment="新值")
+    affected_count = Column(Integer, nullable=False, default=0, server_default="0",
+                            comment="受影响的在跟主行数")
+    operator = Column(String(64), comment="操作人")
+    changed_at = Column(DateTime, default=now_cn, comment="变更时间")
+    remark = Column(Text, comment="说明")
+    __table_args__ = (Index("idx_pb_log_plan", "plan_id"),)

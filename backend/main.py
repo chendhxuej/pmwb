@@ -50,6 +50,7 @@ from routers import (
     work_report,
     workload_analysis,
     ai_qa,
+    paiban,
 )
 
 
@@ -193,6 +194,7 @@ app.include_router(material.cat_router, prefix="/api/v1", tags=["业务资料库
 app.include_router(high_level.router, prefix="/api/v1", tags=["高级别工单"])
 app.include_router(sensitive_req.router, prefix="/api/v1", tags=["敏感需求跟踪"])
 app.include_router(workload_analysis.router, prefix="/api/v1", tags=["工作量分析"])
+app.include_router(paiban.router, prefix="/api/v1", tags=["排版管理"])
 
 
 # ── 前端 SPA 托管（mb-4）：dist 存在时挂在根路径，穿透只映射 8000 即可访问页面 ──
