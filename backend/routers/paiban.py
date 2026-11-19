@@ -25,8 +25,8 @@ from schemas.paiban import (
     FeedbackMailPullRequest, FeedbackReviewRequest, FeedbackRollbackRequest,
     FeedbackSubmitRequest, InlineIncludeRequest, ManualHandleRequest,
     RemoveRequest, ResultRequest, RiskCreateRequest, RiskResolveRequest,
-    SupervisePreviewRequest, SuperviseSendRequest, SyncRequest, TeamStageRequest,
-    VersionPlanCreate, VersionPlanUpdate,
+    SupervisePreviewRequest, SuperviseSendRequest, SyncRequest, TeamStageBatchRequest,
+    TeamStageRequest, VersionPlanCreate, VersionPlanUpdate,
 )
 from services import paiban_version as svc
 
@@ -57,12 +57,15 @@ def list_versions(
     system_name: Optional[str] = None,
     status: Optional[str] = None,
     include_cancelled: bool = False,
+    future_only: bool = False,
     db=Depends(get_db),
 ):
-    """版本计划列表；派生四环节截止与准入判定时点随读随算，不落副本。"""
+    """版本计划列表；派生四环节截止与准入判定时点随读随算，不落副本。
+    future_only=true 只列发布日≥今天的有效计划（版本计划页默认口径）。"""
     return success(data=svc.list_plans(
         db, scope_type=scope_type, system_name=system_name,
         status=status, include_cancelled=include_cancelled,
+        future_only=future_only,
     ))
 
 
@@ -160,6 +163,13 @@ def manual_handle(track_id: int, payload: "ManualHandleRequest", db=Depends(get_
 @router.get("/tracks/{track_id}/timeline")
 def timeline(track_id: int, db=Depends(get_db)):
     return success(data=TS.timeline(db, track_id))
+
+
+@router.post("/teams/stage/batch")
+def set_team_stage_batch(payload: "TeamStageBatchRequest", db=Depends(get_db)):
+    return success(data=TEAM.batch_set_stage(
+        db, payload.items, operator=payload.operator or "", source=payload.source),
+        message="批量环节更新完成")
 
 
 @router.post("/teams/{team_id}/stage")

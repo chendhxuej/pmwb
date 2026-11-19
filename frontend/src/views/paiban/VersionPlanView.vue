@@ -82,10 +82,15 @@
             <el-select v-model="filter.status" clearable placeholder="状态" style="width: 130px" @change="loadList">
               <el-option v-for="o in meta.plan_statuses || []" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
+            <el-checkbox v-model="filter.future_only" @change="loadList">仅未来计划</el-checkbox>
             <el-checkbox v-model="filter.include_cancelled" @change="loadList">含已取消</el-checkbox>
           </div>
         </div>
       </template>
+
+      <el-alert type="info" :closable="false" show-icon class="pb-alert">
+        <template #default>默认只列<b>计划发布日 ≥ 今天</b>的有效计划；历史版本不删除，取消勾选「仅未来计划」即可查看全部。</template>
+      </el-alert>
 
       <el-table :data="rows" v-loading="loading" border stripe size="small" empty-text="暂无版本计划，先登记一条统一默认计划">
         <el-table-column prop="version_no" label="版本标识" min-width="170" show-overflow-tooltip>
@@ -288,7 +293,7 @@ const editId = ref(null)
 const previewData = ref({})
 const resolveSystem = ref('')
 const resolveResult = ref(null)
-const filter = reactive({ scope_type: '', status: '', include_cancelled: false })
+const filter = reactive({ scope_type: '', status: '', future_only: true, include_cancelled: false })
 
 const blankForm = () => ({
   version_no: '', scope_type: 'default', system_name: '', version_type: 'regular',
@@ -362,6 +367,7 @@ async function loadList() {
     const r = await listVersionPlans({
       scope_type: filter.scope_type || undefined,
       status: filter.status || undefined,
+      future_only: filter.future_only,
       include_cancelled: filter.include_cancelled,
     })
     rows.value = r.items || []

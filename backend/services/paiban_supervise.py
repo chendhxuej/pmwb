@@ -7,7 +7,7 @@
   - 收件人解析失败不静默丢弃，进「无法督办」清单；解析链只用 resolve_contact_emails。
 """
 
-import uuid
+import hashlib
 from html import escape as _esc
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,6 +23,12 @@ from db.models import (
 from services import paiban_common as K
 
 RECEIPT_SUBJECT_PREFIX = "【排版督办回执】"
+
+
+def _preview_receipt(track_id: int, team_id: int, plan_id: int) -> str:
+    """确定性预览回执码：同一(工单,团队,版本)在预览与实发间恒定，保证预览=实发同源。"""
+    seed = f"PB|{plan_id}|{track_id}|{team_id}".encode("utf-8")
+    return "PB-" + hashlib.md5(seed).hexdigest()[:12].upper()
 
 
 def _last_sent(db: Session, track_id: int, team_id: Optional[int]) -> Optional[PmwbPbSuperviseItem]:
@@ -153,7 +159,10 @@ def build_preview(db: Session, *, plan_id: int, team_name: str = "",
         })
         item = {
             "track_id": t.id, "team_id": sub.id, "ticket_no": t.ticket_no,
-            "title": t.title, "stage": t.stage, "deadline": K.stage_metrics(db, t)["deadline"],
+            "title": t.title, "stage": t.stage,
+            "stage_label": C.STAGE_LABELS.get(t.stage, t.stage),
+            "deadline": K.stage_metrics(db, t)["deadline"],
+            "receipt_code": _preview_receipt(t.id, sub.id, plan_id),
             "triggers": triggers, "skip_reason": skip,
             "skip_reason_label": dict(C.SUPERVISE_EXCLUDE_RULES).get(skip, skip),
             "cooldown_left_h": cooldown_left_hours(db, t.id, sub.id),
@@ -163,12 +172,21 @@ def build_preview(db: Session, *, plan_id: int, team_name: str = "",
             g["skipped_count"] += 1
         else:
             g["included_count"] += 1
+    plan = db.query(PmwbPbVersionPlan).filter_by(id=plan_id).first()
+    plan_no = plan.version_no if plan else str(plan_id)
+    result_groups = sorted(groups.values(), key=lambda x: (x["team_name"], x["ticket_type"]))
+    for g in result_groups:
+        batch_no = f"PB{plan_id}-预览-{g['team_name']}-{g['ticket_type']}"
+        g["batch_no_hint"] = _batch_no(db, plan_id)
+        g["mail"] = {
+            "subject": f"{RECEIPT_SUBJECT_PREFIX}{plan_no} / {g['team_name']} / {g['batch_no_hint']}",
+            "body_html": _body(g, g["batch_no_hint"], plan_no),
+        }
     return {
-        "plan_id": plan_id, "groups": sorted(groups.values(),
-                                              key=lambda x: (x["team_name"], x["ticket_type"])),
+        "plan_id": plan_id, "groups": result_groups,
         "cooldown_hours": C.COOLDOWN_HOURS,
         "exception_options": [{"value": k, "label": v} for k, v in C.COOLDOWN_EXCEPTIONS],
-        "scope_note": "预览不写库不发信；回执码在确认发送时生成",
+        "scope_note": "预览含真实邮件正文，可在发送前编辑；回执码预览与实发同源",
         "dry_run_note": "自测一律 dry_run；真发仅页面显式 confirm_send=true",
     }
 
@@ -208,6 +226,9 @@ def send(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     ignore = bool(payload.get("ignore_cooldown", False))
     ex_reason = (payload.get("exception_reason") or "").strip()
     groups_req = payload.get("groups")
+    # 编辑后的邮件正文（预览=实发同源）：按 team|ticket_type 索引 {subject, body_html}。
+    # 安全护栏：编辑正文必须保留本组全部回执码，否则拒绝（回执码是反馈回收唯一锚点）。
+    edited = payload.get("edited_mails") or {}
     preview = build_preview(db, plan_id=plan_id, team_name=(payload.get("team_name") or "").strip(),
                             ticket_type=(payload.get("ticket_type") or "").strip(),
                             ignore_cooldown=ignore, exception_reason=ex_reason)
@@ -225,7 +246,8 @@ def send(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
         batch_no = _batch_no(db, plan_id)
         sent, skipped, failed = 0, 0, 0
         for it in g["items"]:
-            it["receipt_code"] = "PB-" + uuid.uuid4().hex[:12].upper()
+            # 回执码与预览同源（确定性生成）；仍是本批次唯一锚点，反馈回收按此精确匹配。
+            it["receipt_code"] = _preview_receipt(it["track_id"], it["team_id"], plan_id)
         batch = PmwbPbSuperviseBatch(
             batch_no=batch_no, team_name=g["team_name"], ticket_type=g["ticket_type"],
             plan_id=plan_id, rules_snapshot=K.jdump(
@@ -257,10 +279,27 @@ def send(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
         if g["included_count"] and g["recipients"]:
             try:
                 from services.mail_dispatch import dispatch_email
+                subject = f"{RECEIPT_SUBJECT_PREFIX}{plan_no} / {g['team_name']} / {batch_no}"
+                body_html = _body(g, batch_no, plan_no)
+                edit = edited.get(f"{g['team_name']}|{g['ticket_type']}") or {}
+                if edit:
+                    es = (edit.get("subject") or "").strip()
+                    eb = (edit.get("body_html") or "").strip()
+                    # 护栏1：编辑正文必须含全部回执码（反馈回收锚点不可删）。
+                    required_codes = [it["receipt_code"] for it in g["items"] if not it["skip_reason"]]
+                    missing = [c for c in required_codes if c and c not in eb]
+                    if missing:
+                        raise ValidationException(
+                            f"编辑后的邮件正文缺少回执码锚点（{', '.join(missing[:3])}），已拒绝发送以保护反馈回收")
+                    # 护栏2：真实批次号必须以实际为准替换预览批次号。
+                    if eb:
+                        eb = eb.replace(g.get("batch_no_hint", ""), batch_no)
+                        body_html = eb
+                    if es:
+                        subject = es if batch_no in es else f"{es} / {batch_no}"
                 mail_result = dispatch_email(
-                    db=db, to=g["recipients"],
-                    subject=f"{RECEIPT_SUBJECT_PREFIX}{plan_no} / {g['team_name']} / {batch_no}",
-                    body=_body(g, batch_no, plan_no), email_type="pmwb_paiban_supervise",
+                    db=db, to=g["recipients"], subject=subject,
+                    body=body_html, email_type="pmwb_paiban_supervise",
                     source="pmwb", ref_type="paiban_supervise", ref_id=batch_no,
                     confirm_send=confirm and not dry_run,
                 )

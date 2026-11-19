@@ -57,7 +57,13 @@
       </template>
       <div class="pb-lanes">
         <div v-for="s in meta.stages || []" :key="s.key" class="pb-lane">
-          <div class="pb-lane-head">{{ s.label }} <span>{{ laneCount(s.key) }}</span></div>
+          <div class="pb-lane-head">
+            <span>{{ s.label }} <small>· {{ shortStage(s.label) }} −{{ Math.abs(s.offset_days) }}d</small></span>
+            <span>{{ laneCount(s.key) }}</span>
+          </div>
+          <div class="pb-lane-deadline" v-if="currentPlan">
+            截止 {{ stageDeadline(s.key) || '—' }}
+          </div>
           <div class="pb-lane-body">
             <div v-for="t in laneTracks(s.key)" :key="t.id" class="pb-ticket" @click="openTrack(t)">
               <div class="pb-ticket-top">
@@ -70,8 +76,14 @@
               <div class="pb-ticket-meta">
                 <span>{{ t.system_name || '待补全系统' }}</span>
                 <span>{{ t.admit_status_label }}</span>
-                <span v-if="t.metrics?.overdue" class="pb-danger">已超期</span>
-                <span v-else-if="t.metrics?.near_due" class="pb-warn">临期</span>
+                <span v-if="t.owner">· {{ t.owner }}</span>
+              </div>
+              <div class="pb-ticket-meta pb-ticket-timing">
+                <span>截止 {{ t.metrics?.deadline || '—' }}</span>
+                <span v-if="t.metrics?.overdue" class="pb-danger">超期 {{ Math.abs(t.metrics.days_left || 0) }}天</span>
+                <span v-else-if="t.metrics?.near_due" class="pb-warn">剩 {{ t.metrics.days_left }}天</span>
+                <span v-else-if="t.metrics?.days_left != null">剩 {{ t.metrics.days_left }}天</span>
+                <span v-if="t.metrics?.stalled" class="pb-warn">停滞 {{ t.metrics.stalled_days }}天</span>
                 <span v-if="t.blocking_risk_count" class="pb-danger">{{ t.blocking_risk_count }} 风险</span>
               </div>
               <div v-if="t.defer_count" class="pb-ticket-defer">顺延 {{ t.defer_count }} 次 · {{ t.plan?.version_no || '待补版本计划' }}</div>
@@ -91,18 +103,37 @@
       <div class="pb-toolbar">
         <el-input v-model="candKeyword" clearable placeholder="工单号 / 标题" style="width: 240px" @keyup.enter="loadCandidates" />
         <el-button @click="loadCandidates">查询</el-button>
-        <el-button type="primary" :disabled="!selected.length" @click="doInclude">纳入选中（{{ selected.length }}）</el-button>
+        <el-button type="primary" :disabled="!allSelected.length" @click="doInclude">纳入选中（{{ allSelected.length }}）</el-button>
         <el-button @click="doSync">幂等同步源快照</el-button>
       </div>
-      <el-table :data="cands.items || []" height="52vh" @selection-change="v => selected = v.map(x => ({ ticket_type: x.ticket_type, ticket_no: x.ticket_no }))">
-        <el-table-column type="selection" width="46" />
-        <el-table-column prop="ticket_no" label="工单号" width="130" />
-        <el-table-column label="类型" width="80"><template #default="{ row }">{{ row.ticket_type === 'req' ? '需求' : 'BUG' }}</template></el-table-column>
-        <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="system_name" label="系统" width="120" />
-        <el-table-column prop="expected_date" label="期望上线" width="110" />
-        <el-table-column prop="admit_status" label="源状态" width="100" />
-      </el-table>
+      <el-tabs v-model="candTab">
+        <el-tab-pane :label="`命中候选（${cands.summary?.hit_count || 0}）`" name="hit">
+          <el-table :data="cands.items || []" height="46vh" @selection-change="v => selected = v.map(x => ({ ticket_type: x.ticket_type, ticket_no: x.ticket_no }))">
+            <el-table-column type="selection" width="46" />
+            <el-table-column prop="ticket_no" label="工单号" width="130" />
+            <el-table-column label="类型" width="80"><template #default="{ row }">{{ lbl('ticket_types', row.ticket_type) }}</template></el-table-column>
+            <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="system_name" label="系统" width="120" />
+            <el-table-column prop="expected_date" label="期望上线" width="110" />
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane :label="`待补全系统（${cands.summary?.pending_system_count || 0}）`" name="pending">
+          <el-alert type="warning" :closable="false" show-icon class="pb-alert">
+            <template #default>
+              这些在途工单无归属系统（BUG 责任人是人名、未在组织字典映射到系统）。按方案<b>进待补全清单</b>：可显式纳入跟踪，纳入后团队落「（未分配团队）」，系统名待后续补全，不静默丢弃。
+            </template>
+          </el-alert>
+          <el-table :data="cands.pending_system || []" height="40vh" @selection-change="v => selectedPending = v.map(x => ({ ticket_type: x.ticket_type, ticket_no: x.ticket_no }))">
+            <el-table-column type="selection" width="46" />
+            <el-table-column prop="ticket_no" label="工单号" width="130" />
+            <el-table-column label="类型" width="80"><template #default="{ row }">{{ lbl('ticket_types', row.ticket_type) }}</template></el-table-column>
+            <el-table-column prop="title" label="标题" min-width="260" show-overflow-tooltip />
+            <el-table-column prop="expected_date" label="期望上线" width="110" />
+            <el-table-column prop="priority" label="优先级" width="90" />
+            <el-table-column prop="owner" label="责任人" width="120" />
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
       <div class="pb-footnote">排除 {{ cands.summary?.excluded_count || 0 }} 条：
         <span v-for="r in cands.summary?.by_reason || []" :key="r.reason" class="pb-chip">{{ r.label }} {{ r.count }}</span>
       </div>
@@ -206,6 +237,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/Common/PageHeader.vue'
+import { makeLabeler } from '@/utils/paibanLabels.js'
 import {
   getPaibanMeta, listVersionPlans, getPbOverview, listPbTracks, listCandidates,
   includeCandidates, syncTracks, getTrackTimeline, setTrackResult, manualHandle,
@@ -215,7 +247,10 @@ import {
 const meta = ref({}), plans = ref([]), planId = ref(null)
 const ov = ref(null), tracks = ref({ items: [] }), loading = ref(false)
 const filters = reactive({ ticket_type: '', stage: '', admit_status: '', keyword: '' })
-const candVisible = ref(false), cands = ref({ items: [] }), candKeyword = ref(''), selected = ref([])
+const candVisible = ref(false), cands = ref({ items: [] }), candKeyword = ref('')
+const candTab = ref('hit'), selected = ref([]), selectedPending = ref([])
+const allSelected = computed(() => [...selected.value, ...selectedPending.value])
+const lbl = makeLabeler(meta)
 const trackVisible = ref(false), detail = ref({}), timeline = ref({}), detailTab = ref('teams')
 const resultForm = reactive({ result: '', reason: '', result_date: '' })
 const manualForm = reactive({ action: 'defer', reason: '', reason_note: '', operator: '' })
@@ -224,11 +259,13 @@ const riskForm = reactive({ risk_type: 'other', description: '', affect_release:
 const subtitle = computed(() => '围绕版本计划跟踪需求与运营 BUG，直到成功上线')
 const rateText = computed(() => ov.value?.rates?.planned_rate == null ? '—' : Math.round(ov.value.rates.planned_rate * 100))
 const stageLabel = key => (meta.value.stages || []).find(s => s.key === key)?.label || key
+const shortStage = label => (label || '').replace('方案确认中', '方案').replace('等待发布', '待发布')
+const currentPlan = computed(() => plans.value.find(p => p.id === planId.value) || null)
+const stageDeadline = key => (currentPlan.value?.deadlines?.stages || []).find(s => s.key === key)?.deadline || ''
 
 async function loadAll() {
   loading.value = true
   try {
-    meta.value = await getPaibanMeta()
     meta.value = await getPaibanMeta()
     const p = await listVersionPlans({ status: 'confirmed' })
     plans.value = p.items || []
@@ -248,12 +285,13 @@ const laneCount = key => laneTracks(key).length
 
 async function openCandidates() { candVisible.value = true; await loadCandidates() }
 async function loadCandidates() {
-  cands.value = await listCandidates({ keyword: candKeyword.value, limit: 200 })
+  cands.value = await listCandidates({ keyword: candKeyword.value, limit: 500 })
   selected.value = []
+  selectedPending.value = []
 }
 async function doInclude() {
-  if (!selected.value.length) return
-  const out = await includeCandidates({ items: selected.value, operator: '页面' })
+  if (!allSelected.value.length) return
+  const out = await includeCandidates({ items: allSelected.value, operator: '页面' })
   ElMessage.success(`纳入 ${out.created_count} 条，跳过 ${out.skipped_count} 条`)
   await loadAll(); await loadCandidates()
 }
@@ -311,6 +349,9 @@ onMounted(loadAll)
 .pb-lane { background: var(--bg-app); border-radius: var(--radius-sm); padding: 10px; min-height: 260px; }
 .pb-lane-head { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 10px; }
 .pb-lane-head span { color: var(--text-secondary); }
+.pb-lane-head span small { font-weight: 400; color: var(--text-muted); font-size: 11px; }
+.pb-lane-deadline { font-size: 11px; color: var(--text-secondary); margin: -6px 0 8px; }
+.pb-ticket-timing { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border-subtle); }
 .pb-lane-body { display: flex; flex-direction: column; gap: 8px; }
 .pb-ticket { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; cursor: pointer; transition: var(--transition-fast); }
 .pb-ticket:hover { border-color: var(--accent); box-shadow: var(--shadow-card); }

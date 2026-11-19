@@ -72,9 +72,9 @@
       <el-table :data="pending.items || []" size="small" max-height="420">
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="track_id" label="工单" width="90" />
-        <el-table-column prop="channel" label="通道" width="100" />
+        <el-table-column label="通道" width="100"><template #default="{ row }">{{ lbl('feedback_channels', row.channel) }}</template></el-table-column>
         <el-table-column prop="adopt_status" label="状态" width="110">
-          <template #default="{ row }"><el-tag size="small" :type="statusTag(row.adopt_status)" effect="light">{{ statusLabel(row.adopt_status) }}</el-tag></template>
+          <template #default="{ row }"><el-tag size="small" :type="statusTag(row.adopt_status)" effect="light">{{ lbl('feedback_statuses', row.adopt_status) }}</el-tag></template>
         </el-table-column>
         <el-table-column prop="raw_text" label="原文（全量留存）" min-width="280" show-overflow-tooltip />
         <el-table-column label="建议" min-width="220">
@@ -98,6 +98,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/Common/PageHeader.vue'
+import { makeLabeler } from '@/utils/paibanLabels.js'
 import {
   getPaibanMeta, submitPbFeedback, pullMailFeedback, listPendingFeedback,
   reviewPbFeedback, rollbackPbFeedback,
@@ -105,12 +106,12 @@ import {
 
 const meta = ref({}), pending = ref({ items: [] }), status = ref(''), loading = ref(false)
 const form = reactive({ channel: 'inline', track_id: null, team_id: null, stage: '', progress: '', risk: '', affect_release: false, promise_date: '', reporter: '', raw_text: '' })
+const lbl = makeLabeler(meta)
 
 const subtitle = computed(() => '邮件回执 / 批量更新 / 行内记一笔 / 代录，统一留痕可回滚')
 const parseFailedCount = computed(() => (pending.value.items || []).filter(x => x.adopt_status === 'parse_failed').length)
 const conflictCount = computed(() => (pending.value.items || []).filter(x => x.adopt_status === 'conflict').length)
-const statusLabel = key => ({ pending: '待核对', conflict: '冲突', parse_failed: '解析失败' }[key] || key)
-const statusTag = key => ({ pending: 'warning', conflict: 'danger', parse_failed: 'info' }[key] || 'info')
+const statusTag = key => ({ pending: 'warning', conflict: 'danger', parse_failed: 'info', auto: 'success', rejected: 'info' }[key] || 'info')
 const suggestText = row => {
   const s = row.suggested || row.parsed || {}
   return [s.stage ? `环节=${s.stage}` : '', s.progress ? `进度=${s.progress.slice(0, 40)}` : '',

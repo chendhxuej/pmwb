@@ -71,6 +71,9 @@ export function removeTrack(id, payload) {
 export function setTeamStage(id, payload) {
   return request.post(`/paiban/teams/${encodeURIComponent(id)}/stage`, payload)
 }
+export function batchSetTeamStage(items, operator = '页面') {
+  return request.post('/paiban/teams/stage/batch', { items, operator })
+}
 export function teamMatrix(params) {
   return request.get('/paiban/team-matrix', { params })
 }

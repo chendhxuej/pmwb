@@ -31,6 +31,7 @@
           <span class="pb-card-title">风险事件（按工单维度）</span>
           <div class="pb-filters">
             <el-checkbox v-model="onlyBlocking" @change="loadRisks">仅看硬门禁</el-checkbox>
+            <el-button type="primary" plain @click="openRiskCreate">手工登记风险</el-button>
           </div>
         </div>
       </template>
@@ -42,7 +43,7 @@
         <el-table-column prop="description" label="说明（合并更新追加）" min-width="260" show-overflow-tooltip />
         <el-table-column label="影响上线" width="100"><template #default="{ row }"><el-tag :type="row.affect_release ? 'danger' : 'info'" size="small" effect="light">{{ row.affect_release ? '是' : '否' }}</el-tag></template></el-table-column>
         <el-table-column prop="level" label="级别" width="70" />
-        <el-table-column prop="source" label="来源" width="120" />
+        <el-table-column label="来源" width="110"><template #default="{ row }">{{ lbl('change_sources', row.source) }}</template></el-table-column>
         <el-table-column prop="status_label" label="状态" width="100" />
         <el-table-column prop="merge_count" label="合并次数" width="90" />
         <el-table-column label="操作" width="120">
@@ -78,11 +79,13 @@
         <div class="pb-group-head">
           <el-checkbox v-model="chosen[g.team_name + g.ticket_type]">{{ g.team_name }} · {{ g.ticket_type_label }}</el-checkbox>
           <span class="pb-hint">纳入 {{ g.included_count }} · 跳过 {{ g.skipped_count }} · 收件人 {{ g.recipients?.length || 0 }}</span>
+          <el-button link type="primary" @click="openMailEdit(g)">预览 / 编辑邮件</el-button>
+          <el-tag v-if="editedMails[g.team_name + '|' + g.ticket_type]" type="success" size="small" effect="light">已编辑</el-tag>
         </div>
         <el-table :data="g.items" size="small">
           <el-table-column prop="ticket_no" label="工单号" width="130" />
           <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="stage" label="环节" width="110" />
+          <el-table-column label="环节" width="110"><template #default="{ row }">{{ lbl('stages', row.stage) }}</template></el-table-column>
           <el-table-column prop="deadline" label="本环节截止" width="120" />
           <el-table-column label="命中规则" min-width="220">
             <template #default="{ row }"><span v-for="r in row.triggers" :key="r.key" class="pb-chip">{{ r.label }}</span></template>
@@ -107,20 +110,80 @@
       <el-table :data="batches.items || []" size="small">
         <el-table-column prop="batch_no" label="批次号" min-width="210" />
         <el-table-column prop="team_name" label="团队" width="150" />
-        <el-table-column prop="ticket_type" label="类型" width="80" />
+        <el-table-column label="类型" width="80"><template #default="{ row }">{{ lbl('ticket_types', row.ticket_type) }}</template></el-table-column>
         <el-table-column prop="item_count" label="逐单数" width="90" />
         <el-table-column prop="sent_count" label="已发" width="80" />
         <el-table-column prop="skipped_count" label="跳过" width="80" />
         <el-table-column label="模式" width="100"><template #default="{ row }"><el-tag size="small" :type="row.dry_run ? 'info' : 'success'" effect="light">{{ row.dry_run ? 'dry_run' : '实发' }}</el-tag></template></el-table-column>
         <el-table-column prop="receipt_deadline" label="回执截止" width="120" />
-        <el-table-column prop="receipt_status" label="回执状态" width="110" />
+        <el-table-column label="回执状态" width="110"><template #default="{ row }">{{ lbl('receipt_statuses', row.receipt_status) }}</template></el-table-column>
         <el-table-column label="操作" width="90"><template #default="{ row }"><el-button link type="primary" @click="openBatch(row.batch_no)">明细</el-button></template></el-table-column>
       </el-table>
     </el-card>
 
-    <el-dialog v-model="confirmDialog" title="确认真发督办邮件" width="480px">
+    <!-- 手工登记风险事件：类型闭集来自 meta，同(工单,类型)合并更新不新建 -->
+    <el-dialog v-model="riskCreateVisible" title="手工登记风险事件" width="560px" :destroy-on-close="true">
+      <el-form label-width="100px" class="pb-form">
+        <el-form-item label="关联工单" required>
+          <el-select v-model="riskCreate.track_id" filterable placeholder="本版本在跟工单" style="width: 100%">
+            <el-option v-for="t in planTracks" :key="t.id" :label="`${t.ticket_no} · ${t.title}`" :value="t.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="风险类型" required>
+          <el-select v-model="riskCreate.risk_type" style="width: 100%">
+            <el-option v-for="o in meta.risk_types || []" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="级别">
+          <el-select v-model="riskCreate.level" style="width: 100%">
+            <el-option v-for="o in meta.risk_levels || []" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="风险说明" required>
+          <el-input v-model="riskCreate.description" type="textarea" :rows="3" placeholder="现象、影响与待处置事项" />
+        </el-form-item>
+        <el-form-item label="影响本版上线">
+          <el-switch v-model="riskCreate.affect_release" :active-value="1" :inactive-value="0" />
+          <span class="pb-hint">开启后成为硬门禁：未消除前禁止登记「已上线」</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="riskCreateVisible = false">取消</el-button>
+        <el-button type="primary" @click="doRiskCreate">登记风险</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 邮件预览/编辑：预览=实发同源，回执码锚点不可删（后端护栏二次校验） -->
+    <el-dialog v-model="mailEditVisible" title="预览 / 编辑督办邮件" width="820px" :destroy-on-close="true">
+      <el-alert type="info" :closable="false" show-icon class="pb-alert">
+        <template #default>
+          正文由系统按结构化数据装配，<b>预览即实发内容</b>。可调整称呼与说明，但每单的<b>回执码必须保留</b>（反馈回收唯一锚点，后端会校验），批次号将在发送时替换为真实值。
+        </template>
+      </el-alert>
+      <el-form label-width="70px">
+        <el-form-item label="收件人"><span class="pb-hint">{{ (mailEdit.recipients || []).join('、') || '（收件人解析失败，将跳过该组）' }}</span></el-form-item>
+        <el-form-item label="主题">
+          <el-input v-model="mailEdit.subject" />
+        </el-form-item>
+        <el-form-item label="正文">
+          <el-radio-group v-model="mailEdit.mode" size="small" class="pb-mail-mode">
+            <el-radio-button value="visual">可视化</el-radio-button>
+            <el-radio-button value="html">HTML 源码</el-radio-button>
+          </el-radio-group>
+          <div v-if="mailEdit.mode === 'visual'" class="pb-mail-preview" v-html="mailEdit.body_html"></div>
+          <el-input v-else v-model="mailEdit.body_html" type="textarea" :rows="12" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="resetMailEdit">还原系统正文</el-button>
+        <el-button @click="mailEditVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveMailEdit">保存修改</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="confirmDialog" title="确认真发督办邮件" width="520px">
       <el-alert type="error" :closable="false" show-icon class="pb-alert">
-        <template #default>将向所选团队真实发送 {{ selectedGroups.length }} 个批次的督办邮件，发送结果逐单留痕并启动 24h 冷却。请确认对象与内容无误。</template>
+        <template #default>将向所选团队真实发送 {{ selectedGroups.length }} 个批次的督办邮件，发送结果逐单留痕并启动 24h 冷却。<b>已编辑的邮件将按编辑内容发送</b>（回执码锚点仍由系统校验）。请确认对象与内容无误。</template>
       </el-alert>
       <template #footer>
         <el-button @click="confirmDialog = false">取消</el-button>
@@ -130,13 +193,13 @@
 
     <el-drawer v-model="batchVisible" title="批次回执明细" size="55%">
       <template v-if="batchDetail.batch">
-        <div class="pb-ticket-meta">回执率 {{ Math.round((batchDetail.receipt_rate || 0) * 100) }}% · 状态 {{ batchDetail.batch.receipt_status }}</div>
+        <div class="pb-ticket-meta">回执率 {{ Math.round((batchDetail.receipt_rate || 0) * 100) }}% · 状态 {{ lbl('receipt_statuses', batchDetail.batch.receipt_status) }}</div>
         <el-table :data="batchDetail.items || []" size="small" class="pb-space">
           <el-table-column prop="ticket_no" label="工单号" width="130" />
           <el-table-column prop="receipt_code" label="回执码" min-width="180" />
-          <el-table-column prop="send_status" label="发送状态" width="110" />
-          <el-table-column prop="receipt_status" label="回执状态" width="110" />
-          <el-table-column prop="skip_reason" label="跳过原因" width="130" />
+          <el-table-column label="发送状态" width="110"><template #default="{ row }">{{ lbl('send_statuses', row.send_status) }}</template></el-table-column>
+          <el-table-column label="回执状态" width="110"><template #default="{ row }">{{ lbl('receipt_statuses', row.receipt_status) }}</template></el-table-column>
+          <el-table-column label="跳过原因" width="150"><template #default="{ row }">{{ row.skip_reason ? lbl('supervise_exclude_rules', row.skip_reason) : '—' }}</template></el-table-column>
         </el-table>
       </template>
     </el-drawer>
@@ -147,9 +210,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/Common/PageHeader.vue'
+import { makeLabeler } from '@/utils/paibanLabels.js'
 import {
   getPaibanMeta, listVersionPlans, listPbRisks, resolvePbRisk, previewSupervise,
-  sendSupervise, listSuperviseBatches, getSuperviseBatch,
+  sendSupervise, listSuperviseBatches, getSuperviseBatch, createPbRisk, listPbTracks,
 } from '@/api/paiban.js'
 
 const meta = ref({}), plans = ref([]), planId = ref(null), loading = ref(false)
@@ -158,6 +222,12 @@ const preview = ref({ groups: [] }), previewForm = reactive({ team_name: '', tic
 const chosen = reactive({}), batches = ref({ items: [] })
 const confirmDialog = ref(false), batchVisible = ref(false), batchDetail = ref({})
 const resolveForm = reactive({ risk_id: null, resolution: '' })
+const riskCreateVisible = ref(false), planTracks = ref([])
+const riskCreate = reactive({ track_id: null, risk_type: 'other', level: 'P2', description: '', affect_release: 0 })
+const editedMails = reactive({})   // key=team|ticket_type → {subject, body_html}
+const mailEditVisible = ref(false)
+const mailEdit = reactive({ key: '', subject: '', body_html: '', recipients: [], mode: 'visual', original: null })
+const lbl = makeLabeler(meta)
 
 const subtitle = computed(() => '风险硬门禁 + 团队×类型批量督办 + 回执跟踪')
 const teamNames = computed(() => [...new Set((preview.value.groups || []).map(x => x.team_name))])
@@ -194,15 +264,60 @@ async function doResolve(row, text) {
   ElMessage.success('风险已消除')
   await loadAll()
 }
+async function openRiskCreate() {
+  if (!planId.value) { ElMessage.warning('请先选择版本计划'); return }
+  Object.assign(riskCreate, { track_id: null, risk_type: 'other', level: 'P2', description: '', affect_release: 0 })
+  const out = await listPbTracks({ plan_id: planId.value })
+  planTracks.value = out.items || []
+  riskCreateVisible.value = true
+}
+async function doRiskCreate() {
+  if (!riskCreate.track_id || !riskCreate.description.trim()) { ElMessage.warning('关联工单与风险说明必填'); return }
+  await createPbRisk(riskCreate.track_id, { ...riskCreate, operator: '页面' })
+  ElMessage.success('风险已登记')
+  riskCreateVisible.value = false
+  await loadAll()
+}
 async function doSend(dryRun) {
   confirmDialog.value = false
   const groups = selectedGroups.value.map(g => ({ team_name: g.team_name, ticket_type: g.ticket_type }))
+  // 只带上本次选中分组的编辑正文，且确有改动才传（避免空改动触发回执码校验）
+  const edits = {}
+  for (const g of selectedGroups.value) {
+    const k = g.team_name + '|' + g.ticket_type
+    if (editedMails[k]) edits[k] = editedMails[k]
+  }
   const out = await sendSupervise({
     plan_id: planId.value, groups, dry_run: dryRun, confirm_send: !dryRun,
-    ...previewForm, operator: '页面',
+    ...previewForm, edited_mails: edits, operator: '页面',
   })
   ElMessage.success(dryRun ? 'dry_run 完成：未真发、未消耗冷却' : `已发送 ${out.results.reduce((n, r) => n + r.sent, 0)} 单`)
   await loadAll()
+}
+function openMailEdit(g) {
+  const key = g.team_name + '|' + g.ticket_type
+  const mail = g.mail || {}
+  const saved = editedMails[key]
+  Object.assign(mailEdit, {
+    key, subject: saved?.subject ?? mail.subject ?? '',
+    body_html: saved?.body_html ?? mail.body_html ?? '',
+    recipients: g.recipients || [], mode: 'visual',
+    original: { subject: mail.subject || '', body_html: mail.body_html || '' },
+  })
+  mailEditVisible.value = true
+}
+function saveMailEdit() {
+  if (!mailEdit.body_html || !mailEdit.body_html.trim()) { ElMessage.warning('正文不能为空'); return }
+  editedMails[mailEdit.key] = { subject: mailEdit.subject, body_html: mailEdit.body_html }
+  mailEditVisible.value = false
+  ElMessage.success('邮件修改已保存，发送时将按此内容发出')
+}
+function resetMailEdit() {
+  if (!mailEdit.original) return
+  mailEdit.subject = mailEdit.original.subject
+  mailEdit.body_html = mailEdit.original.body_html
+  delete editedMails[mailEdit.key]
+  ElMessage.info('已还原系统正文')
 }
 async function openBatch(no) {
   batchDetail.value = await getSuperviseBatch(no)
@@ -227,5 +342,7 @@ onMounted(loadAll)
 .pb-warn { color: var(--warning); }
 .pb-empty { color: var(--text-muted); font-size: 13px; padding: 22px 0; text-align: center; }
 .pb-space { margin-top: 12px; }
+.pb-mail-mode { margin-bottom: 8px; }
+.pb-mail-preview { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; background: var(--surface); max-height: 340px; overflow-y: auto; line-height: 1.5; font-size: 13px; }
 code { font-family: var(--font-mono); font-size: 12px; }
 </style>

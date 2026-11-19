@@ -134,10 +134,15 @@ def scan(db: Session, *, keyword: str = "", limit: int = 200,
     counts: Dict[str, int] = {}
     for x in excluded:
         counts[x["reason"]] = counts.get(x["reason"], 0) + 1
+    # 待补全清单（方案 5.3）：无归属系统但符合其余命中条件的在途工单，单独成组供纳入。
+    # 它们是 excluded 的子集，前端默认列表仍不显示，但单独 tab 可见且可纳入。
+    pending_system = [x for x in excluded
+                      if x["reason"] == "no_system" and x.get("can_include")]
     return {
-        "items": hits, "excluded": excluded,
+        "items": hits, "excluded": excluded, "pending_system": pending_system,
         "summary": {
             "hit_count": len(hits), "excluded_count": len(excluded),
+            "pending_system_count": len(pending_system),
             "by_reason": [{"reason": k, "label": reason_label(k), "count": v}
                           for k, v in sorted(counts.items())],
         },
@@ -154,7 +159,10 @@ def _classify(db: Session, row: Dict[str, Any], hits: List, excluded: List) -> N
     item = dict(row)
     item["reason"] = reason
     item["reason_label"] = reason_label(reason)
-    item["can_include"] = reason == "hit"
+    # no_system = 方案 5.3「进待补全清单」：仍是排除原因（不计正常命中），
+    # 但允许显式纳入 → 团队解析落「（未分配团队）」待补全，绝不静默丢弃源工单。
+    item["need_system"] = reason == "no_system"
+    item["can_include"] = reason in ("hit", "no_system")
     item["existing_track_id"] = existing.id if existing else None
     (hits if reason == "hit" else excluded).append(item)
 
@@ -173,7 +181,9 @@ def include_once(db: Session, ticket_type: str, ticket_no: str, *,
     if row is None:
         raise NotFoundException(f"源工单 {no} 不存在，不能纳入")
     reason = _judge(row)
-    if reason != "hit":
+    # 方案 5.3：no_system 工单可显式纳入（进「待补全」清单，团队解析落未分配团队），
+    # 其余排除原因（已闭环/非 BUG/无锚点等）仍禁止纳入，禁止后台静默写入。
+    if reason not in ("hit", "no_system"):
         raise ValidationException(f"该工单不符合纳入条件：{reason_label(reason)}")
     old = _existing(db, ticket_type, no)
     if old is not None:

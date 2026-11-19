@@ -76,6 +76,12 @@ class TeamStageRequest(BaseModel):
     feedback_id: Optional[int] = None
 
 
+class TeamStageBatchRequest(BaseModel):
+    items: list = Field(default_factory=list, description="[{team_id,stage,reason,done?}]")
+    operator: Optional[str] = None
+    source: str = "page"
+
+
 class ResultRequest(BaseModel):
     result: str
     reason: Optional[str] = None
@@ -117,6 +123,8 @@ class SuperviseSendRequest(SupervisePreviewRequest):
     groups: Optional[list] = Field(None, description="选中分组 [(team_name,ticket_type)]")
     dry_run: bool = Field(True, description="自测一律 true")
     confirm_send: bool = Field(False, description="真发须页面显式 true")
+    edited_mails: Optional[dict] = Field(
+        None, description="编辑后的邮件 {team|type:{subject,body_html}}；须保留回执码锚点")
     operator: Optional[str] = None
 
 

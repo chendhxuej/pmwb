@@ -63,18 +63,37 @@
     </el-card>
 
     <el-card shadow="never" class="pb-card">
-      <template #header><span class="pb-card-title">下钻明细</span></template>
-      <el-table :data="matrix.drill || []" size="small" max-height="420">
+      <template #header>
+        <div class="pb-card-head">
+          <span class="pb-card-title">下钻明细</span>
+          <div class="pb-filters">
+            <el-select v-model="bulkStage" clearable placeholder="批量改为环节" style="width: 140px">
+              <el-option v-for="s in matrix.stages || []" :key="s.key" :label="s.label" :value="s.key" />
+            </el-select>
+            <el-input v-model="bulkReason" placeholder="回退原因（选填，回退必填）" style="width: 200px" />
+            <el-button type="primary" :disabled="!bulkSelected.length || !bulkStage" @click="doBulkStage">批量调整（{{ bulkSelected.length }}）</el-button>
+          </div>
+        </div>
+      </template>
+      <el-table :data="matrix.drill || []" size="small" max-height="420" @selection-change="v => bulkSelected = v">
+        <el-table-column type="selection" width="42" />
         <el-table-column prop="ticket_no" label="工单号" width="130" />
-        <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
-        <el-table-column label="类型" width="80"><template #default="{ row }">{{ row.ticket_type === 'req' ? '需求' : 'BUG' }}</template></el-table-column>
+        <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+        <el-table-column label="类型" width="80"><template #default="{ row }">{{ lbl('ticket_types', row.ticket_type) }}</template></el-table-column>
         <el-table-column prop="team_name" label="团队" width="140" />
         <el-table-column prop="stage_label" label="环节" width="110" />
-        <el-table-column label="准入" width="130"><template #default="{ row }">{{ admitLabel(row.admit_status) }}</template></el-table-column>
+        <el-table-column label="准入" width="130"><template #default="{ row }">{{ lbl('admit_statuses', row.admit_status) }}</template></el-table-column>
         <el-table-column label="超期" width="80"><template #default="{ row }"><span :class="row.overdue ? 'pb-danger' : ''">{{ row.overdue ? '是' : '否' }}</span></template></el-table-column>
         <el-table-column prop="deadline" label="本环节截止" width="120" />
         <el-table-column prop="supervise_count" label="督办次数" width="90" />
         <el-table-column prop="last_feedback_at" label="最近反馈" width="160" />
+        <el-table-column label="调整环节" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-select :model-value="row.stage" size="small" placeholder="改环节" @change="v => doSingleStage(row, v)">
+              <el-option v-for="s in matrix.stages || []" :key="s.key" :label="s.label" :value="s.key" />
+            </el-select>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 
@@ -91,21 +110,25 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/Common/PageHeader.vue'
-import { getPaibanMeta, listVersionPlans, teamMatrix } from '@/api/paiban.js'
+import { makeLabeler } from '@/utils/paibanLabels.js'
+import { getPaibanMeta, listVersionPlans, teamMatrix, setTeamStage, batchSetTeamStage } from '@/api/paiban.js'
 
 const meta = ref({}), plans = ref([]), planId = ref(null)
 const matrix = ref({ grid: [], drill: [], stages: [] }), loading = ref(false)
 const filters = reactive({ team_name: '', stage: '', overdue: '' })
+const bulkStage = ref(''), bulkReason = ref(''), bulkSelected = ref([])
+const lbl = makeLabeler(meta)
 
 const subtitle = computed(() => '按团队看卡点、找对接人、可下钻到工单')
 const teamNames = computed(() => [...new Set((matrix.value.grid || []).map(x => x.team_name))])
 const overdueCount = computed(() => (matrix.value.drill || []).filter(x => x.overdue).length)
-const admitLabel = key => (meta.value.admit_statuses || []).find(x => x.value === key)?.label || key
 
 async function loadAll() {
   loading.value = true
   try {
+    meta.value = await getPaibanMeta()
     const p = await listVersionPlans({ status: 'confirmed' })
     plans.value = p.items || []
     if (!planId.value && plans.value.length) planId.value = plans.value[0].id
@@ -113,12 +136,39 @@ async function loadAll() {
   } finally { loading.value = false }
 }
 async function loadMatrix() {
+  bulkSelected.value = []
   matrix.value = await teamMatrix({ plan_id: planId.value || undefined, ...filters })
 }
 function drill(team, stage) {
   filters.team_name = team
   filters.stage = stage
   loadMatrix()
+}
+async function doSingleStage(row, stage) {
+  if (stage === row.stage) return
+  const stages = (matrix.value.stages || []).map(s => s.key)
+  const isRollback = stages.indexOf(stage) < stages.indexOf(row.stage)
+  let reason = ''
+  if (isRollback) {
+    reason = window.prompt('环节回退必须填写原因', '') || ''
+    if (!reason) { ElMessage.warning('已取消：回退必须填写原因'); await loadMatrix(); return }
+  }
+  try {
+    await setTeamStage(row.team_id, { stage, reason, operator: '页面' })
+    ElMessage.success(`${row.ticket_no} 已调整到「${lbl('stages', stage)}」`)
+    await loadMatrix()
+  } catch (e) {
+    ElMessage.error(e?.message || '调整失败')
+    await loadMatrix()
+  }
+}
+async function doBulkStage() {
+  if (!bulkStage.value || !bulkSelected.value.length) return
+  const items = bulkSelected.value.map(r => ({ team_id: r.team_id, stage: bulkStage.value, reason: bulkReason.value }))
+  const out = await batchSetTeamStage(items, '页面')
+  ElMessage.success(`批量调整：成功 ${out.changed_count}，跳过 ${out.skipped_count}`)
+  bulkStage.value = ''; bulkReason.value = ''
+  await loadMatrix()
 }
 onMounted(loadAll)
 </script>

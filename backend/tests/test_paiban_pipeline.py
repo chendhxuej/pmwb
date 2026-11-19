@@ -378,3 +378,75 @@ def test_j1_overview_excludes_exception_from_numerator(db):
     assert ov["rates"]["achieved_count"] == 2
     assert ov["rates"]["planned_rate"] == 0.5 and ov["rates"]["raw_rate"] == 1.0, ov["rates"]
     assert "不可加总" in ov["scope_note"]
+
+
+# ── K 老大二轮反馈（2026-11-19）───────────────────────────────
+def test_k1_no_system_bug_in_pending_and_includable(db):
+    """问题1：no_system 的在途 BUG 进待补全清单且可显式纳入（落未分配团队）。"""
+    _bug(db, "BUG-NOSYS", system="", expected="2026-12-10")
+    got = CS.scan(db)
+    pend = [x for x in got["pending_system"] if x["ticket_no"] == "BUG-NOSYS"]
+    assert len(pend) == 1, got["summary"]
+    assert pend[0]["reason"] == "no_system" and pend[0]["can_include"], pend
+    # 仍在 excluded（保留原判定语义），但可纳入
+    exc = {x["ticket_no"]: x for x in got["excluded"]}
+    assert exc["BUG-NOSYS"]["reason"] == "no_system", exc
+    t = CS.include_once(db, "bug", "BUG-NOSYS", operator="pytest")
+    assert t["id"] and db.query(PmwbPbTrack).filter_by(ticket_no="BUG-NOSYS").count() == 1, t
+
+
+def test_k2_list_plans_future_only(db):
+    """问题3：future_only 只列发布日≥今天的有效计划，历史计划保留。"""
+    from datetime import date as _d
+    today = VS._today()
+    past = today - timedelta(days=10)
+    future = today + timedelta(days=10)
+    VS.create_plan(db, {"version_no": "历史版", "scope_type": "default",
+                        "release_date": past, "status": "published", "version_type": "regular",
+                        "admit_mode": "open", "admit_lead_days": 0, "allow_temp_merge": 1})
+    VS.create_plan(db, {"version_no": "未来版", "scope_type": "default",
+                        "release_date": future, "status": "confirmed", "version_type": "regular",
+                        "admit_mode": "open", "admit_lead_days": 0, "allow_temp_merge": 1})
+    allp = VS.list_plans(db)
+    fut = VS.list_plans(db, future_only=True)
+    assert allp["total"] == 2, allp["total"]
+    assert fut["total"] == 1 and fut["items"][0]["version_no"] == "未来版", fut
+    assert fut["future_only"] is True
+
+
+def test_k3_batch_set_team_stage(db):
+    """问题6：批量改团队环节逐条生效，回退无原因被拒且不拖垮整批。"""
+    _plan(db)
+    _req(db)
+    _req(db, "REQ-2", owner="王五")
+    CS.include_once(db, "req", "REQ-1", operator="pytest")
+    CS.include_once(db, "req", "REQ-2", operator="pytest")
+    subs = db.query(PmwbPbTrackTeam).order_by(PmwbPbTrackTeam.id).all()
+    assert len(subs) >= 2
+    out = TEAM.batch_set_stage(db, [
+        {"team_id": subs[0].id, "stage": "dev"},
+        {"team_id": 999999, "stage": "test"},  # 不存在的子行 → 跳过，不拖垮整批
+    ], operator="pytest")
+    assert out["changed_count"] == 1 and out["skipped_count"] == 1, out
+    db.refresh(subs[0])
+    assert subs[0].stage == "dev", subs[0].stage
+
+
+def test_k4_supervise_preview_has_mail_body(db):
+    """问题5：督办预览返回真实邮件主体，回执码预览=实发同源。"""
+    _plan(db)
+    _req(db)
+    t = _track(db)
+    RS.create(db, t["id"], {"risk_type": "dev_delay", "description": "开发延期",
+                             "affect_release": 1})
+    prev = SUP.build_preview(db, plan_id=1)
+    g = prev["groups"][0]
+    assert g["mail"]["subject"] and g["mail"]["body_html"], g.get("mail")
+    code = [x for x in g["items"] if not x["skip_reason"]][0]["receipt_code"]
+    assert code and code in g["mail"]["body_html"], "回执码须在正文里"
+    # 编辑正文缺回执码 → 该组不发送（护栏在 dispatch 前拦截，记 failed 不抛）
+    out = SUP.send(db, {"plan_id": 1, "dry_run": False, "confirm_send": True,
+                        "edited_mails": {f"{g['team_name']}|{g['ticket_type']}":
+                                         {"subject": "改", "body_html": "没有回执码的正文"}}})
+    bad = [r for r in out["results"] if r["team_name"] == g["team_name"]]
+    assert bad and bad[0]["mail_success"] is False and bad[0]["sent"] == 0, out

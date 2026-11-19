@@ -171,6 +171,17 @@ FEEDBACK_STATUSES = (
 RECEIPT_FIELDS = ("stage", "progress", "risk", "promise_date")
 PENDING_RERUN_LABEL = "待自动补跑"
 
+# ── pb-6/7 运行态展示字典（预览/批次/回执列转译，唯一源）────────
+RECEIPT_STATUSES = (
+    ("none", "无回执"), ("partial", "部分回执"),
+    ("all", "全部回执"), ("overdue", "回执超时"),
+)
+SEND_STATUSES = (
+    ("pending", "待发送"), ("sent", "已发送"), ("dry_run", "预览未发"),
+    ("skipped", "已跳过"), ("failed", "发送失败"),
+)
+RISK_LEVELS = (("P0", "P0 紧急"), ("P1", "P1 高"), ("P2", "P2 中"), ("P3", "P3 低"))
+
 
 def _iso(d: date) -> str:
     return d.isoformat() if isinstance(d, date) else ""
@@ -246,6 +257,10 @@ def meta_payload(system_options: list, dict_degraded: bool) -> dict:
         "results": [{"value": v, "label": l} for v, l in RESULTS],
         "risk_types": [{"value": v, "label": l} for v, l in RISK_TYPES],
         "risk_statuses": [{"value": v, "label": l} for v, l in RISK_STATUSES],
+        "risk_levels": [{"value": v, "label": l} for v, l in RISK_LEVELS],
+        "receipt_statuses": [{"value": v, "label": l} for v, l in RECEIPT_STATUSES],
+        "send_statuses": [{"value": v, "label": l} for v, l in SEND_STATUSES],
+        "change_sources": [{"value": v, "label": l} for v, l in CHANGE_SOURCES],
         "feedback_channels": [{"value": v, "label": l} for v, l in FEEDBACK_CHANNELS],
         "feedback_statuses": [{"value": v, "label": l} for v, l in FEEDBACK_STATUSES],
         "supervise_include_rules": [{"value": v, "label": l} for v, l in SUPERVISE_INCLUDE_RULES],
@@ -271,6 +286,14 @@ def meta_payload(system_options: list, dict_degraded: bool) -> dict:
             "admit_statuses": dict(ADMIT_STATUSES),
             "results": dict(RESULTS),
             "risk_types": dict(RISK_TYPES),
+            "risk_statuses": dict(RISK_STATUSES),
+            "risk_levels": dict(RISK_LEVELS),
+            "receipt_statuses": dict(RECEIPT_STATUSES),
+            "send_statuses": dict(SEND_STATUSES),
+            "change_sources": dict(CHANGE_SOURCES),
+            "supervise_include_rules": dict(SUPERVISE_INCLUDE_RULES),
+            "supervise_exclude_rules": dict(SUPERVISE_EXCLUDE_RULES),
+            "cooldown_exceptions": dict(COOLDOWN_EXCEPTIONS),
             "feedback_channels": dict(FEEDBACK_CHANNELS),
             "feedback_statuses": dict(FEEDBACK_STATUSES),
         },

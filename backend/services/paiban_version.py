@@ -320,7 +320,8 @@ def _check_duplicate(db: Session, scope: str, system_name: Optional[str], versio
 
 
 def list_plans(db: Session, scope_type: Optional[str] = None, system_name: Optional[str] = None,
-               status: Optional[str] = None, include_cancelled: bool = False) -> Dict[str, Any]:
+               status: Optional[str] = None, include_cancelled: bool = False,
+               future_only: bool = False) -> Dict[str, Any]:
     q = db.query(PmwbPbVersionPlan)
     if scope_type:
         q = q.filter(PmwbPbVersionPlan.scope_type == scope_type)
@@ -330,11 +331,16 @@ def list_plans(db: Session, scope_type: Optional[str] = None, system_name: Optio
         q = q.filter(PmwbPbVersionPlan.status == status)
     if not include_cancelled:
         q = q.filter(PmwbPbVersionPlan.status != "cancelled")
+    # 默认清单：只列发布日 ≥ 今天的有效计划（老大诉求：计划发布日大于系统日期）。
+    # 历史计划不删除，前端提供「含历史」开关显式查看；future_only 由调用方显式传入。
+    if future_only:
+        q = q.filter(PmwbPbVersionPlan.release_date >= _today())
     rows = q.order_by(PmwbPbVersionPlan.release_date.desc(), PmwbPbVersionPlan.id.desc()).all()
     items = [serialize_plan(r) for r in rows]
     return {
         "items": items,
         "total": len(items),
+        "future_only": bool(future_only),
         "default_count": sum(1 for i in items if i["scope_type"] == "default"),
         "crm_gate_count": sum(1 for i in items if i["admit_mode"] == "wait_release_n_days"),
     }

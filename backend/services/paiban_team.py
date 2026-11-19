@@ -131,9 +131,10 @@ def matrix(db: Session, plan_id: Optional[int] = None, team_name: str = "",
             unresolved.append({"track_id": t.id, "ticket_no": t.ticket_no,
                                "team_name": sub.team_name, "reason": "团队/收件人解析失败"})
         drill.append({
-            "track_id": t.id, "ticket_no": t.ticket_no, "title": t.title,
+            "track_id": t.id, "team_id": sub.id, "ticket_no": t.ticket_no, "title": t.title,
             "ticket_type": t.ticket_type, "team_name": sub.team_name,
             "stage": sub.stage, "stage_label": C.STAGE_LABELS.get(sub.stage, sub.stage),
+            "done": int(sub.done or 0),
             "admit_status": t.admit_status, "defer_count": t.defer_count or 0,
             "exception_flag": int(t.exception_flag or 0),
             "last_feedback_at": K.dt_iso(sub.last_feedback_at),
@@ -184,3 +185,36 @@ def set_team_stage(db: Session, team_id: int, to_stage: str, *, reason: str = ""
     from services import paiban_track as TS
     TS.recompute_main_stage(db, t, operator=operator, source=source)
     return K.serialize_track(db, t)
+
+
+def batch_set_stage(db: Session, items: list, *, operator: str = "",
+                    source: str = "page") -> Dict[str, Any]:
+    """团队子行批量改环节：逐条走 set_team_stage 同一口径，单条失败不影响整批。
+
+    - 回退必须逐条带原因（由 set_team_stage 校验），不给批量开规则后门；
+    - 主行按最慢子行重算由 set_team_stage 内部完成；
+    - 结果逐条可见（成功/跳过及原因），不静默吞异常。
+    """
+    changed, skipped = [], []
+    for it in items or []:
+        try:
+            team_id = int(it.get("team_id") or 0)
+            to_stage = (it.get("stage") or "").strip()
+            reason = (it.get("reason") or "").strip()
+            done_raw = it.get("done")
+            done = None if done_raw is None else bool(done_raw)
+            sub = db.query(PmwbPbTrackTeam).filter_by(id=team_id).first()
+            if sub is None:
+                raise NotFoundException(f"团队子行 {team_id} 不存在")
+            trow = db.query(PmwbPbTrack).filter_by(id=sub.track_id).first()
+            set_team_stage(db, team_id, to_stage, reason=reason, operator=operator,
+                           source=source, done=done)
+            changed.append({"team_id": team_id, "track_id": sub.track_id,
+                            "ticket_no": trow.ticket_no if trow else "",
+                            "stage": to_stage})
+        except Exception as exc:
+            skipped.append({"team_id": it.get("team_id"), "stage": it.get("stage"),
+                            "error": str(exc)[:200]})
+    db.commit()
+    return {"changed_count": len(changed), "skipped_count": len(skipped),
+            "changed": changed, "skipped": skipped}
