@@ -4,13 +4,24 @@
       <template #actions>
         <el-button @click="openDemo">交互原型 Demo</el-button>
         <el-button :loading="loading" @click="loadAll">刷新</el-button>
-        <el-button type="primary" @click="openCreate">登记版本计划</el-button>
+        <el-button type="primary" :disabled="!metaReady" @click="openCreate">登记版本计划</el-button>
       </template>
     </PageHeader>
 
     <el-alert v-if="meta.dict_degraded" type="warning" show-icon :closable="false" class="pb-alert">
       <template #title>人员中台系统字典暂不可用</template>
       <template #default>可继续登记，系统名将标记为「待自动补校验」；字典恢复后自动复校，无需人工判定。</template>
+    </el-alert>
+
+    <!-- 枚举字典加载失败：必须显式暴露并自恢复，禁止静默降级成英文 value -->
+    <el-alert v-if="metaError" type="error" show-icon :closable="false" class="pb-alert">
+      <template #title>版本计划字典加载失败，登记入口已临时锁定</template>
+      <template #default>
+        正在自动重试（最多 3 次）；也可
+        <el-button link type="primary" @click="retryMeta">立即重试</el-button>
+        。字典未就绪时打开弹窗会退化为英文原值（regular / draft / open），故先锁定。
+        若持续失败，请刷新页面（Ctrl+Shift+R）或检查 /paiban/meta 接口。
+      </template>
     </el-alert>
 
     <!-- 口径说明：版本计划是唯一基准，派生不落库 -->
@@ -128,6 +139,10 @@
           <el-radio-group v-model="form.scope_type" :disabled="editing" @change="onScopeChange">
             <el-radio v-for="o in meta.scope_types || []" :key="o.value" :value="o.value">{{ o.label }}</el-radio>
           </el-radio-group>
+          <div class="pb-form-hint pb-scope-hint">
+            默认「统一默认」= 所有未单独配置的系统共用一份计划，改期自动重算；
+            选「指定系统」可为该系统登记<b>个性化版本计划</b>（发布日 / 准入规则独立），未单独配置的系统仍自动回落统一默认。
+          </div>
         </el-form-item>
         <el-form-item v-if="form.scope_type === 'system'" label="指定系统" required>
           <el-select v-if="!meta.dict_degraded" v-model="form.system_name" filterable :disabled="editing"
@@ -240,6 +255,7 @@ import {
 } from '@/api/paiban.js'
 
 const meta = ref({ system_options: [], stages: [] })
+const metaError = ref(false)
 const rows = ref([])
 const summary = ref({})
 const loading = ref(false)
@@ -255,11 +271,14 @@ const resolveResult = ref(null)
 const filter = reactive({ scope_type: '', status: '', include_cancelled: false })
 
 const blankForm = () => ({
-  version_no: '', scope_type: 'system', system_name: '', version_type: 'regular',
+  version_no: '', scope_type: 'default', system_name: '', version_type: 'regular',
   release_date: '', status: 'draft', admit_mode: 'open', admit_lead_days: 0,
   allow_temp_merge: 1, next_version_id: null, remark: '', operator: '',
 })
 const form = reactive(blankForm())
+
+// 字典就绪 = scope_types 到位；未就绪时登记入口锁定，杜绝英文原值弹窗
+const metaReady = computed(() => (meta.value.scope_types || []).length > 0)
 
 const subtitle = computed(() => {
   const offs = (meta.value.stages || []).map(s => `${s.label} ${s.offset_days}d`).join(' / ')
@@ -278,8 +297,32 @@ const openDemo = () => window.open('/paiban-demo.html', '_blank', 'noopener')
 const shortStage = label => (label || '').replace('方案确认中', '方案').replace('等待发布', '待发布')
 const statusTone = s => ({ published: 'success', confirmed: 'primary', closed: 'info', cancelled: 'danger' }[s] || 'warning')
 
-async function loadMeta() {
-  meta.value = await getPaibanMeta()
+let metaRetryTimer = null
+let metaRetryLeft = 0
+async function loadMeta(retry = true) {
+  try {
+    const data = await getPaibanMeta()
+    meta.value = data || { system_options: [], stages: [] }
+    if (metaReady.value) {
+      metaError.value = false
+      metaRetryLeft = 0
+    } else {
+      // 200 但字典为空（异常态）：同样视为失败，触发重试
+      throw new Error('字典为空')
+    }
+  } catch (e) {
+    metaError.value = true
+    if (retry && metaRetryLeft < 3) {
+      metaRetryLeft += 1
+      clearTimeout(metaRetryTimer)
+      metaRetryTimer = setTimeout(() => loadMeta(true), 1500 * metaRetryLeft)
+    }
+  }
+}
+function retryMeta() {
+  metaRetryLeft = 0
+  clearTimeout(metaRetryTimer)
+  loadMeta(true)
 }
 async function loadList() {
   loading.value = true
@@ -342,11 +385,19 @@ function onAdmitModeChange(v) {
 }
 
 function openCreate() {
+  if (!metaReady.value) {
+    ElMessage.warning('枚举字典尚未加载完成，请稍候或点「立即重试」后再登记')
+    return
+  }
   editing.value = false; editId.value = null
   Object.assign(form, blankForm())
   dialogVisible.value = true
 }
 function openEdit(row) {
+  if (!metaReady.value) {
+    ElMessage.warning('枚举字典尚未加载完成，请稍候或点「立即重试」后再编辑')
+    return
+  }
   editing.value = true; editId.value = row.id
   Object.assign(form, {
     version_no: row.version_no, scope_type: row.scope_type, system_name: row.system_name,
@@ -399,6 +450,7 @@ async function openLogs(row) {
 .pb-deadlines { display: flex; gap: 6px; flex-wrap: wrap; }
 .pb-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
 .pb-form-hint { margin-left: 12px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.pb-scope-hint { display: block; margin-left: 0; margin-top: 6px; }
 .pb-preview { margin-top: 8px; }
 .pb-preview-alert { margin-top: 12px; }
 </style>
