@@ -2,6 +2,7 @@
   <div class="pb-version">
     <PageHeader title="版本计划" :subtitle="subtitle">
       <template #actions>
+        <el-button @click="openDemo">交互原型 Demo</el-button>
         <el-button :loading="loading" @click="loadAll">刷新</el-button>
         <el-button type="primary" @click="openCreate">登记版本计划</el-button>
       </template>
@@ -271,6 +272,9 @@ const resolveTagType = computed(() => (
     : resolveResult.value?.source === 'default' ? 'info'
       : resolveResult.value?.source === 'missing' ? 'danger' : 'info'
 ))
+// 评审原型为静态页（frontend/public/paiban-demo.html，随构建一起产出），不是系统功能页。
+// 挂显式入口，避免评审时还要手敲 URL；新标签打开，不打断当前登记流程。
+const openDemo = () => window.open('/paiban-demo.html', '_blank', 'noopener')
 const shortStage = label => (label || '').replace('方案确认中', '方案').replace('等待发布', '待发布')
 const statusTone = s => ({ published: 'success', confirmed: 'primary', closed: 'info', cancelled: 'danger' }[s] || 'warning')
 

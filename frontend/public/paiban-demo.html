@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>排版管理 · 页面 Demo（静态原型）</title>
+<style>
+:root{
+  --bg-app:#f3f5f9; --sidebar-bg:#1e293b; --sidebar-active:rgba(47,111,237,.16);
+  --surface:#fff; --border:#e4e9f0; --border-subtle:#eff2f8;
+  --text-primary:#0f172a; --text-secondary:#64748b; --text-muted:#94a3b8;
+  --accent:#2f6fed; --accent-hover:#2659c9; --accent-soft:#eaf1fe;
+  --success:#0f9d6b; --success-soft:#ecfdf3;
+  --warning:#d98a1f; --warning-soft:#fef7ed;
+  --danger:#d9544d; --danger-soft:#fef2f2;
+  --violet:#7c3aed; --violet-soft:#f3e8ff;
+  --radius-sm:10px; --radius-md:16px; --radius-lg:22px;
+  --shadow-card:0 2px 12px -3px rgba(15,23,42,.08),0 1px 3px -1px rgba(15,23,42,.06);
+  --shadow-elevated:0 16px 48px -12px rgba(15,23,42,.18);
+  --sidebar-w:220px;
+}
+*{box-sizing:border-box}
+html{font-size:14px;-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--bg-app);color:var(--text-primary);font-family:'Outfit','PingFang SC','Microsoft YaHei','Helvetica Neue',sans-serif}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer}
+.app{display:flex;min-height:100vh}
+/* ── 侧栏 ── */
+.sidebar{width:var(--sidebar-w);background:var(--sidebar-bg);color:#cbd5e1;flex:0 0 var(--sidebar-w);position:sticky;top:0;height:100vh;overflow:auto}
+.logo{padding:22px 20px 18px;display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;font-size:16px;letter-spacing:.3px;border-bottom:1px solid rgba(255,255,255,.07)}
+.logo-i{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#2f6fed,#7c3aed);display:grid;place-items:center;font-size:14px}
+.nav-group{padding:16px 10px 6px;font-size:11px;color:#64748b;letter-spacing:1px;padding-left:20px}
+.nav-item{display:flex;align-items:center;gap:11px;padding:10px 14px;margin:2px 10px;border-radius:9px;font-size:13.5px;color:#cbd5e1;cursor:pointer;transition:.18s}
+.nav-item:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav-item.active{background:var(--sidebar-active);color:#fff;font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.nav-item .ico{width:18px;text-align:center;opacity:.85}
+.nav-item.dim{opacity:.62}
+.nav-badge{margin-left:auto;background:var(--accent);color:#fff;font-size:10px;padding:2px 6px;border-radius:6px;font-weight:700}
+.nav-insert{margin:4px 12px;padding:5px 8px;border-left:2px dashed #2f6fed;color:#7ea6f8;font-size:10.5px;line-height:1.4}
+.sidebar-foot{padding:16px 18px;margin-top:20px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;color:#64748b;line-height:1.7}
+/* ── 主区 ── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{height:60px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 26px;gap:14px;position:sticky;top:0;z-index:20}
+.crumb{color:var(--text-muted);font-size:12.5px}
+.crumb b{color:var(--text-primary);font-weight:600}
+.topbar h1{margin:0;font-size:17px;font-weight:700}
+.subtitle{font-size:12px;color:var(--text-secondary);background:var(--accent-soft);color:var(--accent);padding:3px 9px;border-radius:6px}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.demo-flag{font-size:11px;color:var(--warning);background:var(--warning-soft);border:1px solid #f6dfb8;padding:4px 9px;border-radius:7px}
+.btn{border:1px solid var(--border);background:#fff;padding:7px 13px;border-radius:9px;font-size:12.5px;font-weight:600;transition:.18s;white-space:nowrap}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-hover);color:#fff}
+.btn.danger{color:var(--danger);border-color:#f3c9c6}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--accent)}
+.btn.sm{padding:4px 9px;font-size:11.5px;border-radius:7px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+/* 版本条 */
+.versionbar{background:#fff;border-bottom:1px solid var(--border);padding:11px 26px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.versionbar label{font-size:12px;color:var(--text-secondary);font-weight:600}
+.versionbar select{padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;font-weight:600;min-width:230px}
+.vfacts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.vfact{font-size:11.5px;color:var(--text-secondary);background:var(--bg-app);border:1px solid var(--border-subtle);padding:5px 9px;border-radius:7px}
+.vfact b{color:var(--text-primary)}
+.vbar-note{margin-left:auto;font-size:11.5px;color:var(--text-muted)}
+/* tabs */
+.tabs{display:flex;gap:2px;padding:0 26px;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:60px;z-index:19;overflow-x:auto}
+.tab{padding:12px 16px 11px;font-size:13px;color:var(--text-secondary);border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;font-weight:600}
+.tab:hover{color:var(--accent)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warning);margin-left:5px;vertical-align:middle}
+/* 页面 */
+.page{padding:18px 26px 60px;max-width:1560px;width:100%}
+.hint{display:flex;align-items:flex-start;gap:10px;background:var(--accent-soft);border:1px solid #d5e4fd;border-radius:12px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:#1c4fb8;line-height:1.6}
+.hint .q{margin-left:auto;white-space:nowrap}
+.hint-detail{display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #bcd3fa;color:#31558f;font-size:12px}
+.hint.open .hint-detail{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-card);margin-bottom:16px;overflow:hidden}
+.card-hd{padding:13px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:10px;font-weight:700;font-size:13.5px}
+.card-hd .right{margin-left:auto;display:flex;gap:7px;align-items:center;font-weight:400}
+.card-bd{padding:14px 16px}
+.muted{color:var(--text-muted);font-size:11.5px;font-weight:400}
+.sec-title{font-size:13px;font-weight:700;margin:2px 0 10px;display:flex;align-items:center;gap:8px}
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(8,1fr);gap:11px;margin-bottom:16px}
+.kpi{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 13px;box-shadow:var(--shadow-card);cursor:pointer;transition:.18s;position:relative}
+.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-elevated);border-color:#c9dcff}
+.kpi .lb{font-size:11.5px;color:var(--text-secondary);margin-bottom:7px;display:flex;align-items:center;gap:5px}
+.kpi .vl{font-size:23px;font-weight:700;line-height:1;letter-spacing:-.5px}
+.kpi .unit{font-size:11px;color:var(--text-muted);font-weight:500;margin-left:3px}
+.kpi .tip{margin-top:6px;font-size:10.5px;color:var(--text-muted)}
+.kpi.k-warn .vl{color:var(--warning)} .kpi.k-danger .vl{color:var(--danger)}
+.kpi.k-ok .vl{color:var(--success)} .kpi.k-violet .vl{color:var(--violet)}
+.kpi .dec{position:absolute;top:8px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--warning)}
+/* 徽标 */
+.badge{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;padding:2px 7px;border-radius:6px;font-weight:600;white-space:nowrap;line-height:1.5}
+.b-req{background:var(--accent-soft);color:var(--accent)} .b-bug{background:var(--warning-soft);color:var(--warning)}
+.b-ok{background:var(--success-soft);color:var(--success)} .b-wait{background:#eef2f7;color:#475569}
+.b-no{background:var(--danger-soft);color:var(--danger)} .b-over{background:var(--danger-soft);color:var(--danger)}
+.b-risk{background:var(--warning-soft);color:var(--warning)} .b-defer{background:var(--violet-soft);color:var(--violet)}
+.b-default{background:#f1f5f9;color:#64748b;border:1px dashed #cbd5e1} .b-soft{background:#f8fafc;color:var(--text-secondary);border:1px solid var(--border)}
+.b-new{background:var(--accent);color:#fff} .b-gate{background:#fff4e5;color:#b26a00;border:1px solid #f3d5a6}
+/* 决策点卡 */
+.decision-card{border:1px solid #f3d5a6;background:linear-gradient(180deg,#fffaf1,#fff);border-radius:var(--radius-md);box-shadow:var(--shadow-card);padding:14px 16px;margin-bottom:16px}
+.dc-hd{display:flex;align-items:center;gap:9px;font-weight:700;font-size:13.5px;margin-bottom:4px}
+.dc-tag{background:var(--warning);color:#fff;font-size:10px;padding:2px 7px;border-radius:5px}
+.dc-desc{font-size:12px;color:var(--text-secondary);line-height:1.65;margin-bottom:12px}
+.sim-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sim-seg{display:flex;border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.sim-seg button{border:0;background:#fff;padding:7px 13px;font-size:12px;border-right:1px solid var(--border);font-weight:600}
+.sim-seg button:last-child{border-right:0}
+.sim-seg button.on{background:var(--accent);color:#fff}
+.sim-out{flex:1;min-width:280px;border-radius:10px;padding:10px 13px;font-size:12.5px;line-height:1.6;border:1px solid var(--border);background:#fff}
+.sim-out.ok{background:var(--success-soft);border-color:#b7e6cf;color:#0b6b4a}
+.sim-out.no{background:var(--danger-soft);border-color:#f3c9c6;color:#a3312b}
+/* 泳道 */
+.lanes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:14px 16px 18px}
+.lane{background:#f8fafc;border:1px solid var(--border-subtle);border-radius:12px;min-height:180px}
+.lane-hd{padding:10px 12px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:8px;font-weight:700;font-size:12.5px}
+.lane-hd .cnt{margin-left:auto;background:#fff;border:1px solid var(--border);border-radius:6px;padding:1px 7px;font-size:11px;color:var(--text-secondary)}
+.lane-due{font-size:10.5px;color:var(--text-muted);font-weight:500;margin-top:3px}
+.lane-bd{padding:9px;display:flex;flex-direction:column;gap:8px}
+.tkt{background:#fff;border:1px solid var(--border);border-radius:10px;padding:9px 10px;cursor:pointer;transition:.18s;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.tkt:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:var(--shadow-card)}
+.tkt-top{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.tkt-id{font-size:10.5px;color:var(--text-muted);font-family:ui-monospace,Consolas,monospace}
+.tkt-name{font-size:12.5px;font-weight:600;line-height:1.45;margin-bottom:6px}
+.tkt-meta{font-size:11px;color:var(--text-secondary);margin-bottom:7px}
+.tkt-foot{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding-top:7px;border-top:1px dashed var(--border-subtle)}
+.tkt-foot .r{margin-left:auto;font-size:10.5px;color:var(--danger);font-weight:600}
+/* 表格 */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;padding:9px 10px;background:#f8fafc;color:var(--text-secondary);font-weight:600;font-size:11.5px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tr.rowlink{cursor:pointer} tr.rowlink:hover td{background:#f8fbff}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+.nowrap{white-space:nowrap}
+/* 倒排条 */
+.timeline{display:grid;grid-template-columns:repeat(5,1fr);gap:0;margin:8px 0 4px}
+.tl-node{text-align:center;position:relative;padding-top:20px}
+.tl-node:before{content:'';position:absolute;top:7px;left:0;right:0;height:2px;background:#dbe4f3}
+.tl-node:first-child:before{left:50%} .tl-node:last-child:before{right:50%}
+.tl-dot{position:absolute;top:2px;left:50%;transform:translateX(-50%);width:11px;height:11px;border-radius:50%;background:var(--accent);border:2px solid #fff;box-shadow:0 0 0 2px #dbe4f3;z-index:1}
+.tl-node:last-child .tl-dot{background:var(--success)}
+.tl-lb{font-size:11.5px;font-weight:600} .tl-dt{font-size:11px;color:var(--text-muted);margin-top:2px}
+.tl-off{font-size:10px;color:var(--accent);margin-top:2px}
+/* 矩阵 */
+.matrix td.cell{text-align:center;cursor:pointer;font-weight:700}
+.matrix td.cell:hover{background:var(--accent-soft)}
+.cellnum{display:inline-block;min-width:28px;padding:3px 7px;border-radius:7px;background:var(--accent-soft);color:var(--accent)}
+.cellnum.hot{background:var(--danger-soft);color:var(--danger)}
+.callout{background:#fffbeb;border:1px solid #f6dfb8;border-radius:9px;padding:9px 12px;font-size:12px;color:#8a5a0b;line-height:1.6;margin-bottom:12px}
+.callout.blue{background:var(--accent-soft);border-color:#d5e4fd;color:#1c4fb8}
+.callout.red{background:var(--danger-soft);border-color:#f3c9c6;color:#a3312b}
+.callout.green{background:var(--success-soft);border-color:#b7e6cf;color:#0b6b4a}
+.pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.pill{font-size:11.5px;background:#fff;border:1px solid var(--border);padding:5px 10px;border-radius:8px;color:var(--text-secondary)}
+.pill b{color:var(--text-primary)}
+/* 反馈 */
+.fb-item{border:1px solid var(--border);border-radius:11px;padding:12px 13px;margin-bottom:10px;background:#fff}
+.fb-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.fb-raw{background:#f8fafc;border-left:3px solid #cbd5e1;padding:9px 11px;border-radius:0 8px 8px 0;font-size:12px;color:#475569;line-height:1.6;margin-bottom:9px;white-space:pre-wrap}
+.fb-parse{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:9px}
+.fb-f{background:#f8fafc;border-radius:8px;padding:7px 9px;font-size:11px}
+.fb-f .k{color:var(--text-muted);margin-bottom:3px} .fb-f .v{font-weight:600;font-size:12px}
+.fb-act{display:flex;gap:7px;justify-content:flex-end;align-items:center}
+.chan{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.chan-c{border:1px solid var(--border);border-radius:11px;padding:11px 12px;cursor:pointer;transition:.18s;background:#fff}
+.chan-c:hover{border-color:var(--accent);box-shadow:var(--shadow-card)}
+.chan-c .n{font-size:11px;color:var(--accent);font-weight:700;margin-bottom:5px}
+.chan-c .t{font-size:12.5px;font-weight:600;margin-bottom:4px}
+.chan-c .d{font-size:11px;color:var(--text-muted);line-height:1.5}
+/* 表单 */
+.form-row{display:flex;gap:10px;margin-bottom:11px;align-items:flex-start}
+.form-row label{width:110px;flex:0 0 110px;font-size:12px;color:var(--text-secondary);padding-top:8px;font-weight:600}
+.form-row .ctl{flex:1;min-width:0}
+.form-row input[type=text],.form-row input[type=date],.form-row select,.form-row textarea{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff}
+.form-row textarea{min-height:78px;resize:vertical;line-height:1.6}
+.form-row .hintx{font-size:11px;color:var(--text-muted);margin-top:5px;line-height:1.5}
+.chk{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:6px 0;cursor:pointer}
+.chk input{accent-color:var(--accent)}
+/* 抽屉 / 弹窗 */
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.34);z-index:50;display:none;animation:fade .2s}
+.overlay.show{display:block}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(620px,94vw);background:#fff;z-index:51;box-shadow:var(--shadow-elevated);transform:translateX(102%);transition:.28s cubic-bezier(.16,1,.3,1);display:flex;flex-direction:column}
+.drawer.show{transform:none}
+.dw-hd{padding:17px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:10px}
+.dw-hd h3{margin:0 0 5px;font-size:15px} .dw-hd .x{margin-left:auto;font-size:20px;color:var(--text-muted);cursor:pointer;line-height:1}
+.dw-bd{padding:16px 20px;overflow:auto;flex:1}
+.dw-ft{padding:13px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;background:#fafbfd}
+.modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-48%) scale(.98);width:min(860px,94vw);max-height:88vh;background:#fff;border-radius:var(--radius-lg);z-index:51;box-shadow:var(--shadow-elevated);display:none;flex-direction:column;animation:pop .22s}
+.modal.show{display:flex}
+@keyframes pop{from{opacity:0;transform:translate(-50%,-46%) scale(.97)}to{opacity:1;transform:translate(-50%,-48%) scale(1)}}
+.md-hd{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-weight:700;font-size:14.5px}
+.md-hd .x{margin-left:auto;color:var(--text-muted);cursor:pointer;font-size:20px;line-height:1}
+.md-bd{padding:16px 20px;overflow:auto}
+.md-ft{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;align-items:center;background:#fafbfd;border-radius:0 0 var(--radius-lg) var(--radius-lg)}
+.mailprev{background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:14px;font-size:12px;line-height:1.7;color:#334155;max-height:330px;overflow:auto;font-family:ui-monospace,Consolas,'PingFang SC',monospace;white-space:pre-wrap}
+.dtabs{display:flex;gap:6px;margin-bottom:12px;border-bottom:1px solid var(--border-subtle);padding-bottom:8px}
+.dtab{padding:6px 11px;border-radius:8px;font-size:12px;cursor:pointer;color:var(--text-secondary)}
+.dtab.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
+/* 决策面板 */
+.dec-btn{position:fixed;right:22px;bottom:22px;z-index:40;background:var(--text-primary);color:#fff;border:0;border-radius:999px;padding:12px 18px;font-size:12.5px;font-weight:700;box-shadow:var(--shadow-elevated)}
+.dec-btn:hover{background:var(--accent)}
+.dec-panel{position:fixed;right:22px;bottom:76px;width:min(470px,92vw);max-height:76vh;background:#fff;border-radius:var(--radius-md);box-shadow:var(--shadow-elevated);z-index:41;display:none;flex-direction:column;border:1px solid var(--border)}
+.dec-panel.show{display:flex}
+.dec-hd{padding:14px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
+.dec-hd .x{margin-left:auto;cursor:pointer;color:var(--text-muted);font-size:18px}
+.dec-bd{padding:12px 16px;overflow:auto}
+.dec-item{border:1px solid var(--border);border-radius:10px;padding:10px 11px;margin-bottom:9px}
+.dec-item .t{font-size:12.5px;font-weight:600;margin-bottom:3px}
+.dec-item .d{font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px}
+.dec-item .ops{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.dec-item input[type=text]{flex:1;min-width:150px;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:11.5px}
+.opt{padding:4px 10px;border:1px solid var(--border);border-radius:7px;font-size:11.5px;background:#fff}
+.opt.on-ok{background:var(--success-soft);border-color:#b7e6cf;color:var(--success);font-weight:700}
+.opt.on-no{background:var(--warning-soft);border-color:#f3d5a6;color:#b26a00;font-weight:700}
+.dec-ft{padding:11px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+/* toast */
+.toast{position:fixed;top:76px;left:50%;transform:translateX(-50%) translateY(-14px);z-index:80;background:var(--text-primary);color:#fff;padding:10px 16px;border-radius:10px;font-size:12.5px;box-shadow:var(--shadow-elevated);opacity:0;transition:.24s;pointer-events:none;max-width:80vw;line-height:1.5}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.ok{background:var(--success)} .toast.err{background:var(--danger)} .toast.warn{background:var(--warning)}
+.foot-note{font-size:11.5px;color:var(--text-muted);line-height:1.8;margin-top:22px;border-top:1px dashed var(--border);padding-top:12px}
+@media(max-width:1280px){.kpis{grid-template-columns:repeat(4,1fr)}.lanes{grid-template-columns:repeat(2,1fr)}.chan{grid-template-columns:repeat(2,1fr)}.fb-parse{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:820px){.sidebar{display:none}.kpis{grid-template-columns:repeat(2,1fr)}.lanes,.chan,.fb-parse{grid-template-columns:1fr}.page{padding:14px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-i">P</span> PMWB 工作台</div>
+    <div class="nav-group">工作视图</div>
+    <div class="nav-item dim"><span class="ico">▦</span>首页看板</div>
+    <div class="nav-item dim"><span class="ico">☑</span>任务中心</div>
+    <div class="nav-insert">↓ 新增模块插在此处</div>
+    <div class="nav-item active"><span class="ico">▤</span>排版管理<span class="nav-badge">NEW</span></div>
+    <div class="nav-item dim"><span class="ico">◈</span>需求与交付</div>
+    <div class="nav-item dim"><span class="ico">◉</span>运营监控</div>
+    <div class="nav-item dim"><span class="ico">◎</span>客诉专题</div>
+    <div class="nav-item dim"><span class="ico">◷</span>会议日程</div>
+    <div class="nav-item dim"><span class="ico">✉</span>邮件中心</div>
+    <div class="nav-group">其他</div>
+    <div class="nav-item dim"><span class="ico">▣</span>知识库</div>
+    <div class="nav-item dim"><span class="ico">⚙</span>系统设置</div>
+    <div class="sidebar-foot">静态交互原型<br>示意数据 · 未接后端<br>v1.2 方案配套 · 决策已回填</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="crumb">工作台 / <b>排版管理</b></span>
+      <h1>排版管理</h1><span class="subtitle">版本上线排期跟踪</span>
+      <div class="top-right">
+        <span class="demo-flag">⚠ 静态 Demo · 示意数据 · 不会真发邮件</span>
+        <button class="btn" data-act="overview">方案速览</button>
+      </div>
+    </div>
+
+    <div class="versionbar" id="versionbar"></div>
+    <div class="tabs" id="tabs"></div>
+    <div class="page" id="page"></div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" data-act="close"></div>
+<div class="drawer" id="drawer"></div>
+<div class="modal" id="modal"></div>
+<div class="toast" id="toast"></div>
+
+<button class="dec-btn" id="decBtn">决策结论 <span id="decCount">7</span> 项 · 点这里</button>
+<div class="dec-panel" id="decPanel"></div>
+
+<script>
+/* ===================== 示意数据 ===================== */
+const VERSIONS = [
+ {id:'crm11',name:'CRM 2026-11 常规版',scope:'CRM（专属）',type:'常规',pub:'2026-11-27',freeze:'2026-11-12',gateDays:7,temp:false,status:'已确认',source:'专属',seq:1},
+ {id:'def11',name:'统一默认 2026-11 版',scope:'统一默认',type:'常规',pub:'2026-11-28',freeze:'2026-11-13',gateDays:0,temp:true,status:'已确认',source:'默认',seq:1},
+ {id:'ord11',name:'订单中心 2026-11 常规版',scope:'订单中心（专属）',type:'常规',pub:'2026-11-25',freeze:'2026-11-10',gateDays:0,temp:true,status:'已确认',source:'专属',seq:1},
+ {id:'boss11',name:'BOSS 2026-11 常规版',scope:'BOSS（专属）',type:'常规',pub:'2026-11-29',freeze:'2026-11-14',gateDays:0,temp:true,status:'拟定',source:'专属',seq:1},
+ {id:'crm12',name:'CRM 2026-12 常规版',scope:'CRM（专属）',type:'常规',pub:'2026-12-11',freeze:'2026-11-26',gateDays:7,temp:false,status:'拟定',source:'专属',seq:2},
+ {id:'def12',name:'统一默认 2026-12 版',scope:'统一默认',type:'常规',pub:'2026-12-12',freeze:'2026-11-27',gateDays:0,temp:true,status:'拟定',source:'默认',seq:2}
+];
+const STAGES = [
+ {k:'方案确认中',off:-15,due:'11-12'},{k:'开发中',off:-8,due:'11-19'},
+ {k:'测试中',off:-3,due:'11-24'},{k:'等待发布',off:-1,due:'11-26'}
+];
+const TEAMS = ['CRM 团队','订单中心团队','BOSS 团队','苏移集成团队'];
+const TICKETS = [
+ {id:'REQ-2026-1042',type:'需求',name:'商客专区智能报价能力上线',sys:'CRM',teams:['CRM 团队','订单中心团队'],stage:'测试中',gate:'待判定',over:2,risk:'测试环境基础数据未就绪',block:true,defer:0,sup:1,fb:'11-16 邮件回执',ver:'crm11'},
+ {id:'REQ-2026-1065',type:'需求',name:'一网通融合开通流程升级',sys:'订单中心',teams:['订单中心团队','BOSS 团队'],stage:'开发中',gate:'待判定',over:0,risk:'',block:false,defer:1,sup:2,fb:'11-15 电话代录',ver:'ord11'},
+ {id:'BUG-2026-0831',type:'BUG',name:'团单交付状态回写异常',sys:'订单中心',teams:['订单中心团队'],stage:'测试中',gate:'已准入',over:0,risk:'',block:false,defer:0,sup:0,fb:'—',ver:'ord11'},
+ {id:'REQ-2026-1078',type:'需求',name:'电子协议模板灰度发布',sys:'电子协议',teams:['苏移集成团队'],stage:'方案确认中',gate:'待判定',over:3,risk:'法务口径未最终确认',block:true,defer:0,sup:1,fb:'11-17 行内记一笔',ver:'def11'},
+ {id:'BUG-2026-0844',type:'BUG',name:'商客专区报价计算偏差',sys:'CRM',teams:['CRM 团队'],stage:'等待发布',gate:'已准入',over:0,risk:'',block:false,defer:0,sup:1,fb:'11-17 结构化回执',ver:'crm11'},
+ {id:'REQ-2026-1083',type:'需求',name:'政企工作台待办聚合优化',sys:'BOSS',teams:['BOSS 团队','CRM 团队'],stage:'开发中',gate:'待判定',over:1,risk:'',block:false,defer:0,sup:0,fb:'—',ver:'boss11'},
+ {id:'BUG-2026-0850',type:'BUG',name:'订单中心附件上传偶发失败',sys:'订单中心',teams:['订单中心团队'],stage:'等待发布',gate:'已准入',over:0,risk:'',block:false,defer:2,sup:3,fb:'11-16 邮件回执',ver:'ord11'},
+ {id:'REQ-2026-1091',type:'需求',name:'FTTO 安防套餐资费配置',sys:'CRM',teams:['CRM 团队'],stage:'开发中',gate:'待判定',over:0,risk:'',block:false,defer:0,sup:0,fb:'—',ver:'crm11'},
+ {id:'BUG-2026-0862',type:'BUG',name:'生产运营平台报表口径偏差',sys:'生产运营平台',teams:['苏移集成团队'],stage:'测试中',gate:'待判定',over:5,risk:'依赖上游取数接口未就绪',block:true,defer:1,sup:2,fb:'11-14 批量更新',ver:'def11'},
+ {id:'REQ-2026-1102',type:'需求',name:'商客 SaaS 试用开通自动化',sys:'CRM',teams:['CRM 团队','苏移集成团队'],stage:'等待发布',gate:'已准入',over:0,risk:'',block:false,defer:0,sup:1,fb:'11-17 结构化回执',ver:'crm11'},
+ {id:'BUG-2026-0871',type:'BUG',name:'电子协议签署回调重复触发',sys:'电子协议',teams:['苏移集成团队'],stage:'方案确认中',gate:'待判定',over:0,risk:'',block:false,defer:0,sup:0,fb:'—',ver:'def11'},
+ {id:'REQ-2026-1110',type:'需求',name:'商客客户画像标签补充',sys:'BOSS',teams:['BOSS 团队'],stage:'开发中',gate:'待判定',over:0,risk:'',block:false,defer:3,sup:4,fb:'11-16 邮件回执',ver:'boss11'}
+];
+const RISKS = [
+ {no:'RK-0118',tid:'REQ-2026-1042',type:'测试阻塞',desc:'测试环境基础数据未就绪，联调无法启动',impact:'是',lv:'高',src:'邮件反馈',st:'处理中',merge:2},
+ {no:'RK-0119',tid:'REQ-2026-1078',type:'方案未定',desc:'法务口径未最终确认，方案无法冻结',impact:'是',lv:'中',src:'行内记一笔',st:'待处理',merge:1},
+ {no:'RK-0120',tid:'BUG-2026-0862',type:'环境与依赖',desc:'上游取数接口未就绪，回归受阻',impact:'是',lv:'高',src:'团队批量更新',st:'处理中',merge:3},
+ {no:'RK-0121',tid:'REQ-2026-1065',type:'开发延期',desc:'BOSS 侧联调排期后移 3 天',impact:'否',lv:'中',src:'系统生成（环节回退）',st:'已消除',merge:1},
+ {no:'RK-0122',tid:'BUG-2026-0850',type:'上线失败',desc:'11-04 版发布验证不通过，已回滚',impact:'是',lv:'高',src:'系统生成（顺延）',st:'已转顺延',merge:1}
+];
+const BATCHES = [
+ {no:'SUP-20261117-01',team:'苏移集成团队',type:'需求+BUG',cnt:4,skip:2,rule:'超期 / 临期 / 有影响上线风险',receipt:'部分回 2/4',time:'11-17 09:20',dry:false},
+ {no:'SUP-20261116-02',team:'CRM 团队',type:'需求',cnt:3,skip:1,rule:'准入判定时点前 3 天 / 停滞 7 天',receipt:'已回 3/3',time:'11-16 15:05',dry:false},
+ {no:'SUP-20261115-01',team:'订单中心团队',type:'BUG',cnt:2,skip:0,rule:'超期 / 顺延来的工单',receipt:'超时未回',time:'11-15 10:42',dry:false}
+];
+const FEEDBACK = [
+ {id:'FB-0231',src:'邮件回复（自由文本）',tid:'REQ-2026-1042',from:'crm-dev@partner',time:'11-17 18:02',raw:'张工你好，报价那块联调环境还在等数据，我们估计这周四能好，应该不影响 27 号那版，实在不行就下一版吧。',parse:{stage:'（建议）测试中',progress:'预计 11-20 完成联调',date:'11-20',risk:'（建议）测试阻塞'},state:'待核对',note:'无回执码、四字段不全 → 只出建议，不自动改状态'},
+ {id:'FB-0232',src:'邮件回复（冲突）',tid:'REQ-2026-1065',from:'order-pm@partner / boss-dev@partner',time:'11-17 16:40',raw:'[订单中心] 已提测，本周可进等待发布。\n[BOSS 团队] 联调未完成，仍在开发中，预计 11-22。',parse:{stage:'冲突：测试中 vs 开发中',progress:'两份原文不一致',date:'—',risk:'—'},state:'冲突',note:'保留全部原文，不按时间取最后一条静默覆盖'},
+ {id:'FB-0233',src:'邮件回复（解析失败）',tid:'（未匹配）',from:'unknown@partner',time:'11-17 14:11',raw:'关于上次提到的那个问题，我们已经处理好了，麻烦帮忙更新一下。',parse:{stage:'—',progress:'—',date:'—',risk:'—'},state:'解析失败',note:'匹配不到工单锚 / 回执码 → 保留原文不丢弃'},
+ {id:'FB-0230',src:'邮件回复（结构化回执）',tid:'BUG-2026-0844',from:'crm-ops@partner',time:'11-17 10:22',raw:'SUP-20261116-02|BUG-2026-0844|CRM|1\n回执码 RC-20261116-02-01｜等待发布｜已出包，11-26 可发布｜无风险，不影响本版',parse:{stage:'等待发布',progress:'已出包，11-26 可发布',date:'11-26',risk:'无'},state:'自动采纳',note:'采纳前值：测试中 / 预计 11-24；已写流转留痕 + 原文引用',adopted:true}
+];
+const DECISIONS = [
+ {t:'页面结构：5 页 + 默认落地「排版跟踪」',d:'排版跟踪 / 版本计划 / 团队跟踪 / 风险与督办 / 反馈同步；打开即见当前进行中版本。'},
+ {t:'四环节倒排偏移 −15 / −8 / −3 / −1 天',d:'由版本发布日统一派生：方案确认 / 开发 / 测试 / 等待发布。可在此填实际排版节奏。'},
+ {t:'CRM 准入：提前 7 个自然日进入「等待发布」才准入（v1.2 调整）',d:'未准入 → 默认自动顺延下一版；确需留本版可逐单「手工处理」例外放行，必填原因 + 全量留痕 + 口径单列。'},
+ {t:'自动顺延：直到成功上线；顺延 ≥2 重点跟踪、≥3 异常清单（不自动发邮件）',d:'未排进版本 / 上线失败都顺延；主行唯一、历史反馈与风险不清空。'},
+ {t:'反馈主通道：督办邮件「唯一回执码 + 四字段」结构化回收',d:'自由文本只出建议进待核对、不自动改状态；另有批量更新 / 记一笔 / 代录。'},
+ {t:'督办：团队 × 类型一键批量；24h 冷却 + 停滞 7 天 + 5 类例外',d:'系统圈定对象与组稿，真发仅由本人在页面确认；AI 自测一律 dry_run。'},
+ {t:'本期边界：不做部分上线、不接任务中心、不回写运营 BUG 工单',d:'保持聚焦「按版本计划上线」，不扩成通用项目管理工具。'}
+];
+/* 2026-11-18 11:34 老大 Demo 决策结论已回填；仍可在面板里改选 */
+const decState = [
+ {v:'同意',note:''},{v:'同意',note:''},{v:'要调整',note:'支持手工处理，默认顺延'},
+ {v:'同意',note:''},{v:'同意',note:''},{v:'同意',note:''},{v:'同意',note:''}
+];
+
+/* ===================== 全局状态 ===================== */
+let curVer = 'crm11';
+let curPage = 'track';
+let simDays = -8;
+let hintOpen = false;
+const PAGES = [
+ {k:'track',n:'排版跟踪'},{k:'plan',n:'版本计划'},{k:'team',n:'团队跟踪'},
+ {k:'risk',n:'风险与督办'},{k:'feedback',n:'反馈同步',dot:true}
+];
+const $ = s => document.querySelector(s);
+const V = () => VERSIONS.find(v=>v.id===curVer);
+const AMP = String.fromCharCode(38);
+const ESC_MAP = {'&':AMP+'amp;','<':AMP+'lt;','>':AMP+'gt;','"':AMP+'quot;'};
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>ESC_MAP[c]);
+const ticket = id => TICKETS.find(t=>t.id===id);
+function nextVerOf(vid){const v=VERSIONS.find(x=>x.id===vid);if(!v)return vid;const nx=VERSIONS.find(x=>x.seq===v.seq+1&&(x.scope===v.scope||(v.source==='默认'&&x.source==='默认')));return nx?nx.id:vid;}
+
+function toast(msg,type){const t=$('#toast');t.className='toast show '+(type||'');t.textContent=msg;clearTimeout(t._tm);t._tm=setTimeout(()=>t.className='toast',3200)}
+
+/* ===================== 顶部 / tabs ===================== */
+function renderVersionBar(){
+  const v=V(); const gate = v.gateDays>0 ? '准入：提前 '+v.gateDays+' 天进等待发布'+(v.temp?'':' · 禁止临时合入') : '准入：开放';
+  $('#versionbar').innerHTML =
+   '<label>当前版本</label><select id="verSel">'+VERSIONS.map(x=>'<option value="'+x.id+'"'+(x.id===curVer?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select>'+
+   '<div class="vfacts">'+
+     '<span class="vfact">发布日 <b>'+v.pub+'</b></span>'+
+     '<span class="vfact">冻结日 <b>'+v.freeze+'</b></span>'+
+     '<span class="vfact">计划来源 <b>'+v.source+'</b>'+(v.source==='默认'?' <span class="badge b-default">默认计划</span>':'')+'</span>'+
+     '<span class="vfact '+(v.gateDays>0?'':'')+'"><b>'+gate+'</b></span>'+
+     '<span class="vfact">状态 <b>'+v.status+'</b></span>'+
+   '</div><span class="vbar-note">切换版本 → 概览 / 列表 / 督办 / 反馈 / 下钻 全页联动（同一版本口径）</span>';
+  $('#verSel').onchange = e => {curVer=e.target.value;renderAll();toast('已切换到「'+V().name+'」，全页按同一版本重算','ok')};
+}
+function renderTabs(){
+  $('#tabs').innerHTML = PAGES.map(p=>'<div class="tab'+(p.k===curPage?' active':'')+'" data-act="page" data-k="'+p.k+'">'+p.n+(p.dot?'<span class="dot"></span>':'')+'</div>').join('');
+}
+function hint(what,detail){
+  return '<div class="hint'+(hintOpen?' open':'')+'" id="hintBox"><span>💡</span><div><b>这页解决什么：</b>'+what+
+   '<div class="hint-detail">'+detail+'</div></div><button class="btn sm ghost hint q" data-act="hint">'+(hintOpen?'收起':'对应目标 ↗')+'</button></div>';
+}
+
+/* ===================== 页 1：排版跟踪 ===================== */
+function pageTrack(){
+  const v=V();
+  const list = TICKETS.filter(t=>t.ver===curVer);
+  const cnt = s => list.filter(t=>t.stage===s).length;
+  const admitted = list.filter(t=>t.gate==='已准入').length;
+  const pending = list.filter(t=>t.gate==='待判定').length;
+  const noAdmit = list.filter(t=>t.gate==='未准入').length;
+  const risks = list.filter(t=>t.block).length;
+  const deferIn = list.filter(t=>t.defer>0).length;
+  const manualCnt = list.filter(t=>t.manual).length;
+  const kpi = (lb,vl,cls,tip,dec,act)=>'<div class="kpi '+(cls||'')+'"'+(act?' data-act="'+act+'"':'')+'>'+(dec?'<span class="dec" title="待拍板"></span>':'')+'<div class="lb">'+lb+'</div><div class="vl">'+vl+'<span class="unit">单</span></div><div class="tip">'+tip+'</div></div>';
+  let h = hint('把「已确定要上、有版本窗口」的需求与 BUG 挂到版本上，逐环节盯到等待发布，再用上线结果闭环；没上成的默认自动顺延下一版（可逐单手工处理例外），直到成功上线。',
+    '对应失效模式：不知道上哪版 / 该跟没跟 / 卡住没发现 / 上没上线说不清 / 没排进版本 / 上线失败后失跟。<br>口径：卡片数 = 泳道数 = 下钻明细数，全部按<b>主行（工单）</b>计数，同版本同源。');
+  h += '<div class="kpis">'+
+    kpi('本版应上线',list.length,'','参与记录（主行）','') +
+    kpi('已准入',admitted,'k-ok','提前 7 天判定通过','') +
+    kpi('待判定',pending,'','未到准入时点','', 'gateScroll') +
+    kpi('未准入',noAdmit,'k-danger','已顺延出本版，主行不关闭'+(manualCnt?' · 人工例外 '+manualCnt+' 单（不进按计划上线率分子）':''),'') +
+    kpi('已上线',0,'k-ok','进行中版本不达成率','') +
+    kpi('影响上线风险',risks,'k-warn','未消除，硬门禁','') +
+    kpi('本版顺延来的',deferIn,'k-violet','累计顺延次数可见','') +
+    kpi('待核对反馈',3,'k-warn','含 1 条冲突','', 'goFeedback') +
+  '</div>';
+
+  /* 准入模拟器 */
+  const passed = simDays <= -7;
+  h += '<div class="decision-card" id="gateSim">'+
+   '<div class="dc-hd"><span class="dc-tag">决策点</span> ① CRM 版本准入闸门（v1.2：默认顺延 + 手工处理）· 点下面的按钮看判定怎么生效</div>'+
+   '<div class="dc-desc">规则配在<b>版本计划</b>上（本版：提前 <b>7 个自然日</b>进入「等待发布」才准入；<b>未准入默认自动顺延</b>，可逐单手工处理）。判定事实取主行进入等待发布的时间 = 最慢团队完成测试的时间，不是人工填的期望时间。判定时点 = 发布日 −7 天（'+v.pub+' → <b>11-20 00:00</b>）。</div>'+
+   '<div class="sim-row"><div class="sim-seg">'+
+     [[-8,'提前 8 天（−8）'],[-7,'刚好 7 天（−7）'],[-6,'晚了 1 天（−6）'],[0,'时点后临时合入']].map(x=>'<button data-act="sim" data-d="'+x[0]+'" class="'+(simDays===x[0]?'on':'')+'">'+x[1]+'</button>').join('')+
+   '</div><div class="sim-out '+(passed?'ok':'no')+'">'+
+     (passed
+       ? '<b>✓ 已准入</b> · 在判定时点前（含当天）进入「等待发布」→ 冻结在本版本，可继续走发布与结果登记。'
+       : '<b>✕ 未准入</b> · '+(simDays===0?'时点后才进入等待发布，未通过准入判定。':'进入时间晚于判定时点 1 天，未通过准入判定。')+' → 结果记「未排进版本」→ <b>默认自动顺延下一版（CRM 2026-12 常规版）</b>，无需人工确认；准入状态复位「待判定」，顺延次数 +1，自动登记风险。如确需留在本版，可点「手工处理」逐单例外放行（必填原因、全量留痕、口径单列）。')+
+     (passed?'':' <div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap"><button class="btn sm danger" data-act="defer" data-id="REQ-2026-1091">按默认顺延（不处理）→</button><button class="btn sm primary" data-act="manual" data-id="REQ-2026-1091">🖐 手工处理 →</button></div>')+
+   '</div></div>'+
+   '<div class="pill-row"><span class="pill">入跟踪 <b>≠</b> 入版本：CRM 单可提前纳入盯进度，正式进版要等判定时点</span><span class="pill">页面<b>没有</b>「强制合入」按钮，但有逐单「手工处理」入口</span><span class="pill"><b>默认动作 = 自动顺延</b>；例外放行必填原因 + 留痕，且不计入按计划上线率分子</span><span class="pill">不批量、不自动、无静默后门；改版本计划是另一条整版规则变更路径</span></div>'+
+  '</div>';
+
+  /* 泳道 */
+  h += '<div class="card"><div class="card-hd">四环节泳道 <span class="muted">按主行计 '+list.length+' 单 · 环节截止由发布日 '+v.pub+' 统一倒排</span>'+
+   '<div class="right"><button class="btn sm" data-act="candidate">从候选池纳入</button><button class="btn sm" data-act="plan">倒排规则</button></div></div><div class="lanes">';
+  STAGES.forEach(s=>{
+    const ts=list.filter(t=>t.stage===s.k);
+    h += '<div class="lane"><div class="lane-hd"><span>'+s.k+'</span><span class="cnt">'+ts.length+'</span><div class="lane-due">截止 '+s.due+'（'+s.off+' 天）</div></div><div class="lane-bd">';
+    if(!ts.length) h+='<div class="muted" style="padding:12px;text-align:center">本版暂无</div>';
+    ts.forEach(t=>{
+      h += '<div class="tkt" data-act="ticket" data-id="'+t.id+'">'+
+       '<div class="tkt-top"><span class="badge '+(t.type==='需求'?'b-req':'b-bug')+'">'+t.type+'</span><span class="tkt-id">'+t.id+'</span>'+
+        (t.over>0?'<span class="badge b-over">超期 '+t.over+' 天</span>':'')+'</div>'+
+       '<div class="tkt-name">'+esc(t.name)+'</div>'+
+       '<div class="tkt-meta">'+esc(t.sys)+' · '+esc(t.teams.join(' / '))+(t.teams.length>1?' <span class="badge b-soft">跨 '+t.teams.length+' 团队</span>':'')+'</div>'+
+       '<div class="tkt-foot">'+
+        '<span class="badge '+(t.manual?'b-gate':t.gate==='已准入'?'b-ok':t.gate==='待判定'?'b-wait':'b-no')+'">准入 '+(t.manual?'人工例外准入':t.gate)+'</span>'+
+        (t.manual?'<span class="badge b-gate">人工例外</span>':'')+
+        (t.defer>0?'<span class="badge b-defer">顺延 '+t.defer+' 次</span>':'')+
+        (t.sup>0?'<span class="badge b-soft">督办 '+t.sup+'</span>':'')+
+        (t.risk?'<span class="r">⚑ 风险</span>':'')+
+       '</div></div>';
+    });
+    h+='</div></div>';
+  });
+  h += '</div></div>';
+  h += '<div class="callout blue">📌 <b>口径声明</b>：上方概览与泳道按<b>主行（工单）</b>计数 = '+list.length+' 单；团队跟踪页按<b>工单 × 团队</b>子行计数 = '+TICKETS.reduce((n,t)=>n+t.teams.length,0)+' 行（全版本示意）。两者<b>不可加总</b>。点击任一工单卡片可查看状态推进 / 回退、上线结果硬门禁、风险与「记一笔」。</div>';
+  h += footNote();
+  return h;
+}
+
+/* ===================== 页 2：版本计划 ===================== */
+function pagePlan(){
+  let h = hint('各系统发布节奏不同：先维护一条统一默认计划，再按系统追加专属计划；没单独配的系统自动回落默认计划并显式打「默认」标记。四环节截止、准入时点全部由发布日派生。',
+   '对应失效模式：不知道该上哪个版本 / 悄悄改期没留痕 / CRM 临时合入。<br>关键：准入规则属于<b>版本计划</b>，不属于工单，工单上没有「是否允许临时合入」开关。');
+  h += '<div class="callout">⚠ <b>默认计划回落</b>：电子协议、生产运营平台等 <b>4 个系统</b> 未单独配置 → 回落「统一默认 2026-11 版」（当前 <b>3 单</b> 在跟）。回落是查询期解析、<b>不落副本</b>：默认计划改期，全部回落工单的截止日与准入时点同步重算。<button class="btn sm ghost" data-act="fallback">查看回落清单 →</button></div>';
+  h += '<div class="card"><div class="card-hd">版本计划列表 <span class="muted">'+VERSIONS.length+' 条 · 同一系统同类型仅一条有效计划</span><div class="right"><button class="btn sm primary" data-act="addPlan">＋ 登记版本计划</button></div></div>'+
+   '<table><thead><tr><th>版本标识 / 适用范围</th><th>类型</th><th>计划发布日</th><th>冻结日</th><th>四环节截止</th><th>准入模式</th><th>临时合入</th><th>状态</th><th></th></tr></thead><tbody>';
+  VERSIONS.forEach(v=>{
+    h += '<tr class="rowlink" data-act="planDetail" data-id="'+v.id+'">'+
+     '<td><b>'+esc(v.name)+'</b><div class="muted">'+esc(v.scope)+(v.source==='默认'?' <span class="badge b-default">默认计划</span>':'')+'</div></td>'+
+     '<td>'+v.type+'</td><td class="mono">'+v.pub+'</td><td class="mono">'+v.freeze+'</td>'+
+     '<td class="muted">11-12 / 11-19 / 11-24 / 11-26<div class="muted">−15 / −8 / −3 / −1</div></td>'+
+     '<td>'+(v.gateDays>0?'<span class="badge b-gate">提前 '+v.gateDays+' 天进等待发布</span>':'<span class="badge b-soft">开放</span>')+'</td>'+
+     '<td>'+(v.temp?'<span class="badge b-soft">允许（软标）</span>':'<b style="color:var(--danger)">禁止（默认顺延）</b><div class="muted">可逐单手工例外</div>')+'</td>'+
+     '<td><span class="badge '+(v.status==='已确认'?'b-ok':'b-wait')+'">'+v.status+'</span></td>'+
+     '<td><button class="btn sm" data-act="editPlan" data-id="'+v.id+'">编辑</button></td></tr>';
+  });
+  h += '</tbody></table></div>';
+  h += '<div class="card"><div class="card-hd"><span class="dc-tag" style="background:var(--warning)">决策点</span> ② 倒排与准入时点 · 由「一个发布日」派生全部时间</div><div class="card-bd">'+
+   '<div class="timeline">'+
+    '<div class="tl-node"><span class="tl-dot"></span><div class="tl-lb">方案确认截止</div><div class="tl-dt">11-12</div><div class="tl-off">发布日 −15 天</div></div>'+
+    '<div class="tl-node"><span class="tl-dot"></span><div class="tl-lb">开发截止</div><div class="tl-dt">11-19</div><div class="tl-off">−8 天</div></div>'+
+    '<div class="tl-node"><span class="tl-dot"></span><div class="tl-lb">测试截止</div><div class="tl-dt">11-24</div><div class="tl-off">−3 天</div></div>'+
+    '<div class="tl-node"><span class="tl-dot"></span><div class="tl-lb">等待发布 / 准入判定</div><div class="tl-dt">11-26 · 判定时点 11-20</div><div class="tl-off">−1 天 / CRM −7 天</div></div>'+
+    '<div class="tl-node"><span class="tl-dot"></span><div class="tl-lb">计划发布日</div><div class="tl-dt">11-27</div><div class="tl-off">唯一基准</div></div>'+
+   '</div><div class="callout blue" style="margin:14px 0 0">工单<b>不各自填计划日期</b>：截止与判定时点只由版本计划算一次。发布日改期 → 受影响工单截止/准入时点/超期/督办候选全部重算，写变更日志；<b>已登记的上线结果不改写，已准入不撤销</b>，待判定按新时点重判。</div>'+
+   '</div></div>';
+  h += footNote();
+  return h;
+}
+
+/* ===================== 页 3：团队跟踪 ===================== */
+function pageTeam(){
+  let h = hint('把「卡住了」具体化为「卡在哪个团队、哪个环节、找谁、催过几次、对方回了什么、这单顺延过几版」，并在这里一键批量督办 / 批量更新进度。',
+   '对应失效模式：跨团队互相等 / 推不动没手段 / 厂家反馈没进系统。<br>口径：团队视图按<b>子行（工单×团队）</b>计数，与版本概览的主行数不可加总。');
+  h += '<div class="callout">📌 <b>口径显式分离</b>：版本概览按工单计 <b>'+TICKETS.length+'</b> 单；本页按工单×团队计 <b>'+TICKETS.reduce((n,t)=>n+t.teams.length,0)+'</b> 行。一单跨 3 团队 → 版本分母 +1、团队视图 3 行。全部团队子行完成测试，主行才能进「等待发布」。</div>';
+  h += '<div class="card"><div class="card-hd">团队 × 四环节矩阵 <span class="muted">点数字下钻同源明细</span><div class="right"><button class="btn sm" data-act="typeFilter">类型：全部</button></div></div>'+
+    '<table class="matrix"><thead><tr><th style="width:190px">团队</th>'+STAGES.map(s=>'<th style="text-align:center">'+s.k+'<div class="muted" style="text-align:center;font-weight:400">截止 '+s.due+'</div></th>').join('')+'<th style="width:290px">行操作</th></tr></thead><tbody>';
+  TEAMS.forEach(tm=>{
+    const subs = TICKETS.filter(t=>t.teams.includes(tm));
+    h += '<tr><td><b>'+tm+'</b><div class="muted">'+subs.length+' 条子行 · 收件人 '+ (tm==='苏移集成团队'?'1 条缺失':'已解析') +'</div></td>';
+    STAGES.forEach(s=>{
+      const n=subs.filter(t=>t.stage===s.k).length;
+      const hot=subs.filter(t=>t.stage===s.k&&t.over>0).length;
+      h += '<td class="cell" data-act="drill" data-team="'+tm+'" data-stage="'+s.k+'">'+(n?'<span class="cellnum'+(hot?' hot':'')+'">'+n+'</span>':'<span class="muted">—</span>')+'</td>';
+    });
+    h += '<td class="nowrap"><button class="btn sm" data-act="supervise" data-team="'+tm+'" data-type="需求">督办需求</button> <button class="btn sm" data-act="supervise" data-team="'+tm+'" data-type="BUG">督办 BUG</button> <button class="btn sm primary" data-act="supervise" data-team="'+tm+'" data-type="全部">全部</button> <button class="btn sm ghost" data-act="bulkUpdate" data-team="'+tm+'">批量更新进度</button></td></tr>';
+  });
+  h += '</tbody></table></div>';
+  h += '<div class="card"><div class="card-hd">明细中的关键列 <span class="muted">展开团队行可见</span></div><div class="card-bd" style="padding:0">'+
+   '<table><thead><tr><th>工单</th><th>类型</th><th>系统</th><th>本团队环节</th><th>准入状态 / 判定时点</th><th>顺延</th><th>最近督办</th><th>最近反馈</th><th>风险</th><th></th></tr></thead><tbody>'+
+   TICKETS.slice(0,5).map(t=>'<tr><td><span class="mono">'+t.id+'</span><div class="muted">'+esc(t.name)+'</div></td>'+
+    '<td><span class="badge '+(t.type==='需求'?'b-req':'b-bug')+'">'+t.type+'</span></td><td>'+t.sys+'</td>'+
+    '<td>'+t.stage+(t.over>0?' <span class="badge b-over">超期 '+t.over+'</span>':'')+'</td>'+
+    '<td><span class="badge '+(t.gate==='已准入'?'b-ok':'b-wait')+'">'+t.gate+'</span> <span class="muted">11-20</span></td>'+
+    '<td>'+(t.defer>0?'<span class="badge b-defer">'+t.defer+' 次</span>':'—')+'</td>'+
+    '<td>'+(t.sup>0?'第 '+t.sup+' 次 · 11-16':'—')+'</td><td class="muted">'+t.fb+'</td>'+
+    '<td>'+(t.risk?'<span class="badge b-risk">未消除</span>':'<span class="muted">无</span>')+'</td>'+
+    '<td><button class="btn sm ghost" data-act="ticket" data-id="'+t.id+'">记一笔 / 详情 →</button></td></tr>').join('')+
+   '</tbody></table></div></div>';
+  h += '<div class="card"><div class="card-hd">四个兜底清单 <span class="muted">不静默丢单</span></div><div class="card-bd"><div class="pill-row">'+
+   '<span class="pill">（未分配团队）<b>1</b></span><span class="pill">无法督办（收件人缺失）<b>1</b></span><span class="pill">待补版本计划 <b>0</b></span><span class="pill">待自动补跑反馈 <b>1</b></span>'+
+   '</div><div class="muted" style="margin-top:9px">BUG 工单源表没有团队列 → 用「责任人 → 组织映射」解析；解析失败单列兜底，不用 LIKE 硬凑别名。</div></div></div>';
+  h += footNote();
+  return h;
+}
+
+/* ===================== 页 4：风险与督办 ===================== */
+function pageRisk(){
+  let h = hint('风险按工单维度登记，「影响本版本上线且未消除」是上线登记的硬门禁；督办按团队 × 工单类型一键圈定对象、出预览、人工确认才真发，并回收回执。',
+   '对应失效模式：风险没人管 / 推不动没手段 / 发没发、发了几次说不清 / 催过几次说不清。<br>红线：AI / 自测一律 dry_run；真发仅本人在页面点击；反馈链路只读收件箱，不自动回复厂家。');
+  h += '<div class="card"><div class="card-hd">风险事件台账 <span class="muted">按工单维度 · 一单可多条 · 跨版本顺延不重置</span><div class="right"><button class="btn sm primary" data-act="addRisk">＋ 登记风险</button></div></div><div style="padding:0 16px 12px">'+
+   '<div class="callout red" style="margin-top:12px">🔒 <b>硬门禁</b>：存在「影响本版上线 = 是」且未消除的风险时，登记「已上线」会被拦截。当前有 <b>3</b> 条此类风险 → 对应工单不可标已上线。可在排版跟踪页点工单试一下。</div></div>'+
+   '<table><thead><tr><th>事件编号</th><th>工单锚</th><th>风险类型</th><th>描述</th><th>影响本版上线</th><th>等级</th><th>来源</th><th>状态</th><th>合并次数</th></tr></thead><tbody>'+
+   RISKS.map(r=>'<tr><td class="mono">'+r.no+'</td><td class="mono">'+r.tid+'</td><td>'+r.type+'</td><td>'+esc(r.desc)+'</td>'+
+    '<td>'+(r.impact==='是'?'<span class="badge b-over">是 · 硬门禁</span>':'<span class="muted">否</span>')+'</td><td>'+r.lv+'</td>'+
+    '<td class="muted">'+r.src+'</td><td><span class="badge '+(r.st==='已消除'?'b-ok':r.st==='已转顺延'?'b-defer':'b-risk')+'">'+r.st+'</span></td>'+
+    '<td>'+r.merge+'</td></tr>').join('')+'</tbody></table></div>';
+  h += '<div class="card"><div class="card-hd">督办批次与回执状态 <span class="muted">批次 / 逐单 / 邮件记录 / 计数四者一致</span><div class="right"><button class="btn sm primary" data-act="supervise" data-team="苏移集成团队" data-type="全部">＋ 新建督办（预览）</button></div></div>'+
+   '<table><thead><tr><th>批次号</th><th>团队</th><th>类型</th><th>触发规则快照</th><th>对象 / 跳过</th><th>回执状态</th><th>时间</th><th></th></tr></thead><tbody>'+
+   BATCHES.map(b=>'<tr><td class="mono">'+b.no+'</td><td>'+b.team+'</td><td>'+b.type+'</td><td class="muted">'+b.rule+'</td>'+
+    '<td>'+b.cnt+' / '+b.skip+'</td><td><span class="badge '+(b.receipt==='已回 3/3'?'b-ok':b.receipt==='超时未回'?'b-over':'b-wait')+'">'+b.receipt+'</span></td>'+
+    '<td class="muted">'+b.time+'</td><td><button class="btn sm ghost" data-act="batchDetail" data-id="'+b.no+'">明细 →</button></td></tr>').join('')+'</tbody></table></div>';
+  h += '<div class="card"><div class="card-hd"><span class="dc-tag">决策点</span> ⑥ 重复督办怎么控</div><div class="card-bd">'+
+   '<div class="callout blue" style="margin:0">同一 (工单, 团队, 类型) <b>24h 冷却</b>：已成功发送 → 默认剔除，页面显示「冷却中，剩余 X 小时」；dry_run 预览、发送失败、跳过对象<b>不消耗冷却</b>。5 类例外可重发（风险升格 / 环节回退 / 计划或准入规则变更 / <b>收到有效反馈但仍超期</b> / 本人勾选忽略冷却），必填原因、序次递增、24h 例外上限 2 次。</div>'+
+   '<div class="pill-row"><span class="pill">示例：BUG-2026-0850 <b>冷却中，剩余 18h</b> → 默认剔除</span><span class="pill">触发 9 条纳入 / 7 条排除，每条跳过都有可见原因</span><span class="pill">严格同版：切换版本后不含他版对象</span></div></div></div>';
+  h += footNote();
+  return h;
+}
+
+/* ===================== 页 5：反馈同步 ===================== */
+function pageFeedback(){
+  let h = hint('督办发出后厂家回的进度与风险，要「进得来、落得准、查得到、能联动、可纠正」：结构化回执自动采纳，自由文本只出建议进待核对，全程留原文、标来源、可回滚。',
+   '对应失效模式 12：厂家反馈的进度与风险没进系统（老大重点关注）。<br>铁律：系统不靠自由文本臆断状态；邮件中心不可用 → 标「待自动补跑」，页面通道照常，不转人工逐条判定、不用关键词兜底猜状态。');
+  h += '<div class="kpis" style="grid-template-columns:repeat(4,1fr)">'+
+   '<div class="kpi"><div class="lb">回执率</div><div class="vl">67<span class="unit">%</span></div><div class="tip">已回 6 / 逐单 9</div></div>'+
+   '<div class="kpi k-ok"><div class="lb">自动采纳率</div><div class="vl">75<span class="unit">%</span></div><div class="tip">低则优化回执模板，不是放宽解析</div></div>'+
+   '<div class="kpi k-warn"><div class="lb">待核对量</div><div class="vl">3<span class="unit">条</span></div><div class="tip">最久 1 天 · 防积压成新盲区</div></div>'+
+   '<div class="kpi"><div class="lb">反馈后进度更新覆盖率</div><div class="vl">83<span class="unit">%</span></div><div class="tip">验证反馈确实落进系统</div></div>'+
+  '</div>';
+  h += '<div class="callout">📮 <b>邮件中心收件箱</b>：1 批拉取失败 → 已标「<b>待自动补跑</b>」，原文未丢；恢复后按 Message-ID 幂等补跑。下面批量 / 记一笔 / 代录三个页面通道照常可用。<button class="btn sm ghost" data-act="inbox">模拟同步收件箱</button></div>';
+  h += '<div class="card"><div class="card-hd"><span class="dc-tag">决策点</span> ⑤ 反馈怎么便捷进系统 · 四通道写入同一套留痕</div><div class="card-bd"><div class="chan">'+
+   '<div class="chan-c" data-act="inbox"><div class="n">A · 主通道</div><div class="t">邮件结构化回执</div><div class="d">督办邮件每工单一行带唯一回执码 + 四字段，厂家回复原邮件按行填；只读匹配收件箱 → 自动采纳</div></div>'+
+   '<div class="chan-c" data-act="bulkUpdate" data-team="CRM 团队"><div class="n">B · 集中反馈</div><div class="t">团队批量更新进度</div><div class="d">表格式勾选多单，统一改环节 / 填进展 / 填风险 / 预计完成日，支持粘贴多行</div></div>'+
+   '<div class="chan-c" data-act="quickNote" data-id="REQ-2026-1042"><div class="n">C · 单条</div><div class="t">行内「记一笔」</div><div class="d">跟踪行一个入口，一次录入进度 + 环节 + 风险 + 预计完成日，默认带出工单与团队</div></div>'+
+   '<div class="chan-c" data-act="proxyNote"><div class="n">D · 口头反馈</div><div class="t">代录（电话/微信/会议）</div><div class="d">复用「记一笔」，来源标代录，必填反馈人与反馈时间</div></div>'+
+   '</div></div></div>';
+
+  h += '<div class="card"><div class="card-hd">反馈记录与待核对 <span class="muted">原文全量留存 · 不覆盖 · 不截断</span><div class="right"><button class="btn sm" data-act="adoptDemo">模拟收到一封结构化回执</button></div></div><div class="card-bd">';
+  FEEDBACK.forEach(f=>{
+    h += '<div class="fb-item"><div class="fb-hd">'+
+     '<span class="badge '+(f.state==='自动采纳'?'b-ok':f.state==='冲突'?'b-defer':'b-wait')+'">'+f.state+'</span>'+
+     '<span class="badge b-soft">'+esc(f.src)+'</span><span class="mono">'+f.id+'</span>'+
+     '<span class="muted">'+esc(f.tid)+' · '+esc(f.from)+' · '+f.time+'</span></div>'+
+     '<div class="fb-raw">'+esc(f.raw)+'</div>'+
+     '<div class="fb-parse">'+
+      '<div class="fb-f"><div class="k">环节</div><div class="v">'+esc(f.parse.stage)+'</div></div>'+
+      '<div class="fb-f"><div class="k">最新进展</div><div class="v">'+esc(f.parse.progress)+'</div></div>'+
+      '<div class="fb-f"><div class="k">预计完成 / 能否按本版</div><div class="v">'+esc(f.parse.date)+'</div></div>'+
+      '<div class="fb-f"><div class="k">风险</div><div class="v">'+esc(f.parse.risk)+'</div></div>'+
+     '</div>'+
+     '<div class="muted" style="margin-bottom:9px">⚙ '+esc(f.note)+'</div>'+
+     '<div class="fb-act">'+
+      (f.state==='自动采纳'
+        ? '<button class="btn sm" data-act="viewRaw" data-id="'+f.id+'">查看原文 / 留痕</button><button class="btn sm" data-act="rollback" data-id="'+f.id+'">一键回滚（保留采纳前值）</button>'
+        : '<button class="btn sm" data-act="viewRaw" data-id="'+f.id+'">查看原文</button><button class="btn sm primary" data-act="adopt" data-id="'+f.id+'">核对并采纳</button><button class="btn sm" data-act="reject" data-id="'+f.id+'">驳回</button>')+
+     '</div></div>';
+  });
+  h += '</div></div>';
+  h += '<div class="card"><div class="card-hd">联动规则 <span class="muted">采纳后系统自动做什么</span></div><div class="card-bd">'+
+   '<div class="callout green" style="margin:0">✓ 采纳后自动重算：临期 / 超期 / 停滞 → 督办候选 → <b>准入判定所需的事实时间</b> → 风险硬门禁 → 回执状态 → 版本概览。反馈<b>不直接改上线结果</b>，「已上线」仍须走结果登记与门禁。</div>'+
+   '<div class="pill-row"><span class="pill">状态回退类反馈：走与页面改态<b>完全相同</b>的必填原因校验，无原因 → 待核对</span><span class="pill">同一 (工单, 风险类型) 未消除风险：<b>合并更新不新建</b>（示例 RK-0120 合并 3 次）</span><span class="pill">反馈后仍超期 → 冷却例外第 5 类可重催，批次留原因</span></div>'+
+   '</div></div>';
+  h += footNote();
+  return h;
+}
+
+function footNote(){
+  return '<div class="foot-note">本页为<b>静态交互原型</b>：数据为示意，未接后端、未读写任何真实表、未发送任何邮件。右下角「决策结论 7 项」已回填老大 2026-11-18 11:34 的表态，仍可改选并一键复制。<br>配套文档：<b>docs/排版管理模块设计方案_评审稿.md</b>（v1.2，10 章 + 目标映射矩阵 + 25 条边界 + I/J 组验收断言；第 3 项调整为「默认顺延 + 支持手工处理」）。</div>';
+}
+
+/* ===================== 渲染 ===================== */
+function renderPage(){
+  const map={track:pageTrack,plan:pagePlan,team:pageTeam,risk:pageRisk,feedback:pageFeedback};
+  $('#page').innerHTML = map[curPage]();
+  const hb=$('#hintBox'); if(hb) hb.className='hint'+(hintOpen?' open':'');
+}
+function renderAll(){renderVersionBar();renderTabs();renderPage()}
+
+/* ===================== 抽屉 / 弹窗 ===================== */
+function openDrawer(html){$('#drawer').innerHTML=html;$('#drawer').classList.add('show');$('#overlay').classList.add('show')}
+function openModal(html){$('#modal').innerHTML=html;$('#modal').classList.add('show');$('#overlay').classList.add('show')}
+function closeAll(){$('#drawer').classList.remove('show');$('#modal').classList.remove('show');$('#overlay').classList.remove('show')}
+function md(title,body,footer){
+  return '<div class="md-hd">'+title+'<span class="x" data-act="close">×</span></div><div class="md-bd">'+body+'</div><div class="md-ft">'+(footer||'<button class="btn" data-act="close">关闭</button>')+'</div>';
+}
+
+function ticketDrawer(id){
+  const t=ticket(id); if(!t) return;
+  const blocked=RISKS.some(r=>r.tid===id&&r.impact==='是'&&r.st!=='已消除'&&r.st!=='已转顺延');
+  let h='<div class="dw-hd"><div><h3><span class="badge '+(t.type==='需求'?'b-req':'b-bug')+'">'+t.type+'</span> '+esc(t.name)+'</h3>'+
+   '<div class="muted mono">'+t.id+' · '+t.sys+' · '+esc(t.teams.join(' / '))+' · 当前版本 '+V().name+'</div></div><span class="x" data-act="close">×</span></div><div class="dw-bd">';
+  h+='<div class="sec-title">① 当前跟踪态 <span class="badge b-soft">主行 / 团队子行分层</span></div>'+
+   '<table><tbody>'+
+   '<tr><th style="width:130px">当前环节</th><td><b>'+t.stage+'</b>'+(t.over>0?' <span class="badge b-over">超期 '+t.over+' 天</span>':'')+'<div class="muted">主行环节 = 各团队子行最慢值，不允许手工直接设</div></td></tr>'+
+   '<tr><th>准入状态</th><td><span class="badge '+(t.manual?'b-gate':t.gate==='已准入'?'b-ok':'b-wait')+'">'+t.gate+'</span> <span class="muted">判定时点 11-20 00:00 · 事实依据=进入等待发布时间</span>'+
+    (t.manual?'<div class="callout" style="margin:7px 0 0">🖐 <b>人工例外放行</b> · 原因：'+esc(t.manReason)+' · 操作人 陈大海 · 2026-11-18 11:34 · 原判定=未准入（晚 1 天） · 采纳前值已保留 <button class="btn sm" data-act="undoManual" data-id="'+t.id+'">撤销例外 →</button><div class="muted" style="margin-top:5px">计入本版分母，不计入按计划上线率分子；单列「人工例外」清单</div></div>':'')+'</td></tr>'+
+   '<tr><th>顺延轨迹</th><td>'+(t.defer>0?'<span class="badge b-defer">顺延 '+t.defer+' 次</span> 原属版本链：CRM 10 月版 → 11 月版 → 当前版':'首次纳入，无顺延')+(t.defer>=2?' <span class="badge b-risk">重点跟踪</span>':'')+'</td></tr>'+
+   '<tr><th>督办 / 反馈</th><td>已督办 '+t.sup+' 次 · 最近 '+t.fb+'</td></tr>'+
+   '<tr><th>风险</th><td>'+(t.risk?'<span class="badge b-risk">'+esc(t.risk)+'</span> '+(blocked?'<b style="color:var(--danger)">影响本版上线且未消除 → 硬门禁生效</b>':''):'<span class="muted">无</span>')+'</td></tr>'+
+   '</tbody></table>';
+  h+='<div class="sec-title" style="margin-top:20px">② 环节流转 <span class="muted">正向逐级 · 回退必填原因</span></div>'+
+   '<div class="form-row"><label>推进到</label><div class="ctl"><select id="stageSel">'+STAGES.map(s=>'<option'+(s.k===t.stage?' selected':'')+'>'+s.k+'</option>').join('')+'</select>'+
+    '<div class="hintx">跳级会被拒绝；回退会写留痕（含变更来源与采纳前值）、自动生成一条系统风险；从「等待发布」回退须重走测试并<b>重新触发准入判定</b>。</div></div></div>'+
+   '<div class="form-row"><label>回退原因</label><div class="ctl"><input type="text" id="backReason" placeholder="仅回退时必填，否则不可提交"><div class="hintx">变更来源：页面手工 / 邮件反馈 / 团队批量更新 / 行内记一笔 / 系统自动，统一写一套留痕。</div></div></div>'+
+   '<button class="btn sm primary" data-act="doStage" data-id="'+t.id+'">提交环节变更</button>';
+  h+='<div class="sec-title" style="margin-top:22px">③ 登记上线结果 <span class="dc-tag">决策点</span></div>'+
+   '<div class="form-row"><label>结果</label><div class="ctl"><select id="resSel"><option>已上线</option><option>未排进版本</option><option>上线失败</option><option>取消或撤回</option></select></div></div>'+
+   '<div class="form-row"><label>结果日期 / 依据</label><div class="ctl"><input type="text" value="2026-11-27" ><div class="hintx">需求以源模块实际交付日期为权威；BUG 只在跟踪行登记（不回写源工单）。</div></div></div>'+
+   '<div class="form-row"><label>原因 / 说明</label><div class="ctl"><input type="text" id="resReason" placeholder="未排进版本 / 上线失败 / 取消必填"></div></div>'+
+   (blocked?'<div class="callout red">🔒 该工单有「影响本版上线且未消除」的风险，登记「已上线」将被硬门禁拦截（可直接点下方按钮验证）。</div>':'')+
+   '<button class="btn sm primary" data-act="doResult" data-id="'+t.id+'">登记结果</button>'+
+   '<div class="muted" style="margin-top:8px">「未排进版本 / 上线失败」→ 自动顺延下一版：主行改挂 + 准入复位 + 顺延次数 +1 + 原属版本链 + 环节回滚 + 自动登记风险 + 全口径重算。仅「已上线」「取消」是终态。</div>';
+  h+='<div class="sec-title" style="margin-top:22px">④ 快速记录（老大补充 3）</div>'+
+   '<div class="pill-row" style="margin:0"><button class="btn sm" data-act="quickNote" data-id="'+t.id+'">＋ 记一笔（进度/环节/风险/预计完成日）</button><button class="btn sm" data-act="addRisk">＋ 登记风险</button><button class="btn sm" data-act="srcLink" data-id="'+t.id+'">回源详情 ↗</button></div>';
+  h+='</div><div class="dw-ft"><button class="btn" data-act="close">关闭</button></div>';
+  openDrawer(h);
+}
+
+function planDetail(id){
+  const v=VERSIONS.find(x=>x.id===id);
+  const body='<div class="callout blue">版本标识 <b>'+esc(v.name)+'</b> ｜ 适用范围 '+esc(v.scope)+' ｜ 发布日 '+v.pub+' ｜ 准入模式 '+(v.gateDays>0?'提前 '+v.gateDays+' 天进入等待发布':'开放')+' ｜ 临时合入 '+(v.temp?'允许（软标）':'<b>禁止（默认顺延，可留痕手工例外）</b>')+'</div>'+
+   '<div class="sec-title">计划变更日志 <span class="muted">每次发布日 / 状态 / 准入规则变更都留痕</span></div>'+
+   '<table><thead><tr><th>时间</th><th>变更项</th><th>变更前</th><th>变更后</th><th>影响在跟工单</th><th>操作人</th></tr></thead><tbody>'+
+   '<tr><td class="mono">11-10 09:12</td><td>计划发布日</td><td>11-25</td><td>11-27</td><td>8 单（截止/准入时点已重算）</td><td>陈大海</td></tr>'+
+   '<tr><td class="mono">11-03 14:30</td><td>准入规则</td><td>开放</td><td>提前 7 天 + 禁止临时合入</td><td>12 单（已准入 4 单不撤销）</td><td>陈大海</td></tr>'+
+   '<tr><td class="mono">10-28 10:05</td><td>计划创建</td><td>—</td><td>已确认</td><td>—</td><td>陈大海</td></tr>'+
+   '</tbody></table>'+
+   '<div class="sec-title" style="margin-top:18px">版本序列（顺延目标）</div>'+
+   '<div class="callout green" style="margin:0">当前版本 → 下一有效版本 = <b>'+esc((VERSIONS.find(x=>x.scope===v.scope&&x.seq===2)||{name:'（尚未登记，进「待补版本计划」清单，主行持续在跟不关闭）'}).name)+'</b>。顺延目标由版本序列<b>唯一解析</b>，不需人工选版本；无下一版不丢单。</div>';
+  openModal(md('版本计划详情 · '+esc(v.name),body,'<button class="btn" data-act="editPlan" data-id="'+v.id+'">编辑计划</button><button class="btn primary" data-act="close">知道了</button>'));
+}
+
+function planForm(id){
+  const v=id?VERSIONS.find(x=>x.id===id):{name:'',scope:'统一默认',type:'常规',pub:'2026-12-11',freeze:'2026-11-26',gateDays:0,temp:true,status:'拟定'};
+  const body='<div class="callout">准入规则配在<b>版本计划</b>上：工单页面不存在「是否允许临时合入」开关，避免 CRM 硬闸被打勾绕开。</div>'+
+   '<div class="form-row"><label>版本标识</label><div class="ctl"><input type="text" id="pfName" value="'+esc(v.name)+'" placeholder="如：CRM 2026-12 常规版"></div></div>'+
+   '<div class="form-row"><label>适用范围</label><div class="ctl"><select id="pfScope"><option>统一默认</option><option'+(v.scope.indexOf('CRM')>=0?' selected':'')+'>CRM（专属）</option><option>订单中心（专属）</option><option>BOSS（专属）</option><option>电子协议（专属）</option></select><div class="hintx">来自现网组织映射的系统名，禁自由文本；未单独配置的系统自动回落统一默认计划。</div></div></div>'+
+   '<div class="form-row"><label>版本类型 / 状态</label><div class="ctl"><select id="pfType"><option>常规</option><option>紧急补丁</option><option>临时加版</option></select>　<select id="pfStatus"><option>拟定</option><option selected>已确认</option><option>已发布</option><option>已收口</option><option>已取消</option></select></div></div>'+
+   '<div class="form-row"><label>计划发布日</label><div class="ctl"><input type="date" id="pfPub" value="'+v.pub+'"><div class="hintx">唯一基准：四环节截止（−15/−8/−3/−1）、冻结日、准入判定时点全部由此派生。</div></div></div>'+
+   '<div class="form-row"><label>准入模式</label><div class="ctl"><select id="pfGate" onchange="gateChanged()"><option value="0"'+(v.gateDays===0?' selected':'')+'>开放（可纳入至冻结日）</option><option value="7"'+(v.gateDays>0?' selected':'')+'>提前 7 个自然日进入「等待发布」才准入（CRM）</option></select>'+
+    '<div class="hintx">判定时点 = 发布日 − N 天 00:00；计划改期时重算，已准入不撤销、待判定按新时点重判。</div></div></div>'+
+   '<div class="form-row"><label>是否允许临时合入</label><div class="ctl"><label class="chk"><input type="checkbox" id="pfTemp" '+(v.temp?'checked':'')+'> 允许（冻结后纳入为软标，计入分母不进分子）</label>'+
+    '<div class="hintx" id="tempHint">CRM 选择「提前 7 天」时，本项自动锁定为「否」：默认自动顺延，页面无无痕强行合入口，但保留逐单「手工处理」例外放行（必填原因 + 留痕）。</div></div></div>';
+  openModal(md(id?'编辑版本计划':'登记版本计划',body,'<button class="btn" data-act="close">取消</button><button class="btn primary" data-act="savePlan" data-id="'+(id||'')+'">保存（Demo 仅提示）</button>'));
+  gateChanged();
+}
+function gateChanged(){
+  const g=$('#pfGate'),t=$('#pfTemp'),h=$('#tempHint'); if(!g||!t)return;
+  if(g.value==='7'){t.checked=false;t.disabled=true;h.innerHTML='<b style="color:var(--danger)">已锁定为「禁止临时合入」</b>：默认动作 = 自动顺延；工单上不存在「打勾即合入」开关，确需留本版须走逐单「手工处理」（必填原因 + 全量留痕）。';}
+  else{t.disabled=false;h.textContent='CRM 选择「提前 7 天」时，本项自动锁定为「否」。';}
+}
+
+function candidateModal(){
+  const body='<div class="callout blue">候选池规则<b>唯一实现、可复算</b>：符合条件 + 未闭环 + 未纳入 + 有归属系统 → 自动出候选，<b>人工一键确认纳入</b>（不做后台静默自动纳入）。纳入只建跟踪行，<b>不写源需求 / 源工单任何字段</b>。</div>'+
+   '<div class="sec-title">命中候选（3）</div><table><thead><tr><th></th><th>工单</th><th>类型</th><th>系统</th><th>命中理由</th><th>将挂载版本</th></tr></thead><tbody>'+
+   '<tr><td><input type="checkbox" checked></td><td class="mono">REQ-2026-1121</td><td>需求</td><td>CRM</td><td>有期望上线日 11-26 · 状态开发中</td><td>CRM 2026-11 常规版</td></tr>'+
+   '<tr><td><input type="checkbox" checked></td><td class="mono">BUG-2026-0883</td><td>BUG</td><td>电子协议</td><td>影响等级 P1 · 未闭环</td><td><span class="badge b-default">默认计划</span> 统一默认 11 月版</td></tr>'+
+   '<tr><td><input type="checkbox" checked></td><td class="mono">REQ-2026-1128</td><td>需求</td><td>BOSS</td><td>已被指定版本 · 未纳入</td><td>BOSS 2026-11 常规版</td></tr>'+
+   '</tbody></table><div class="sec-title" style="margin-top:16px">排除（2，每条有可见原因）</div>'+
+   '<table><thead><tr><th>工单</th><th>排除原因</th></tr></thead><tbody>'+
+   '<tr><td class="mono">REQ-2026-0990</td><td>源状态 = 已上线</td></tr><tr><td class="mono">BUG-2026-0799</td><td>纯咨询类工单（is_defect=0）</td></tr></tbody></table>'+
+   '<div class="callout" style="margin-top:14px">⚠ <b>入跟踪 ≠ 入版本</b>：CRM 单纳入后准入状态为「待判定」，可提前盯进度、提前督办，但正式进版要等发布日 −7 天的准入判定。</div>';
+  openModal(md('从候选池纳入跟踪',body,'<button class="btn" data-act="close">取消</button><button class="btn primary" data-act="doCandidate">确认纳入 3 单（Demo）</button>'));
+}
+
+function manualModal(id){
+  const t=ticket(id)||TICKETS[0];
+  const body='<div class="callout blue"><b>v1.2 决策：支持手工处理，默认顺延</b>。未准入工单的<b>默认动作是自动顺延下一版</b>（无需人工确认）；如确需留在本版，在此逐单例外放行。二选一，页面显式点击。</div>'+
+   '<div class="sec-title">原判定事实（留痕四要素之一，只读）</div>'+
+   '<table><thead><tr><th>工单</th><th>判定时点</th><th>进入等待发布</th><th>差值</th><th>原判定</th></tr></thead><tbody>'+
+   '<tr><td class="mono">'+t.id+'</td><td>11-20 00:00</td><td>11-21（示意，−6 天）</td><td><span class="badge b-over">晚 1 天</span></td><td><b>未准入</b></td></tr></tbody></table>'+
+   '<div class="sec-title" style="margin-top:16px">动作一：确认顺延（默认）</div>'+
+   '<div class="callout" style="margin:0 0 14px">不干预即自动执行：改挂 CRM 2026-12 常规版 · 准入复位待判定 · 顺延次数 +1 · 环节回滚 · 自动登记风险 · 全口径重算。<button class="btn sm" data-act="defer" data-id="'+t.id+'">按默认顺延 →</button></div>'+
+   '<div class="sec-title">动作二：例外放行，留在本版 <span class="dc-tag">需留痕</span></div>'+
+   '<div class="form-row"><label>放行原因</label><div class="ctl"><select id="manReason"><option value="">— 必选 —</option><option>紧急补丁</option><option>客户承诺</option><option>上线依赖</option><option>业务窗口冲突</option><option>其他（需在说明中写明）</option></select></div></div>'+
+   '<div class="form-row"><label>说明 / 操作人</label><div class="ctl"><input type="text" id="manNote" placeholder="原因选「其他」时必填"><div class="hintx">操作人：陈大海（当前登录）· 操作时间：2026-11-18 11:34 · 原判定事实自动带入，不手填</div></div></div>'+
+   '<div class="callout red" style="margin:0">🔒 <b>硬约束</b>：逐单操作不批量、不自动、无静默后门；不改变版本计划准入模式；不新增审批流。例外单计入本版分母与「本版实际发布数」，但<b>不计入按计划上线率分子</b>，单列「人工例外」清单；保留采纳前值可一键撤销回滚。</div>';
+  openModal(md('手工处理 · '+t.id,body,'<button class="btn" data-act="close">取消</button><button class="btn" data-act="defer" data-id="'+t.id+'">确认顺延（默认）</button><button class="btn primary" data-act="doManual" data-id="'+t.id+'">例外放行留本版</button>'));
+}
+
+function superviseModal(team,type){
+  const objs=TICKETS.filter(t=>t.teams.includes(team)&&(type==='全部'||t.type===type));
+  const batch='SUP-20261118-03';
+  const body='<div class="callout blue">触发维度 <b>团队 × 工单类型</b>：'+team+' · '+type+' ｜ 当前版本 <b>'+V().name+'</b>。系统按 9 条纳入 / 7 条排除规则圈定对象、组稿、算收件人与抄送、出预览；<b>真发仅由本人在本页点击</b>。</div>'+
+   '<div class="sec-title">对象清单（'+objs.length+' 单）</div><table><thead><tr><th>工单</th><th>类型</th><th>准入</th><th>当前环节</th><th>触发规则</th><th>最近督办</th><th>回执码</th></tr></thead><tbody>'+
+   (objs.length?objs.map((t,i)=>'<tr><td class="mono">'+t.id+'</td><td>'+t.type+'</td><td><span class="badge '+(t.gate==='已准入'?'b-ok':'b-wait')+'">'+t.gate+'</span></td><td>'+t.stage+(t.over>0?' <span class="badge b-over">超期 '+t.over+'</span>':'')+'</td><td class="muted">'+(t.over>0?'超期未完成':t.block?'有影响上线风险':'临期 ≤3 天')+'</td><td>'+(t.sup>0?'第 '+t.sup+' 次':'—')+'</td><td class="mono">RC-20261118-0'+(i+1)+'</td></tr>').join(''):'<tr><td colspan="7" class="muted">当前筛选下无应督办对象，按钮应置灰并给出原因</td></tr>')+
+   '</tbody></table>'+
+   '<div class="sec-title" style="margin-top:14px">跳过清单（可见原因）</div><div class="pill-row"><span class="pill">BUG-2026-0850 <b>冷却中，剩余 18h</b></span><span class="pill">苏移集成 1 单 <b>收件人解析失败 → 无法督办清单</b></span><span class="pill">另有 1 单 <b>已有有效反馈且未到承诺完成日</b></span></div>'+
+   '<div class="sec-title" style="margin-top:16px">邮件预览 <span class="muted">预览 = 实发同源 · 结构化数据一次装配</span></div>'+
+   '<div class="mailprev">主题：【排版督办】'+team+'·'+V().name+'·'+type+' '+objs.length+' 项需按版本发布｜批次号 '+batch+'\n\n'+
+   '版本：'+V().name+'　计划发布日：'+V().pub+'　计划来源：'+V().source+'\n'+
+   '准入模式：'+(V().gateDays>0?'需提前 7 天进入「等待发布」，本版禁止临时合入（判定时点 11-20）':'开放')+'\n'+
+   '本团队应上线 '+objs.length+' 项；请于 11-26 前反馈。\n\n'+
+   '── 工单清单 ──\n'+
+   (objs.length?objs.map((t,i)=>(i+1)+'. ['+t.type+'] '+t.id+' '+t.name+'\n   系统：'+t.sys+'｜准入：'+t.gate+'｜环节：'+t.stage+(t.over>0?'｜超期 '+t.over+' 天':'')+'｜顺延：'+t.defer+' 次｜第 '+(t.sup+1)+' 次督办').join('\n'):'（无）')+
+   '\n\n── 请直接回复本邮件，按行填写，勿改回执码 ──\n'+
+   '回执码｜当前环节｜最新进展 / 预计完成日｜风险与是否影响本版\n'+
+   (objs.length?objs.map((t,i)=>'RC-20261118-0'+(i+1)+'｜　　　｜　　　　　　　　　｜').join('\n'):'（无）')+
+   '\n\n批次号 '+batch+'　生成时间 2026-11-18 11:10　（dry_run 预览，未真发）</div>'+
+   '<div class="callout red" style="margin-top:12px">🔒 红线：AI / 脚本 / 自测一律 <b>dry_run</b>，不真发、不落发送记录、不回写督办计数、不消耗冷却。Demo 的「确认发送」只会提示，不会调用任何发送能力。</div>';
+  openModal(md('批量督办 · 预览与确认',body,'<span class="muted" style="margin-right:auto">收件人 / 正文 / 对象清单在点击前完整可见</span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="doSend">确认发送（Demo 不真发）</button>'));
+}
+
+function bulkModal(team){
+  const ts=TICKETS.filter(t=>t.teams.includes(team)).slice(0,4);
+  const body='<div class="callout blue">通道 B · <b>团队批量更新进度</b>（'+team+'）：周例会 / 电话会后集中回填。一次提交多条，全部写<b>同一套</b>流转留痕与风险对象，来源标「团队批量更新」，支持粘贴多行。</div>'+
+   '<table><thead><tr><th></th><th>工单</th><th>当前环节</th><th>更新为</th><th>进展 / 预计完成日</th><th>风险（按类型合并更新）</th></tr></thead><tbody>'+
+   ts.map(t=>'<tr><td><input type="checkbox" checked></td><td class="mono">'+t.id+'<div class="muted">'+esc(t.name)+'</div></td><td>'+t.stage+'</td>'+
+    '<td><select>'+STAGES.map(s=>'<option'+(s.k===t.stage?' selected':'')+'>'+s.k+'</option>').join('')+'</select></td>'+
+    '<td><input type="text" placeholder="如：联调完成，11-24 可提测" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px"></td>'+
+    '<td><select><option>无</option><option>开发延期</option><option>测试阻塞</option><option>环境与依赖</option><option>资源不足</option></select></td></tr>').join('')+
+   '</tbody></table><div class="callout" style="margin-top:12px">⚠ 环节回退类变更走<b>必填原因</b>校验；含风险描述时按「同工单同类型未消除」<b>合并更新不新建</b>；提交后自动重算超期、督办候选与门禁。</div>';
+  openModal(md('批量更新进度',body,'<button class="btn" data-act="close">取消</button><button class="btn primary" data-act="doBulk">提交 4 条（Demo）</button>'));
+}
+function noteModal(id,proxy){
+  const t=ticket(id)||TICKETS[0];
+  const body='<div class="callout blue">通道 '+(proxy?'D · 代录（电话/微信/会议）':'C · 行内「记一笔」')+'：一次录入进度 + 环节 + 风险 + 预计完成日，默认带出工单与团队；页面显式提交后自动采纳，<b>原文留痕、标来源、可回滚</b>。</div>'+
+   '<div class="form-row"><label>工单 / 团队</label><div class="ctl"><input type="text" value="'+t.id+' · '+esc(t.teams.join(' / '))+'" readonly></div></div>'+
+   (proxy?'<div class="form-row"><label>反馈人 / 时间</label><div class="ctl"><input type="text" placeholder="必填：如 王工 2026-11-18 10:30（电话）"></div></div>':'')+
+   '<div class="form-row"><label>当前环节 →</label><div class="ctl"><select>'+STAGES.map(s=>'<option'+(s.k===t.stage?' selected':'')+'>'+s.k+'</option>').join('')+'</select></div></div>'+
+   '<div class="form-row"><label>进度说明 / 原文</label><div class="ctl"><textarea placeholder="原样留存，不覆盖、不截断"></textarea></div></div>'+
+   '<div class="form-row"><label>预计完成日</label><div class="ctl"><input type="date" value="2026-11-24"></div></div>'+
+   '<div class="form-row"><label>风险</label><div class="ctl"><select><option>无</option><option>需求变更</option><option>方案未定</option><option>开发延期</option><option>测试阻塞</option><option>环境与依赖</option><option>发布窗口冲突</option></select>　<label class="chk" style="display:inline-flex"><input type="checkbox"> 影响本版本上线</label></div></div>';
+  openModal(md(proxy?'代录反馈':'记一笔 · '+t.id,body,'<button class="btn" data-act="close">取消</button><button class="btn primary" data-act="doNote">提交并留痕（Demo）</button>'));
+}
+function overviewModal(){
+  const body='<div class="callout blue"><b>一句话定位</b>：排版管理 = 版本上线排期跟踪。把「已确定要上、有明确版本窗口」的需求与运营 BUG 挂到版本计划上，逐环节盯到「等待发布」，用上线结果闭环；<b>没上成的自动顺延下一版，直到成功上线</b>。不是项目管理工具。</div>'+
+   '<div class="sec-title">5 个页面 → 5 个决策问题</div><table><thead><tr><th>页</th><th>一眼要回答什么</th><th>本次老大补充</th></tr></thead><tbody>'+
+   '<tr><td><b>排版跟踪</b></td><td>本版应上多少、卡在哪、有没有风险、谁还没上成</td><td>① 默认顺延 + 手工处理</td></tr>'+
+   '<tr><td><b>版本计划</b></td><td>各系统哪天发、截止怎么倒排、准入规则配在哪</td><td>① 准入配置</td></tr>'+
+   '<tr><td><b>团队跟踪</b></td><td>卡在哪个团队、找谁、催过几次、对方回了什么</td><td>③ 批量更新入口</td></tr>'+
+   '<tr><td><b>风险与督办</b></td><td>什么风险挡住上线、催了几次、回执收没收到</td><td>③ 回执区与状态</td></tr>'+
+   '<tr><td><b>反馈同步</b></td><td>厂家反馈有没有进系统、要不要核对、能不能回滚</td><td>③ <b>重点落地页</b></td></tr>'+
+   '</tbody></table>'+
+   '<div class="sec-title" style="margin-top:16px">三点补充在 Demo 里怎么点</div>'+
+   '<div class="pill-row"><span class="pill">① CRM：准入模拟器切 −8 / −7 / −6 / 临时合入；未准入可点「按默认顺延」或「手工处理」例外放行</span><span class="pill">② 顺延：模拟器点「按默认顺延」，或工单抽屉登记「上线失败 / 未排进版本」</span><span class="pill">③ 反馈：反馈同步页四通道 + 待核对采纳 / 回滚</span></div>'+
+   '<div class="callout" style="margin-top:14px">9 条设计主张与 25 条边界场景见<b>评审稿 v1.2</b>；第 3 项决策已调整为「默认顺延 + 支持手工处理」。本 Demo 只呈现「页面长什么样、点起来什么效果」。</div>';
+  openModal(md('方案速览 · 3 分钟看懂',body,'<button class="btn primary" data-act="openDec">打开决策结论</button><button class="btn" data-act="close">关闭</button>'));
+}
+
+/* ===================== 决策面板 ===================== */
+function renderDec(){
+  const done=decState.filter(d=>d.v).length;
+  const pending=DECISIONS.length-done;
+  $('#decCount').textContent=done;
+  let h='<div class="dec-hd">决策结论 '+done+'/'+DECISIONS.length+' 项 <span class="muted" style="font-weight:400">已回填 11-18 11:34 表态 · 可改选</span><span class="x" data-act="closeDec">×</span></div><div class="dec-bd">';
+  DECISIONS.forEach((d,i)=>{
+    const s=decState[i];
+    h+='<div class="dec-item"><div class="t">'+(i+1)+'. '+esc(d.t)+'</div><div class="d">'+esc(d.d)+'</div><div class="ops">'+
+     '<button class="opt '+(s.v==='同意'?'on-ok':'')+'" data-act="dec" data-i="'+i+'" data-v="同意">✓ 同意</button>'+
+     '<button class="opt '+(s.v==='要调整'?'on-no':'')+'" data-act="dec" data-i="'+i+'" data-v="要调整">✎ 要调整</button>'+
+     '<input type="text" data-note="'+i+'" value="'+esc(s.note)+'" placeholder="调整意见 / 新值（如：−12/−7/−3/−1）"></div></div>';
+  });
+  h+='</div><div class="dec-ft"><span class="muted" style="margin-right:auto">已表态 '+done+' / '+DECISIONS.length+' 项'+(pending?'（剩余 '+pending+' 项未表态）':'')+'</span><button class="btn" data-act="decReset">清空</button><button class="btn primary" data-act="decCopy">复制决策结论</button></div>';
+  $('#decPanel').innerHTML=h;
+  $('#decPanel').querySelectorAll('[data-note]').forEach(el=>el.oninput=e=>{decState[+e.target.dataset.note].note=e.target.value});
+}
+function copyDec(){
+  let s='排版管理 Demo 决策结论（'+new Date().toLocaleString('zh-CN')+'）\n\n';
+  DECISIONS.forEach((d,i)=>{const x=decState[i];s+=(i+1)+'. '+d.t+'\n   → '+(x.v||'未表态')+(x.note?'　备注：'+x.note:'')+'\n'});
+  s+='\n（未表态 ' + decState.filter(x=>!x.v).length + ' 项）';
+  const ta=document.createElement('textarea');ta.value=s;document.body.appendChild(ta);ta.select();
+  try{document.execCommand('copy');toast('决策结论已复制，可直接贴回对话给我','ok')}catch(e){toast('复制失败，请手动选择','err')}
+  ta.remove();
+}
+
+/* ===================== 事件 ===================== */
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]'); if(!el)return;
+  const a=el.dataset.act, id=el.dataset.id;
+  if(a==='close'){closeAll();return}
+  if(a==='closeDec'){$('#decPanel').classList.remove('show');return}
+  if(a==='page'){curPage=el.dataset.k;hintOpen=false;renderTabs();renderPage();window.scrollTo({top:0,behavior:'smooth'});return}
+  if(a==='hint'){hintOpen=!hintOpen;const h=$('#hintBox');h.className='hint'+(hintOpen?' open':'');el.textContent=hintOpen?'收起':'对应目标 ↗';return}
+  if(a==='overview'){overviewModal();return}
+  if(a==='openDec'){closeAll();$('#decPanel').classList.add('show');return}
+  if(a==='plan'){curPage='plan';hintOpen=false;renderTabs();renderPage();return}
+  if(a==='goFeedback'){curPage='feedback';hintOpen=false;renderTabs();renderPage();return}
+  if(a==='gateScroll'){const g=$('#gateSim');if(g)g.scrollIntoView({behavior:'smooth',block:'center'});return}
+  if(a==='ticket'){ticketDrawer(id);return}
+  if(a==='candidate'){candidateModal();return}
+  if(a==='doCandidate'){closeAll();toast('已按幂等规则纳入 3 单：主行各 1 条、子行按团队拆分，源工单未被改动（Demo）','ok');return}
+  if(a==='planDetail'){if(e.target.closest('[data-act="editPlan"]'))return;planDetail(id);return}
+  if(a==='editPlan'){closeAll();planForm(id);return}
+  if(a==='addPlan'){planForm(null);return}
+  if(a==='savePlan'){closeAll();toast('已保存（Demo）：发布日派生四环节截止与准入时点，并写一条计划变更日志','ok');return}
+  if(a==='fallback'){openModal(md('默认计划回落清单','<div class="callout blue">未单独配置版本计划的系统 → 统一默认 2026-11 版（发布日 11-28），主行标「计划来源 = 默认」。<b>回落不落副本</b>：默认计划改期，以下工单的截止日与准入时点同步重算。</div><table><thead><tr><th>系统</th><th>在跟工单</th><th>工单示例</th><th>计划来源</th></tr></thead><tbody><tr><td>电子协议</td><td>2</td><td class="mono">REQ-2026-1078 / BUG-2026-0871</td><td><span class="badge b-default">默认</span></td></tr><tr><td>生产运营平台</td><td>1</td><td class="mono">BUG-2026-0862</td><td><span class="badge b-default">默认</span></td></tr><tr><td>商客专区</td><td>0</td><td class="muted">—</td><td><span class="badge b-default">默认</span></td></tr><tr><td>政企工作台</td><td>0</td><td class="muted">—</td><td><span class="badge b-default">默认</span></td></tr></tbody></table>','<button class="btn primary" data-act="close">知道了</button>'));return}
+  if(a==='sim'){simDays=+el.dataset.d;renderPage();toast(simDays<=-7?'判定：已准入（提前 '+-simDays+' 天进入等待发布）':'判定：未准入 → 自动顺延下一版',simDays<=-7?'ok':'err');return}
+  if(a==='defer'){
+    const t=ticket(id); if(t){t.defer+=1;t.gate='待判定';t.ver=nextVerOf(curVer);t.stage='开发中';t.risk='准入未通过（系统生成）';t.block=true;}
+    closeAll();renderPage();toast('自动顺延完成：改挂 CRM 2026-12 常规版 · 准入复位待判定 · 顺延次数 +1 · 环节回滚 · 自动登记风险 · 全口径重算（主行唯一，未关闭）。切到「CRM 2026-12 常规版」可看到该单继续在跟','ok');return;
+  }
+  if(a==='manual'){manualModal(id);return}
+  if(a==='doManual'){
+    const r=$('#manReason'),nt=$('#manNote');
+    if(!r||!r.value){toast('例外放行必须选择原因，提交被拒（规则生效）','err');return}
+    if(r.value.indexOf('其他')>=0&&(!nt||!nt.value.trim())){toast('原因选「其他」时必须填写说明','err');return}
+    const t=ticket(id); if(t){t.manual=true;t.gate='人工例外准入';t.manReason=r.value;t.manNote=nt?nt.value:'';t.manBy='陈大海';}
+    closeAll();renderPage();toast('例外放行已生效：主行留本版 · 准入状态=人工例外准入 · 四要素留痕 + 变更日志 · 单列「人工例外」清单（计入分母，不计入按计划上线率分子）· 采纳前值可一键撤销','ok');return;
+  }
+  if(a==='undoManual'){
+    const t=ticket(id); if(t){t.manual=false;t.manReason='';t.gate='待判定';t.defer+=1;t.ver=nextVerOf(curVer);t.stage='开发中';t.risk='准入未通过（系统生成）';t.block=true;}
+    closeAll();renderPage();toast('已撤销例外 → 回到未准入并按默认自动顺延；留痕与采纳前值保留不删','warn');return;
+  }
+  if(a==='doStage'){
+    const t=ticket(id),to=$('#stageSel').value,from=t.stage;
+    const fi=STAGES.findIndex(s=>s.k===from),ti=STAGES.findIndex(s=>s.k===to);
+    if(ti<fi&&!$('#backReason').value.trim()){toast('回退必须填写原因，提交被拒（规则生效）','err');return}
+    if(Math.abs(ti-fi)>1){toast('不可跳级：四环节须逐级推进','err');return}
+    t.stage=to;closeAll();renderPage();toast('环节已更新：'+from+' → '+to+(ti<fi?'（回退已留痕 + 自动生成风险 + 重新触发准入判定）':'（已写流转留痕）'),'ok');return;
+  }
+  if(a==='doResult'){
+    const t=ticket(id),res=$('#resSel').value;
+    const blocked=RISKS.some(r=>r.tid===id&&r.impact==='是'&&r.st!=='已消除'&&r.st!=='已转顺延')||t.block;
+    if(res==='已上线'&&blocked){toast('⛔ 硬门禁拦截：存在「影响本版上线且未消除」的风险，不能登记「已上线」','err');return}
+    if(res!=='已上线'&&!$('#resReason').value.trim()){toast('未排进版本 / 上线失败 / 取消必须填写原因','err');return}
+    if(res==='已上线'){toast('已登记「已上线」→ 终态，主行关闭，计入本版按计划上线数','ok');}
+    else if(res==='取消或撤回'){toast('已登记「取消或撤回」→ 终态，不再自动顺延','ok');}
+    else{t.defer+=1;t.gate='待判定';t.ver=nextVerOf(curVer);t.stage=res==='上线失败'?'开发中':t.stage;t.risk=res==='上线失败'?'上线失败（系统生成）':'准入未通过（系统生成）';t.block=true;
+      closeAll();renderPage();toast('结果「'+res+'」已登记 → 自动顺延下一版：主行改挂 + 准入复位 + 顺延 +1 + 环节回滚 + 自动风险 + 全口径重算（持续跟踪直到成功上线）','warn');return;}
+    closeAll();renderPage();return;
+  }
+  if(a==='srcLink'){toast('Demo 不跳转：实际会带工单锚深链回需求详情 / BUG 工单详情，且源模块不反向展示排版态');return}
+  if(a==='drill'){
+    const tm=el.dataset.team,st=el.dataset.stage;
+    const ts=TICKETS.filter(t=>t.teams.includes(tm)&&t.stage===st);
+    openModal(md('下钻明细 · '+tm+' / '+st,'<div class="callout blue">口径：格内数字 = 下钻明细条数 = 筛选条件 = 当前版本，四者同源（'+ts.length+' 条）。</div>'+
+     (ts.length?'<table><thead><tr><th>工单</th><th>类型</th><th>系统</th><th>准入</th><th>超期</th><th>顺延</th><th>最近反馈</th></tr></thead><tbody>'+ts.map(t=>'<tr><td class="mono">'+t.id+'<div class="muted">'+esc(t.name)+'</div></td><td>'+t.type+'</td><td>'+t.sys+'</td><td><span class="badge '+(t.gate==='已准入'?'b-ok':'b-wait')+'">'+t.gate+'</span></td><td>'+(t.over>0?'<span class="badge b-over">'+t.over+' 天</span>':'—')+'</td><td>'+t.defer+'</td><td class="muted">'+t.fb+'</td></tr>').join('')+'</tbody></table>':'<div class="muted">该团队该环节当前无工单</div>'),'<button class="btn primary" data-act="close">关闭</button>'));return;
+  }
+  if(a==='typeFilter'){toast('Demo：类型筛选可切「全部 / 需求 / BUG」，条件会带进下钻与导出（同版本口径）');return}
+  if(a==='supervise'){superviseModal(el.dataset.team,el.dataset.type);return}
+  if(a==='doSend'){closeAll();toast('Demo 未真发：真发仅由老大在页面显式点击（confirm_send），AI / 自测全程 dry_run','warn');return}
+  if(a==='batchDetail'){toast('批次明细：逐单发送状态 / 回执码 / 督办序次 / 回执收到时间 / 失败原因，可按工单锚查全部历史');return}
+  if(a==='addRisk'){openModal(md('登记风险事件','<div class="callout">风险按<b>工单维度</b>登记，一单可多条；类型闭集字典，禁自由建类。跨版本顺延时风险随主行延续，不因换版本重置为「新风险」。</div>'+
+   '<div class="form-row"><label>工单锚</label><div class="ctl"><select>'+TICKETS.slice(0,5).map(t=>'<option>'+t.id+'</option>').join('')+'</select></div></div>'+
+   '<div class="form-row"><label>风险类型</label><div class="ctl"><select><option>需求变更</option><option>方案未定</option><option>开发延期</option><option>测试阻塞</option><option>环境与依赖</option><option>发布窗口冲突</option><option>准入未通过</option><option>上线失败</option><option>资源不足</option><option>其他</option></select></div></div>'+
+   '<div class="form-row"><label>影响团队范围</label><div class="ctl"><input type="text" placeholder="跨团队工单须标具体团队"></div></div>'+
+   '<div class="form-row"><label>是否影响本版上线</label><div class="ctl"><label class="chk"><input type="checkbox" checked> 是（触发硬门禁 + 自动进督办对象）</label></div></div>'+
+   '<div class="form-row"><label>描述 / 发现日 / 责任人</label><div class="ctl"><textarea placeholder="必填"></textarea></div></div>','<button class="btn" data-act="close">取消</button><button class="btn primary" data-act="doRisk">登记（Demo）</button>'));return}
+  if(a==='doRisk'){closeAll();toast('风险已登记：若同工单同类型已有未消除风险，则合并更新而非新建','ok');return}
+  if(a==='bulkUpdate'){bulkModal(el.dataset.team||'CRM 团队');return}
+  if(a==='doBulk'){closeAll();toast('已提交 4 条：同一套流转留痕 + 风险对象，来源=团队批量更新，超期/督办候选/门禁已重算','ok');return}
+  if(a==='quickNote'){noteModal(id,false);return}
+  if(a==='proxyNote'){noteModal(null,true);return}
+  if(a==='doNote'){closeAll();toast('已留痕并自动采纳：原文保留、标来源、采纳前值可一键回滚','ok');return}
+  if(a==='inbox'){toast('邮件中心收件箱只读拉取：结构化回执自动采纳；1 批不可达 → 标「待自动补跑」，不转人工、不丢原文','ok');return}
+  if(a==='adoptDemo'){toast('演示：FB-0230 已按「唯一回执码 + 四字段」自动采纳 → 写流转留痕 + 原文引用 + 采纳前值（可回滚）','ok');return}
+  if(a==='adopt'){toast(id+' 已人工核对采纳：写留痕、更新环节与风险，采纳前值保留可回滚','ok');return}
+  if(a==='reject'){toast(id+' 已驳回：原文与反馈记录保留不删，核对说明已记录');return}
+  if(a==='rollback'){toast(id+' 已回滚到采纳前值（测试中 / 预计 11-24），回滚本身写一条留痕，原文不删','warn');return}
+  if(a==='viewRaw'){const f=FEEDBACK.find(x=>x.id===id);openModal(md('反馈原文 · '+id,'<div class="callout blue">来源 '+esc(f.src)+' ｜ 工单 '+esc(f.tid)+' ｜ 发件人 '+esc(f.from)+' ｜ '+f.time+' ｜ Message-ID 已记录（幂等）</div><div class="fb-raw">'+esc(f.raw)+'</div><div class="callout" style="margin:0">'+esc(f.note)+'</div>','<button class="btn primary" data-act="close">关闭</button>'));return}
+  if(a==='dec'){const i=+el.dataset.i;decState[i].v=el.dataset.v;renderDec();return}
+  if(a==='decReset'){decState.forEach(d=>{d.v='';d.note=''});renderDec();toast('已清空表态');return}
+  if(a==='decCopy'){copyDec();return}
+});
+$('#overlay').addEventListener('click',closeAll);
+$('#decBtn').addEventListener('click',()=>{$('#decPanel').classList.toggle('show')});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeAll();$('#decPanel').classList.remove('show')}});
+
+renderAll();renderDec();
+</script>
+</body>
+</html>

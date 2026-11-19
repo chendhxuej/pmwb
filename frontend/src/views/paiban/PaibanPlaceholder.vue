@@ -11,12 +11,16 @@
         <span>方案 v1.2 · 5 页结构已定稿</span>
       </div>
       <el-alert type="info" :closable="false" show-icon class="pb-placeholder-alert">
-        <template #title>交互原型可直接预览</template>
+        <template #title>此页当前是结构占位；完整交互请打开评审原型</template>
         <template #default>
-          完整交互见 <code>docs/排版管理_页面Demo.html</code>（准入模拟器 / 自动顺延 / 手工例外放行 / 批量督办 / 反馈同步均已可点）。
+          原型含准入模拟器 / 自动顺延 / 手工例外放行 / 批量督办 / 反馈同步，均可点击；
+          本页的正式功能由 <b>{{ taskId }}</b> 交付，原型是静态示意数据、不读写业务表。
         </template>
       </el-alert>
-      <el-button type="primary" plain @click="goVersions">去看已交付的「版本计划」</el-button>
+      <div class="pb-placeholder-actions">
+        <el-button type="primary" @click="openDemo">打开交互原型 Demo</el-button>
+        <el-button plain @click="goVersions">去看已交付的「版本计划」</el-button>
+      </div>
     </div>
   </div>
 </template>
@@ -31,6 +35,8 @@ const router = useRouter()
 const title = computed(() => route.meta?.title || '排版管理')
 const taskId = computed(() => route.meta?.pb || 'pb-2 ~ pb-8')
 const goVersions = () => router.push('/paiban/versions')
+// 静态评审原型随构建产出，独立新标签打开，不占 SPA 路由
+const openDemo = () => window.open('/paiban-demo.html', '_blank', 'noopener')
 </script>
 
 <style scoped>
@@ -62,5 +68,6 @@ const goVersions = () => router.push('/paiban/versions')
   background: var(--warning-soft); color: var(--warning);
 }
 .pb-placeholder-alert { margin-bottom: 20px; text-align: left; }
+.pb-placeholder-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 code { font-family: var(--font-mono); font-size: 12px; }
 </style>
