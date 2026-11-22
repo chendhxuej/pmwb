@@ -29,6 +29,7 @@ from constants.prd_prompt import (
     PRD_CHAPTERS,
     PRD_SYSTEM_PROMPT,
     PROFILE_DEEP_EXTRA,
+    REFINE_PROMPT_EXTRA,
     TEN_DIMENSIONS,
     fallback_prd,
 )
@@ -191,7 +192,8 @@ def analyze(
     if not raw_requirement.strip():
         raise ValueError("澄清后需求内容不能为空")
 
-    req_name = req_name.strip() or _resolve_req_name(db, req_id)
+    ticket_meta = _load_ticket_meta(db, req_id)
+    req_name = req_name.strip() or ticket_meta.get("req_name") or _resolve_req_name(db, req_id)
     systems = systems or KNOWN_SYSTEMS[:]
     trace_id = f"PRD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
@@ -217,14 +219,14 @@ def analyze(
         req_id=req_id, req_name=req_name, raw=raw_requirement,
         systems=systems, mode=mode, answers_block=answers_block,
         knowledge_ctx=knowledge_ctx, special_notes=special_notes,
-        prototype=prototype,
+        prototype=prototype, ticket_meta=ticket_meta,
     )
 
     # 步骤 5：调用统一 LLM（外网模型由「大模型管理」统一配置，需求文本会外发）
     result = _call_llm_with_fallback(
         db, system_prompt, user_message,
         req_id=req_id, req_name=req_name, systems=systems,
-        raw=raw_requirement, answers=answers,
+        raw=raw_requirement, answers=answers, meta=ticket_meta,
     )
 
     # 来源：LLM 返回的 sources 优先；无知识时为空；保留检索命中的真实路径供追溯
@@ -239,11 +241,14 @@ def analyze(
         result=result, sources=sources, n_files=n_files,
         knowledge_mode=knowledge_mode,
     )
-    file_rel = _write_prd_file(req_id, req_name, result["prd_markdown"], trace_id)
+    file_rel = _write_prd_file(
+        req_id, req_name, result["prd_markdown"], trace_id, version="v1",
+    )
 
     out = {
         "trace_id": trace_id,
         "req_id": req_id,
+        "version": "v1",
         "prd_markdown": result["prd_markdown"],
         "conflicts": result.get("conflicts") or [],
         "sources": sources,
@@ -279,6 +284,26 @@ def _resolve_req_name(db: Session, req_id: str) -> str:
     return (row.req_name if row else "") or f"需求 {req_id}"
 
 
+def _load_ticket_meta(db: Session, req_id: str) -> Dict[str, str]:
+    """读需求工单原始信息（单一来源 SentEmail）；缺失字段留空，由 prompt 填 null，绝不编造。"""
+    try:
+        row = db.query(SentEmail).filter(SentEmail.req_id == req_id).first()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("读取需求工单元数据失败（不阻断分析）: %s", e)
+        return {}
+    if not row:
+        return {}
+    return {
+        "req_name": (row.req_name or "").strip(),
+        "proposer": (row.proposer or "").strip(),
+        "sa_name": (row.sa_name or "").strip(),
+        "propose_time": row.propose_time.strftime("%Y-%m-%d") if getattr(row, "propose_time", None) else "",
+        "background": (row.background or "").strip(),
+        "description": (row.description or "").strip(),
+        "origin": (row.origin or "").strip(),
+    }
+
+
 def _format_answers(answers: Dict[str, str]) -> str:
     if not answers:
         return "（未提供问卷答案；请按业务质量规则自行判定 known / 假设 / deferred，不得伪造已确认结论。）"
@@ -297,10 +322,19 @@ def _build_user_message(
     *, req_id: str, req_name: str, raw: str, systems: List[str],
     mode: str, answers_block: str, knowledge_ctx: str,
     special_notes: str, prototype: bool,
+    ticket_meta: Optional[Dict[str, str]] = None,
 ) -> str:
+    tm = ticket_meta or {}
     parts = [
         f"【需求编号】{req_id}\n【需求名称】{req_name}\n【涉及系统】{'、'.join(systems)}\n【分析模式】{mode}",
-        f"【原始需求原文（未改写）】\n{raw}",
+        "【需求工单原始信息（仅作溯源参照，不得覆盖澄清后需求）】\n"
+        f"- 提出人：{tm.get('proposer') or '（未提供）'}\n"
+        f"- 客户经理/SA：{tm.get('sa_name') or '（未提供）'}\n"
+        f"- 提出时间：{tm.get('propose_time') or '（未提供）'}\n"
+        f"- 来源：{tm.get('origin') or '（未提供）'}\n"
+        f"- 需求背景（原始）：{tm.get('background') or '（未提供）'}\n"
+        f"- 需求描述（原始）：{tm.get('description') or '（未提供）'}",
+        f"【澄清后需求内容（方案评估与设计目标的唯一业务基准）】\n{raw}",
         f"【十维问卷答案（一次性提交，非逐轮）】\n{answers_block}",
     ]
     if special_notes:
@@ -319,6 +353,7 @@ def _build_user_message(
 def _call_llm_with_fallback(
     db: Session, system_prompt: str, user_message: str, *,
     req_id: str, req_name: str, systems: List[str], raw: str, answers: Dict[str, str],
+    meta: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """复用统一大模型，解析失败重试；全失败降级规则模板。"""
     from services.llm_provider import call_best_available
@@ -360,7 +395,7 @@ def _call_llm_with_fallback(
     reason = f"AI 分析降级为规则模板（已重试 {MAX_RETRIES} 次）：{last_err}"
     logger.warning(reason)
     return {
-        "prd_markdown": fallback_prd(req_id, req_name, systems, raw, answers),
+        "prd_markdown": fallback_prd(req_id, req_name, systems, raw, answers, meta=meta),
         "conflicts": [],
         "sources": [],
         "assumptions": [],
@@ -462,17 +497,27 @@ def _persist(
     db.commit()
 
 
-def _write_prd_file(req_id: str, req_name: str, markdown: str, trace_id: str) -> str:
-    """PRD.md 落 D:\\项目\\ 下（禁写 C 盘）；失败不阻断主流程。"""
+def _write_prd_file(
+    req_id: str, req_name: str, markdown: str, trace_id: str,
+    version: str = "v1",
+) -> str:
+    """PRD 落到「需求采集 → 需求分析说明书文件夹」同一目录（与 generate-doc 共用路径规则）。
+
+    目录名 {req_id}_{标题40字}、文件名 {标题}PRD-{version}.md；旧版本文件保留留痕。
+    失败不阻断主流程（数据库仍留痕）。
+    """
     try:
+        # 与 requirement_delivery._resolve_paths 共用规则，避免两套命名漂移
+        from services.requirement_delivery import _safe_name as _folder_safe_name
+
         vault = Path(settings.OBSIDIAN_VAULT_PATH)
-        doc_dir = vault / settings.REQUIREMENT_DOC_DIR / _safe_name(req_id)
-        doc_dir.mkdir(parents=True, exist_ok=True)
-        target = doc_dir / "PRD.md"
+        folder = vault / settings.REQUIREMENT_DOC_DIR / f"{_safe_name(req_id)}_{_folder_safe_name(req_name or req_id)}"
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / f"{_folder_safe_name(req_name or req_id)}PRD-{version}.md"
         target.write_text(markdown, encoding="utf-8")
         return str(target.relative_to(vault)).replace("\\", "/")
     except Exception as e:  # noqa: BLE001
-        logger.warning("PRD.md 落盘失败（不影响数据库记录）: %s", e)
+        logger.warning("PRD 落盘失败（不影响数据库记录）: %s", e)
         return ""
 
 
@@ -515,9 +560,35 @@ def get_result(db: Session, trace_id: str) -> Dict[str, Any]:
             "level": c.level or "", "type": c.type or "",
             "desc": c.desc or "", "evidence": c.evidence or "",
         } for c in conflicts],
-        "assumptions": [], "open_items": [],
+        "assumptions": _extract_section_lines(row.prd_markdown or "", "假设"),
+        "open_items": _extract_open_items(row.prd_markdown or ""),
         "prd_markdown": row.prd_markdown or "",
+        "version": (row.prd_file_path or "").rsplit("PRD-", 1)[-1].replace(".md", "") or "v1",
     }
+
+
+def _extract_open_items(markdown: str) -> List[str]:
+    """从 PRD 6.1 段反解待确认点（零迁移：不新增表字段，刷新后仍可二次评估）。"""
+    return _extract_section_lines(markdown, "6.1")
+
+
+def _extract_section_lines(markdown: str, marker: str) -> List[str]:
+    """抽取 marker 所在标题段下的 '- ' 列表项；无匹配返回空。"""
+    lines = (markdown or "").split("\n")
+    out: List[str] = []
+    in_section = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            if in_section:
+                break
+            in_section = marker in stripped
+            continue
+        if in_section and (stripped.startswith("- ") or stripped.startswith("* ")):
+            item = stripped[2:].strip()
+            if item and item not in out:
+                out.append(item)
+    return out[:30]
 
 
 def finalize(db: Session, trace_id: str) -> Dict[str, Any]:
@@ -531,6 +602,164 @@ def finalize(db: Session, trace_id: str) -> Dict[str, Any]:
     db.commit()
     return {"trace_id": trace_id, "req_id": row.req_id, "finalized": True,
             "file_path": row.prd_file_path or ""}
+
+
+def refine(
+    db: Session, trace_id: str, *,
+    supplements: List[Dict[str, str]],
+    design_notes: str = "",
+) -> Dict[str, Any]:
+    """二次评估：基于 v1 PRD + 老大逐条补充的待确认点，重新生成 v2 PRD。
+
+    - 旧 trace 行/文件保留留痕；新 trace 行 + PRD-v{N}.md 同目录落盘。
+    - LLM 不可用时降级=在 v1 正文后追加本轮补充（不丢 v1 内容），标 status=fallback。
+    """
+    row = db.query(PmwbPrdAnalysis).filter(PmwbPrdAnalysis.trace_id == trace_id).first()
+    if not row:
+        raise LookupError(f"分析记录不存在：{trace_id}")
+    if not row.prd_markdown:
+        raise ValueError("v1 PRD 正文为空，无法二次评估")
+
+    old_md = row.prd_markdown or ""
+    version_no = int(re.search(r"version:\s*v(\d+)", old_md).group(1)) + 1 if re.search(r"version:\s*v(\d+)", old_md) else 2
+    version = f"v{version_no}"
+    req_id, req_name = row.req_id, row.req_name or ""
+    supplements = [s for s in (supplements or []) if (s.get("item") or "").strip() or (s.get("answer") or "").strip()]
+    if not supplements and not (design_notes or "").strip():
+        raise ValueError("未填写任何补充说明，无需二次评估")
+
+    sup_block = "\n".join(
+        f"- 待确认项：{s.get('item', '').strip()}\n  本轮补充：{(s.get('answer') or '').strip() or '（未补充）'}"
+        for s in supplements
+    ) or "- （无逐条补充，仅方案备注）"
+    meta = _load_ticket_meta(db, req_id)
+    raw = _extract_clarified_content(old_md) or meta.get("description", "")
+    answers = json.loads(row.answers or "{}")
+    ticket_meta_block = (
+        f"- 提出人：{meta.get('proposer') or '（未提供）'}\n"
+        f"- 客户经理/SA：{meta.get('sa_name') or '（未提供）'}"
+    )
+
+    system_prompt = (
+        PRD_SYSTEM_PROMPT + BUSINESS_VS_TECH_RULES + REFINE_PROMPT_EXTRA
+        + "\n【PRD 六章结构（不得增减章名）】\n" + "\n".join(f"- {c}" for c in PRD_CHAPTERS)
+        + "\n【YAML frontmatter 十二键】" + "、".join(FRONTMATTER_KEYS)
+    )
+    if row.profile == "deep":
+        system_prompt += "\n" + PROFILE_DEEP_EXTRA
+    user_message = (
+        f"【需求编号】{req_id}\n【需求名称】{req_name}\n"
+        f"【需求工单元数据（溯源参照）】\n{ticket_meta_block}\n\n"
+        f"【澄清后需求内容（唯一业务基准）】\n{raw}\n\n"
+        f"【v1 PRD 全文（底稿，不得回退已确认结论）】\n{old_md}\n\n"
+        f"【本轮逐条补充（覆盖 v1 对应待确认项）】\n{sup_block}\n\n"
+        f"【方案备注】\n{(design_notes or '').strip() or '（无）'}\n\n"
+        "请严格按 system 指令输出唯一 JSON 对象，version 递增，6.2 变更记录写明本轮变化。"
+    )
+
+    new_trace = f"PRD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    result = _call_llm_with_fallback(
+        db, system_prompt, user_message,
+        req_id=req_id, req_name=req_name,
+        systems=json.loads(row.systems or "[]"), raw=raw, answers=answers, meta=meta,
+    )
+    if result.get("status") == "fallback":
+        # 二次评估降级：保留 v1 底稿 + 追加本轮补充，不生成空骨架
+        md = _append_refine_note(old_md, version, sup_block, design_notes)
+        result["prd_markdown"] = md
+        result["open_items"] = _extract_open_items(md)
+        result["gen_fallback_reason"] = (
+            (result.get("gen_fallback_reason") or "") + "；二次评估保留 v1 底稿并追加补充说明"
+        )
+    else:
+        # 确保版本号递增（LLM 可能没按 prompt 改）
+        result["prd_markdown"] = _force_version(result["prd_markdown"], old_md, version)
+
+    _persist(
+        db, trace_id=new_trace, req_id=req_id, req_name=req_name,
+        mode=row.mode or "qa", profile=row.profile or "concise",
+        systems=json.loads(row.systems or "[]"), answers=answers,
+        result=result,
+        sources=[{
+            "sys_id": s.sys_id or "", "repo_id": s.repo_id or "", "sha": s.sha or "",
+            "path": s.path or "", "clause": s.clause or "", "quote": s.quote or "",
+        } for s in (db.query(PmwbPrdSource).filter(PmwbPrdSource.trace_id == trace_id).all())],
+        n_files=row.knowledge_files or 0, knowledge_mode=row.knowledge_mode or "none",
+    )
+    file_rel = _write_prd_file(req_id, req_name, result["prd_markdown"], new_trace, version=version)
+    if file_rel:
+        new_row = db.query(PmwbPrdAnalysis).filter(PmwbPrdAnalysis.trace_id == new_trace).first()
+        if new_row:
+            new_row.prd_file_path = file_rel
+            db.commit()
+
+    return {
+        "trace_id": new_trace,
+        "parent_trace_id": trace_id,
+        "version": version,
+        "req_id": req_id,
+        "prd_markdown": result["prd_markdown"],
+        "conflicts": result.get("conflicts") or [],
+        "sources": [{
+            "sys_id": s.sys_id or "", "repo_id": s.repo_id or "", "sha": s.sha or "",
+            "path": s.path or "", "clause": s.clause or "", "quote": s.quote or "",
+        } for s in db.query(PmwbPrdSource).filter(PmwbPrdSource.trace_id == new_trace).all()],
+        "assumptions": result.get("assumptions") or [],
+        "open_items": result.get("open_items") or [],
+        "status": result["status"],
+        "gen_strategy": result["gen_strategy"],
+        "gen_provider": result.get("gen_provider"),
+        "gen_model": result.get("gen_model"),
+        "gen_fallback_reason": result.get("gen_fallback_reason"),
+        "knowledge_mode": row.knowledge_mode or "none",
+        "knowledge_files": row.knowledge_files or 0,
+        "notice": (f"基于 v1 二次评估生成 {version}；v1 文件保留留痕。"),
+    }
+
+
+def _extract_clarified_content(markdown: str) -> str:
+    """从 v1 PRD 的 1.1 澄清后需求内容段反解业务基准（零迁移）。"""
+    lines = (markdown or "").split("\n")
+    out: List[str] = []
+    in_section = False
+    for line in lines:
+        s = line.strip()
+        if s.startswith("#"):
+            if in_section:
+                break
+            in_section = "澄清后需求内容" in s
+            continue
+        if in_section and s and not s.startswith(">"):
+            out.append(s)
+    return "\n".join(out).strip()
+
+
+def _force_version(markdown: str, old_md: str, version: str) -> str:
+    """确保 v2 frontmatter version 递增；未递增则强制替换 + 6.2 补记。"""
+    if re.search(r"^version:\s*v\d+\s*$", markdown, re.M):
+        markdown = re.sub(r"^version:\s*v\d+\s*$", f"version: {version}", markdown, count=1, flags=re.M)
+    else:
+        markdown = re.sub(r"^(---\s*\n)", rf"\1version: {version}\n", markdown, count=1)
+    if "本轮变化" not in markdown:
+        note = f"- {version} 本轮变化：基于老大逐条补充的待确认点与方案备注二次评估生成。"
+        marker = "### 6.2 变更记录"
+        if marker in markdown:
+            markdown = markdown.replace(marker, marker + "\n" + note, 1)
+        else:
+            markdown += f"\n\n{marker}\n" + note
+    return markdown
+
+
+def _append_refine_note(old_md: str, version: str, sup_block: str, design_notes: str) -> str:
+    """降级路径：v1 底稿 + 追加本轮补充，不丢已确认内容。"""
+    md = _force_version(old_md, old_md, version)
+    md += (
+        f"\n\n## 附：{version} 二次评估补充（大模型不可用，规则追加）\n\n"
+        f"### 本轮逐条补充\n{sup_block}\n\n"
+        f"### 方案备注\n{(design_notes or '').strip() or '（无）'}\n\n"
+        "> 本段为老大本轮补充说明的原文登记；待大模型恢复后可重新二次评估生成完整 v2 六章。\n"
+    )
+    return md
 
 
 def knowledge_status() -> Dict[str, Any]:

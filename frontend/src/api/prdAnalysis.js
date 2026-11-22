@@ -16,6 +16,11 @@ export function analyzePrd(reqId, payload) {
   return request.post(`/prd/analyze/${encodeURIComponent(reqId)}`, payload, { timeout: 300000 })
 }
 
+// 二次评估：基于 6.1 待确认点逐条补充后重评（外网 LLM，放宽到 300s）
+export function refinePrd(traceId, payload) {
+  return request.post(`/prd/refine/${encodeURIComponent(traceId)}`, payload, { timeout: 300000 })
+}
+
 export function getPrdStatus(reqId) {
   return request.get(`/prd/status/${encodeURIComponent(reqId)}`)
 }

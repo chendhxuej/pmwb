@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getPrdMeta, analyzePrd, getPrdStatus, finalizePrd } from '@/api/prdAnalysis.js'
+import { getPrdMeta, analyzePrd, getPrdStatus, finalizePrd, refinePrd } from '@/api/prdAnalysis.js'
 import PrdResultView from './PrdResultView.vue'
 import PrdKnowledgeSync from './PrdKnowledgeSync.vue'
 import { downloadWithAuth } from '@/utils/download.js'
@@ -25,6 +25,7 @@ const generating = ref(false)
 const step = ref(-1)          // -1 未生成；0-4 五步进度
 const result = ref(null)
 const traceId = ref('')
+const refining = ref(false)
 
 const STEP_LABELS = ['解析原始需求', '推荐并确认系统', '装载本地知识', '十维拷问 / 快速自决', '生成并交付 PRD.md']
 const stepLabel = computed(() => step.value >= 0 ? STEP_LABELS[step.value] : '')
@@ -113,14 +114,34 @@ async function generate() {
 async function onAction(action) {
   if (!traceId.value) return
   if (action === 'download') {
-    downloadWithAuth(`/api/v1/prd/download/${encodeURIComponent(traceId.value)}`, `PRD-${props.reqId}.md`)
+    const ver = result.value?.version || 'v1'
+    downloadWithAuth(
+      `/api/v1/prd/download/${encodeURIComponent(traceId.value)}`,
+      `${props.reqName || props.reqId}PRD-${ver}.md`,
+    )
     return
   }
   try {
-    await finalizePrd(traceId.value)
-    ElMessage.success('已确认落库')
+    const res = await finalizePrd(traceId.value)
+    const fp = res?.file_path || ''
+    ElMessage.success(fp ? `已确认落库：${fp}` : '已确认落库')
   } catch (e) {
     ElMessage.error(e?.message || '确认落库失败')
+  }
+}
+
+async function onRefine(payload) {
+  if (!traceId.value || refining.value) return
+  refining.value = true
+  try {
+    const res = await refinePrd(traceId.value, payload)
+    result.value = res
+    traceId.value = res.trace_id
+    ElMessage.success(`二次评估完成，已生成 ${res.version || 'v2'}（旧版本留痕）`)
+  } catch (e) {
+    ElMessage.error(e?.message || '二次评估失败')
+  } finally {
+    refining.value = false
   }
 }
 
@@ -210,7 +231,7 @@ watch(() => props.reqId, (v) => { if (v) { result.value = null; loadMeta() } })
       </div>
 
       <!-- 结果 -->
-      <PrdResultView :result="result" :loading="false" @finalize="onAction" />
+      <PrdResultView :result="result" :loading="false" :refining="refining" @finalize="onAction" @refine="onRefine" />
     </div>
   </div>
 </template>

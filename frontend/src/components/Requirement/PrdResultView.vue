@@ -1,13 +1,14 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PrdSourceList from './PrdSourceList.vue'
 
 const props = defineProps({
   result: { type: Object, default: null },
   loading: { type: Boolean, default: false },
+  refining: { type: Boolean, default: false },
 })
-const emit = defineEmits(['finalize'])
+const emit = defineEmits(['finalize', 'refine'])
 
 // 极简 markdown 预览：按行渲染标题/正文，避免引入额外依赖。
 // PRD 是纯文本六章结构，此渲染足够可读；下载得到完整原始 .md。
@@ -18,8 +19,28 @@ const statusLabel = computed(() => ({
 }[props.result?.status] || '已生成'))
 const statusTag = computed(() => props.result?.status === 'fallback' ? 'warning' : 'success')
 
+// 待澄清点逐条补充（零迁移：从 PRD 6.1 反解，随 result 切换重置）
+const openItems = computed(() => props.result?.open_items || [])
+const supplements = reactive({})
+const designNotes = reactive({ value: '' })
+watch(() => props.result?.trace_id, () => {
+  Object.keys(supplements).forEach(k => delete supplements[k])
+  designNotes.value = ''
+})
+
 function onDownload() {
   emit('finalize', 'download')
+}
+function onRefine() {
+  const pairs = openItems.value
+    .map(item => ({ item, answer: (supplements[item] || '').trim() }))
+    .filter(x => x.answer)
+  const notes = (designNotes.value || '').trim()
+  if (!pairs.length && !notes) {
+    ElMessage.warning('请至少补充一条待确认项，或填写方案备注')
+    return
+  }
+  emit('refine', { supplements: pairs, design_notes: notes })
 }
 </script>
 
@@ -30,10 +51,13 @@ function onDownload() {
   <div v-else-if="result" class="prd-result">
     <div class="result-bar">
       <span class="pm-tag" :class="statusTag === 'warning' ? 'orange' : 'green'">{{ statusLabel }}</span>
+      <span class="pm-tag blue ml-8">{{ result.version || 'v1' }}</span>
+      <span v-if="result.parent_trace_id" class="pm-tag gray ml-8">基于 {{ result.parent_trace_id.slice(-6) }}</span>
       <span v-if="result.gen_provider" class="pm-tag gray ml-8">{{ result.gen_provider }} / {{ result.gen_model }}</span>
       <span class="pm-tag gray ml-8">{{ result.trace_id }}</span>
       <div class="bar-right">
-        <el-button size="small" @click="onDownload">下载 PRD.md</el-button>
+        <el-button size="small" :loading="refining" type="warning" plain @click="onRefine">补充并重评</el-button>
+        <el-button size="small" @click="onDownload">下载 PRD-{{ result.version || 'v1' }}.md</el-button>
         <el-button size="small" type="primary" plain @click="emit('finalize', 'finalize')">确认落库</el-button>
       </div>
     </div>
@@ -66,6 +90,33 @@ function onDownload() {
         />
       </div>
     </div>
+
+    <div v-if="openItems.length" class="refine-box">
+      <div class="refine-hd">待澄清点补充 · 二次评估<span class="refine-sub">逐条填写后生成新版本，旧版本留痕</span></div>
+      <div v-for="(item, i) in openItems" :key="i" class="refine-item">
+        <div class="refine-q">{{ item }}</div>
+        <el-input
+          v-model="supplements[item]"
+          type="textarea"
+          :rows="2"
+          size="small"
+          placeholder="补充你的确认结论 / 口径 / 范围（业务语言，不写技术实现）"
+        />
+      </div>
+      <div class="refine-item">
+        <div class="refine-q">方案备注（可选）</div>
+        <el-input
+          v-model="designNotes.value"
+          type="textarea"
+          :rows="2"
+          size="small"
+          placeholder="对澄清后需求的细化、设计倾向、验收关注点"
+        />
+      </div>
+      <div class="refine-foot">
+        <el-button size="small" type="warning" :loading="refining" @click="onRefine">补充并重评 → 生成 {{ result.version === 'v1' ? 'v2' : '下一版' }}</el-button>
+      </div>
+    </div>
   </div>
   <el-empty v-else description="尚无需求分析结果，点击上方「生成 PRD」开始" :image-size="70" />
 </template>
@@ -87,5 +138,11 @@ function onDownload() {
 .md-li::before { content: '•'; position: absolute; left: 4px; color: var(--accent); }
 .md-p { margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
 .md-gap { height: 6px; }
+.refine-box { margin-top: 14px; border: 1px solid var(--warning); border-radius: 10px; padding: 12px; background: var(--surface); }
+.refine-hd { font-weight: 700; font-size: 13px; color: var(--warning); margin-bottom: 10px; }
+.refine-sub { font-weight: 400; font-size: 11px; color: var(--text-muted); margin-left: 8px; }
+.refine-item { margin-bottom: 9px; }
+.refine-q { font-size: 12px; color: var(--text-primary); margin-bottom: 4px; line-height: 1.5; }
+.refine-foot { margin-top: 6px; text-align: right; }
 @media (max-width: 1100px) { .result-grid { grid-template-columns: 1fr; } }
 </style>

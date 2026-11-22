@@ -25,6 +25,14 @@ class PrdSyncIn(BaseModel):
     systems: List[str] = Field(default_factory=list, description="要同步的系统 ID，留空=全部 3 个")
 
 
+class PrdRefineIn(BaseModel):
+    """待澄清点二次评估输入。"""
+    supplements: List[Dict[str, str]] = Field(
+        default_factory=list, description="逐条补充 [{item: 待确认项, answer: 老大补充}]"
+    )
+    design_notes: str = Field("", description="方案备注（对澄清后需求的细化/设计倾向）")
+
+
 class PrdConflict(BaseModel):
     level: str = ""
     type: str = ""
@@ -57,6 +65,8 @@ class PrdAnalyzeOut(BaseModel):
     knowledge_mode: str = "none"  # git | none
     knowledge_files: int = 0
     notice: str = ""
+    version: str = "v1"  # 版本号（v1 首次 / v2+ 二次评估）
+    parent_trace_id: Optional[str] = None  # 二次评估指向上一版 trace
 
 
 class PrdMetaOut(BaseModel):
@@ -90,3 +100,4 @@ class PrdSourcesOut(BaseModel):
     conflicts: List[PrdConflict] = []
     assumptions: List[str] = []
     open_items: List[str] = []
+    version: str = "v1"

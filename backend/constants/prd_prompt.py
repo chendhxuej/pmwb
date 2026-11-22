@@ -6,7 +6,7 @@
 来源：C:\\Users\\chend\\Desktop\\需求分析skills\\prd-workflow\\prd-workflow\\references\\
 按 Web 一次性分析模式裁剪：保留业务质量内核，删除阻塞式逐轮提问/20题计数/真实等待。
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # ── 系统提示词内核（业务质量规则） ──────────────────────────────────────────
 PRD_SYSTEM_PROMPT = """你是一名资深产品经理，面向业务部门提出的原始需求，产出符合江苏移动标准的《产品需求文档》(PRD)。
@@ -38,9 +38,15 @@ PRD_SYSTEM_PROMPT = """你是一名资深产品经理，面向业务部门提出
 默认定性输出"符合/有缺口/不适用/未评估"，不打分、不构造扣分或平均分；N/A 须给依据且不自动满分。
 缺陷 P1=严重阻塞、P2=影响正确性/可实现性的重要缺口、P3=改进项。
 
+【方案评估与设计目标（基准铁律）】
+- 「设计目标」与「方案评估」必须以【澄清后需求内容】为唯一业务基准；工单原始信息（提出人/客户经理/背景/原始描述）只作溯源参照，不得覆盖或改写澄清后的结论。
+- 第 1 章设计目标写清：解决澄清后是哪个问题、成功指标、明确不做的范围；指标四要素（名称/当前值/目标值/周期）缺一填待确认。
+- 第 4 章方案评估逐条对照澄清后诉求：每条写「澄清诉求 → 满足方式（业务语言）→ 遗留影响/约束 → 是否可验收」，不写技术实现。
+- 客户经理/SA 信息据实填入 frontmatter；工单未提供的字段填 null，绝不编造。
+
 【输出格式】严格只输出一个 JSON 对象（不要 markdown 代码块，不要解释文字）：
 {
-  "prd_markdown": "完整 PRD 六章 Markdown，含开头 YAML frontmatter（req_id/req_name/version/date/status/system/author/reviewer 八键）",
+  "prd_markdown": "完整 PRD 六章 Markdown，含开头 YAML frontmatter（req_id/req_name/version/date/status/system/author/reviewer/proposer/sa_name/propose_time/source 十二键）",
   "conflicts": [{"level":"高|中|低|致命|INFO","type":"显式矛盾|隐式依赖|存量影响|合理变更","desc":"业务影响描述","evidence":"证据出处"}],
   "sources": [{"sys_id":"CRM|BOSS|ORDER_CENTER","repo_id":"仓库ID","sha":"提交SHA","path":"相对路径","clause":"条款","quote":"原文证据"}],
   "assumptions": ["未被问卷覆盖而自行采用的假设"],
@@ -65,14 +71,17 @@ TEN_DIMENSIONS: List[Dict[str, str]] = [
 
 # ── 六章结构（concise 默认 / deep 更严格） ──────────────────────────────────
 PRD_CHAPTERS: List[str] = [
-    "1 背景、目标与范围",
+    "1 背景、目标与范围（含设计目标，以澄清后需求内容为基准）",
     "2 用户场景与功能",
     "3 业务规则与数据口径",
-    "4 业务影响与约束",
+    "4 业务影响与约束（含方案评估：逐条对照澄清诉求的满足方式与遗留约束）",
     "5 验收与使用安排",
     "6 待确认与变更记录（6.1 待确认 / 6.2 变更记录 / 6.3 参考资料与附件）",
 ]
-FRONTMATTER_KEYS = ["req_id", "req_name", "version", "date", "status", "system", "author", "reviewer"]
+FRONTMATTER_KEYS = [
+    "req_id", "req_name", "version", "date", "status", "system", "author", "reviewer",
+    "proposer", "sa_name", "propose_time", "source",
+]
 
 PROFILE_DEEP_EXTRA = """【deep 深度要求（仅 deep 模式）】
 - 量化目标必须写全指标名称、当前值、目标值、观察周期四要素，缺任一列待确认不补造数值。
@@ -97,13 +106,32 @@ NO_KNOWLEDGE_NOTE = (
     "结论只覆盖已读材料，不代表全现网无冲突。建议老大在本机执行 skill 的 init_knowledge.py 同步知识后重新分析。"
 )
 
+# ── 二次评估（待澄清点补充说明后重评） ──────────────────────────────────────
+REFINE_PROMPT_EXTRA = """【二次评估任务（v2）】
+老大已针对 v1 的 6.1 待确认点逐条补充，并可能补充设计方案备注。请基于【v1 PRD 全文 + 本轮补充说明】重新生成完整六章 PRD：
+1. 以 v1 已确认内容为底稿，不得回退已明确结论；本轮补充覆盖 v1 对应待确认项。
+2. 第 1 章设计目标、第 4 章方案评估仍以【澄清后需求内容】为基准，本轮补充作为对澄清内容的细化与确认，不引入新的技术实现。
+3. frontmatter version 递增为 v2（若输入版本已是 vN，则输出 vN+1）；6.2 变更记录必须写明本轮补充了哪些待确认点、结论如何变化。
+4. 6.1 重新评估：本轮已解答的项从待确认中移除；仍未解答的保留并说明还需谁确认什么。
+5. 冲突/来源/假设同步刷新：补充导致的新冲突必须列出，不得沿用 v1 已消解项。
+输出仍为同一个 JSON 对象（字段同首次分析）。
+"""
+
 # ── 规则降级时生成的 PRD 骨架（LLM 全不可用时） ─────────────────────────────
-def fallback_prd(req_id: str, req_name: str, systems: List[str], raw: str, answers: Dict[str, str]) -> str:
+def fallback_prd(
+    req_id: str, req_name: str, systems: List[str], raw: str, answers: Dict[str, str],
+    meta: Optional[Dict[str, str]] = None,
+) -> str:
     """LLM 不可用时的规则模板版 PRD（明确标注非 AI 生成）。"""
+    meta = meta or {}
     sys_text = "、".join(systems) if systems else "待确认"
     q_lines = "\n".join(
         f"- {k}: {v}" for k, v in answers.items() if v and v != "__skip__"
     ) or "- （未提供问卷答案）"
+    proposer = meta.get("proposer") or "null"
+    sa_name = meta.get("sa_name") or "null"
+    propose_time = meta.get("propose_time") or "null"
+    source = meta.get("source") or "null"
     return f"""---
 req_id: {req_id}
 req_name: {req_name}
@@ -113,6 +141,10 @@ status: needs_confirmation
 system: [{sys_text}]
 author: 陈大海
 reviewer: null
+proposer: {proposer}
+sa_name: {sa_name}
+propose_time: {propose_time}
+source: {source}
 ---
 
 # {req_name} 产品需求文档（规则模板版·非 AI 生成）
@@ -124,7 +156,15 @@ reviewer: null
 **来源链路：** 原始需求原文 → 第 1/2 章；问卷答案 → 第 3/6.1 章。
 
 ## 1 背景、目标与范围
+### 1.1 澄清后需求内容（设计目标基准）
 {raw[:600]}
+### 1.2 工单原始信息
+- 提出人：{proposer}
+- 客户经理/SA：{sa_name}
+- 提出时间：{propose_time}
+- 来源：{source}
+### 1.3 设计目标
+待 AI 恢复后基于澄清后需求内容生成（指标四要素缺一填待确认）。
 
 ## 2 用户场景与功能
 ### 2.1 待补充场景
@@ -135,7 +175,8 @@ reviewer: null
 {q_lines}
 
 ## 4 业务影响与约束
-待确认。
+### 4.1 方案评估（以澄清后需求内容为基准）
+待 AI 恢复后逐条生成「澄清诉求 → 满足方式 → 遗留影响 → 可验收性」。
 
 ## 5 验收与使用安排
 验收项待补充，禁止以技术验证代替业务验收。

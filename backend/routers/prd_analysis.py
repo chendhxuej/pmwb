@@ -18,6 +18,7 @@ from schemas.prd_analysis import (
     PrdAnalyzeIn,
     PrdAnalyzeOut,
     PrdMetaOut,
+    PrdRefineIn,
     PrdSourcesOut,
     PrdStatusOut,
     PrdSyncIn,
@@ -76,6 +77,22 @@ def analyze(req_id: str, payload: PrdAnalyzeIn, db: Session = Depends(get_db)):
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return success(data=PrdAnalyzeOut(**data).model_dump())
+
+
+@router.post("/refine/{trace_id}")
+def refine(trace_id: str, payload: PrdRefineIn, db: Session = Depends(get_db)):
+    """二次评估：基于 6.1 待确认点的逐条补充重新生成 v2 PRD（v1 留痕）。"""
+    try:
+        data = svc.refine(
+            db, trace_id,
+            supplements=[dict(s) for s in payload.supplements],
+            design_notes=payload.design_notes,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return success(data=PrdAnalyzeOut(**data).model_dump())
 
 
