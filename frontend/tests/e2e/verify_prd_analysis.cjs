@@ -48,8 +48,10 @@ const FAKE_RESULT = {
   sources: [{ sys_id: 'CRM', repo_id: 'repo-c07', sha: 'a1b2c3d', path: '规则/队列.md', clause: '§2.1' }],
   assumptions: ['跨省默认不纳入'], open_items: ['批价时序待确认'],
   status: 'generated', gen_strategy: 'llm', gen_provider: 'Kimi', gen_model: 'k2.6',
-  knowledge_mode: 'none', knowledge_files: 0, notice: '',
+  knowledge_mode: 'none', knowledge_files: 0, notice: '', version: 'v1',
 };
+const FAKE_REFINE = { ...FAKE_RESULT, trace_id: 'PRD-E2E-0002', version: 'v2', parent_trace_id: 'PRD-E2E-0001',
+  prd_markdown: FAKE_RESULT.prd_markdown.replace('status: draft', 'status: draft\nversion: v2'), open_items: [] };
 
 (async () => {
   let browser;
@@ -92,6 +94,8 @@ const FAKE_RESULT = {
       if (url.includes('/api/v1/prd/meta')) return respond(META);
       if (url.includes('/api/v1/prd/status/')) return respond(null);
       if (url.includes('/api/v1/prd/analyze/')) return respond(FAKE_RESULT);
+      if (url.includes('/api/v1/prd/refine/')) return respond(FAKE_REFINE);
+      if (url.includes('/api/v1/prd/finalize/')) return respond({ trace_id: FAKE_RESULT.trace_id, req_id: 'REQ-E2E', finalized: true, file_path: '业务建设/需求分析说明书/REQ-E2E_测试需求/测试需求PRD-v1.md' });
       if (url.includes('/api/v1/prd/sync/systems')) return respond({ systems: [
         { id: 'CRM', name: 'CRM', cloned: true, dirs: ['base_custinfo', 'base_sms'] },
         { id: 'BOSS', name: 'BOSS', cloned: true, dirs: ['req_info'] },
@@ -233,6 +237,44 @@ const FAKE_RESULT = {
     check('冲突清单展示', result.hasConflict);
     check('知识引用来源展示', result.hasSource);
     check('trace_id 溯源展示', result.hasTrace);
+
+    // v2 待澄清二次评估断言
+    const refinePanel = await page.evaluate(() => {
+      const txt = document.body.innerText;
+      const box = document.querySelector('.refine-box');
+      return {
+        hasBox: !!box,
+        hasItem: txt.includes('批价时序待确认'),
+        hasBtn: [...document.querySelectorAll('button')].some(b => b.textContent.includes('补充并重评')),
+        hasV1: txt.includes('v1'),
+      };
+    });
+    check('待澄清补充区存在', refinePanel.hasBox, JSON.stringify(refinePanel));
+    check('待澄清点逐条展示', refinePanel.hasItem);
+    check('补充并重评按钮存在', refinePanel.hasBtn);
+    check('版本号 v1 展示', refinePanel.hasV1);
+    // 填一条补充 → 点重评 → v2 结果与父 trace
+    await page.evaluate(() => {
+      const box = document.querySelector('.refine-box');
+      const ta = box?.querySelector('textarea');
+      if (ta) {
+        const s = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+        s.call(ta, '本省先纳入，跨省二期');
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+    await sleep(300);
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.refine-box button')].find(e => e.textContent.includes('补充并重评'));
+      if (b) b.click();
+    });
+    await sleep(1200);
+    const afterRefine = await page.evaluate(() => {
+      const txt = document.body.innerText;
+      return { hasV2: txt.includes('v2'), hasParent: txt.includes('PRD-E2E-0001'), hasNewTrace: txt.includes('PRD-E2E-0002') };
+    });
+    check('重评生成 v2', afterRefine.hasV2, JSON.stringify(afterRefine));
+    check('v2 展示父版本溯源', afterRefine.hasParent || afterRefine.hasNewTrace);
 
     // 知识同步面板断言
     const syncPanel = await page.evaluate(() => {
