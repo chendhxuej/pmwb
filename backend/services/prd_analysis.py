@@ -64,22 +64,24 @@ class KnowledgeSource:
         if not self.available:
             logger.info("PRD 知识源未 clone（%s 不存在）→ 降级无知识分析", self.root)
             return 0
-        scanned = 0
-        max_scan = settings.PRD_KNOWLEDGE_MAX_SCAN
+        # 每个系统均分配额，避免文件最多的系统吃光上限、导致其余系统知识为零。
+        # 系统内按「规则/接口/数据/流程」优先排序，保证高价值文档先进上下文。
+        per_sys = max(1, settings.PRD_KNOWLEDGE_MAX_SCAN // max(1, len(self.systems)))
+        PRIORITY = ("rule", "规则", "api", "接口", "data", "数据", "flow", "流程", "readme", "claude", "spec", "业务")
         for sys_id in self.systems:
             sys_dir = self.root / sys_id
             if not sys_dir.is_dir():
                 continue
+            sys_count = 0
             for dirpath, dirnames, filenames in os.walk(sys_dir):
                 dirnames[:] = [
                     d for d in dirnames
                     if not d.startswith(".") and d not in ("node_modules", "attachments", "images")
                 ]
-                for fn in filenames:
-                    if not fn.lower().endswith(".md"):
-                        continue
-                    scanned += 1
-                    if scanned > max_scan:
+                mds = [f for f in filenames if f.lower().endswith(".md")]
+                mds.sort(key=lambda f: not any(k in f.lower() for k in PRIORITY))
+                for fn in mds:
+                    if sys_count >= per_sys:
                         break
                     full = Path(dirpath) / fn
                     try:
@@ -88,6 +90,7 @@ class KnowledgeSource:
                         continue
                     if len(text) < 20:
                         continue
+                    sys_count += 1
                     rel = str(full.relative_to(self.root)).replace("\\", "/")
                     repo_id = rel.split("/")[1] if len(rel.split("/")) > 1 else sys_id
                     self.files.append((sys_id, repo_id, rel, text))
@@ -533,7 +536,7 @@ def knowledge_status() -> Dict[str, Any]:
     if manifest.is_file():
         try:
             data = json.loads(manifest.read_text(encoding="utf-8", errors="ignore"))
-            synced_at = data.get("synced_at") or data.get("updated_at")
+            synced_at = data.get("generated_at") or data.get("synced_at") or data.get("updated_at")
         except Exception:  # noqa: BLE001
             pass
     return {
