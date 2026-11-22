@@ -36,6 +36,7 @@ from routers import (
     plugin,
     operation,
     product_bible,
+    prd_analysis,
     reminder,
     requirement,
     requirement_delivery,
@@ -175,6 +176,7 @@ app.include_router(plugin.router, prefix="/api/v1", tags=["插件接入"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["首页看板"])
 app.include_router(todo.router, prefix="/api/v1", tags=["待办中心"])
 app.include_router(requirement.router, prefix="/api/v1", tags=["需求管理"])
+app.include_router(prd_analysis.router, prefix="/api/v1", tags=["PRD需求分析"])
 app.include_router(requirement_delivery.router, prefix="/api/v1", tags=["需求交付"])
 app.include_router(user_story.router, prefix="/api/v1", tags=["用户故事"])
 app.include_router(active_optimization.router, prefix="/api/v1", tags=["主动优化"])

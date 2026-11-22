@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>需求分析 Skill 融入"需求与交付" · 决策 DEMO（静态原型）</title>
+<style>
+:root{
+  --bg-app:#f3f5f9; --sidebar-bg:#1e293b; --sidebar-active:rgba(47,111,237,.16);
+  --surface:#fff; --border:#e4e9f0; --border-subtle:#eff2f8;
+  --text-primary:#0f172a; --text-secondary:#64748b; --text-muted:#94a3b8;
+  --accent:#2f6fed; --accent-hover:#2659c9; --accent-soft:#eaf1fe;
+  --success:#0f9d6b; --success-soft:#ecfdf3;
+  --warning:#d98a1f; --warning-soft:#fef7ed;
+  --danger:#d9544d; --danger-soft:#fef2f2;
+  --violet:#7c3aed; --violet-soft:#f3e8ff;
+  --radius-sm:10px; --radius-md:16px; --radius-lg:22px;
+  --shadow-card:0 2px 12px -3px rgba(15,23,42,.08),0 1px 3px -1px rgba(15,23,42,.06);
+  --shadow-elevated:0 16px 48px -12px rgba(15,23,42,.18);
+  --sidebar-w:216px;
+}
+*{box-sizing:border-box}
+html{font-size:14px;-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--bg-app);color:var(--text-primary);font-family:'PingFang SC','Microsoft YaHei','Helvetica Neue',sans-serif}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer}
+.app{display:flex;min-height:100vh}
+/* 侧栏 */
+.sidebar{width:var(--sidebar-w);background:var(--sidebar-bg);color:#cbd5e1;flex:0 0 var(--sidebar-w);position:sticky;top:0;height:100vh;overflow:auto}
+.logo{padding:20px 18px 16px;display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;font-size:15.5px;border-bottom:1px solid rgba(255,255,255,.07)}
+.logo-i{width:27px;height:27px;border-radius:8px;background:linear-gradient(135deg,#2f6fed,#7c3aed);display:grid;place-items:center;font-size:12px;color:#fff}
+.nav-group{padding:15px 10px 5px;font-size:10.5px;color:#64748b;letter-spacing:1px;padding-left:20px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 13px;margin:2px 10px;border-radius:9px;font-size:13px;color:#cbd5e1;transition:.18s}
+.nav-item:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav-item.active{background:var(--sidebar-active);color:#fff;font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.nav-item .ico{width:17px;text-align:center;opacity:.85}
+.nav-item.dim{opacity:.6}
+.nav-insert{margin:4px 12px;padding:5px 8px;border-left:2px dashed #2f6fed;color:#7ea6f8;font-size:10px;line-height:1.45}
+/* 主区 */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{height:58px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px;position:sticky;top:0;z-index:20}
+.crumb{color:var(--text-muted);font-size:12px}
+.crumb b{color:var(--text-primary);font-weight:600}
+.topbar h1{margin:0;font-size:16.5px;font-weight:700}
+.subtitle{font-size:11px;background:var(--accent-soft);color:var(--accent);padding:3px 8px;border-radius:6px}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:9px}
+.demo-flag{font-size:10.5px;color:var(--warning);background:var(--warning-soft);border:1px solid #f6dfb8;padding:4px 8px;border-radius:7px}
+.btn{border:1px solid var(--border);background:#fff;padding:7px 12px;border-radius:9px;font-size:12px;font-weight:600;transition:.18s;white-space:nowrap}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-hover);color:#fff}
+.btn.ok{background:var(--success);border-color:var(--success);color:#fff}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--accent)}
+.btn.sm{padding:4px 9px;font-size:11px;border-radius:7px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.page{padding:16px 24px 70px;max-width:1500px;width:100%}
+.hint{display:flex;align-items:flex-start;gap:9px;background:var(--accent-soft);border:1px solid #d5e4fd;border-radius:12px;padding:9px 13px;margin-bottom:14px;font-size:12px;color:#1c4fb8;line-height:1.6}
+.hint .q{margin-left:auto;white-space:nowrap;color:var(--accent);font-weight:600}
+/* 工作流四步条 */
+.wfbar{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:16px}
+.wfstep{background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 13px;display:flex;align-items:center;gap:10px;position:relative}
+.wfstep .num{width:24px;height:24px;border-radius:50%;background:#eef2f7;color:#64748b;display:grid;place-items:center;font-size:11.5px;font-weight:700;flex:0 0 24px}
+.wfstep .nm{font-size:12.5px;color:var(--text-secondary);font-weight:600}
+.wfstep.done .num{background:var(--success-soft);color:var(--success)}
+.wfstep.current{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.wfstep.current .num{background:var(--accent);color:#fff}
+.wfstep.current .nm{color:var(--accent);font-weight:700}
+.wfstep .flag{position:absolute;top:-8px;right:8px;font-size:9.5px;background:var(--violet);color:#fff;padding:2px 6px;border-radius:5px;font-weight:700;letter-spacing:.3px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-card);margin-bottom:15px;overflow:hidden}
+.card-hd{padding:12px 15px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:9px;font-weight:700;font-size:13px}
+.card-hd .right{margin-left:auto;display:flex;gap:6px;align-items:center;font-weight:400}
+.card-bd{padding:14px 15px}
+.muted{color:var(--text-muted);font-size:11px;font-weight:400}
+.badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 7px;border-radius:6px;font-weight:600;white-space:nowrap;line-height:1.5}
+.b-req{background:var(--accent-soft);color:var(--accent)} .b-ok{background:var(--success-soft);color:var(--success)}
+.b-wait{background:#eef2f7;color:#475569} .b-risk{background:var(--warning-soft);color:var(--warning)}
+.b-no{background:var(--danger-soft);color:var(--danger)} .b-violet{background:var(--violet-soft);color:var(--violet)}
+.b-new{background:var(--accent);color:#fff} .b-default{background:#f1f5f9;color:#64748b;border:1px dashed #cbd5e1}
+/* PRD 入口卡 */
+.prd-entry{border:1px solid #d9cdf8;background:linear-gradient(180deg,#fbf9ff,#fff);border-radius:var(--radius-md);box-shadow:var(--shadow-card);margin-bottom:15px;overflow:hidden}
+.prd-entry .card-hd{border-bottom-color:#ece5fb}
+.prd-entry .card-hd .ic{width:22px;height:22px;border-radius:6px;background:var(--violet);color:#fff;display:grid;place-items:center;font-size:11px}
+.grid2{display:grid;grid-template-columns:1.05fr .95fr;gap:15px}
+.grid2-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11.5px;color:var(--text-secondary);font-weight:600;margin-bottom:5px}
+textarea,input[type=text]{width:100%;border:1px solid var(--border);border-radius:9px;padding:9px 11px;font-size:12.5px;line-height:1.6;background:#fff;outline:none;resize:vertical}
+textarea:focus,input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.seg button{border:0;background:#fff;padding:7px 13px;font-size:12px;font-weight:600;color:var(--text-secondary)}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button.on{background:var(--accent);color:#fff}
+.seg.fast button.on{background:var(--violet)}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11.5px;font-weight:600;color:var(--text-secondary);background:#fff;transition:.15s;user-select:none}
+.chip:hover{border-color:var(--accent)}
+.chip.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.chip .box{width:12px;height:12px;border:1.5px solid var(--border);border-radius:3px;display:grid;place-items:center;font-size:9px;color:#fff;line-height:1}
+.chip.on .box{background:var(--accent);border-color:var(--accent)}
+.src-switch{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.src-chip{font-size:11px;padding:5px 10px;border-radius:7px;border:1px solid var(--border);color:var(--text-secondary);background:#fff;cursor:pointer;font-weight:600}
+.src-chip.on{background:var(--violet-soft);border-color:#d9cdf8;color:var(--violet)}
+.src-tip{font-size:10.5px;color:var(--text-muted);line-height:1.5;margin-top:7px}
+/* 问卷 */
+.qgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.qitem{border:1px solid var(--border-subtle);border-radius:9px;padding:9px 11px;background:#fbfcfe}
+.qitem .qt{font-size:11.5px;font-weight:600;margin-bottom:6px;display:flex;gap:6px;align-items:center}
+.qitem .qt .qn{width:16px;height:16px;border-radius:4px;background:#eef2f7;color:#64748b;display:grid;place-items:center;font-size:9px}
+.qopts{display:flex;flex-wrap:wrap;gap:5px}
+.qopt{font-size:10.5px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text-secondary);cursor:pointer}
+.qopt.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.qopt.skip{color:var(--text-muted);border-style:dashed}
+.qopt.skip.on{background:#f1f5f9;color:#64748b;border-color:#cbd5e1}
+/* 生成进度 */
+.progress-box{display:none}
+.progress-box.show{display:block}
+.steps{display:flex;gap:6px;margin-bottom:11px}
+.step{flex:1;text-align:center;font-size:10.5px;color:var(--text-muted);border-top:3px solid var(--border-subtle);padding-top:7px;transition:.3s}
+.step.active{color:var(--accent);border-top-color:var(--accent);font-weight:700}
+.step.done{color:var(--success);border-top-color:var(--success)}
+.bar{height:6px;background:#eef2f7;border-radius:6px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--violet));transition:width .4s}
+/* 结果区 */
+.result{display:none}
+.result.show{display:block}
+.two-col{display:grid;grid-template-columns:1.25fr .75fr;gap:15px}
+.md-body{font-size:12px;line-height:1.75;color:var(--text-primary)}
+.fm{background:#f8fafc;border:1px solid var(--border-subtle);border-radius:9px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:#475569;line-height:1.7;margin-bottom:12px;white-space:pre-wrap}
+.md-body h3{font-size:12.5px;margin:14px 0 6px;padding-left:8px;border-left:3px solid var(--accent)}
+.md-body h4{font-size:11.5px;margin:10px 0 4px;color:var(--text-secondary)}
+.md-body p{margin:5px 0}
+.md-body ul{margin:5px 0;padding-left:18px}
+.md-body li{margin:2px 0}
+.mark{background:#fff3cd;padding:0 3px;border-radius:3px}
+.conflict{border:1px solid var(--border-subtle);border-left:3px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11.5px;line-height:1.6}
+.conflict.high{border-left-color:var(--danger);background:var(--danger-soft)}
+.conflict.mid{border-left-color:var(--warning);background:var(--warning-soft)}
+.conflict.low{border-left-color:var(--success);background:var(--success-soft)}
+.conflict .ch{font-weight:700;margin-bottom:3px;display:flex;gap:6px;align-items:center}
+/* 引用表 */
+table{width:100%;border-collapse:collapse;font-size:10.5px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top}
+th{color:var(--text-secondary);font-weight:600;background:#f8fafc}
+td.mono{font-family:ui-monospace,Consolas,monospace;color:#475569}
+.src-row{cursor:pointer}
+.src-row:hover{background:var(--accent-soft)}
+details{border:1px solid var(--border-subtle);border-radius:9px;padding:8px 11px;font-size:11.5px;margin-top:10px}
+summary{cursor:pointer;font-weight:600;color:var(--text-secondary)}
+details .inner{padding-top:8px;line-height:1.7}
+.dimchk{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.dimchk span{font-size:10px;padding:3px 7px;border-radius:5px;background:#f1f5f9;color:#64748b}
+/* 追溯图 */
+.trace{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;padding:10px 0}
+.trace .node{border:1px solid var(--border);border-radius:8px;padding:7px 10px;background:#fff;font-weight:600}
+.trace .node.a{border-color:#c9dcff;color:var(--accent);background:var(--accent-soft)}
+.trace .node.b{border-color:#d9cdf8;color:var(--violet);background:var(--violet-soft)}
+.trace .node.c{border-color:#b7e6cf;color:var(--success);background:var(--success-soft)}
+.trace .arw{color:var(--text-muted)}
+.foot-note{font-size:10.5px;color:var(--text-muted);line-height:1.7;border-top:1px dashed var(--border);padding-top:10px;margin-top:10px}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:#0f172a;color:#fff;padding:10px 18px;border-radius:10px;font-size:12px;opacity:0;transition:.3s;z-index:99;box-shadow:var(--shadow-elevated)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media(max-width:1100px){.grid2,.grid2-2,.two-col,.qgrid{grid-template-columns:1fr}.wfbar{grid-template-columns:repeat(2,1fr)}.kpis{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-i">P</span> 个人工作台 PMWB</div>
+    <div class="nav-group">工作空间</div>
+    <div class="nav-item"><span class="ico">▦</span>首页看板</div>
+    <div class="nav-item"><span class="ico">◉</span>待办中心</div>
+    <div class="nav-item active"><span class="ico">▤</span>需求与交付<span class="demo-flag" style="margin-left:auto;padding:1px 5px">本 DEMO</span></div>
+    <div class="nav-item"><span class="ico">◈</span>开发工单</div>
+    <div class="nav-item dim"><span class="ico">◇</span>运营监控</div>
+    <div class="nav-item dim"><span class="ico">▧</span>会议日程</div>
+    <div class="nav-group">智能能力</div>
+    <div class="nav-item dim"><span class="ico">✦</span>AI 总结</div>
+    <div class="nav-item dim"><span class="ico">⌕</span>知识中心</div>
+    <div class="nav-insert">集成点：需求与交付 → 详情工作流 →<br>步骤3「用户故事」内新增分析入口</div>
+    <div class="nav-group">系统</div>
+    <div class="nav-item dim"><span class="ico">⚙</span>大模型管理</div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb">需求与交付 / 需求详情 / <b>REQ-2026-0188</b></div>
+      <h1>集团短信通道扩容需求</h1>
+      <span class="subtitle">工作流 · 步骤 3 / 4</span>
+      <div class="top-right">
+        <span class="demo-flag">静态决策 DEMO · 非真实数据</span>
+        <button class="btn sm" onclick="toast('DEMO：此处为需求详情页原有操作')">编辑</button>
+      </div>
+    </div>
+
+    <div class="page">
+      <div class="hint">
+        <span>▎</span>
+        <div><b>决策要点：</b>本 DEMO 展示外部「需求分析 PRD skill」融入后的形态。重点看三处——① 入口位于需求详情工作流<b>步骤 3（用户故事）</b>，与"澄清后需求内容"同源；② 十维拷问改为<b>一次性问卷</b>（原生多轮阻塞式 Grill Me 在 Web 端不可行）；③ 结果含<b>冲突清单</b>与<b>可追溯引用来源</b>（系统ID+仓库ID+提交SHA+路径+条款）。</div>
+        <span class="q" onclick="document.getElementById('guide').scrollIntoView({behavior:'smooth'})">设计说明 ↓</span>
+      </div>
+
+      <!-- 工作流四步 -->
+      <div class="wfbar">
+        <div class="wfstep done"><span class="num">1</span><span class="nm">需求信息</span></div>
+        <div class="wfstep done"><span class="num">2</span><span class="nm">团队评估</span></div>
+        <div class="wfstep current" id="step3"><span class="num">3</span><span class="nm">用户故事 / AI 需求分析</span><span class="flag">新增入口</span></div>
+        <div class="wfstep"><span class="num">4</span><span class="nm">开发 / 部署</span></div>
+      </div>
+
+      <!-- 原有用户故事区（缩略） -->
+      <div class="card">
+        <div class="card-hd"><span class="badge b-req">原有能力</span> 用户故事生成 <span class="right muted">澄清内容 → rules_v2 / llm / rules_v1 → 故事列表</span></div>
+        <div class="card-bd" style="font-size:11.5px;color:var(--text-secondary);line-height:1.7">
+          此处为工作台现有「澄清后需求内容 + 三策略卡 + 生成用户故事」区域（<span class="mono" style="font-family:monospace">RequirementDeliveryView.vue:707</span>）。本次集成在其<b>上方</b>新增「AI 需求分析（PRD）」卡片，复用同一份澄清文本，不新增工作流步骤。
+        </div>
+      </div>
+
+      <!-- ★ 新增 PRD 入口卡 -->
+      <div class="prd-entry">
+        <div class="card-hd">
+          <span class="ic">✦</span> AI 需求分析（PRD）
+          <span class="badge b-new">NEW · skill 移植</span>
+          <span class="right"><span class="badge b-violet">五步编排</span> <span class="muted">收需求 → 推荐系统 → 装载知识 → 拷问 → 出 PRD</span></span>
+        </div>
+        <div class="card-bd">
+          <div class="grid2">
+            <!-- 左：输入 -->
+            <div>
+              <div class="field">
+                <label>澄清后需求内容（复用步骤 3 输入）</label>
+                <textarea id="raw" rows="5">集团短信通道扩容：现有实名制短信通道在营销旺季出现队列积压，峰值发送成功率由 99.2% 降至 96.5%。需在 CRM 侧新增优先级队列与扩容 3 条通道，BOSS 侧同步调整计费批价规则，订单中心记录通道变更流水。要求不中断在途短信、存量号码归属不变。</textarea>
+              </div>
+              <div class="field">
+                <label>分析模式</label>
+                <div class="seg" id="modeSeg">
+                  <button class="on" data-mode="qa" onclick="setMode('qa')">问答拷问 qa（十维问卷）</button>
+                  <button data-mode="fast" onclick="setMode('fast')">快速模式 fast（不提问·记假设）</button>
+                </div>
+              </div>
+              <div class="field">
+                <label>涉及系统（skill 推荐 1–5 个，可多选）</label>
+                <div class="chips" id="sysChips">
+                  <span class="chip on" data-sys="CRM"><span class="box">✓</span>CRM</span>
+                  <span class="chip on" data-sys="BOSS"><span class="box">✓</span>BOSS</span>
+                  <span class="chip on" data-sys="ORDER_CENTER"><span class="box">✓</span>订单中心</span>
+                  <span class="chip" data-sys="AMS"><span class="box"></span>AMS</span>
+                </div>
+              </div>
+              <div class="grid2-2">
+                <div class="field">
+                  <label>知识源（skill 原样接入 · 只读本地 clone）</label>
+                  <div class="src-switch">
+                    <span class="src-chip on" data-src="git" onclick="setSrc('git')">Git 知识源（内网 3 仓库）</span>
+                    <span class="src-chip" data-src="vault" onclick="setSrc('vault')">本地 vault（备选）</span>
+                  </div>
+                  <div class="src-tip" id="srcTip">manifest.json：CRM/BOSS/订单中心 · 最近同步 2026-11-18 · 凭据仅存本机 Windows 凭据管理器，服务端零落盘</div>
+                </div>
+                <div class="field">
+                  <label>输出配置</label>
+                  <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
+                    <select id="profile" style="padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:#fff;font-size:11.5px">
+                      <option value="concise">PRD 精简版 concise</option>
+                      <option value="deep">PRD 深度版 deep</option>
+                    </select>
+                    <span class="chip on" id="protoChip" onclick="toggleProto()"><span class="box">✓</span>附 HTML 原型</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- 右：十维问卷 -->
+            <div>
+              <div class="field">
+                <label style="display:flex;align-items:center">十维拷问（一次性展示，非逐轮）
+                  <span class="muted" style="margin-left:auto" id="qCount">已答 0 / 10 · 上限 20</span></label>
+                <div class="qgrid" id="qgrid"></div>
+                <div class="src-tip">Web 请求-响应无法原生阻塞式追问 → 改为一次性结构化问卷；选择题优先，跳过项记入 assumptions[]。</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:9px;align-items:center;margin-top:6px;flex-wrap:wrap">
+            <button class="btn primary" id="genBtn" onclick="generate()">✦ 生成 PRD（六章 + 冲突 + 引用）</button>
+            <span class="muted" id="genMeta">统一大模型：Kimi k2.6（大模型管理）· 约 30–60 秒</span>
+          </div>
+
+          <!-- 进度 -->
+          <div class="progress-box" id="progressBox" style="margin-top:14px">
+            <div class="steps" id="steps">
+              <div class="step">① 解析原始需求</div>
+              <div class="step">② 推荐并确认系统</div>
+              <div class="step">③ 装载本地知识</div>
+              <div class="step">④ 十维拷问 / 快速自决</div>
+              <div class="step">⑤ 生成并交付 PRD.md</div>
+            </div>
+            <div class="bar"><i id="barFill"></i></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 结果 -->
+      <div class="result" id="result">
+        <div class="two-col">
+          <div>
+            <div class="card">
+              <div class="card-hd">PRD.md 预览 <span class="badge b-ok">已生成</span>
+                <span class="right muted">trace_id: PRD-20261120-0188-a1b2c3</span></div>
+              <div class="card-bd md-body">
+                <div class="fm">req_id: REQ-2026-0188
+req_name: 集团短信通道扩容需求
+version: v1.0
+date: 2026-11-20
+status: draft
+system: [CRM, BOSS, ORDER_CENTER]
+author: 陈大海
+reviewer: null</div>
+                <h3>1. 背景与目标</h3>
+                <p>营销旺季实名制短信通道峰值积压，成功率由 <span class="mark">99.2% → 96.5%</span>（数据源：BOSS 运营月报 2026-10，见引用 [S2]）。目标：峰值成功率恢复 ≥99%，不中断在途短信。</p>
+                <h3>2. 范围与边界</h3>
+                <ul><li>纳入：CRM 优先级队列、BOSS 批价规则、订单中心变更流水。</li><li>排除：国际短信通道、非实名制下行（明确排除项）。</li></ul>
+                <h3>3. 业务角色与权限</h3>
+                <p> Channel 运营（队列配置）、财务（批价复核）；数据范围限于本省签名，跨省不开放。</p>
+                <h3>4. 业务流程与状态</h3>
+                <p>主流程：队列优先级判定 → 通道选择 → 发送 → 批价 → 流水落账。异常：通道满时降级至备用队列并回执。</p>
+                <h3>5. 业务规则与验收标准</h3>
+                <ul><li>原子规则 R1：峰值&ge;500 条/秒时启用优先级队列（现行，权威 A）。</li><li>验收 A1：运营人员在旺季峰值场景可观察到成功率 ≥99%，失败回执 ≤2s。</li></ul>
+                <h3>6. 待确认 / 变更记录 / 参考资料</h3>
+                <p>6.1 待确认：跨省签名是否纳入（见冲突 CL-高）。6.2 变更记录：v1.0 初稿。6.3 参考资料：见右侧引用来源 6 条。</p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">来源双向追溯 <span class="muted" style="margin-left:auto">需求 ↔ 规则 ↔ 来源</span></div>
+              <div class="card-bd">
+                <div class="trace">
+                  <span class="node a">REQ-2026-0188</span><span class="arw">→</span>
+                  <span class="node b">规则 R1 / 验收 A1</span><span class="arw">→</span>
+                  <span class="node c">CRM·repo-c07@a1b2c3d</span>
+                </div>
+                <div class="foot-note">过程台账（read-ledger / source-mapping / decisions）在 skill 中原为 JSON 文件、收尾清理；移植后改存 MySQL <span style="font-family:monospace">pmwb_prd_source_ref</span> 表，可长期追溯。</div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="card">
+              <div class="card-hd">冲突清单 <span class="badge b-no">1 高</span><span class="badge b-risk">1 中</span><span class="badge b-default">1 低</span></div>
+              <div class="card-bd">
+                <div class="conflict high"><div class="ch"><span class="badge b-no">CL-高</span>显式矛盾</div>需求"跨省签名不变更"与 CRM 现行规则"省内优先队列仅覆盖本省签名"冲突；跨省流量将绕过优先级。需明确是否纳入。</div>
+                <div class="conflict mid"><div class="ch"><span class="badge b-risk">CL-中</span>隐式依赖</div>BOSS 批价规则调整依赖订单中心流水字段 <span style="font-family:monospace">channel_change_id</span>，该字段在现行接口 v2.2.7 中未定义（见引用 [S4]）。</div>
+                <div class="conflict low"><div class="ch"><span class="badge b-default">CL-低</span>存量影响</div>存量在途短信不中断 → 需灰度开关，可能影响批价时序 1–2 分钟。</div>
+                <details><summary>质量自检（7 维 · 默认不打分）</summary><div class="inner">完整性、颗粒度、一致性、抽象层级、可验证性、可追溯性、清晰性。<div class="dimchk"><span>完整性 ✓</span><span>颗粒度 ✓</span><span>一致性 有缺口</span><span>抽象层级 ✓</span><span>可验证性 ✓</span><span>可追溯性 ✓</span><span>清晰性 ✓</span></div></div></details>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">知识库引用来源 <span class="badge b-violet">skill 原样 · 6 条</span></div>
+              <div class="card-bd" style="padding:0">
+                <table>
+                  <thead><tr><th>标识</th><th>系统 / 仓库</th><th>提交 SHA</th><th>相对路径</th><th>条款</th></tr></thead>
+                  <tbody>
+                    <tr class="src-row" onclick="toast('DEMO：点击跳转到知识条目原文')"><td>[S1]</td><td>CRM / repo-c07</td><td class="mono">a1b2c3d</td><td class="mono">规则/优先级队列.md</td><td>§2.1 队列阈值</td></tr>
+                    <tr class="src-row" onclick="toast('DEMO：点击跳转到知识条目原文')"><td>[S2]</td><td>BOSS / repo-b12</td><td class="mono">f9e8d7c</td><td class="mono">运营/短信月报-2026-10.md</td><td>P7 成功率</td></tr>
+                    <tr class="src-row" onclick="toast('DEMO：点击跳转到知识条目原文')"><td>[S3]</td><td>CRM / repo-c03</td><td class="mono">b4c5d6e</td><td class="mono">接口/实名制短信.md</td><td>§4 签名范围</td></tr>
+                    <tr class="src-row" onclick="toast('DEMO：点击跳转到知识条目原文')"><td>[S4]</td><td>订单中心 / repo-o05</td><td class="mono">7a8b9c0</td><td class="mono">接口/通道变更-v2.2.7.md</td><td>字段清单</td></tr>
+                    <tr class="src-row" onclick="toast('DEMO：点击跳转到知识条目原文')"><td>[S5]</td><td>BOSS / repo-b08</td><td class="mono">1d2e3f4</td><td class="mono">规则/批价-短信.md</td><td>§3 批价时序</td></tr>
+                    <tr class="src-row" onclick="toast('DEMO：点击跳转到知识条目原文')"><td>[S6]</td><td>CRM / repo-c07</td><td class="mono">a1b2c3d</td><td class="mono">需求卡/REQ-2024-527.md</td><td>历史同类需求</td></tr>
+                  </tbody>
+                </table>
+                <div style="padding:10px 12px;font-size:10.5px;color:var(--text-muted);border-top:1px solid var(--border-subtle)">引用规范 = 系统ID + 仓库ID + 提交SHA + 仓库内相对路径 + 标题/条款。DEMO 数据为示意。</div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-hd">产物与后续动作</div>
+              <div class="card-bd">
+                <div style="display:flex;gap:7px;flex-wrap:wrap">
+                  <button class="btn sm" onclick="downloadPrd()">下载 PRD.md</button>
+                  <button class="btn sm ok" onclick="toast('DEMO：确认落库 → pmwb_prd_analysis')">确认落库</button>
+                  <button class="btn sm" onclick="toast('DEMO：生成需求分析说明书（现有能力）')">生成说明书</button>
+                </div>
+                <div class="foot-note">产物落 <span style="font-family:monospace">D:\项目\知识图谱\业务建设\需求分析说明书\REQ-2026-0188\</span>（可选 prototype/index.html）；结构化数据落 MySQL <span style="font-family:monospace">pmwb_prd_*</span>。知识 clone 落 <span style="font-family:monospace">D:\项目\knowledge\</span>，禁写 C 盘。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 设计说明 -->
+      <div class="card" id="guide">
+        <div class="card-hd">决策说明 · 集成边界与待确认项</div>
+        <div class="card-bd">
+          <div class="grid2-2" style="font-size:11.5px;line-height:1.75;color:var(--text-secondary)">
+            <div>
+              <p><b style="color:var(--text-primary)">能力分级：</b>17 项中 8 项可直接移植（规则梳理/冲突检查/验收标准/协同责任/六章模板/HTML 原型/快速模式/技术问转业务问），9 项需适配（附件解析/系统推荐/知识路由/十维问卷/质量评估/追溯台账/交付核验/收尾/会话恢复）。</p>
+              <p><b style="color:var(--text-primary)">不可行因素：</b>原生阻塞式逐轮 Grill Me（Web 请求-响应无法复现，已改一次性问卷）；GCM 凭据服务端化（服务端无 GUI、skill 明确凭据不落盘 → 保留本机 CLI 同步）；浏览器直连内网 Git（不可行 → 后端只读本地 clone）；vendor 依赖缺失（需补 requirements 并对 OCR/.doc 降级）。</p>
+            </div>
+            <div>
+              <p><b style="color:var(--text-primary)">需老大补充：</b>① 后端主机能否连通 code-js.rdcloud.4c.hq.cmcc；② 是否接受"本机 CLI 同步 + Windows 凭据管理器"；③ PRD 产物存业务建设目录还是独立 D:\项目\prd-output；④ 是否接受 clone 25MB/2578md；⑤ LLM 是否含外网模型、敏感需求外发是否合规；⑥ 是否认可入口放步骤 3；⑦ 是否需在 status_registry.py 新增 PRD 状态（默认不新增）。</p>
+              <p><b style="color:var(--text-primary)">结论：</b>条件性 Recommend。工作台已有统一 LLM（call_best_available）、vault 检索（ai_qa）、生成范式（storygen_llm）与静态 DEMO 先例，集成路径短。建议先验证内网连通性与凭据方案，再进二期后端移植。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const QS=[
+  ['业务目标','成功率为何从99.2%降到96.5%','旺季流量激增','通道容量不足','两者都有'],
+  ['范围边界','跨省签名是否纳入','仅本省','含跨省','待确认'],
+  ['业务角色','谁配置队列优先级','渠道运营','系统管理员','双方协同'],
+  ['流程状态','通道满时如何处理','降级备用队列','直接失败回执','排队等待'],
+  ['业务规则','峰值阈值取多少','≥500条/秒','≥1000条/秒','沿用现行'],
+  ['数据口径','成功率分母含不含失败重试','含重试','不含重试','沿用现行'],
+  ['异常边界','在途短信如何不中断','灰度开关','双写过渡','停机切换'],
+  ['存量影响','存量号码归属是否变化','不变','需迁移','待确认'],
+  ['跨系统责任','批价失败归属谁','BOSS','订单中心','联合定位'],
+  ['验收上线','成功率验收目标','≥99%','≥99.5%','恢复历史值']
+];
+let mode='qa', answers={}, proto=true, src='git';
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2400)}
+function renderQ(){
+  document.getElementById('qgrid').innerHTML=QS.map((q,i)=>{
+    const opts=q.slice(1).map((o,j)=>`<span class="qopt${answers['q'+i]===o?' on':''}" onclick="pick(${i},${j})">${o}</span>`).join('');
+    return `<div class="qitem"><div class="qt"><span class="qn">${i+1}</span>${q[0]}</div><div class="qopts">${opts}<span class="qopt skip${answers['q'+i]==='__skip'?' on':''}" onclick="skip(${i})">跳过</span></div></div>`;
+  }).join('');
+  document.getElementById('qCount').textContent=`已答 ${Object.keys(answers).length} / 10 · 上限 20`;
+}
+function pick(i,j){answers['q'+i]=QS[i][j+1];renderQ()}
+function skip(i){answers['q'+i]='__skip';renderQ()}
+function setMode(m){
+  mode=m;
+  document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
+  document.getElementById('modeSeg').classList.toggle('fast',m==='fast');
+  document.getElementById('qgrid').style.opacity=m==='fast'?.4:1;
+  document.getElementById('qgrid').style.pointerEvents=m==='fast'?'none':'auto';
+  document.getElementById('genMeta').textContent=m==='fast'?'快速模式：不提问，缺口记入 assumptions[]':'统一大模型：Kimi k2.6（大模型管理）· 约 30–60 秒';
+}
+document.querySelectorAll('#sysChips .chip').forEach(c=>c.addEventListener('click',()=>{c.classList.toggle('on');c.querySelector('.box').textContent=c.classList.contains('on')?'✓':''}));
+function setSrc(s){src=s;document.querySelectorAll('.src-chip').forEach(c=>c.classList.toggle('on',c.dataset.src===s));
+  document.getElementById('srcTip').textContent=s==='git'?'manifest.json：CRM/BOSS/订单中心 · 最近同步 2026-11-18 · 凭据仅存本机 Windows 凭据管理器，服务端零落盘':'（备选）复用 ai_qa.py 检索本地 vault；本次决策选 Git 原样，此处仅示意来源切换能力';}
+function toggleProto(){proto=!proto;document.getElementById('protoChip').classList.toggle('on',proto);document.getElementById('protoChip').querySelector('.box').textContent=proto?'✓':''}
+function generate(){
+  const btn=document.getElementById('genBtn');btn.disabled=true;btn.textContent='正在分析…';
+  document.getElementById('result').classList.remove('show');
+  const pb=document.getElementById('progressBox');pb.classList.add('show');
+  const steps=document.querySelectorAll('#steps .step');const fill=document.getElementById('barFill');
+  let i=0;steps.forEach(s=>s.className='step');
+  const timer=setInterval(()=>{
+    if(i>0)steps[i-1].className='step done';
+    if(i<steps.length){steps[i].className='step active';fill.style.width=((i+1)/steps.length*100)+'%';i++;}
+    else{clearInterval(timer);setTimeout(()=>{
+      pb.classList.remove('show');btn.disabled=false;btn.textContent='✦ 重新生成 PRD';
+      document.getElementById('result').classList.add('show');
+      document.getElementById('result').scrollIntoView({behavior:'smooth',block:'start'});
+      toast('PRD 生成完成：六章 + 3 条冲突 + 6 条引用来源');
+    },450);}
+  },520);
+}
+function downloadPrd(){
+  const txt=document.querySelector('.fm').textContent+'\n\n（DEMO 示意：完整 PRD 六章内容）\n';
+  const b=new Blob([txt],{type:'text/markdown;charset=utf-8'});const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download='PRD-REQ-2026-0188.md';a.click();URL.revokeObjectURL(a.href);
+  toast('已下载 PRD.md（DEMO 示意文件）');
+}
+renderQ();
+</script>
+</body>
+</html>

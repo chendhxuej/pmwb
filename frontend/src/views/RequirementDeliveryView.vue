@@ -703,8 +703,14 @@
           </div>
         </div>
 
-        <!-- ───── 步骤3：用户故事 ───── -->
+        <!-- ───── 步骤3：用户故事（含 AI 需求分析入口，与故事生成平级独立、互不干扰） ───── -->
         <div v-show="step === 'story'" class="wf-step-panel">
+          <PrdAnalysisPanel
+            :req-id="current.req_id || ''"
+            :req-name="current.req_name || ''"
+            :clarification="clarification"
+          />
+
           <div class="bento-grid">
             <div class="card" style="grid-column: span 5">
               <div class="card-header"><span class="card-label">澄清后需求内容</span></div>
@@ -1521,6 +1527,7 @@ import RequirementLinkSelect from '@/components/Common/RequirementLinkSelect.vue
 import ReqLinkTags from '@/components/Common/ReqLinkTags.vue'
 import WorkloadAnalysisPanel from '@/components/Requirement/WorkloadAnalysisPanel.vue'
 import SensitiveReqPanel from '@/components/Requirement/SensitiveReqPanel.vue'
+import PrdAnalysisPanel from '@/components/Requirement/PrdAnalysisPanel.vue'
 import KnowledgeLinker from '@/components/Common/KnowledgeLinker.vue'
 import BusinessDomainSelect from '@/components/Common/BusinessDomainSelect.vue'
 import MailComposeDialog from '@/components/Common/MailComposeDialog.vue'

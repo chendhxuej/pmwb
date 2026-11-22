@@ -2730,3 +2730,79 @@ class PmwbPbFeedback(Base):
         Index("idx_pb_feedback_track", "track_id"),
         Index("idx_pb_feedback_status", "adopt_status"),
     )
+
+
+class PmwbPrdAnalysis(Base):
+    """PRD 需求分析主表：一次分析一条，旁挂 req_id，不改写现有需求/用户故事模型。"""
+
+    __tablename__ = "pmwb_prd_analysis"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    trace_id = Column(String(64), nullable=False, unique=True, comment="分析链路ID")
+    req_id = Column(String(64), nullable=False, comment="需求编号")
+    req_name = Column(String(500), comment="需求名称")
+    mode = Column(String(16), default="qa", comment="qa / fast")
+    profile = Column(String(16), default="concise", comment="concise / deep")
+    systems = Column(Text, comment="涉及系统 JSON 数组")
+    answers = Column(Text, comment="十维问卷答案 JSON")
+    prd_markdown = Column(Text, comment="PRD 全文 Markdown")
+    status = Column(String(32), default="generated", comment="generated / fallback")
+    gen_strategy = Column(String(32), comment="llm / rules_fallback")
+    gen_provider = Column(String(128), comment="命中大模型名称")
+    gen_model = Column(String(128), comment="命中模型标识")
+    gen_fallback_reason = Column(Text, comment="降级原因")
+    knowledge_mode = Column(String(16), default="none", comment="git / none")
+    knowledge_files = Column(Integer, default=0, comment="本次装载知识文件数")
+    notice = Column(Text, comment="提示信息")
+    prd_file_path = Column(String(500), comment="PRD.md 落盘相对路径")
+    finalized = Column(Integer, default=0, comment="是否已确认落库 0/1")
+    finalized_at = Column(DateTime, comment="确认落库时间")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        Index("idx_prd_analysis_req", "req_id"),
+        Index("idx_prd_analysis_trace", "trace_id"),
+        {"comment": "PRD需求分析主表"},
+    )
+
+
+class PmwbPrdSource(Base):
+    """PRD 知识引用来源（系统ID+仓库ID+SHA+路径+条款）。"""
+
+    __tablename__ = "pmwb_prd_source"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    trace_id = Column(String(64), nullable=False, comment="分析链路ID")
+    sys_id = Column(String(64), comment="系统ID: CRM/BOSS/ORDER_CENTER")
+    repo_id = Column(String(128), comment="仓库ID")
+    sha = Column(String(64), comment="提交SHA")
+    path = Column(String(500), comment="仓库内相对路径")
+    clause = Column(String(255), comment="条款/章节")
+    quote = Column(Text, comment="原文证据片段")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+
+    __table_args__ = (
+        Index("idx_prd_source_trace", "trace_id"),
+        {"comment": "PRD知识引用来源表"},
+    )
+
+
+class PmwbPrdConflict(Base):
+    """PRD 冲突清单（CL 定级）。"""
+
+    __tablename__ = "pmwb_prd_conflict"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    trace_id = Column(String(64), nullable=False, comment="分析链路ID")
+    level = Column(String(16), comment="致命/高/中/低/INFO")
+    type = Column(String(64), comment="显式矛盾/隐式依赖/存量影响/合理变更")
+    desc = Column(Text, comment="业务影响描述")
+    evidence = Column(Text, comment="证据出处")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+
+    __table_args__ = (
+        Index("idx_prd_conflict_trace", "trace_id"),
+        {"comment": "PRD冲突清单表"},
+    )
+

@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     REQUIREMENT_ATTACHMENT_DIR: str = "业务建设\\需求附件"
     REQUIREMENT_DOC_DIR: str = "业务建设\\需求分析说明书"
 
+    # PRD 需求分析：skill 原样接入的内网 Git 知识库本地 clone 根目录（只读，凭据不落盘）。
+    # 老大本机执行 prd-workflow-init 的 init_knowledge.py 克隆到此目录；未克隆时自动降级为无知识分析。
+    PRD_KNOWLEDGE_ROOT: str = "D:\\项目\\knowledge"
+    PRD_KNOWLEDGE_MAX_SCAN: int = 600      # 单次分析最多扫描的 md 文件数
+    PRD_KNOWLEDGE_MAX_SNIPPETS: int = 12   # 进入上下文的知识片段上限
+
     # 重点工作交付物归档目录（Obsidian vault 内相对目录，落在 08-工作任务 与 10-业务建设 之间）
     KEY_WORK_VAULT_DIR: str = "09-重点工作"
     REQUIREMENT_DOC_TEMPLATE: str = str(
