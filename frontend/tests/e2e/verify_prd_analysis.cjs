@@ -92,6 +92,13 @@ const FAKE_RESULT = {
       if (url.includes('/api/v1/prd/meta')) return respond(META);
       if (url.includes('/api/v1/prd/status/')) return respond(null);
       if (url.includes('/api/v1/prd/analyze/')) return respond(FAKE_RESULT);
+      if (url.includes('/api/v1/prd/sync/systems')) return respond({ systems: [
+        { id: 'CRM', name: 'CRM', cloned: true, dirs: ['base_custinfo', 'base_sms'] },
+        { id: 'BOSS', name: 'BOSS', cloned: true, dirs: ['req_info'] },
+        { id: 'ORDER_CENTER', name: '订单中心', cloned: true, dirs: ['电子协议js-bcm-v2'] },
+      ], note: 'test' });
+      if (url.includes('/api/v1/prd/sync/status')) return respond({ status: 'idle', task_installed: true, systems: [], synced_at: '2026-11-22 18:44:56' });
+      if (url.includes('/api/v1/prd/sync/trigger')) return respond({ ok: true, status: 'running', systems: ['CRM'] });
       if (/\/api\/v1\/requirements\/REQ-E2E(\?|$)/.test(url)) return respond(MOCK_ROW);
       if (/\/api\/v1\/requirements\?/.test(url)) return respond({ items: [MOCK_ROW], total: 1, page: 1, page_size: 20 });
       if (/\/api\/v1\/requirements$/.test(url)) return respond({ items: [MOCK_ROW], total: 1 });
@@ -226,6 +233,39 @@ const FAKE_RESULT = {
     check('冲突清单展示', result.hasConflict);
     check('知识引用来源展示', result.hasSource);
     check('trace_id 溯源展示', result.hasTrace);
+
+    // 知识同步面板断言
+    const syncPanel = await page.evaluate(() => {
+      const title = [...document.querySelectorAll('*')].find(e => (e.textContent || '').trim() === '知识源同步' && e.children.length === 0);
+      if (!title) return { found: false };
+      const box = title.closest('.ksync');
+      return {
+        found: !!box,
+        hasStatus: !!box && box.innerText.includes('未同步'),
+        hasSystems: !!box && box.innerText.includes('CRM') && box.innerText.includes('订单中心'),
+        hasDirToggle: !!box && !!box.querySelector('.ksync-toggle'),
+        hasSyncBtn: !!box && [...box.querySelectorAll('button')].some(b => b.textContent.includes('立即同步')),
+      };
+    });
+    check('知识同步面板存在', syncPanel.found, JSON.stringify(syncPanel));
+    check('同步面板显示状态', !!syncPanel.hasStatus);
+    check('同步面板可展开收起', !!syncPanel.hasDirToggle);
+    // 展开后检查系统与业务目录（v-show 折叠时 innerText 不含，须展开后断言）
+    await page.evaluate(() => {
+      const t = [...document.querySelectorAll('*')].find(e => (e.textContent || '').trim() === '知识源同步' && e.children.length === 0);
+      if (t) t.closest('.ksync-head')?.click();
+    });
+    await sleep(500);
+    const expandedSystems = await page.evaluate(() => {
+      const b = document.querySelector('.ksync-body');
+      return !!b && b.innerText.includes('CRM') && b.innerText.includes('订单中心');
+    });
+    check('同步面板列出系统', expandedSystems);
+    const dirsVisible = await page.evaluate(() => {
+      const b = document.querySelector('.ksync-body');
+      return !!b && b.innerText.includes('电子协议js-bcm-v2') && b.innerText.includes('base_custinfo');
+    });
+    check('业务子目录可勾选', dirsVisible);
 
     check('无 Vue 运行时错误', consoleErrors.length === 0, consoleErrors.join(' | ').slice(0, 300));
   } catch (e) {
