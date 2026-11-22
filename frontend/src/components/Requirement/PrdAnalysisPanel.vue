@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPrdMeta, analyzePrd, getPrdStatus, finalizePrd } from '@/api/prdAnalysis.js'
 import PrdResultView from './PrdResultView.vue'
+import PrdKnowledgeSync from './PrdKnowledgeSync.vue'
 import { downloadWithAuth } from '@/utils/download.js'
 
 const props = defineProps({
@@ -16,6 +17,7 @@ const emit = defineEmits(['update:clarification'])
 const mode = ref('qa')
 const profile = ref('concise')
 const selectedSystems = ref(['CRM'])
+const selectedDirs = ref([])   // 业务子目录筛选（同步面板勾选）
 const answers = ref({})
 const meta = ref({ dimensions: [], systems: [], knowledge_status: 'none', llm_available: false })
 const metaLoading = ref(false)
@@ -89,6 +91,7 @@ async function generate() {
       profile: profile.value,
       answers: answers.value,
       req_name: props.reqName,
+      selected_dirs: selectedDirs.value,
     })
     result.value = data
     traceId.value = data.trace_id
@@ -139,6 +142,9 @@ watch(() => props.reqId, (v) => { if (v) { result.value = null; loadMeta() } })
     </div>
 
     <div class="prd-body">
+      <!-- 知识源同步（与用户故事生成无关，独立面板） -->
+      <PrdKnowledgeSync @synced="loadMeta" @update:selectedDirs="selectedDirs = $event" />
+
       <!-- 配置区 -->
       <div class="prd-config">
         <div class="cfg-item">

@@ -20,8 +20,10 @@ from schemas.prd_analysis import (
     PrdMetaOut,
     PrdSourcesOut,
     PrdStatusOut,
+    PrdSyncIn,
 )
 from services import prd_analysis as svc
+from services import prd_sync
 
 router = APIRouter(prefix="/prd", tags=["PRD需求分析"])
 
@@ -38,6 +40,24 @@ def get_knowledge_status():
     return success(data=svc.knowledge_status())
 
 
+@router.get("/sync/systems")
+def get_sync_systems():
+    """可同步系统 + 仓库内业务子目录（供页面勾选，只读本地 clone）。"""
+    return success(data=prd_sync.available_systems())
+
+
+@router.get("/sync/status")
+def get_sync_status():
+    """同步任务状态（读 worker 写回的状态文件，不执行 Git）。"""
+    return success(data=prd_sync.status())
+
+
+@router.post("/sync/trigger")
+def trigger_sync(payload: PrdSyncIn):
+    """触发知识同步：写请求 + 启计划任务（以用户身份跑，服务端零凭据）。"""
+    return success(data=prd_sync.trigger(payload.systems))
+
+
 @router.post("/analyze/{req_id}")
 def analyze(req_id: str, payload: PrdAnalyzeIn, db: Session = Depends(get_db)):
     """提交需求分析：五步编排 → PRD 六章 + 冲突 + 引用（LLM 全失败降级规则模板）。"""
@@ -52,6 +72,7 @@ def analyze(req_id: str, payload: PrdAnalyzeIn, db: Session = Depends(get_db)):
             req_name=payload.req_name,
             special_notes=payload.special_notes,
             prototype=payload.prototype,
+            selected_dirs=payload.selected_dirs,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

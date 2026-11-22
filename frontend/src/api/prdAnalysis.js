@@ -32,3 +32,16 @@ export function finalizePrd(traceId) {
 export function getPrdDownloadUrl(traceId) {
   return `/api/v1/prd/download/${encodeURIComponent(traceId)}`
 }
+
+// ── 知识同步（计划任务以用户身份跑，服务端零凭据）──
+export function getSyncSystems() {
+  return request.get('/prd/sync/systems')
+}
+
+export function getSyncStatus() {
+  return request.get('/prd/sync/status')
+}
+
+export function triggerSync(systems) {
+  return request.post('/prd/sync/trigger', { systems })
+}

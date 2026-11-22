@@ -18,6 +18,11 @@ class PrdAnalyzeIn(BaseModel):
     req_name: str = ""
     special_notes: str = ""
     prototype: bool = False
+    selected_dirs: List[str] = Field(default_factory=list, description="业务子目录筛选，形如 CRM/base_custinfo；留空=全部")
+
+
+class PrdSyncIn(BaseModel):
+    systems: List[str] = Field(default_factory=list, description="要同步的系统 ID，留空=全部 3 个")
 
 
 class PrdConflict(BaseModel):

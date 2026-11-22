@@ -53,8 +53,13 @@ class KnowledgeSource:
     不执行 Git、不处理凭据（GCM 凭据仅存老大本机 Windows 凭据管理器，服务端零落盘）。
     """
 
-    def __init__(self, systems: List[str]):
+    def __init__(self, systems: List[str], selected_dirs: Optional[List[str]] = None):
         self.systems = [s for s in systems if s in KNOWN_SYSTEMS] or KNOWN_SYSTEMS[:]
+        # 业务子目录筛选：形如 ["CRM/base_custinfo", "ORDER_CENTER/电子协议js-bcm-v2"]；
+        # 留空=全部。只接受 sys/dir 两层白名单形态，防目录穿越。
+        self.selected_dirs = {
+            d.strip().strip("/") for d in (selected_dirs or []) if d and "/" in d
+        }
         self.root = Path(settings.PRD_KNOWLEDGE_ROOT)
         self.available = self.root.is_dir()
         self.files: List[Tuple[str, str, str, str]] = []  # (sys_id, repo_id, rel_path, text)
@@ -73,27 +78,34 @@ class KnowledgeSource:
             if not sys_dir.is_dir():
                 continue
             sys_count = 0
-            for dirpath, dirnames, filenames in os.walk(sys_dir):
-                dirnames[:] = [
-                    d for d in dirnames
-                    if not d.startswith(".") and d not in ("node_modules", "attachments", "images")
-                ]
-                mds = [f for f in filenames if f.lower().endswith(".md")]
-                mds.sort(key=lambda f: not any(k in f.lower() for k in PRIORITY))
-                for fn in mds:
-                    if sys_count >= per_sys:
-                        break
-                    full = Path(dirpath) / fn
-                    try:
-                        text = full.read_text(encoding="utf-8", errors="ignore")
-                    except Exception:  # noqa: BLE001
-                        continue
-                    if len(text) < 20:
-                        continue
-                    sys_count += 1
-                    rel = str(full.relative_to(self.root)).replace("\\", "/")
-                    repo_id = rel.split("/")[1] if len(rel.split("/")) > 1 else sys_id
-                    self.files.append((sys_id, repo_id, rel, text))
+            # 若页面勾选了业务子目录，只遍历命中的目录，其余跳过
+            scoped = [d for d in self.selected_dirs if d.startswith(sys_id + "/")]
+            if scoped:
+                walk_roots = [self.root / d for d in scoped if (self.root / d).is_dir()]
+            else:
+                walk_roots = [sys_dir]
+            for walk_root in walk_roots:
+                for dirpath, dirnames, filenames in os.walk(walk_root):
+                    dirnames[:] = [
+                        d for d in dirnames
+                        if not d.startswith(".") and d not in ("node_modules", "attachments", "images")
+                    ]
+                    mds = [f for f in filenames if f.lower().endswith(".md")]
+                    mds.sort(key=lambda f: not any(k in f.lower() for k in PRIORITY))
+                    for fn in mds:
+                        if sys_count >= per_sys:
+                            break
+                        full = Path(dirpath) / fn
+                        try:
+                            text = full.read_text(encoding="utf-8", errors="ignore")
+                        except Exception:  # noqa: BLE001
+                            continue
+                        if len(text) < 20:
+                            continue
+                        sys_count += 1
+                        rel = str(full.relative_to(self.root)).replace("\\", "/")
+                        repo_id = rel.split("/")[1] if len(rel.split("/")) > 1 else sys_id
+                        self.files.append((sys_id, repo_id, rel, text))
         logger.info("PRD 知识源装载：%d 个文件（clone=%s）", len(self.files), self.root)
         return len(self.files)
 
@@ -173,6 +185,7 @@ def analyze(
     req_name: str = "",
     special_notes: str = "",
     prototype: bool = False,
+    selected_dirs: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """五步编排一次分析，返回结果 dict（同时落库 pmwb_prd_*）。"""
     if not raw_requirement.strip():
@@ -184,7 +197,7 @@ def analyze(
 
     # 步骤 1-2：接需求 + 确认系统（本 Web 形态由前端一次提交，服务端直接采信）
     # 步骤 3：装载本地知识（skill 原样接入的 Git clone，只读）
-    ks = KnowledgeSource(systems)
+    ks = KnowledgeSource(systems, selected_dirs=selected_dirs)
     n_files = ks.load()
     tokens = _extract_tokens(raw_requirement + " " + " ".join(answers.values()))
     knowledge_ctx, knowledge_sources = ks.retrieve(tokens)
