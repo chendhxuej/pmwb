@@ -19,13 +19,14 @@ const profile = ref('concise')
 const selectedSystems = ref(['CRM'])
 const selectedDirs = ref([])   // 业务子目录筛选（同步面板勾选）
 const answers = ref({})
-const meta = ref({ dimensions: [], systems: [], knowledge_status: 'none', llm_available: false })
+const meta = ref({ dimensions: [], systems: [], knowledge_systems: [], system_dir_alias: {}, knowledge_status: 'none', llm_available: false })
 const metaLoading = ref(false)
 const generating = ref(false)
 const step = ref(-1)          // -1 未生成；0-4 五步进度
 const result = ref(null)
 const traceId = ref('')
 const refining = ref(false)
+const filePath = ref('')      // 落盘路径（需求固定文件夹内）
 
 const STEP_LABELS = ['解析原始需求', '推荐并确认系统', '装载本地知识', '十维拷问 / 快速自决', '生成并交付 PRD.md']
 const stepLabel = computed(() => step.value >= 0 ? STEP_LABELS[step.value] : '')
@@ -34,6 +35,10 @@ const knowledgeLabel = computed(() => ({
   git: `Git 知识源已装载 ${meta.value.knowledge_files || 0} 篇`,
   none: '未 clone 知识库 · 降级无知识分析',
 }[meta.value.knowledge_status] || '未知'))
+
+function hasKnowledge(sys) {
+  return (meta.value.knowledge_systems || ['CRM', 'BOSS', '订单中心']).includes(sys)
+}
 
 async function loadMeta() {
   metaLoading.value = true
@@ -96,6 +101,7 @@ async function generate() {
     })
     result.value = data
     traceId.value = data.trace_id
+    filePath.value = data.file_path || ''
     if (data.status === 'fallback') {
       ElMessage({ type: 'warning', message: 'AI 降级为规则模板（非 AI 分析），详见结果区提示', duration: 8000 })
     } else {
@@ -114,10 +120,9 @@ async function generate() {
 async function onAction(action) {
   if (!traceId.value) return
   if (action === 'download') {
-    const ver = result.value?.version || 'v1'
     downloadWithAuth(
       `/api/v1/prd/download/${encodeURIComponent(traceId.value)}`,
-      `${props.reqName || props.reqId}PRD-${ver}.md`,
+      'PRD.md',
     )
     return
   }
@@ -137,6 +142,7 @@ async function onRefine(payload) {
     const res = await refinePrd(traceId.value, payload)
     result.value = res
     traceId.value = res.trace_id
+    filePath.value = res.file_path || filePath.value
     ElMessage.success(`二次评估完成，已生成 ${res.version || 'v2'}（旧版本留痕）`)
   } catch (e) {
     ElMessage.error(e?.message || '二次评估失败')
@@ -175,15 +181,17 @@ watch(() => props.reqId, (v) => { if (v) { result.value = null; loadMeta() } })
             <el-radio-button value="fast">快速模式（不提问·记假设）</el-radio-button>
           </el-radio-group>
         </div>
-        <div class="cfg-item">
-          <div class="cfg-label">涉及系统（1–5 个）</div>
+        <div class="cfg-item cfg-sys">
+          <div class="cfg-label">涉及系统（可多选 · 来自需求工单，1–5 个重点系统）</div>
           <div class="sys-chips">
             <span
               v-for="s in (meta.systems || [])" :key="s"
-              class="sys-chip" :class="{ on: selectedSystems.includes(s) }"
+              class="sys-chip" :class="{ on: selectedSystems.includes(s), nokb: !hasKnowledge(s) }"
+              :title="hasKnowledge(s) ? `${s}（已接入内网知识库）` : `${s}（无知识仓库，按无知识分析）`"
               @click="toggleSystem(s)"
-            >{{ s }}</span>
+            >{{ s }}<i v-if="!hasKnowledge(s)" class="sys-nokb">无库</i></span>
           </div>
+          <div class="sys-hint">带「无库」标记的系统未接入内网 Git，仍可选来分析（降级无知识）。已选 {{ selectedSystems.length }} 个。</div>
         </div>
         <div class="cfg-item">
           <div class="cfg-label">模板</div>
@@ -232,6 +240,11 @@ watch(() => props.reqId, (v) => { if (v) { result.value = null; loadMeta() } })
 
       <!-- 结果 -->
       <PrdResultView :result="result" :loading="false" :refining="refining" @finalize="onAction" @refine="onRefine" />
+      <div v-if="filePath" class="prd-filed">
+        <span class="prd-filed-tag">归档位置</span>
+        <span>PRD.md 已写入该需求固定文件夹（与需求分析说明书同处）：</span>
+        <code>{{ filePath }}</code>
+      </div>
     </div>
   </div>
 </template>
@@ -249,6 +262,11 @@ watch(() => props.reqId, (v) => { if (v) { result.value = null; loadMeta() } })
 .sys-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .sys-chip { border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; font-size: 11.5px; cursor: pointer; color: var(--text-secondary); background: var(--surface); }
 .sys-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.sys-chip.nokb { border-style: dashed; }
+.sys-nokb { font-style: normal; font-size: 9px; margin-left: 4px; color: var(--text-muted); opacity: .75; }
+.sys-chip.on .sys-nokb { color: var(--accent); }
+.sys-hint { font-size: 10.5px; color: var(--text-muted); margin-top: 5px; line-height: 1.5; }
+.cfg-sys { flex: 1 1 460px; }
 .prd-questions { border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px; margin-bottom: 14px; background: var(--bg-app); }
 .q-hd { display: flex; align-items: center; font-weight: 600; font-size: 12.5px; margin-bottom: 10px; }
 .q-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -263,6 +281,9 @@ watch(() => props.reqId, (v) => { if (v) { result.value = null; loadMeta() } })
 .step-node.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 .step-node.done { background: var(--success-soft, #ecfdf3); color: var(--success, #0f9d6b); }
 .step-cur { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+.prd-filed { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 12px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; font-size: 11px; color: var(--text-secondary); background: var(--bg-app); }
+.prd-filed-tag { font-size: 10px; padding: 2px 6px; border-radius: 5px; background: var(--success-soft, #ecfdf3); color: var(--success, #0f9d6b); font-weight: 600; }
+.prd-filed code { font-size: 11px; color: var(--accent); word-break: break-all; }
 .ml-8 { margin-left: 8px; }
 @media (max-width: 1100px) { .q-grid { grid-template-columns: 1fr; } }
 </style>

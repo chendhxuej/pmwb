@@ -100,7 +100,36 @@ def available_systems() -> Dict[str, Any]:
             "cloned": sys_dir.is_dir(),
             "dirs": dirs,
         })
-    return {"systems": result, "note": "其余 14 个历史系统（经分/HSS/网厅等）暂无内网 Git 仓库地址，不可同步"}
+    # 涉及系统（页面可勾选分析）来自需求工单实际数据；知识同步仍仅限有内网 Git 仓库的系统。
+    try:
+        from services.requirement import requirement_service
+        from db.base import SessionLocal
+
+        db = SessionLocal()
+        try:
+            involved = requirement_service.get_systems(db) or []
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 取数失败只列知识系统
+        involved = []
+    # 归一化：显示名按别名映射到 clone 目录 ID 再去重（订单中心 == ORDER_CENTER）
+    alias = {"订单中心": "ORDER_CENTER", "ORDER_CENTER": "ORDER_CENTER"}
+    known = {alias.get(x["id"], x["id"]) for x in result}
+    involved_out, seen = [], set(known)
+    for s in involved:
+        norm = alias.get(s, s)
+        if norm not in seen:
+            seen.add(norm)
+            involved_out.append(s)
+    involved = involved_out
+    return {
+        "systems": result,
+        "involved_systems": involved,
+        "note": (
+            "仅 CRM / BOSS / 订单中心 3 个系统已接入内网 Git 仓库可同步知识；"
+            "需求工单涉及的其他系统可正常参与分析，但未建知识仓库，按无知识降级处理。"
+        ),
+    }
 
 
 def trigger(systems: List[str]) -> Dict[str, Any]:

@@ -39,10 +39,42 @@ from db.models import now_cn
 
 logger = logging.getLogger(__name__)
 
-# 系统注册表 ID（与 skill references/system-knowledge-map.json 一致）
-KNOWN_SYSTEMS = ["CRM", "BOSS", "ORDER_CENTER"]
+# 系统注册表（唯一真相源：能装载内网知识的系统，与 skill references/system-knowledge-map.json 对齐）
+# 其余系统不在此硬编码：由 all_systems() 从需求工单实际出现的系统动态合并。
+KNOWLEDGE_SYSTEMS = ["CRM", "BOSS", "订单中心"]
+# 系统显示名 → 知识 clone 目录名（订单中心在 DB 中是中文，clone 目录是 ORDER_CENTER）
+SYSTEM_DIR_ALIAS = {"订单中心": "ORDER_CENTER", "ORDER_CENTER": "ORDER_CENTER"}
+KNOWN_SYSTEMS = KNOWLEDGE_SYSTEMS[:]  # 兼容旧调用方
 MAX_RETRIES = 2
 CTX_MAX_CHARS = 12000  # 知识上下文上限（与 ai_qa 的 13000 同量级）
+
+
+def _knowledge_dir_name(system: str) -> str:
+    """系统名（中文显示名或 ID）→ 本地 clone 目录名。无别名时原样返回。"""
+    return SYSTEM_DIR_ALIAS.get(system, system)
+
+
+def all_systems(db: Session) -> List[str]:
+    """涉及系统清单唯一真相源：知识库已接入系统 + 需求工单实际出现的系统。
+
+    不再硬编码 3 个：老大日常需求涉及的系统（订单中心/电子协议/生产运营平台/DI/
+    网格通/能运/政企工作台/商机平台等）自动进入选项。知识 clone 只覆盖前三者，
+    其余系统仍可勾选参与分析（降级无知识，不阻断）。
+    """
+    picked: List[str] = []
+    for s in KNOWLEDGE_SYSTEMS:
+        if s not in picked:
+            picked.append(s)
+    try:
+        from services.requirement import requirement_service
+
+        for s in requirement_service.get_systems(db) or []:
+            s = (s or "").strip()
+            if s and s not in picked:
+                picked.append(s)
+    except Exception as e:  # noqa: BLE001 取数失败不阻断，至少保留知识系统
+        logger.warning("读取需求系统清单失败（回退知识系统）: %s", e)
+    return picked
 
 
 # ===========================================================================
@@ -55,11 +87,14 @@ class KnowledgeSource:
     """
 
     def __init__(self, systems: List[str], selected_dirs: Optional[List[str]] = None):
-        self.systems = [s for s in systems if s in KNOWN_SYSTEMS] or KNOWN_SYSTEMS[:]
+        # 不再限制白名单：需求工单出现的任意系统都可传入；无 clone 目录时自动跳过（降级无知识）。
+        self.systems = list(dict.fromkeys([s.strip() for s in systems if s and s.strip()])) or KNOWLEDGE_SYSTEMS[:]
         # 业务子目录筛选：形如 ["CRM/base_custinfo", "ORDER_CENTER/电子协议js-bcm-v2"]；
         # 留空=全部。只接受 sys/dir 两层白名单形态，防目录穿越。
+        # 兼容中文显示名（订单中心/订单中心）→ clone 目录 ORDER_CENTER。
         self.selected_dirs = {
-            d.strip().strip("/") for d in (selected_dirs or []) if d and "/" in d
+            "/".join([_knowledge_dir_name(part) for part in d.strip().strip("/").split("/", 1)])
+            for d in (selected_dirs or []) if d and "/" in d
         }
         self.root = Path(settings.PRD_KNOWLEDGE_ROOT)
         self.available = self.root.is_dir()
@@ -75,12 +110,14 @@ class KnowledgeSource:
         per_sys = max(1, settings.PRD_KNOWLEDGE_MAX_SCAN // max(1, len(self.systems)))
         PRIORITY = ("rule", "规则", "api", "接口", "data", "数据", "flow", "流程", "readme", "claude", "spec", "业务")
         for sys_id in self.systems:
-            sys_dir = self.root / sys_id
+            dir_name = _knowledge_dir_name(sys_id)
+            sys_dir = self.root / dir_name
             if not sys_dir.is_dir():
+                logger.info("PRD 系统「%s」无本地 clone 目录（%s）→ 该系统降级无知识", sys_id, dir_name)
                 continue
             sys_count = 0
             # 若页面勾选了业务子目录，只遍历命中的目录，其余跳过
-            scoped = [d for d in self.selected_dirs if d.startswith(sys_id + "/")]
+            scoped = [d for d in self.selected_dirs if d.startswith(dir_name + "/")]
             if scoped:
                 walk_roots = [self.root / d for d in scoped if (self.root / d).is_dir()]
             else:
@@ -194,7 +231,7 @@ def analyze(
 
     ticket_meta = _load_ticket_meta(db, req_id)
     req_name = req_name.strip() or ticket_meta.get("req_name") or _resolve_req_name(db, req_id)
-    systems = systems or KNOWN_SYSTEMS[:]
+    systems = systems or all_systems(db)
     trace_id = f"PRD-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
     # 步骤 1-2：接需求 + 确认系统（本 Web 形态由前端一次提交，服务端直接采信）
@@ -261,6 +298,7 @@ def analyze(
         "gen_fallback_reason": result.get("gen_fallback_reason"),
         "knowledge_mode": knowledge_mode,
         "knowledge_files": n_files,
+        "file_path": file_rel,
         "notice": "",
     }
     # notice 组装（无知识 + 降级均可见）
@@ -501,20 +539,26 @@ def _write_prd_file(
     req_id: str, req_name: str, markdown: str, trace_id: str,
     version: str = "v1",
 ) -> str:
-    """PRD 落到「需求采集 → 需求分析说明书文件夹」同一目录（与 generate-doc 共用路径规则）。
+    """PRD 落到该需求工单**已有**的固定文件夹（与需求分析说明书 docx / 附件同处）。
 
-    目录名 {req_id}_{标题40字}、文件名 {标题}PRD-{version}.md；旧版本文件保留留痕。
+    目录与文件名规则唯一真相源 = requirement_delivery._resolve_paths / generate_doc：
+      文件夹 {req_id}_{标题40字}，主文件固定 PRD.md（v1/v2 覆盖为最新版）。
+    v2+ 同时落 {标题}PRD-v{N}.md 留痕；不再自行拼目录名，杜绝 req_id 清洗差异导致漂移。
     失败不阻断主流程（数据库仍留痕）。
     """
     try:
-        # 与 requirement_delivery._resolve_paths 共用规则，避免两套命名漂移
-        from services.requirement_delivery import _safe_name as _folder_safe_name
+        from services.requirement_delivery import _resolve_paths
 
-        vault = Path(settings.OBSIDIAN_VAULT_PATH)
-        folder = vault / settings.REQUIREMENT_DOC_DIR / f"{_safe_name(req_id)}_{_folder_safe_name(req_name or req_id)}"
+        paths = _resolve_paths(req_id, req_name)
+        folder = Path(paths["folder"])
         folder.mkdir(parents=True, exist_ok=True)
-        target = folder / f"{_folder_safe_name(req_name or req_id)}PRD-{version}.md"
+        vault = Path(settings.OBSIDIAN_VAULT_PATH)
+        # 主文件名与旧版一致固定 PRD.md，老大在需求文件夹里一眼可见、与说明书同处
+        target = folder / "PRD.md"
         target.write_text(markdown, encoding="utf-8")
+        # 多版本留痕：v2 起额外落带版本号文件，v1 不再另存免得与历史文件重名
+        if version and version != "v1":
+            (folder / f"PRD-{version}.md").write_text(markdown, encoding="utf-8")
         return str(target.relative_to(vault)).replace("\\", "/")
     except Exception as e:  # noqa: BLE001
         logger.warning("PRD 落盘失败（不影响数据库记录）: %s", e)
@@ -713,6 +757,7 @@ def refine(
         "gen_fallback_reason": result.get("gen_fallback_reason"),
         "knowledge_mode": row.knowledge_mode or "none",
         "knowledge_files": row.knowledge_files or 0,
+        "file_path": file_rel,
         "notice": (f"基于 v1 二次评估生成 {version}；v1 文件保留留痕。"),
     }
 
@@ -796,7 +841,9 @@ def meta(db: Session) -> Dict[str, Any]:
     llm = get_status(db)
     return {
         "dimensions": TEN_DIMENSIONS,
-        "systems": KNOWN_SYSTEMS,
+        "systems": all_systems(db),
+        "knowledge_systems": KNOWLEDGE_SYSTEMS,
+        "system_dir_alias": SYSTEM_DIR_ALIAS,
         **ks,
         "llm_available": bool(llm.get("available")),
         "llm_notice": llm.get("notice") or "",

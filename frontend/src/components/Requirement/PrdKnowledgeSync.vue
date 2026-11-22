@@ -12,6 +12,7 @@ const systems = ref([])        // [{id,name,cloned,dirs:[...]}]
 const checkedSystems = ref([]) // 要同步的系统
 const checkedDirs = ref([])    // 分析时装载的业务子目录 "SYS/dir"
 const syncStatus = ref({ status: 'idle', task_installed: false })
+const note = ref('')
 const triggering = ref(false)
 let timer = null
 
@@ -30,6 +31,7 @@ async function loadSystems() {
   try {
     const res = await getSyncSystems()
     systems.value = res?.systems || []
+    note.value = res?.note || ''
   } catch (e) { /* 静默：面板折叠时不影响主分析 */ }
 }
 
@@ -145,7 +147,7 @@ onUnmounted(stopPolling)
         <span v-if="syncStatus.synced_at" class="ksync-synced">上次同步：{{ syncStatus.synced_at }}</span>
         <span v-if="syncStatus.error" class="ksync-err">错误：{{ syncStatus.error }}</span>
       </div>
-      <div class="ksync-note">其余 14 个历史系统（经分 / HSS / 网厅等）暂无内网 Git 仓库地址，不可同步。</div>
+      <div class="ksync-note">{{ note || '仅已接入内网 Git 的系统可同步知识；其余涉及系统按无知识分析。' }}</div>
     </div>
   </div>
 </template>

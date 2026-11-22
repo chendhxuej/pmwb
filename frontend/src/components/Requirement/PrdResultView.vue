@@ -57,7 +57,7 @@ function onRefine() {
       <span class="pm-tag gray ml-8">{{ result.trace_id }}</span>
       <div class="bar-right">
         <el-button size="small" :loading="refining" type="warning" plain @click="onRefine">补充并重评</el-button>
-        <el-button size="small" @click="onDownload">下载 PRD-{{ result.version || 'v1' }}.md</el-button>
+        <el-button size="small" @click="onDownload">下载 PRD.md</el-button>
         <el-button size="small" type="primary" plain @click="emit('finalize', 'finalize')">确认落库</el-button>
       </div>
     </div>

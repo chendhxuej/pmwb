@@ -35,12 +35,15 @@ const META = {
     { key: 'experience', name: '服务体验与合规', hint: '时限提示' },
     { key: 'acceptance', name: '验收与上线', hint: '什么算通过' },
   ],
-  systems: ['CRM', 'BOSS', 'ORDER_CENTER'],
+  systems: ['CRM', 'BOSS', '订单中心', '电子协议', '生产运营平台', 'DI', '网格通', '能运', '政企工作台', '商机平台'],
+  knowledge_systems: ['CRM', 'BOSS', '订单中心'],
+  system_dir_alias: { '订单中心': 'ORDER_CENTER', 'ORDER_CENTER': 'ORDER_CENTER' },
   knowledge_status: 'none',
   knowledge_files: 0,
   llm_available: true,
   llm_notice: '',
 };
+const MOCK_FILE_PATH = '业务建设/需求分析说明书/REQ-E2E_E2E-PRD验证需求/PRD.md';
 const FAKE_RESULT = {
   trace_id: 'PRD-E2E-0001', req_id: 'REQ-E2E', prd_markdown:
     '---\nreq_id: REQ-E2E\nstatus: draft\n---\n\n## 1 背景、目标与范围\n测试背景\n\n## 6 待确认与变更记录\n6.1 待确认：无',
@@ -48,7 +51,7 @@ const FAKE_RESULT = {
   sources: [{ sys_id: 'CRM', repo_id: 'repo-c07', sha: 'a1b2c3d', path: '规则/队列.md', clause: '§2.1' }],
   assumptions: ['跨省默认不纳入'], open_items: ['批价时序待确认'],
   status: 'generated', gen_strategy: 'llm', gen_provider: 'Kimi', gen_model: 'k2.6',
-  knowledge_mode: 'none', knowledge_files: 0, notice: '', version: 'v1',
+  knowledge_mode: 'none', knowledge_files: 0, notice: '', version: 'v1', file_path: MOCK_FILE_PATH,
 };
 const FAKE_REFINE = { ...FAKE_RESULT, trace_id: 'PRD-E2E-0002', version: 'v2', parent_trace_id: 'PRD-E2E-0001',
   prd_markdown: FAKE_RESULT.prd_markdown.replace('status: draft', 'status: draft\nversion: v2'), open_items: [] };
@@ -95,7 +98,7 @@ const FAKE_REFINE = { ...FAKE_RESULT, trace_id: 'PRD-E2E-0002', version: 'v2', p
       if (url.includes('/api/v1/prd/status/')) return respond(null);
       if (url.includes('/api/v1/prd/analyze/')) return respond(FAKE_RESULT);
       if (url.includes('/api/v1/prd/refine/')) return respond(FAKE_REFINE);
-      if (url.includes('/api/v1/prd/finalize/')) return respond({ trace_id: FAKE_RESULT.trace_id, req_id: 'REQ-E2E', finalized: true, file_path: '业务建设/需求分析说明书/REQ-E2E_测试需求/测试需求PRD-v1.md' });
+      if (url.includes('/api/v1/prd/finalize/')) return respond({ trace_id: FAKE_RESULT.trace_id, req_id: 'REQ-E2E', finalized: true, file_path: MOCK_FILE_PATH });
       if (url.includes('/api/v1/prd/sync/systems')) return respond({ systems: [
         { id: 'CRM', name: 'CRM', cloned: true, dirs: ['base_custinfo', 'base_sms'] },
         { id: 'BOSS', name: 'BOSS', cloned: true, dirs: ['req_info'] },
@@ -189,6 +192,14 @@ const FAKE_REFINE = { ...FAKE_RESULT, trace_id: 'PRD-E2E-0002', version: 'v2', p
     });
     check('十维问卷维度渲染', dims >= 4, `${dims}/4 抽样`);
 
+    // 涉及系统覆盖日常需求全部系统（不再只有 3 个）
+    const sysChips = await page.evaluate(() => {
+      const chips = [...document.querySelectorAll('.prd-panel .sys-chip')].map(e => e.textContent.replace('无库', '').trim());
+      return { count: chips.length, names: chips };
+    });
+    check('涉及系统覆盖全部需求系统', sysChips.count >= 10, `${sysChips.count} 个: ${sysChips.names.join(',')}`);
+    check('无内网库系统带无库标记', sysChips.names.includes('电子协议') && sysChips.names.includes('网格通'), JSON.stringify(sysChips.names));
+
     const fastClicked = await page.evaluate(() => {
       const b = [...document.querySelectorAll('*')].find((e) => (e.textContent || '').includes('快速模式') && /radio|span|div/.test(e.tagName.toLowerCase()) && e.children.length === 0);
       if (b) { b.click(); return true; }
@@ -237,6 +248,20 @@ const FAKE_REFINE = { ...FAKE_RESULT, trace_id: 'PRD-E2E-0002', version: 'v2', p
     check('冲突清单展示', result.hasConflict);
     check('知识引用来源展示', result.hasSource);
     check('trace_id 溯源展示', result.hasTrace);
+
+    // PRD 落盘到需求固定文件夹 + 下载名统一 PRD.md
+    const filed = await page.evaluate(() => {
+      const txt = document.body.innerText;
+      const box = document.querySelector('.prd-filed');
+      return {
+        hasBox: !!box,
+        hasPath: txt.includes('PRD.md 已写入该需求固定文件夹'),
+        hasRel: txt.includes('REQ-E2E_E2E-PRD验证需求/PRD.md'),
+        dlLabel: [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '下载 PRD.md'),
+      };
+    });
+    check('PRD 落盘路径可见', filed.hasBox && filed.hasPath && filed.hasRel, JSON.stringify(filed));
+    check('下载名统一为 PRD.md', filed.dlLabel);
 
     // v2 待澄清二次评估断言
     const refinePanel = await page.evaluate(() => {

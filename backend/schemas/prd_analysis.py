@@ -67,6 +67,7 @@ class PrdAnalyzeOut(BaseModel):
     notice: str = ""
     version: str = "v1"  # 版本号（v1 首次 / v2+ 二次评估）
     parent_trace_id: Optional[str] = None  # 二次评估指向上一版 trace
+    file_path: str = ""  # 落盘相对路径（需求固定文件夹内）
 
 
 class PrdMetaOut(BaseModel):
@@ -74,6 +75,8 @@ class PrdMetaOut(BaseModel):
 
     dimensions: List[Dict[str, str]] = []
     systems: List[str] = []
+    knowledge_systems: List[str] = []  # 已接入内网 Git 知识库的系统（其余系统可分析但无知识）
+    system_dir_alias: Dict[str, str] = {}  # 显示名 → clone 目录名（订单中心→ORDER_CENTER）
     knowledge_status: str = "none"  # git | none
     knowledge_root: str = ""
     knowledge_synced_at: Optional[str] = None

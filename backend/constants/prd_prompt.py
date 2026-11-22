@@ -48,7 +48,7 @@ PRD_SYSTEM_PROMPT = """你是一名资深产品经理，面向业务部门提出
 {
   "prd_markdown": "完整 PRD 六章 Markdown，含开头 YAML frontmatter（req_id/req_name/version/date/status/system/author/reviewer/proposer/sa_name/propose_time/source 十二键）",
   "conflicts": [{"level":"高|中|低|致命|INFO","type":"显式矛盾|隐式依赖|存量影响|合理变更","desc":"业务影响描述","evidence":"证据出处"}],
-  "sources": [{"sys_id":"CRM|BOSS|ORDER_CENTER","repo_id":"仓库ID","sha":"提交SHA","path":"相对路径","clause":"条款","quote":"原文证据"}],
+  "sources": [{"sys_id":"实际涉及系统（如 CRM / 订单中心 / 电子协议 等）","repo_id":"仓库ID","sha":"提交SHA","path":"相对路径","clause":"条款","quote":"原文证据"}],
   "assumptions": ["未被问卷覆盖而自行采用的假设"],
   "open_items": ["需业务确认但无依据的待确认项，写入 PRD 6.1"]
 }
