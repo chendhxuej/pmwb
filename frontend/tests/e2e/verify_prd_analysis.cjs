@@ -187,6 +187,19 @@ const FAKE_REFINE = { ...FAKE_RESULT, trace_id: 'PRD-E2E-0002', version: 'v2', p
     }));
     check('PRD入口与用户故事生成共存', coexist.clarification && coexist.storyStrategy && coexist.prdEntry, JSON.stringify(coexist));
 
+    // 4b. 澄清字段为空时，步骤3澄清框自动带出原始需求描述（本次 bug 修复核心断言）
+    const clarifAuto = await page.evaluate(() => {
+      const tas = [...document.querySelectorAll('textarea[placeholder*="澄清"]')];
+      // 取步骤3（可见面板内）的澄清框
+      const step3 = tas.find((t) => {
+        const panel = t.closest('.wf-step-panel');
+        return panel && panel.getBoundingClientRect().height > 0;
+      }) || tas[0];
+      const val = step3 ? (step3.value || '') : '';
+      return { count: tas.length, valLen: val.length, hasDesc: val.includes('集团短信通道扩容') };
+    });
+    check('澄清为空时步骤3自动带出原始需求描述', clarifAuto.hasDesc && clarifAuto.valLen > 10, JSON.stringify(clarifAuto));
+
     // 5. 十维问卷加载 + qa/fast 切换
     const dims = await page.evaluate(() => {
       const names = ['问题与目标', '范围与边界', '跨系统业务责任', '验收与上线'];

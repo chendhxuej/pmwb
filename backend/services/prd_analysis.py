@@ -322,6 +322,18 @@ def _resolve_req_name(db: Session, req_id: str) -> str:
     return (row.req_name if row else "") or f"需求 {req_id}"
 
 
+def _fmt_date(value) -> str:
+    """日期字段兼容：DB 里 propose_time 既有 date/datetime 也有 str（邮件原文落库），统一 YYYY-MM-DD。"""
+    if value is None or value == "":
+        return ""
+    if isinstance(value, str):
+        return value[:10]
+    try:
+        return value.strftime("%Y-%m-%d")
+    except (AttributeError, TypeError):
+        return str(value)[:10]
+
+
 def _load_ticket_meta(db: Session, req_id: str) -> Dict[str, str]:
     """读需求工单原始信息（单一来源 SentEmail）；缺失字段留空，由 prompt 填 null，绝不编造。"""
     try:
@@ -335,7 +347,7 @@ def _load_ticket_meta(db: Session, req_id: str) -> Dict[str, str]:
         "req_name": (row.req_name or "").strip(),
         "proposer": (row.proposer or "").strip(),
         "sa_name": (row.sa_name or "").strip(),
-        "propose_time": row.propose_time.strftime("%Y-%m-%d") if getattr(row, "propose_time", None) else "",
+        "propose_time": _fmt_date(getattr(row, "propose_time", None)),
         "background": (row.background or "").strip(),
         "description": (row.description or "").strip(),
         "origin": (row.origin or "").strip(),

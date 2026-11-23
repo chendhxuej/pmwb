@@ -2537,7 +2537,8 @@ async function openWorkflow(row) {
   current.value.owner_note = row.ext?.owner_note || ''
   current.value.tags = row.ext?.tags || ''
   current.value.personal_note = row.ext?.personal_note || ''
-  clarification.value = row.clarification || ''
+  // 澄清后需求内容自动带出：优先库中澄清，留空则用原始需求描述填入（可编辑）
+  clarification.value = (row.clarification || '').trim() || (row.description || '')
   docFileName.value = `关于${row.req_name || '需求'}的需求分析说明书`
   const key = row.req_id
   const cached = localStore[key] || {}
