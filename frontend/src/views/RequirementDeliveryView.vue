@@ -659,7 +659,7 @@
                   :rows="5"
                   placeholder="录入经评审澄清后的最终需求内容…"
                 />
-                <div class="hint-text mt-8">澄清内容已接入后端持久化。</div>
+                <div class="hint-text mt-8">澄清内容已接入后端持久化；留空时生成按钮自动取「原始需求描述」作为输入。</div>
               </div>
             </div>
           </div>
@@ -709,6 +709,7 @@
             :req-id="current.req_id || ''"
             :req-name="current.req_name || ''"
             :clarification="clarification"
+            :fallback-description="current.description || ''"
           />
 
           <div class="bento-grid">
@@ -793,7 +794,7 @@
                   class="mt-12 w-full"
                   type="primary"
                   :loading="storyGenLoading"
-                  :disabled="!clarification.trim()"
+                  :disabled="!effectiveInput"
                   @click="generateStories(selectedStrategy)"
                 >
                   <template v-if="storyGenLoading">
@@ -855,7 +856,7 @@
 
                 <!-- 未生成提示 -->
                 <div v-if="!storyGenLoading && !stories.length && !storiesConfirmed" class="story-empty">
-                  <p>👈 在左侧填写澄清内容，选择生成策略后点击「生成用户故事」</p>
+                  <p>👈 在左侧填写澄清内容（留空则用原始需求描述），选择生成策略后点击「生成用户故事」</p>
                 </div>
 
                 <!-- 待确认提示条 -->
@@ -2475,6 +2476,11 @@ async function saveDomainCode() {
   }
 }
 const clarification = ref('')
+// 生成输入统一口径：澄清内容优先，原始需求描述兜底。
+// 需求工单大量无澄清字段（邮件原文即需求），按钮不应因此灰化。
+const effectiveInput = computed(() =>
+  (clarification.value || '').trim() || (current.value?.description || '').trim()
+)
 const attachments = ref([])
 const evaluations = ref([])
 const evalLoading = ref(false)
@@ -2857,14 +2863,16 @@ function _stopGenTimer() {
   if (_storyGenTimer) { clearInterval(_storyGenTimer); _storyGenTimer = null }
 }
 async function generateStories(strategy = 'rules_v2') {
-  if (!clarification.value.trim()) {
-    ElMessage.warning('请先填写澄清后需求内容')
+  // 澄清优先、原始描述兜底（需求工单大量无澄清字段）
+  const input = effectiveInput.value
+  if (!input) {
+    ElMessage.warning('请先填写澄清后需求内容，或在「原始需求描述」录入内容')
     return
   }
   storyGenLoading.value = true
   _startGenTimer()
   try {
-    const res = await generateUserStories(current.value.req_id, clarification.value, strategy)
+    const res = await generateUserStories(current.value.req_id, input, strategy)
     dddView.value = res.ddd || dddView.value
     stories.value = (res.stories || []).map((s) => ({
       id: s.id,
@@ -2933,7 +2941,7 @@ async function generateDoc() {
     const res = await generateRequirementDoc(
       current.value.req_id,
       stories.value.map((s) => ({ title: s.title, desc: s.desc, scene: s.scene, acceptance: s.acceptance, rules: s.rules || [], seq: s.seq })),
-      clarification.value,
+      effectiveInput.value,
     )
     genHistory.value.unshift({
       file: res.file,

@@ -10,6 +10,7 @@ const props = defineProps({
   reqId: { type: String, default: '' },
   reqName: { type: String, default: '' },
   clarification: { type: String, default: '' },
+  fallbackDescription: { type: String, default: '' },
 })
 const emit = defineEmits(['update:clarification'])
 
@@ -73,9 +74,14 @@ function answerCount() {
   return Object.values(answers.value).filter(v => v && v !== '__skip__').length
 }
 
+// 分析输入统一口径：澄清内容优先，原始需求描述兜底（与用户故事生成一致）
+const inputText = computed(() =>
+  (props.clarification || '').trim() || (props.fallbackDescription || '').trim()
+)
+
 async function generate() {
-  if (!props.clarification?.trim()) {
-    ElMessage.warning('请先在左侧「澄清后需求内容」填写需求，作为分析输入')
+  if (!inputText.value) {
+    ElMessage.warning('请先在左侧填写澄清后需求内容，或确认「原始需求描述」不为空')
     return
   }
   if (!selectedSystems.value.length) {
@@ -91,7 +97,7 @@ async function generate() {
 
   try {
     const data = await analyzePrd(props.reqId, {
-      raw_requirement: props.clarification,
+      raw_requirement: inputText.value,
       systems: selectedSystems.value,
       mode: mode.value,
       profile: profile.value,
@@ -202,7 +208,7 @@ watch(() => props.reqId, (v) => { if (v) { result.value = null; loadMeta() } })
         </div>
         <div class="cfg-item cfg-action">
           <el-button
-            type="primary" :loading="generating" :disabled="!clarification?.trim()"
+            type="primary" :loading="generating" :disabled="!inputText"
             @click="generate"
           >{{ generating ? '正在分析…' : '生成 PRD（六章 + 冲突 + 引用）' }}</el-button>
         </div>

@@ -88,6 +88,8 @@ const FAKE_REFINE = { ...FAKE_RESULT, trace_id: 'PRD-E2E-0002', version: 'v2', p
     const MOCK_ROW = {
       req_id: 'REQ-E2E', req_name: 'E2E-PRD验证需求', proposer: '陈大海',
       status: 'proposed', category: '', domain_code: '', created_at: '2026-11-20 10:00:00',
+      // 澄清字段留空，但原始描述有值——验证「澄清优先、原始描述兜底」两按钮不灰化
+      clarification: '', description: '集团短信通道扩容：旺季成功率下降，涉及CRM队列、BOSS批价、订单中心流水。',
       ext: { req_id: 'REQ-E2E', req_name: 'E2E-PRD验证需求', status: 'proposed' },
     };
     await page.setRequestInterception(true);
@@ -207,6 +209,16 @@ const FAKE_REFINE = { ...FAKE_RESULT, trace_id: 'PRD-E2E-0002', version: 'v2', p
     });
     check('qa/fast 模式可切换', fastClicked);
     await sleep(500);
+
+    // 5b. 澄清为空、原始描述有值 → 两个生成按钮都不应灰化（本次 bug 修复核心断言）
+    const enabledWithFallback = await page.evaluate(() => {
+      const btns = [...document.querySelectorAll('button')];
+      const prd = btns.find((e) => (e.textContent || '').includes('生成 PRD'));
+      const story = btns.find((e) => (e.textContent || '').includes('生成用户故事'));
+      return { prd: !!prd && !prd.disabled, story: !!story && !story.disabled };
+    });
+    check('澄清为空时PRD按钮仍可用(原始描述兜底)', enabledWithFallback.prd, JSON.stringify(enabledWithFallback));
+    check('澄清为空时用户故事按钮仍可用(原始描述兜底)', enabledWithFallback.story, JSON.stringify(enabledWithFallback));
 
     // 6. 填澄清内容 → 生成（mock） → 结果区
     await page.evaluate(() => {
