@@ -502,3 +502,71 @@ def test_sync_create_vault_capability_uses_function_template(db, vault_tmp):
     after = read_markdown(op.main_note_rel_path("新建能力", "公共能力"))
     assert "## 1. 功能概述" in after
     assert "## 2. 产商品与资费体系" not in after
+
+
+def test_manual_section_loss_guard_blocks_escaped_numbering(db):
+    r"""GIMS 式转义编号（## 1\.1 / # 4、）重排会丢正文时，护栏必须拦下。"""
+    domain = PmwbBusinessDomain(domain_code="fxtb", domain_name="GIMS反向地址同步",
+                                domain_group="公共能力")
+    original = r"""---
+item_id: K-1
+---
+# GIMS反向地址同步 业务知识主笔记
+
+## 1. 功能概述
+## 2. 覆盖对象与差异化规则
+## 3. 实现流程与配置
+## 4. 数据说明与规则
+## 5. 优化与变更轨迹（自动区）
+## 6. 关联交付物（自动区）
+## 7. 关联过程性内容索引
+## 8. 相关子笔记 MOC
+## 9. 业务全过程时间线（自动区）
+
+## 1\.1 背景与目标
+这是一段关键人工正文，重排不得丢失。
+## 1\.2 核心价值
+第二段关键人工正文，也不能丢。
+## 2\.1 覆盖产品清单
+| 产品 | 定位 |
+|------|------|
+| 新一网通 | 政企宽带 |
+"""
+    out = kls.restructure_main_note_content(original, domain, "K-1", "2026-11-26", force=True)
+    assert "这是一段关键人工正文，重排不得丢失。" in out
+    assert "第二段关键人工正文，也不能丢。" in out
+    assert "| 新一网通 | 政企宽带 |" in out
+
+
+def test_manual_section_loss_counts_only_section1_4():
+    """护栏只统计 §1-§4 人工正文，自动区回填不算丢失。"""
+    original = "## 1. 功能概述\n人工A\n## 7. 关联过程性内容索引\n关联行X"
+    restructured = "## 1. 功能概述\n人工A\n## 7. 关联过程性内容索引\n_暂无关联内容_"
+    assert kls._manual_section_loss(original, restructured) == 0
+
+
+def test_keepalive_detects_db_path_when_filename_has_no_space(db, vault_tmp):
+    """历史笔记文件名无空格（集团充值业务知识主笔记.md）时，保活仍需探测到文件。"""
+    from db.models import PmwbKnowledgeItem
+
+    _seed_domain(db, "group-recharge", "集团充值", "公共能力")
+    domain = db.query(PmwbBusinessDomain).filter_by(domain_code="group-recharge").first()
+    # 无空格文件名（模板推算是「集团充值 业务知识主笔记.md」）
+    rel = "01-业务知识/公共能力/集团充值/集团充值业务知识主笔记.md"
+    full = vault_tmp / rel
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text("## 1. 功能概述\n人工正文\n", encoding="utf-8")
+    db.add(PmwbKnowledgeItem(
+        item_id="K-NO-SPACE", title="集团充值 业务知识主笔记", category="product",
+        sub_category="主笔记", tags="业务知识", obsidian_path=rel,
+        source_type="manual", source_id="group-recharge", domain_code="group-recharge",
+        note_type="main",
+    ))
+    db.commit()
+
+    # 生产保活：应探测到 DB 路径（否则该领域永久跳过结构修复）
+    result = kls.ensure_domain_main_notes(db)
+    assert result["domains_scanned"] >= 1
+    assert len(result["errors"]) == 0
+    after = read_markdown(rel)
+    assert "## 1. 功能概述" in after

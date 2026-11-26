@@ -1626,13 +1626,27 @@ def ensure_domain_main_notes(db: Session) -> dict:
     indexed = 0  # 新增：从 Obsidian 补全 DB 索引
 
     # 构建 Obsidian 文件路径映射（快速查找）
+    # 铁律：DB 的 obsidian_path 才是权威落位——历史笔记文件名无空格
+    # （集团充值/一键订购），用 main_note_filename 推算永远探测不到，
+    # 导致这些领域跳过 _repair_damaged_main_note、错乱永久残留。
     vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
     obsidian_files = {}
     for d in domains:
-        # vault_path 为空的领域直接跳过文件探测，避免 None.replace 抛错拖垮整批
-        if not d.vault_path:
-            continue
         try:
+            main_row = (
+                db.query(PmwbKnowledgeItem.obsidian_path)
+                .filter(PmwbKnowledgeItem.domain_code == d.domain_code)
+                .filter(PmwbKnowledgeItem.note_type == "main")
+                .first()
+            )
+            if main_row and main_row.obsidian_path:
+                db_note = (vault_path / main_row.obsidian_path.replace("\\", "/")).resolve()
+                if db_note.exists():
+                    obsidian_files[d.domain_code] = str(db_note.relative_to(vault_path))
+                    continue
+            # 兜底：DB 无记录时按模板推算（新建领域首次保活）
+            if not d.vault_path:
+                continue
             vpath_norm = (vault_path / d.vault_path.replace("\\", "/")).resolve()
             filename = main_note_filename(d.domain_name)
             note_file = vpath_norm / filename
@@ -2296,6 +2310,40 @@ def _merge_frontmatter(original: str, structured_body: str, domain) -> str:
     return "---\n" + "\n".join(merged_fm) + "\n---\n\n" + body
 
 
+def _manual_section_loss(original: str, restructured: str) -> int:
+    """统计重排后 §1-§4 人工正文行的丢失数（N./N\\./N、 三种编号均识别）。
+
+    只比对「实质人工正文行」：排除 AUTO 块、标题、占位、表格分隔、自动区说明。
+    """
+    def collect(text: str) -> List[str]:
+        out: List[str] = []
+        in_auto = False
+        sec = ""
+        for line in text.splitlines():
+            s = line.strip()
+            m = re.match(r"^#{1,2}\s+(\d+)\s*[.\\、]", s)
+            if m:
+                sec = m.group(1)
+            if "PMWB:AUTO:BEGIN" in s:
+                in_auto = True
+                continue
+            if "PMWB:AUTO:END" in s:
+                in_auto = False
+                continue
+            if in_auto or not s or sec not in ("1", "2", "3", "4"):
+                continue
+            if re.match(r"^#{1,6}\s", s) or s.startswith("<!--") or s == "---":
+                continue
+            if s.startswith("> ") or s.startswith("_暂无"):
+                continue
+            if re.match(r"^\|[-:|]+\|$", s) or set(s) <= set("|- "):
+                continue
+            out.append(s)
+        return out
+
+    return len([x for x in collect(original) if x not in set(collect(restructured))])
+
+
 def restructure_main_note_content(
     content: str,
     domain,
@@ -2399,6 +2447,12 @@ def restructure_main_note_content(
                 bucket.append(line)
     for key, lines in best_lines.items():
         std = _replace_auto_block(std, key, "\n".join(lines))
+
+    # 防丢护栏：转义编号（如 GIMS 的 ## 1\.1 / # 4、）会被通用解析器错配，
+    # 重排会静默丢弃大量 §1-§4 人工正文。宁可原样返回（结构暂乱）也不丢内容。
+    if _manual_section_loss(content, std) > 0:
+        logger.warning("重排跳过：§1-§4 人工正文会丢失 %s (%s)", domain.domain_code, item_id)
+        return content.rstrip("\n") + "\n"
 
     return std.rstrip("\n") + "\n"
 

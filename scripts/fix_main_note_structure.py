@@ -39,9 +39,13 @@ LOW_RISK_TARGETS = [
     'wgt', 'scyypt', 'ywt-HDICT', 'zxqysp', 'sjzx', 'skcsp',
     'grxx', 'ywt-hm', 'ywt-gh', 'ywfzzb', 'group-order-delivery',
 ]
-# 模板升级迁移：已规范但仍是旧「业务领域」骨架的公共能力笔记，强制换功能说明模板。
-# GIMS 等其他公共能力多为高风险人工存量，不在本次迁移范围。
-CAPABILITY_TARGETS = ['skcsp', 'DEHB']
+# 模板升级迁移：公共能力领域全部切到功能说明模板（GIMS 反向地址同步除外——
+# 其用转义编号 ## 1\.1 / H1 章节 # 4、，通用重排会丢 75 行人工正文，护栏会拦下，
+# 需走专用脚本 fix_gims_main_note.py）。
+CAPABILITY_TARGETS = [
+    'skcsp', 'DEHB', 'bcrh', 'cj-xs', 'group-recharge',
+    'htfz', 'jtxz', 'qxgl', 'sk-wqgd', 'yjdg',
+]
 
 
 def main():
