@@ -456,53 +456,125 @@ def build_main_note_markdown(
     lines.append("")
     lines.append("> 本笔记为该业务领域的唯一主入口，**不堆过程细节**；详细过程性内容请通过下方链接跳转到对应需求/工单/会议/运营笔记。")
     lines.append("")
-    lines.append("## 1. 业务概述")
-    lines.append("")
-    lines.append("- **业务定义**：")
-    lines.append("- **目标客户**：")
-    lines.append("- **核心价值**：")
-    lines.append("- **涉及系统**：")
-    lines.append("- **业务Owner**：")
-    lines.append("- **主笔记维护人**：")
-    lines.append("")
-    lines.append("## 2. 产商品与资费体系")
-    lines.append("")
-    lines.append("### 2.1 产品矩阵（人工维护）")
-    lines.append("")
-    lines.append("| 产品 | 定位 | 目标客户 | 备注 |")
-    lines.append("|------|------|----------|------|")
-    lines.append("|      |      |          |      |")
-    lines.append("")
-    lines.append("### 2.2 资费与计费规则（人工维护）")
-    lines.append("")
-    lines.append("- ")
-    lines.append("")
-    lines.append("### 2.3 产品变更（自动区）")
-    lines.append("")
-    lines.append(_auto_block("product"))
-    lines.append("")
-    lines.append("## 3. 客户服务场景 SOP")
-    lines.append("")
-    lines.append("### 3.1 常见服务场景（人工维护）")
-    lines.append("")
-    lines.append("| 场景 | 责任角色 | 关键步骤 | SLA |")
-    lines.append("|------|----------|----------|-----|")
-    lines.append("|      |          |          |     |")
-    lines.append("")
-    lines.append("### 3.2 流程变更（自动区）")
-    lines.append("")
-    lines.append(_auto_block("process"))
-    lines.append("")
-    lines.append("## 4. 业务规则")
-    lines.append("")
-    lines.append("### 4.1 通用规则（人工维护）")
-    lines.append("")
-    lines.append("- ")
-    lines.append("")
-    lines.append("### 4.2 场景规则（自动区）")
-    lines.append("")
-    lines.append(_auto_block("scenario_rules"))
-    lines.append("")
+    _group = domain.domain_group
+    _alias = _op.group_alias(_group) if _group not in ("business", "platform", "capability", "general") else _group
+    if _alias == "capability":
+        # 公共能力=特定功能的介绍说明（参考 GIMS 反向地址同步排版）：
+        # 按「功能概述→覆盖对象→实现流程与配置→数据说明」组织，
+        # 不套具体业务领域的「产商品资费/客户服务 SOP」骨架。
+        # §5-§9 保持系统契约（AUTO 区 + §7/§8 rebuild），编号不变。
+        lines.extend([
+            "## 1. 功能概述",
+            "",
+            "- **文档定位**：",
+            "- **需求来源**：",
+            "- **背景与目标**：",
+            "- **核心价值**：",
+            "- **适用与不适用范围**：",
+            "",
+            "## 2. 覆盖对象与差异化规则",
+            "",
+            "### 2.1 覆盖对象清单（人工维护）",
+            "",
+            "| 对象/产品 | 标识 | 关键属性 | 备注 |",
+            "|-----------|------|----------|------|",
+            "|           |      |          |      |",
+            "",
+            "### 2.2 差异化策略与规则（人工维护）",
+            "",
+            "- ",
+            "",
+            "### 2.3 功能变更（自动区）",
+            "",
+            _auto_block("product"),
+            "",
+            "## 3. 实现流程与配置",
+            "",
+            "### 3.1 整体流程（人工维护）",
+            "",
+            "- ",
+            "",
+            "### 3.2 关键配置（人工维护）",
+            "",
+            "| 配置项 | 取值 | 说明 |",
+            "|--------|------|------|",
+            "|        |      |      |",
+            "",
+            "### 3.3 接口与文件规范（人工维护）",
+            "",
+            "- ",
+            "",
+            "### 3.4 流程变更（自动区）",
+            "",
+            _auto_block("process"),
+            "",
+            "## 4. 数据说明与规则",
+            "",
+            "### 4.1 字段定义（人工维护）",
+            "",
+            "| 字段 | 类型 | 含义 | 取值/来源 |",
+            "|------|------|------|-----------|",
+            "|      |      |      |           |",
+            "",
+            "### 4.2 生成与匹配规则（人工维护）",
+            "",
+            "- ",
+            "",
+            "### 4.3 场景规则（自动区）",
+            "",
+            _auto_block("scenario_rules"),
+            "",
+        ])
+    else:
+        lines.extend([
+            "## 1. 业务概述",
+            "",
+            "- **业务定义**：",
+            "- **目标客户**：",
+            "- **核心价值**：",
+            "- **涉及系统**：",
+            "- **业务Owner**：",
+            "- **主笔记维护人**：",
+            "",
+            "## 2. 产商品与资费体系",
+            "",
+            "### 2.1 产品矩阵（人工维护）",
+            "",
+            "| 产品 | 定位 | 目标客户 | 备注 |",
+            "|------|------|----------|------|",
+            "|      |      |          |      |",
+            "",
+            "### 2.2 资费与计费规则（人工维护）",
+            "",
+            "- ",
+            "",
+            "### 2.3 产品变更（自动区）",
+            "",
+            _auto_block("product"),
+            "",
+            "## 3. 客户服务场景 SOP",
+            "",
+            "### 3.1 常见服务场景（人工维护）",
+            "",
+            "| 场景 | 责任角色 | 关键步骤 | SLA |",
+            "|------|----------|----------|-----|",
+            "|      |          |          |     |",
+            "",
+            "### 3.2 流程变更（自动区）",
+            "",
+            _auto_block("process"),
+            "",
+            "## 4. 业务规则",
+            "",
+            "### 4.1 通用规则（人工维护）",
+            "",
+            "- ",
+            "",
+            "### 4.2 场景规则（自动区）",
+            "",
+            _auto_block("scenario_rules"),
+            "",
+        ])
     lines.append("## 5. 优化与变更轨迹（自动区）")
     lines.append("")
     lines.append(_auto_block("change_log"))
@@ -526,8 +598,6 @@ def build_main_note_markdown(
     # §10 关联系统（business/platform 有，capability/general 无）
     # domain_group 在 DB 存中文（"商客业务"/"系统平台"），测试/旧代码用英文别名，
     # 两种都要支持，否则新建领域用中文 group 时 §10 永久缺失（A 骨架本有此节）。
-    _group = domain.domain_group
-    _alias = _op.group_alias(_group) if _group not in ("business", "platform", "capability", "general") else _group
     if _alias in ("business", "platform"):
         sec10_title = (
             "关联系统与接口" if _alias == "business"
@@ -2231,8 +2301,12 @@ def restructure_main_note_content(
     domain,
     item_id: str,
     created_date: str,
+    force: bool = False,
 ) -> str:
     """把错乱主笔记重排为标准结构（frontmatter + H1 + §1..§N 顺序）。
+
+    force=True 仅用于模板升级迁移：对已规范文件也按新模板重排（人工正文仍零改写）；
+    生产保活链路必须保持默认 False，否则每次保活都会抹掉 §7/§8 回填。
 
     归位规则：
     - 以 build_main_note_markdown 生成的标准模板为骨架（唯一真相源）；
@@ -2245,7 +2319,7 @@ def restructure_main_note_content(
     幂等：对已规范的文件再跑一次结果一致。人工区正文零改写（只换位置，不改字）。
     """
     # 幂等短路：已是规范结构直接返回原文（绝不重建，保住 §7/§8 回填与人工元数据）
-    if _is_standard_structure(content):
+    if not force and _is_standard_structure(content):
         return content.rstrip("\n") + "\n"
 
     std = build_main_note_markdown(domain, item_id, created_date)

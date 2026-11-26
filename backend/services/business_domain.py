@@ -541,9 +541,14 @@ def _sync_create_vault(db: Session, domain: PmwbBusinessDomain) -> None:
                     .first()
                 )
                 item_id = item.item_id if item and item.item_id else kls._gen_item_id()
-                std = kls.restructure_main_note_content(
-                    current, domain, item_id, datetime.now().strftime("%Y-%m-%d")
-                )
+                created_date = datetime.now().strftime("%Y-%m-%d")
+                skeleton = op.build_main_note_skeleton(domain.domain_name, domain.domain_group)
+                if current.strip() == skeleton.strip():
+                    # 纯 A 骨架也满足「结构规范」判据，restructure 会幂等短路；
+                    # 必须显式换成标准模板，否则新建领域长期停在骨架。
+                    std = kls.build_main_note_markdown(domain, item_id, created_date)
+                else:
+                    std = kls.restructure_main_note_content(current, domain, item_id, created_date)
                 write_markdown(rel, std, protect_if_modified=False)
         except Exception as exc:  # noqa: BLE001
             logger.warning("领域[%s] 主笔记模板规范化失败(已忽略): %s", domain.domain_code, exc)
@@ -563,8 +568,10 @@ def _patch_note_frontmatter(note_path: Path, name: str, group: str) -> None:
     """重命名后将主笔记 frontmatter 的 domain/group 与标题对齐新名称。"""
     try:
         txt = note_path.read_text(encoding="utf-8")
-        txt = re.sub(r"^group: .*$", f"group: {group}", txt, flags=re.M)
-        txt = re.sub(r"^domain: .*$", f"domain: {name}", txt, flags=re.M)
+        # 同时兼容 A 骨架（group/domain）与标准模板（domain_group/domain_name）：
+        # 新建领域已直接落标准模板，只改旧键会让改名后 frontmatter 停留在旧领域。
+        txt = re.sub(r"^(group|domain_group): .*$", lambda m: f"{m.group(1)}: {group}", txt, flags=re.M)
+        txt = re.sub(r"^(domain|domain_name): .*$", lambda m: f"{m.group(1)}: {name}", txt, flags=re.M)
         txt = re.sub(r"^# .*业务知识主笔记$", f"# {name} 业务知识主笔记", txt, flags=re.M)
         note_path.write_text(txt, encoding="utf-8")
     except Exception as exc:  # noqa: BLE001

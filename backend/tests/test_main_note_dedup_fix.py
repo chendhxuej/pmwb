@@ -425,4 +425,80 @@ def test_sync_create_vault_lands_standard_template(db, vault_tmp):
     domain = db.query(PmwbBusinessDomain).filter_by(domain_code="jtqly-new").first()
     bd._sync_create_vault(db, domain)
     rel = op.main_note_rel_path("新建测试领域", "商客业务")
-    _assert_standard_structure(read_markdown(rel), "sync-create")
+    after = read_markdown(rel)
+    _assert_standard_structure(after, "sync-create")
+    assert "## 2. 产商品与资费体系" in after, "新建领域停在 A 骨架，未落标准模板"
+    assert "本笔记由 PMWB 知识中心自动生成骨架" not in after
+
+
+# --- 公共能力：功能说明模板（参考 GIMS 反向地址同步排版） ---
+
+def test_capability_template_is_function_note():
+    """公共能力按功能说明组织；业务领域模板保持不变。"""
+    cap = PmwbBusinessDomain(domain_code="fxtb", domain_name="GIMS反向地址同步", domain_group="公共能力")
+    out = kls.build_main_note_markdown(cap, "K-CAP", "2026-11-26")
+    for title in (
+        "## 1. 功能概述", "## 2. 覆盖对象与差异化规则",
+        "## 3. 实现流程与配置", "## 4. 数据说明与规则",
+        "## 7. 关联过程性内容索引", "## 8. 相关子笔记 MOC",
+    ):
+        assert title in out, f"公共能力模板缺章节 {title}"
+    assert "## 2. 产商品与资费体系" not in out
+    assert "## 3. 客户服务场景 SOP" not in out
+    assert "## 10." not in out, "capability 不应有 §10 关联系统"
+    for key in ("product", "process", "scenario_rules", "change_log", "deliverables", "timeline"):
+        assert out.count(f"PMWB:AUTO:BEGIN key={key}") == 1, f"AUTO {key} 缺失/重复"
+
+    biz = PmwbBusinessDomain(domain_code="ywt", domain_name="一网通宽带", domain_group="商客业务")
+    biz_out = kls.build_main_note_markdown(biz, "K-BIZ", "2026-11-26")
+    assert "## 2. 产商品与资费体系" in biz_out, "业务领域模板被误改"
+    assert "## 1. 功能概述" not in biz_out
+
+
+def test_capability_force_migration_preserves_manual(db):
+    """模板升级 force=True 才重排已规范文件，人工正文零改写。"""
+    cap = PmwbBusinessDomain(domain_code="fxtb", domain_name="GIMS反向地址同步", domain_group="公共能力")
+    std = kls.build_main_note_markdown(
+        PmwbBusinessDomain(domain_code="fxtb", domain_name="GIMS反向地址同步", domain_group="商客业务"),
+        "K-OLD", "2026-11-26",
+    ).replace("## 1. 业务概述", "## 1. 业务概述\n人工正文哨兵ABC")
+    assert kls.restructure_main_note_content(std, cap, "K-OLD", "2026-11-26") == std.rstrip("\n") + "\n"
+    migrated = kls.restructure_main_note_content(std, cap, "K-OLD", "2026-11-26", force=True)
+    assert "## 1. 功能概述" in migrated
+    assert "人工正文哨兵ABC" in migrated, "force 迁移吞掉人工正文"
+    assert "## 2. 产商品与资费体系" not in migrated
+
+
+def test_capability_keepalive_keeps_function_template(db, vault_tmp):
+    """公共能力新模板经两轮保活后仍规范（保活默认 force=False）。"""
+    from db.models import PmwbKnowledgeItem
+    from utils.obsidian import write_markdown
+
+    _seed_domain(db, "fxtb", "GIMS反向地址同步", "公共能力")
+    domain = db.query(PmwbBusinessDomain).filter_by(domain_code="fxtb").first()
+    rel = op.main_note_rel_path("GIMS反向地址同步", "公共能力")
+    write_markdown(rel, kls.build_main_note_markdown(domain, "K-CAP", "2026-11-26"), protect_if_modified=False)
+    db.add(PmwbKnowledgeItem(
+        item_id="K-CAP", title="GIMS反向地址同步 业务知识主笔记",
+        category="product", sub_category="主笔记", tags="业务知识",
+        obsidian_path=rel, source_type="manual", source_id="fxtb",
+        domain_code="fxtb", note_type="main", summary="test",
+    ))
+    db.commit()
+    for rnd in (1, 2):
+        kls._ensure_one_domain_main_note(db, domain, {"fxtb": rel})
+        after = read_markdown(rel)
+        _assert_standard_structure(after, f"cap-keepalive-{rnd}")
+        assert "## 1. 功能概述" in after, "保活把公共能力模板换回业务模板"
+
+
+def test_sync_create_vault_capability_uses_function_template(db, vault_tmp):
+    """页面新建公共能力领域，一次落功能说明模板。"""
+    from services import business_domain as bd
+
+    _seed_domain(db, "cap-new", "新建能力", "公共能力")
+    domain = db.query(PmwbBusinessDomain).filter_by(domain_code="cap-new").first()
+    bd._sync_create_vault(db, domain)
+    after = read_markdown(op.main_note_rel_path("新建能力", "公共能力"))
+    assert "## 1. 功能概述" in after
+    assert "## 2. 产商品与资费体系" not in after

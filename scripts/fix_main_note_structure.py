@@ -39,14 +39,19 @@ LOW_RISK_TARGETS = [
     'wgt', 'scyypt', 'ywt-HDICT', 'zxqysp', 'sjzx', 'skcsp',
     'grxx', 'ywt-hm', 'ywt-gh', 'ywfzzb', 'group-order-delivery',
 ]
+# 模板升级迁移：已规范但仍是旧「业务领域」骨架的公共能力笔记，强制换功能说明模板。
+# GIMS 等其他公共能力多为高风险人工存量，不在本次迁移范围。
+CAPABILITY_TARGETS = ['skcsp', 'DEHB']
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--apply', action='store_true', help='实际写盘（默认仅 dry_run）')
     ap.add_argument('--low-risk', action='store_true', help='改修 11 份中低风险历史主笔记')
+    ap.add_argument('--capability', action='store_true', help='公共能力：强制迁移到功能说明模板')
     args = ap.parse_args()
-    targets = LOW_RISK_TARGETS if args.low_risk else TARGETS
+    targets = (CAPABILITY_TARGETS if args.capability
+               else LOW_RISK_TARGETS if args.low_risk else TARGETS)
 
     db = SessionLocal()
     changed = 0
@@ -66,7 +71,7 @@ def main():
             continue
         item_id = item.item_id if item and item.item_id else kls._gen_item_id()
         new_text = kls.restructure_main_note_content(
-            text, d, item_id, now_cn().strftime('%Y-%m-%d')
+            text, d, item_id, now_cn().strftime('%Y-%m-%d'), force=args.capability
         )
         # 幂等判据：结构已规范即跳过（规范化会清空 §7/§8 交给 rebuild，
         # 所以 new_text==text 永远不成立；用结构特征判断，避免每次复跑都误报 DRY）
@@ -79,7 +84,7 @@ def main():
             and heads == sorted(heads)
             and not any(l.strip() == '## 相关子笔记 MOC' for l in lines)
         )
-        if structured:
+        if structured and not args.capability:
             print(f'[NOOP] {code} {d.domain_name} | {rel} (结构已规范)')
             continue
         print(f'[{"WRITE" if args.apply else "DRY"}] {code} {d.domain_name} | {rel} | '
