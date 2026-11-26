@@ -13,6 +13,15 @@ export function getRequirement(reqId) {
   return request.get(`/requirements/${reqId}`)
 }
 
+// 需求工单 1:1 单向关联
+export function getRequirementLink(reqId) {
+  return request.get(`/requirements/${reqId}/link`)
+}
+
+export function setRequirementLink(reqId, linkedReqId) {
+  return request.put(`/requirements/${reqId}/link`, { linked_req_id: linkedReqId || null })
+}
+
 export function updateRequirement(reqId, data) {
   return request.put(`/requirements/${reqId}`, data)
 }

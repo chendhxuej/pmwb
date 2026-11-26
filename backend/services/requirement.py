@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -5,11 +6,20 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from db.models import PmwbRequirementEvaluation, PmwbRequirementExt, PmwbUserStory, PmwbDevTicket, SentEmail
+from db.models import (
+    PmwbRequirementEvaluation,
+    PmwbRequirementExt,
+    PmwbRequirementLink,
+    PmwbUserStory,
+    PmwbDevTicket,
+    SentEmail,
+)
 from db.models import now_cn
 from schemas.common import PaginationParams, PaginationResponse
 from services.requirement_dev_overdue import dev_days_map
 from utils.dateflags import relative_status
+
+logger = logging.getLogger(__name__)
 
 
 class RequirementService:
@@ -396,7 +406,153 @@ class RequirementService:
             })
         data["linked_tickets"] = linked
         data["tracking_status"] = self._aggregate_tracking(tickets, vr, today)
+        data["linked_requirement"] = self.get_link(db, req_id)
         return data
+
+    # ---------------- 需求工单 1:1 单向关联 ----------------
+    def _req_universe(self, db: Session) -> set:
+        """需求宇宙：sent_emails 去重 req_id（与列表/统计唯一口径一致）。"""
+        return {row[0] for row in db.query(SentEmail.req_id).distinct().all() if row[0]}
+
+    def get_link(self, db: Session, req_id: str) -> Optional[Dict[str, Any]]:
+        """返回该工单作为主工单的关联信息；无关联/目标已不存在时返回 None。"""
+        row = (
+            db.query(PmwbRequirementLink)
+            .filter(PmwbRequirementLink.req_id == req_id)
+            .first()
+        )
+        if not row:
+            return None
+        target = (
+            db.query(SentEmail)
+            .filter(SentEmail.req_id == row.linked_req_id)
+            .order_by(SentEmail.id.desc())
+            .first()
+        )
+        if not target:
+            return None
+        ext = (
+            db.query(PmwbRequirementExt)
+            .filter(PmwbRequirementExt.req_id == row.linked_req_id)
+            .first()
+        )
+        return {
+            "req_id": row.req_id,
+            "linked_req_id": row.linked_req_id,
+            "linked_req_name": target.req_name,
+            # 与列表口径一致：ext 缺失/状态为空一律按 proposed 展示
+            "linked_status": (ext.status if ext and ext.status else self.DEFAULT_STATUS),
+            "created_by": row.created_by,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+
+    def set_link(
+        self,
+        db: Session,
+        req_id: str,
+        linked_req_id: Optional[str],
+        created_by: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """设置/替换/解除 1:1 单向关联。linked_req_id 为空即解除。"""
+        from fastapi import HTTPException
+
+        target = (linked_req_id or "").strip()
+        existing = (
+            db.query(PmwbRequirementLink)
+            .filter(PmwbRequirementLink.req_id == req_id)
+            .first()
+        )
+        if not target:
+            if existing:
+                db.delete(existing)
+                db.commit()
+            return None
+
+        if target == req_id:
+            raise HTTPException(status_code=400, detail="不能关联工单自身")
+        universe = self._req_universe(db)
+        if req_id not in universe:
+            raise HTTPException(status_code=404, detail=f"主工单不存在：{req_id}")
+        if target not in universe:
+            raise HTTPException(status_code=400, detail=f"关联工单不存在：{target}")
+        reverse = (
+            db.query(PmwbRequirementLink)
+            .filter(
+                PmwbRequirementLink.req_id == target,
+                PmwbRequirementLink.linked_req_id == req_id,
+            )
+            .first()
+        )
+        if reverse:
+            raise HTTPException(status_code=400, detail="目标工单已反向关联本工单，禁止成环")
+        occupied = (
+            db.query(PmwbRequirementLink)
+            .filter(
+                PmwbRequirementLink.linked_req_id == target,
+                PmwbRequirementLink.req_id != req_id,
+            )
+            .first()
+        )
+        if occupied:
+            raise HTTPException(status_code=400, detail="该工单已被其他工单关联（1:1）")
+
+        if existing:
+            if existing.linked_req_id == target:
+                return self.get_link(db, req_id)
+            existing.linked_req_id = target
+            existing.created_by = created_by
+            existing.updated_at = now_cn()
+        else:
+            db.add(
+                PmwbRequirementLink(
+                    req_id=req_id,
+                    linked_req_id=target,
+                    created_by=created_by,
+                )
+            )
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="关联冲突：同一工单只能关联一个对端")
+        return self.get_link(db, req_id)
+
+    def _mirror_status_to_linked(self, db: Session, req_id: str, new_status: str, old_status: str) -> None:
+        """全状态镜像：主工单状态变更后，单向写到从工单。
+
+        铁律：
+        - 只走本方法直接写 ext.status，不经过 update_ext → 不触发 allowed_next 校验（老大确认的「全部状态镜像」），
+          也不做链式/反向传播；
+        - 与主工单共用同一事务，镜像失败不回滚主状态但会记日志；
+        - 环节日志仍走唯一钩子 on_status_changed。
+        """
+        row = (
+            db.query(PmwbRequirementLink)
+            .filter(PmwbRequirementLink.req_id == req_id)
+            .first()
+        )
+        if not row:
+            return
+        target_ext = (
+            db.query(PmwbRequirementExt)
+            .filter(PmwbRequirementExt.req_id == row.linked_req_id)
+            .first()
+        )
+        if not target_ext:
+            # 目标在需求宇宙但尚无 ext：随镜像一并创建，不提前 commit
+            target_ext = PmwbRequirementExt(req_id=row.linked_req_id)
+            db.add(target_ext)
+        target_old = target_ext.status or self.DEFAULT_STATUS
+        if target_old == new_status:
+            return
+        target_ext.status = new_status
+        try:
+            from services.requirement_stage import on_status_changed
+
+            on_status_changed(db, row.linked_req_id, target_old, new_status)
+        except Exception:  # noqa: BLE001 环节日志失败不影响状态镜像
+            pass
+        db.flush()
 
     def update_ext(self, db: Session, req_id: str, obj_in: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         # 与列表展示保持一致：更新最新一条 sent_email 记录
@@ -428,6 +584,11 @@ class RequirementService:
                 # 需求级开发单号保存在 sent_emails 源表
                 item.dev_ticket_no = value or None
                 continue
+            if key == "proposer":
+                # 提出人唯一真相源是 sent_emails.proposer（ext 无此列）。
+                # 允许在需求编辑弹窗修正采集误判（如把「手机号码」标签当成人名）。
+                item.proposer = (value or "").strip() or None
+                continue
             if not hasattr(ext, key):
                 continue
             if key in ("version_required_date", "delivered_date"):
@@ -445,9 +606,17 @@ class RequirementService:
             on_status_changed(db, req_id, old_status, ext.status)
         except Exception:  # noqa: BLE001 日志记录失败不影响主流程
             pass
+        # 全状态镜像：主工单状态真的变了才同步，单向一层，绕过 allowed_next。
+        if new_status is not None and new_status != old_status and ext.status != old_status:
+            try:
+                self._mirror_status_to_linked(db, req_id, ext.status, old_status)
+            except Exception:  # noqa: BLE001 镜像失败不阻断主工单状态保存
+                logger.exception("需求状态镜像失败 req_id=%s status=%s", req_id, ext.status)
         db.commit()
         db.refresh(ext)
-        return self._merge_ext(item, ext)
+        result = self._merge_ext(item, ext)
+        result["linked_requirement"] = self.get_link(db, req_id)
+        return result
 
     def set_risk_flag(
         self, db: Session, req_ids: List[str], action: str, note: Optional[str] = None
@@ -508,6 +677,11 @@ class RequirementService:
             db.delete(ext)
         db.query(PmwbRequirementEvaluation).filter(PmwbRequirementEvaluation.req_id == req_id).delete()
         db.query(PmwbUserStory).filter(PmwbUserStory.req_id == req_id).delete()
+        # 关联是旁挂关系，两端任一工单删除都清行，避免孤儿关联继续触发镜像
+        db.query(PmwbRequirementLink).filter(
+            (PmwbRequirementLink.req_id == req_id)
+            | (PmwbRequirementLink.linked_req_id == req_id)
+        ).delete(synchronize_session=False)
         # 纯手工记录 → 源行一并删除；只要含插件行就保留（只读源）
         removed_source = bool(origins) and origins <= {"manual"}
         if removed_source:

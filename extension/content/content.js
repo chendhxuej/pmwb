@@ -297,6 +297,11 @@ function extractInfo(rules) {
     result[field] = value;
   }
 
+  // 后处理：提出人字段的并列标签（如「手机号码」）不得当作人名入库。
+  // 与 popup.js 的 isValidValue 同口径；宁缺勿错，缺失可在需求编辑弹窗补填。
+  if (/^(手机号码|手机号|联系电话|联系方式|电话|邮箱|电子邮箱|账号|联系人|姓名|人员|所属部门|部门)[：:\s]*$/.test((result.proposer || '').trim())) {
+    result.proposer = '';
+  }
   // 后处理：清理 description / background 的纯符号垃圾值（如必填标记 *）
   for (const field of ['description', 'background']) {
     const v = result[field];

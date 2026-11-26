@@ -58,6 +58,7 @@ class RequirementExtUpdate(BaseModel):
     system_name: Optional[str] = None
     sa_name: Optional[str] = None
     dev_ticket_no: Optional[str] = Field(None, description="需求级开发单号")
+    proposer: Optional[str] = Field(None, description="提出人（写回 sent_emails.proposer，用于修正采集误判）")
     manual_archived: Optional[int] = Field(None, description="操作手册是否已归档到业务知识（0/1）")
     manual_obsidian_path: Optional[str] = Field(None, description="已归档操作手册的 Obsidian 路径")
 
@@ -67,6 +68,12 @@ class RequirementExtUpdate(BaseModel):
         if v is None or v == "":
             return None
         return v
+
+
+class RequirementLinkSet(BaseModel):
+    """设置 1:1 单向关联工单；linked_req_id 传空/None 表示解除。"""
+
+    linked_req_id: Optional[str] = Field(None, description="关联需求工单文号；空表示解除")
 
 
 class RequirementCreate(BaseModel):

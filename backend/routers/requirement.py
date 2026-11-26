@@ -13,6 +13,7 @@ from schemas.requirement import (
     RequirementCreate,
     RequirementDeliverableCreate,
     RequirementExtUpdate,
+    RequirementLinkSet,
     RiskFlagBatchIn,
 )
 from schemas.vendor_dev import VendorDevCreate, VendorDevUpdate, VendorManualUpload
@@ -150,6 +151,18 @@ def batch_risk_flag(obj_in: RiskFlagBatchIn, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return success(data=data)
+
+
+@router.get("/{req_id}/link")
+def get_requirement_link(req_id: str, db: Session = Depends(get_db)):
+    """获取该工单的 1:1 单向关联工单（无关联返回 null）。"""
+    return success(data=requirement_service.get_link(db, req_id))
+
+
+@router.put("/{req_id}/link")
+def set_requirement_link(req_id: str, obj_in: RequirementLinkSet, db: Session = Depends(get_db)):
+    """设置/替换/解除关联工单。关联后主工单状态变更会全量镜像到从工单。"""
+    return success(data=requirement_service.set_link(db, req_id, obj_in.linked_req_id))
 
 
 @router.get("/{req_id}")

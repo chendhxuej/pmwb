@@ -535,6 +535,9 @@
                       <el-form-item label="需求名称"><EnlargeInput v-model="current.req_name" /></el-form-item>
                     </div>
                     <div style="grid-column: span 6">
+                      <el-form-item label="提出人"><EnlargeInput v-model="current.proposer" placeholder="采集误判可在此修正" /></el-form-item>
+                    </div>
+                    <div style="grid-column: span 6">
                       <el-form-item label="涉及系统"><EnlargeInput v-model="current.system_name" /></el-form-item>
                     </div>
                     <div style="grid-column: span 6">
@@ -624,6 +627,44 @@
                   <el-icon><Upload /></el-icon> 上传文件
                 </el-button>
                 <div class="hint-text mt-8">附件与生成文档统一归档在「需求分析说明书」文件夹；点击上方区域后按 Ctrl+V 可粘贴截图/文件。</div>
+              </div>
+            </div>
+
+            <div class="card" style="grid-column: span 12">
+              <div class="card-header flex-between">
+                <span class="card-label">关联需求工单（1:1 单向，状态全量镜像到从工单）</span>
+                <el-button size="small" type="primary" :loading="linkSaving" @click="saveRequirementLink">保存关联</el-button>
+              </div>
+              <div class="card-body">
+                <div class="bento-grid" style="gap: 8px">
+                  <div style="grid-column: span 6">
+                    <el-select
+                      v-model="linkTarget"
+                      filterable
+                      remote
+                      clearable
+                      :remote-method="searchLinkCandidates"
+                      :loading="linkLoading"
+                      placeholder="输入需求文号或名称搜索"
+                      style="width: 100%"
+                    >
+                      <el-option
+                        v-for="o in linkOptions"
+                        :key="o.req_id"
+                        :label="`${o.req_id} ${o.req_name || ''}`"
+                        :value="o.req_id"
+                      />
+                    </el-select>
+                  </div>
+                  <div style="grid-column: span 6" class="link-current">
+                    <template v-if="current.linked_requirement">
+                      <span>当前关联：<b>{{ current.linked_requirement.linked_req_id }}</b> {{ current.linked_requirement.linked_req_name || '' }}</span>
+                      <el-tag size="small" :type="statusType(current.linked_requirement.linked_status)">{{ statusLabel(current.linked_requirement.linked_status) }}</el-tag>
+                    </template>
+                    <span v-else class="text-muted">未关联</span>
+                  </div>
+                </div>
+                <div class="hint-text mt-8">清空选择后点「保存关联」即解除。主工单状态变更会同步到从工单（全部状态，不受流转校验限制）。</div>
               </div>
             </div>
 
@@ -1541,7 +1582,7 @@ import StatusBadge from '@/components/Common/StatusBadge.vue'
 import { usePasteUpload } from '@/composables/usePasteUpload.js'
 import {
   getRequirements, getRequirement, createRequirement, updateRequirement, deleteRequirement,
-  getRequirementStats, setRequirementRiskFlag,
+  getRequirementStats, setRequirementRiskFlag, setRequirementLink,
   getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation,
   initRequirementFolder, listRequirementAttachments, uploadRequirementAttachment,
   deleteRequirementAttachment, generateUserStories, getUserStories,
@@ -1834,6 +1875,49 @@ async function removeReq(row) {
   ElMessage.success('已删除')
   await loadRequirements()
 }
+/* ─────────────── 关联需求工单（1:1 单向） ─────────────── */
+const linkTarget = ref('')
+const linkOptions = ref([])
+const linkLoading = ref(false)
+const linkSaving = ref(false)
+let linkTimer = null
+
+async function searchLinkCandidates(keyword) {
+  const kw = (keyword || '').trim()
+  if (!kw) { linkOptions.value = []; return }
+  clearTimeout(linkTimer)
+  linkTimer = setTimeout(async () => {
+    linkLoading.value = true
+    try {
+      const res = await getRequirements({ req_id: kw, page_size: 20 })
+      linkOptions.value = (res?.items || []).filter(r => r.req_id !== current.value?.req_id)
+    } catch (e) {
+      linkOptions.value = []
+    } finally {
+      linkLoading.value = false
+    }
+  }, 200)
+}
+
+async function saveRequirementLink() {
+  if (!current.value?.req_id) return
+  const target = (linkTarget.value || '').trim()
+  if (target === current.value.req_id) {
+    ElMessage.warning('不能关联工单自身')
+    return
+  }
+  linkSaving.value = true
+  try {
+    await setRequirementLink(current.value.req_id, target || null)
+    ElMessage.success(target ? '关联已保存' : '关联已解除')
+    await refreshCurrent(current.value.req_id)
+  } catch (e) {
+    ElMessage.error('关联保存失败：' + (e?.response?.data?.message || e?.message || '未知错误'))
+  } finally {
+    linkSaving.value = false
+  }
+}
+
 async function refreshCurrent(reqId) {
   try {
     const res = await getRequirement(reqId)
@@ -1848,6 +1932,7 @@ async function refreshCurrent(reqId) {
       current.value.owner_note = res.ext?.owner_note || ''
       current.value.tags = res.ext?.tags || ''
       current.value.personal_note = res.ext?.personal_note || ''
+      linkTarget.value = res.linked_requirement?.linked_req_id || ''
     }
   } catch (e) { /* ignore */ }
 }
@@ -2560,6 +2645,8 @@ async function openWorkflow(row) {
     loadStageLogs(key), loadDevEvents(key), loadManuals(key), loadInterfaceDocs(key),
     loadVendorDevs(key),
   ])
+  // 详情才带提出人/关联工单；列表行没有这两个字段
+  await refreshCurrent(key)
 }
 
 async function loadEvaluations(reqId) {
@@ -2689,6 +2776,7 @@ async function saveDetail() {
   try {
     const payload = {
       req_name: current.value.req_name,
+      proposer: current.value.proposer || '',
       system_name: current.value.system_name,
       sa_name: current.value.sa_name,
       priority: current.value.priority,
@@ -3257,6 +3345,7 @@ onBeforeUnmount(() => {
 .att-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .att-size { font-size: 11px }
 .hint-text { font-size: 11.5px; color: var(--text-muted) }
+.link-current { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 12px; color: var(--text-primary) }
 .paste-attachment-zone { outline: none; transition: box-shadow 0.2s, background-color 0.2s }
 .paste-attachment-zone:focus-visible { box-shadow: 0 0 0 2px var(--el-color-primary-light-5); background-color: var(--el-fill-color-light) }
 

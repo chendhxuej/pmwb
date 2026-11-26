@@ -98,6 +98,32 @@ class PmwbRequirementExt(Base):
     )
 
 
+class PmwbRequirementLink(Base):
+    """需求工单 1:1 单向关联表。
+
+    主工单 req_id → 从工单 linked_req_id。状态镜像只沿此方向传播一层，
+    不做链式/反向传播。两端各自唯一：一个主工单只能挂一个从工单，
+    一个从工单也只能被一个主工单挂（避免出现一对多或交叉环）。
+    需求宇宙仍以 sent_emails 去重 req_id 为准，本表只存关联关系。
+    """
+
+    __tablename__ = "pmwb_requirement_link"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增ID")
+    req_id = Column(String(64), nullable=False, comment="主需求工单文号")
+    linked_req_id = Column(String(64), nullable=False, comment="关联需求工单文号（从）")
+    created_by = Column(String(64), comment="关联设置人")
+    created_at = Column(DateTime, default=now_cn, comment="创建时间")
+    updated_at = Column(DateTime, default=now_cn, onupdate=now_cn, comment="更新时间")
+
+    __table_args__ = (
+        UniqueConstraint("req_id", name="uk_req_link_owner"),
+        UniqueConstraint("linked_req_id", name="uk_req_link_target"),
+        Index("idx_req_link_target", "linked_req_id"),
+        {"comment": "需求工单 1:1 单向关联"},
+    )
+
+
 class PmwbUserStory(Base):
     """需求用户故事表。
 
