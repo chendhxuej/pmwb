@@ -1,8 +1,10 @@
 """修复错乱主笔记结构（A骨架+B模板混排：H1 流窜/§顺序颠倒/frontmatter 丢失/无编号 MOC）。
 
 用法：
-    python scripts/fix_main_note_structure.py            # dry_run，只读报告
-    python scripts/fix_main_note_structure.py --apply     # 实际写盘 + 重建 §7/§8
+    python scripts/fix_main_note_structure.py              # dry_run，6 份新领域
+    python scripts/fix_main_note_structure.py --apply       # 实际写盘 + 重建 §7/§8
+    python scripts/fix_main_note_structure.py --low-risk    # dry_run，11 份中低风险历史笔记
+    python scripts/fix_main_note_structure.py --low-risk --apply
 
 铁律：
 - 人工区正文零改写（只换位置，不改字）；
@@ -31,26 +33,37 @@ from utils.obsidian import read_markdown, write_markdown
 
 # 本次修复对象：6 份新领域主笔记（上一轮亲自填充、结构被 dedup 固化的）
 TARGETS = ['GYKD', 'GKDS', 'KSQYKD', 'EQZW', 'jtqly', 'DEHB']
+# 中低风险历史存量：人工实质内容 ≤20 行（清单 docs/主笔记结构错乱_待确认清单_20261126.md §2.2）
+# 商客和目存在 ywt-hm / sk-hm 两个编码、同一路径；取有 3 条关联数据的 ywt-hm，避免 §7 重建落空。
+LOW_RISK_TARGETS = [
+    'wgt', 'scyypt', 'ywt-HDICT', 'zxqysp', 'sjzx', 'skcsp',
+    'grxx', 'ywt-hm', 'ywt-gh', 'ywfzzb', 'group-order-delivery',
+]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--apply', action='store_true', help='实际写盘（默认仅 dry_run）')
+    ap.add_argument('--low-risk', action='store_true', help='改修 11 份中低风险历史主笔记')
     args = ap.parse_args()
+    targets = LOW_RISK_TARGETS if args.low_risk else TARGETS
 
     db = SessionLocal()
     changed = 0
-    for code in TARGETS:
+    for code in targets:
         d = db.query(PmwbBusinessDomain).filter_by(domain_code=code).first()
         if not d:
             print(f'SKIP(no-domain) {code}')
             continue
-        rel = op.main_note_rel_path(d.domain_name, d.domain_group)
+        item = db.query(PmwbKnowledgeItem).filter_by(domain_code=code, note_type='main').first()
+        # 历史笔记部分文件名无空格（如「网格通业务知识主笔记.md」），模板推算路径找不到；
+        # DB 的 obsidian_path 才是权威落位，与 §7/§8 重建同一来源。
+        rel = (item.obsidian_path.replace('\\', '/') if item and item.obsidian_path
+               else op.main_note_rel_path(d.domain_name, d.domain_group))
         text = read_markdown(rel)
         if not text:
             print(f'SKIP(no-file) {code} {rel}')
             continue
-        item = db.query(PmwbKnowledgeItem).filter_by(domain_code=code, note_type='main').first()
         item_id = item.item_id if item and item.item_id else kls._gen_item_id()
         new_text = kls.restructure_main_note_content(
             text, d, item_id, now_cn().strftime('%Y-%m-%d')
@@ -78,14 +91,14 @@ def main():
     if args.apply:
         # 重建 §7/§8 索引（§7 由关联数据回填、§8 由子笔记回填）
         print('\n=== 重建 §7/§8 索引 ===')
-        for code in TARGETS:
+        for code in targets:
             r7 = kls.rebuild_main_note_section7(db, code)
             r8 = kls.rebuild_main_note_subnotes(db, code)
-            print(f'  {code:8} §7={"OK" if r7 else "skip"} §8={"OK" if r8 else "skip"}')
+            print(f'  {code:20} §7={"OK" if r7 else "skip"} §8={"OK" if r8 else "skip"}')
         db.commit()
 
     db.close()
-    print(f'\n{"已写入" if args.apply else "待写入"}: {changed}/{len(TARGETS)}')
+    print(f'\n{"已写入" if args.apply else "待写入"}: {changed}/{len(targets)}')
 
 
 if __name__ == '__main__':
