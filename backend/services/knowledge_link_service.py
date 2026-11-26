@@ -49,6 +49,22 @@ from utils.obsidian import (
 )
 from services.obsidian_paths import main_note_filename
 
+
+def _write_auto_refresh(relative_path: str, snapshot: str, new_content: str) -> bool:
+    """写回自动区：绕过 5 分钟写保护，但拒绝覆盖读取后发生的人工编辑。
+
+    write_markdown 默认 5 分钟保护会静默挡住「刚重建笔记 → 立即回填 §7/自动区」，
+    但无条件 force write 又会在 read→write 窗口覆盖用户在 Obsidian 的编辑。
+    这里在写前重读磁盘：内容仍等于本次读取快照才写；已被外部修改则跳过并告警，
+    下次同步可重试。保证人工区零覆盖，同时不被 mtime 保护误挡。
+    """
+    current = read_markdown(relative_path)
+    if current != snapshot:
+        logger.warning("自动区写入跳过：笔记在读取后被修改 %s", relative_path)
+        return False
+    write_markdown(relative_path, new_content, protect_if_modified=False)
+    return True
+
 # source_type -> frontmatter related_* 字段名
 SOURCE_FM_KEY = {
     "requirement": "related_reqs",
@@ -301,7 +317,7 @@ def _rebuild_linked_section(db: Session, item: PmwbKnowledgeItem, links: List[Pm
     new_section = "\n".join(lines).rstrip()
     new_content = append_or_replace_section(content, "7. 关联过程性内容索引", new_section)
     if new_content != content:
-        write_markdown(item.obsidian_path, new_content)
+        _write_auto_refresh(item.obsidian_path, content, new_content)
 
 
 def _remove_section(content: str, heading: str) -> str:
@@ -746,8 +762,7 @@ def sync_main_note_from_links(db: Session, domain_code: str) -> dict:
 
     changed = False
     if new_content != content:
-        write_markdown(item.obsidian_path, new_content)
-        changed = True
+        changed = _write_auto_refresh(item.obsidian_path, content, new_content)
 
     return {
         "domain_code": domain_code,
@@ -1841,7 +1856,7 @@ def rebuild_main_note_section7(db: Session, domain_code: str) -> bool:
     content = read_markdown(item.obsidian_path) or ""
     new_content = append_or_replace_section(content, "7. 关联过程性内容索引", new_section)
     if new_content != content:
-        write_markdown(item.obsidian_path, new_content)
+        _write_auto_refresh(item.obsidian_path, content, new_content)
     return True
 
 
@@ -1878,9 +1893,11 @@ def rebuild_main_note_subnotes(db: Session, domain_code: str) -> bool:
     content = read_markdown(main.obsidian_path)
     if content is None:
         return False
-    new_content = append_or_replace_section(content, "相关子笔记 MOC", section)
+    # heading 必须与模板 §8 完全一致，否则会匹配不到而在文末追加无编号 MOC，
+    # 造成「§8 空 + 文末有内容」双章节。
+    new_content = append_or_replace_section(content, "8. 相关子笔记 MOC", section)
     if new_content != content:
-        write_markdown(main.obsidian_path, new_content)
+        _write_auto_refresh(main.obsidian_path, content, new_content)
     return True
 
 

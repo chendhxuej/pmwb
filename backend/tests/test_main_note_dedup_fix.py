@@ -112,3 +112,45 @@ def test_ensure_frontmatter_fills_partial(db):
     assert "item_id: K-1" in fixed
     assert "title: 测试" in fixed, "已有键被覆盖"
     assert kls.ensure_frontmatter(fixed, domain, "K-1", "2026-11-26") == fixed, "补全非幂等"
+
+
+def test_section7_rebuild_ignores_5min_write_guard(db, vault_tmp):
+    """刚生成/刚修改的主笔记（mtime<5min）也必须能回填 §7 自动区。
+
+    回归背景：迁移领域后重建 §7 被 write_markdown 的「最近修改」保护静默跳过，
+    新领域主笔记 §7 长期为空。自动回流只改自动区，人工正文源同一份 read，
+    因此强制写入不会覆盖人工内容。
+    """
+    from db.models import PmwbKnowledgeItem, PmwbRequirementExt
+    from utils.obsidian import write_markdown
+
+    _seed_domain(db, "jtqly", "集团千里眼业务", "商客业务")
+    rel = op.main_note_rel_path("集团千里眼业务", "商客业务")
+    body = (
+        "# 集团千里眼业务 业务知识主笔记\n\n"
+        "## 7. 关联过程性内容索引\n\n> 以下链接由系统自动维护，删除或新增关联时会同步更新。\n\n"
+        "## 8. 相关子笔记 MOC\n"
+    )
+    write_markdown(rel, body, protect_if_modified=False)  # mtime = now
+
+    db.add(PmwbKnowledgeItem(
+        item_id="KNOW-TEST-001", title="集团千里眼业务 业务知识主笔记",
+        category="product", sub_category="主笔记", tags="业务知识",
+        obsidian_path=rel, source_type="manual", source_id="jtqly",
+        domain_code="jtqly", note_type="main", summary="test",
+    ))
+    db.add(PmwbRequirementExt(
+        req_id="REQ-TEST-1", req_name="千里眼批量销户", domain_code="jtqly",
+    ))
+    db.commit()
+
+    assert kls.rebuild_main_note_section7(db, "jtqly") is True
+    after = read_markdown(rel)
+    assert "### 关联需求" in after, "5 分钟写保护挡住了 §7 自动区回填"
+    assert "REQ-TEST-1" in after
+    # 反向保护：读取后到写入前若用户在 Obsidian 编辑了人工区，必须拒绝写入
+    from utils.obsidian import write_markdown as wm
+    disk_now = read_markdown(rel) + "\n人工正文哨兵XYZ\n"
+    wm(rel, disk_now, protect_if_modified=False)
+    assert kls._write_auto_refresh(rel, read_markdown(rel) + "\n旧快照\n", "新内容") is False
+    assert read_markdown(rel) == disk_now, "读取后的人工编辑被自动回流覆盖"
