@@ -1260,8 +1260,11 @@ def create_main_note(db: Session, domain_code: str) -> dict:
             # 用标准模板覆盖，保证单一模板 + 完整 frontmatter。
             md = build_main_note_markdown(domain, item_id, created_date)
         else:
-            # 已有实质内容：只做幂等清理（去重复章节/AUTO 块），人工区零覆盖。
-            md = normalize_main_note_content(existing_content)
+            # 已有实质内容：按标准模板重排（幂等、人工正文零改写）。
+            # 旧 normalize 只删重复标题行，会把 A 骨架+B 模板混排原样固化。
+            md = restructure_main_note_content(
+                existing_content, domain, item_id, created_date
+            )
         write_markdown(rel_path, md, protect_if_modified=False)
     else:
         # 文件不存在，创建新文件（唯一标准模板）
@@ -1288,55 +1291,15 @@ def create_main_note(db: Session, domain_code: str) -> dict:
 
 
 def _repair_damaged_main_note(db: Session, domain: PmwbBusinessDomain, obsidian_rel_path: str) -> None:
-    """修复受损主笔记：保留用户已有内容，补充缺失的标准章节骨架。
+    """修复受损主笔记：按标准模板重排结构，人工正文零改写（幂等）。
 
-    修复策略：
-    1. 如果文件内容为空或测试内容，用标准模板替换
-    2. 如果文件有意义但缺章节，保留用户内容，在末尾补充标准章节
-    3. 补充的章节包括 §1-§6（如果缺失）和 §7关联索引（必须存在）
+    旧实现把模板块与用户块按标题拼接，会丢 frontmatter、把 H1 挤到中部、
+    复制 AUTO 块——全库保活每次都把已修好的文件再次搞乱。
+    统一走 restructure_main_note_content（已规范则幂等短路）；§7/§8 由调用方 rebuild。
     """
-    from core.config import settings
-    from pathlib import Path
-
-    vault_path = Path(settings.OBSIDIAN_VAULT_PATH).resolve()
-    note_file = vault_path / obsidian_rel_path.replace("\\", "/")
-
-    if not note_file.exists():
-        return
-
     existing_content = read_markdown(obsidian_rel_path)
     if not existing_content:
         return
-
-    # 解析现有章节
-    existing_blocks = _split_by_headings(existing_content)
-    existing_titles = {b[1] for b in existing_blocks if b[1]}
-
-    # 检查是否缺少关键标准章节
-    missing_standard = []
-    for i in range(1, 8):  # §1-§7
-        section_title = f"{i}. " if i <= 6 else f"{i}. 关联过程性内容索引"
-        if not any(section_title in t or t.startswith(f"{i}.") for t in existing_titles):
-            missing_standard.append(section_title)
-
-    # 检测是否有乱序内容（标准章节不在开头）
-    has_disordered_content = False
-    first_standard_idx = None
-    for i, block in enumerate(existing_blocks):
-        if block[1] and block[1].startswith("1."):
-            first_standard_idx = i
-            break
-    if first_standard_idx is None:
-        first_standard_idx = len(existing_blocks)
-    if first_standard_idx > 0:
-        # 有标准章节前的非标准内容
-        has_disordered_content = True
-
-    # 如果没有缺失标准章节且内容有序，无需修复
-    if not missing_standard and not has_disordered_content:
-        return
-
-    # 重建主笔记
     item = (
         db.query(PmwbKnowledgeItem)
         .filter(PmwbKnowledgeItem.domain_code == domain.domain_code)
@@ -1345,81 +1308,15 @@ def _repair_damaged_main_note(db: Session, domain: PmwbBusinessDomain, obsidian_
     )
     if not item:
         return
-
-    item_id = item.item_id
+    item_id = item.item_id or _gen_item_id()
     created_date = datetime.now().strftime("%Y-%m-%d")
-    template_md = build_main_note_markdown(domain, item_id, created_date)
-
-    # 解析模板章节
-    template_blocks = _split_by_headings(template_md)
-    template_by_title = {b[1]: b for b in template_blocks if b[1]}
-
-    # 合并：按标准顺序重组，标准章节在前，用户自定义在后
-    result_blocks = []
-    used_titles = set()
-
-    # 定义标准章节顺序（§1-§9）
-    standard_section_order = []
-    for i in range(1, 10):
-        if i <= 6:
-            standard_section_order.append(f"{i}. ")
-        elif i == 7:
-            standard_section_order.append(f"{i}. 关联过程性内容索引")
-        elif i == 8:
-            standard_section_order.append(f"{i}. 相关子笔记 MOC")
-        elif i == 9:
-            standard_section_order.append(f"{i}. 业务全过程时间线（自动区）")
-
-    # 第一步：按标准顺序添加标准章节（优先使用用户内容）
-    for std_prefix in standard_section_order:
-        matched_block = None
-        for title, block in template_by_title.items():
-            if title.startswith(std_prefix) or std_prefix in title:
-                # 检查用户是否有同名或相似章节
-                user_match = None
-                for ublock in existing_blocks:
-                    if ublock[1] and (ublock[1].startswith(std_prefix) or std_prefix in ublock[1]):
-                        user_match = ublock
-                        break
-                if user_match:
-                    matched_block = user_match
-                    used_titles.add(user_match[1])
-                else:
-                    matched_block = block
-                break
-        if matched_block:
-            result_blocks.append(matched_block)
-            used_titles.add(matched_block[1])
-
-    # 第二步：添加用户自定义章节（非标准章节）
-    for block in existing_blocks:
-        if block[1] and block[1] not in used_titles:
-            result_blocks.append(block)
-            used_titles.add(block[1])
-
-    # 第三步：添加模板中缺失的章节
-    for title, block in template_by_title.items():
-        if title not in used_titles:
-            result_blocks.append(block)
-            used_titles.add(title)
-
-    # 重新构建Markdown
-    lines = []
-    for i, block in enumerate(result_blocks):
-        if i > 0:
-            lines.append("")
-        level, title, content = block
-        if level > 0:
-            lines.append(f"{'#' * level} {title}")
-        lines.append(content.strip())
-
-    merged_content = "\n".join(lines)
-
-    # 写回文件
-    write_markdown(obsidian_rel_path, merged_content, protect_if_modified=False)
-    logger.info("修复主笔记: %s (%s)，补充了 %d 个章节", domain.domain_name, obsidian_rel_path, len(missing_standard))
-
-
+    new_content = restructure_main_note_content(
+        existing_content, domain, item_id, created_date
+    )
+    if new_content == existing_content:
+        return
+    write_markdown(obsidian_rel_path, new_content, protect_if_modified=False)
+    logger.info("重排主笔记结构: %s (%s)", domain.domain_name, obsidian_rel_path)
 def _item_dict(item: PmwbKnowledgeItem) -> dict:
     return {
         "id": item.id,
@@ -1719,16 +1616,17 @@ def _ensure_one_domain_main_note(db: Session, d, obsidian_files: dict) -> str:
         .first()
     )
 
-    # 情况1: DB 有记录 → 重建子笔记摘要 + §7 关联索引 + 修复受损文件
+    # 情况1: DB 有记录 → 先重排结构，再从 DB 回填 §7/§8 自动区
     if main:
-        rebuild_main_note_subnotes(db, d.domain_code)
-        rebuild_main_note_section7(db, d.domain_code)
-        # 检查并修复主笔记文件内容
+        # 顺序不能反：restructure 会清空 §7/§8 交给 rebuild，
+        # 先 rebuild 再重排会把刚回填的索引抹掉。
         if d.domain_code in obsidian_files:
             try:
                 _repair_damaged_main_note(db, d, obsidian_files[d.domain_code])
             except Exception as e:
                 logger.warning("修复主笔记失败 %s: %s", d.domain_code, e)
+        rebuild_main_note_subnotes(db, d.domain_code)
+        rebuild_main_note_section7(db, d.domain_code)
         return "ensured"
 
     # 情况2: DB 无记录，但 Obsidian 文件存在 → 补全 DB 索引

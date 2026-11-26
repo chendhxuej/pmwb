@@ -524,6 +524,29 @@ def _sync_create_vault(db: Session, domain: PmwbBusinessDomain) -> None:
         if not domain.vault_path:
             domain.vault_path = op.resolve_domain_path(db, domain.domain_code)
         op.ensure_domain_dir(db, domain.domain_code)
+        # 建领域即落标准模板，不再留 A 骨架等保活补正：
+        # ensure_domain_dir 的骨架章节体系（## 2.1）与标准模板（### 2.1）不同，
+        # 只靠后续 repair 补正会让新建主笔记在相当长时间内排版错乱。
+        try:
+            from datetime import datetime
+            from services import knowledge_link_service as kls
+            from utils.obsidian import read_markdown, write_markdown
+            rel = op.main_note_rel_path(domain.domain_name, domain.domain_group)
+            current = read_markdown(rel)
+            if current:
+                item = (
+                    db.query(PmwbKnowledgeItem.item_id)
+                    .filter(PmwbKnowledgeItem.domain_code == domain.domain_code)
+                    .filter(PmwbKnowledgeItem.note_type == "main")
+                    .first()
+                )
+                item_id = item.item_id if item and item.item_id else kls._gen_item_id()
+                std = kls.restructure_main_note_content(
+                    current, domain, item_id, datetime.now().strftime("%Y-%m-%d")
+                )
+                write_markdown(rel, std, protect_if_modified=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("领域[%s] 主笔记模板规范化失败(已忽略): %s", domain.domain_code, exc)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()

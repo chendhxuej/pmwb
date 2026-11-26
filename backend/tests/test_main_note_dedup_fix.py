@@ -338,3 +338,91 @@ def test_restructure_keeps_refilled_section7_8(db):
     assert "[[REQ-1]] 需求甲" in out, "§7 回填被清空"
     assert "子笔记A" in out, "§8 回填被清空"
     assert "- 2026-11-25 · [需求] X" in out, "AUTO 回填被清空"
+
+
+# --- 生产链路回归：全库保活 / 手动创建不得把已修好的文件再次搞乱 ---
+
+def _assert_standard_structure(text, label):
+    lines = text.splitlines()
+    h1 = [i for i, l in enumerate(lines, 1) if re.match(r"^# ", l)]
+    heads = [m.group(1) for l in lines for m in [re.match(r"^## (\d+)\.", l)] if m]
+    assert text.startswith("---"), f"{label}: frontmatter 丢失"
+    assert len(h1) == 1 and h1[0] <= 25, f"{label}: H1 不在头部 {h1}"
+    assert heads == sorted(heads, key=int), f"{label}: 章节顺序错乱 {heads}"
+    assert not any(l.strip() == "## 相关子笔记 MOC" for l in lines), f"{label}: 无编号 MOC 残留"
+
+
+def test_repair_damaged_restructures_chaotic(db, vault_tmp):
+    """保活的 repair 分支必须用 restructure，不能按标题拼块重建。"""
+    from db.models import PmwbKnowledgeItem
+    from utils.obsidian import write_markdown
+
+    _seed_domain(db)
+    domain = db.query(PmwbBusinessDomain).filter_by(domain_code="jtqly").first()
+    rel = op.main_note_rel_path("集团千里眼业务", "商客业务")
+    write_markdown(rel, _chaotic_content(), protect_if_modified=False)
+    db.add(PmwbKnowledgeItem(
+        item_id="K-REPAIR", title="集团千里眼业务 业务知识主笔记",
+        category="product", sub_category="主笔记", tags="业务知识",
+        obsidian_path=rel, source_type="manual", source_id="jtqly",
+        domain_code="jtqly", note_type="main", summary="test",
+    ))
+    db.commit()
+
+    kls._repair_damaged_main_note(db, domain, rel)
+    after = read_markdown(rel)
+    _assert_standard_structure(after, "repair")
+    assert "面向连锁客户跨省组网" in after, "repair 吞掉人工正文"
+
+
+def test_keepalive_twice_keeps_structure(db, vault_tmp):
+    """两轮全库保活后结构仍规范（旧 repair 每轮都会回退成错乱）。"""
+    from db.models import PmwbKnowledgeItem
+    from utils.obsidian import write_markdown
+
+    _seed_domain(db)
+    domain = db.query(PmwbBusinessDomain).filter_by(domain_code="jtqly").first()
+    rel = op.main_note_rel_path("集团千里眼业务", "商客业务")
+    write_markdown(
+        rel,
+        kls.build_main_note_markdown(domain, "K-KEEP", "2026-11-26"),
+        protect_if_modified=False,
+    )
+    db.add(PmwbKnowledgeItem(
+        item_id="K-KEEP", title="集团千里眼业务 业务知识主笔记",
+        category="product", sub_category="主笔记", tags="业务知识",
+        obsidian_path=rel, source_type="manual", source_id="jtqly",
+        domain_code="jtqly", note_type="main", summary="test",
+    ))
+    db.commit()
+
+    for rnd in (1, 2):
+        kls._ensure_one_domain_main_note(db, domain, {"jtqly": rel})
+        _assert_standard_structure(read_markdown(rel), f"keepalive-{rnd}")
+    assert kls._ensure_one_domain_main_note(db, domain, {"jtqly": rel}) == "ensured"
+
+
+def test_create_main_note_restructures_existing_chaotic(db, vault_tmp):
+    """手动点『生成主笔记』遇到已错乱的存量文件，也要重排而非固化。"""
+    from utils.obsidian import write_markdown
+
+    _seed_domain(db)
+    op.ensure_domain_dir(db, "jtqly")
+    rel = op.main_note_rel_path("集团千里眼业务", "商客业务")
+    write_markdown(rel, _chaotic_content(), protect_if_modified=False)
+
+    assert kls.create_main_note(db, "jtqly")["created"] is True
+    after = read_markdown(rel)
+    _assert_standard_structure(after, "create-existing")
+    assert "面向连锁客户跨省组网" in after, "create 分支吞掉人工正文"
+
+
+def test_sync_create_vault_lands_standard_template(db, vault_tmp):
+    """页面建领域后主笔记一次到位为标准模板，不留 A 骨架等保活补正。"""
+    from services import business_domain as bd
+
+    _seed_domain(db, "jtqly-new", "新建测试领域", "商客业务")
+    domain = db.query(PmwbBusinessDomain).filter_by(domain_code="jtqly-new").first()
+    bd._sync_create_vault(db, domain)
+    rel = op.main_note_rel_path("新建测试领域", "商客业务")
+    _assert_standard_structure(read_markdown(rel), "sync-create")
