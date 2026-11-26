@@ -154,3 +154,187 @@ def test_section7_rebuild_ignores_5min_write_guard(db, vault_tmp):
     wm(rel, disk_now, protect_if_modified=False)
     assert kls._write_auto_refresh(rel, read_markdown(rel) + "\n旧快照\n", "新内容") is False
     assert read_markdown(rel) == disk_now, "读取后的人工编辑被自动回流覆盖"
+
+
+# --- 结构规范化：错乱主笔记（A骨架+B模板混排）重排 ---
+
+def _chaotic_content():
+    """模拟跨省企业宽带式错乱：无 frontmatter、H1 流窜、§1-§9 空壳在前、### 内容在后。"""
+    return """## 1. 业务概述
+- **业务定义**：面向连锁客户跨省组网。
+
+## 2. 产商品与资费体系
+
+## 3. 客户服务场景 SOP
+
+## 4. 业务规则
+
+## 5. 优化与变更轨迹（自动区）
+<!-- PMWB:AUTO:BEGIN key=change_log -->
+_暂无变更_
+<!-- PMWB:AUTO:END key=change_log -->
+
+## 9. 业务全过程时间线（自动区）
+<!-- PMWB:AUTO:BEGIN key=timeline -->
+- 2026-11-25 · [运营] 输出落地方案
+<!-- PMWB:AUTO:END key=timeline -->
+
+# 跨省企业宽带 业务知识主笔记
+> 本笔记唯一主入口。
+
+### 2.1 产品矩阵（人工维护）
+| 产品 | 定位 |
+|------|------|
+| 跨省企业宽带 | 连锁客户 |
+
+### 3.1 常见服务场景（人工维护）
+| 场景 | 步骤 |
+| 受理 | 一点受理 |
+
+### 关联需求
+- [[REQ-1]] 改造通知
+
+## 相关子笔记 MOC
+_暂无子笔记_
+"""
+
+
+def test_restructure_chaotic_note(db):
+    domain = PmwbBusinessDomain(domain_code="KSQYKD", domain_name="跨省企业宽带", domain_group="商客业务", enabled=True)
+    out = kls.restructure_main_note_content(_chaotic_content(), domain, "K-1", "2026-11-26")
+    lines = out.splitlines()
+    # frontmatter + H1 在前
+    assert out.startswith("---")
+    h1 = [i for i, l in enumerate(lines, 1) if re.match(r"^# ", l)]
+    assert len(h1) == 1 and h1[0] <= 25, f"H1 未在头部: {h1}"
+    # §1-§10 顺序
+    heads = [m.group(1) for l in lines for m in [re.match(r"^## (\d+)\.", l)] if m]
+    assert heads == sorted(heads, key=int), f"章节顺序错乱: {heads}"
+    # 人工正文归位且保留
+    assert "面向连锁客户跨省组网" in out
+    assert "| 跨省企业宽带 | 连锁客户 |" in out
+    assert "| 受理 | 一点受理 |" in out
+    # AUTO 回填内容保留
+    assert "2026-11-25 · [运营] 输出落地方案" in out
+    # 无编号 MOC 残留清除、AUTO 块唯一
+    assert not any(l.strip() == "## 相关子笔记 MOC" for l in lines)
+    for key in ("change_log", "timeline", "product", "process", "scenario_rules", "deliverables"):
+        assert out.count(f"PMWB:AUTO:BEGIN key={key}") == 1, f"{key} 块非唯一"
+
+
+def test_restructure_idempotent(db):
+    domain = PmwbBusinessDomain(domain_code="KSQYKD", domain_name="跨省企业宽带", domain_group="商客业务", enabled=True)
+    once = kls.restructure_main_note_content(_chaotic_content(), domain, "K-1", "2026-11-26")
+    twice = kls.restructure_main_note_content(once, domain, "K-1", "2026-11-26")
+    assert once == twice, "结构规范化非幂等"
+
+
+def test_restructure_preserves_manual_edits(db):
+    """人工区任何正文都必须原样保留（只换位置、不改字）。"""
+    domain = PmwbBusinessDomain(domain_code="KSQYKD", domain_name="跨省企业宽带", domain_group="商客业务", enabled=True)
+    src = _chaotic_content().replace(
+        "- **业务定义**：面向连锁客户跨省组网。",
+        "- **业务定义**：人工撰写的关键定义，一字不改。",
+    )
+    out = kls.restructure_main_note_content(src, domain, "K-1", "2026-11-26")
+    assert "人工撰写的关键定义，一字不改。" in out
+
+
+# --- 审查发现的边界：父章节导语/非标准编号/AUTO旁正文/frontmatter元数据/回填幂等 ---
+
+def test_restructure_keeps_parent_intro_and_children(db):
+    """父章节（## 2）下的导语必须保留，且不能覆盖其 ### 子节与其中 AUTO 块。"""
+    domain = PmwbBusinessDomain(domain_code="KSQYKD", domain_name="跨省企业宽带", domain_group="商客业务", enabled=True)
+    src = """## 1. 业务概述
+- 定义。
+
+## 2. 产商品与资费体系
+本节导语：涵盖多类产品。
+
+### 2.1 产品矩阵（人工维护）
+| 产品 | 定位 |
+| A | B |
+
+### 2.3 产品变更（自动区）
+<!-- PMWB:AUTO:BEGIN key=product -->
+- 变更记录X
+<!-- PMWB:AUTO:END key=product -->
+
+## 3. 客户服务场景 SOP
+"""
+    out = kls.restructure_main_note_content(src, domain, "K-1", "2026-11-26")
+    assert "本节导语：涵盖多类产品。" in out, "父章节导语丢失"
+    assert "| A | B |" in out, "### 子节被父章节覆盖删除"
+    assert "- 变更记录X" in out, "子节内 AUTO 回填内容丢失"
+    assert out.count("PMWB:AUTO:BEGIN key=product") == 1
+
+
+def test_restructure_keeps_nonstandard_and_unnumbered_sections(db):
+    """非标准编号（2.9）/ 无编号人工章节不得静默丢弃。"""
+    domain = PmwbBusinessDomain(domain_code="KSQYKD", domain_name="跨省企业宽带", domain_group="商客业务", enabled=True)
+    src = """## 1. 业务概述
+- 定义。
+
+## 2.9 人工自定义章节
+自定义章节正文ABC
+
+## 人工补充说明
+无编号正文XYZ
+"""
+    out = kls.restructure_main_note_content(src, domain, "K-1", "2026-11-26")
+    assert "自定义章节正文ABC" in out, "非标准编号章节丢失"
+    assert "无编号正文XYZ" in out, "无编号人工章节丢失"
+
+
+def test_restructure_keeps_manual_text_beside_auto(db):
+    """AUTO 块同章节内的人工正文（标记之外）不得随整块跳过。"""
+    domain = PmwbBusinessDomain(domain_code="KSQYKD", domain_name="跨省企业宽带", domain_group="商客业务", enabled=True)
+    src = """## 1. 业务概述
+- 定义。
+
+### 2.3 产品变更（自动区）
+人工补充说明：MAGIC_MANUAL_TEXT
+<!-- PMWB:AUTO:BEGIN key=product -->
+- 变更
+<!-- PMWB:AUTO:END key=product -->
+"""
+    out = kls.restructure_main_note_content(src, domain, "K-1", "2026-11-26")
+    assert "MAGIC_MANUAL_TEXT" in out, "AUTO 旁人工正文丢失"
+
+
+def test_restructure_preserves_frontmatter_metadata(db):
+    """原 frontmatter 的 created_date / related_* / item_id 不得被重建覆盖。"""
+    domain = PmwbBusinessDomain(domain_code="KSQYKD", domain_name="跨省企业宽带", domain_group="商客业务", enabled=True)
+    src = """---
+item_id: OLD-ID
+created_date: 2020-01-01
+related_reqs: [REQ-OLD]
+---
+## 1. 业务概述
+- 定义。
+"""
+    out = kls.restructure_main_note_content(src, domain, "NEW-ID", "2026-11-26")
+    assert "item_id: OLD-ID" in out
+    assert "created_date: 2020-01-01" in out
+    assert "related_reqs: [REQ-OLD]" in out
+
+
+def test_restructure_keeps_refilled_section7_8(db):
+    """对已规范且 §7/§8 已被 rebuild 回填的文件再跑，不得清空索引（幂等短路）。"""
+    domain = PmwbBusinessDomain(domain_code="KSQYKD", domain_name="跨省企业宽带", domain_group="商客业务", enabled=True)
+    base = kls.restructure_main_note_content(_chaotic_content(), domain, "K-1", "2026-11-26")
+    # 模拟 rebuild 回填 §7/§8
+    refilled = kls._replace_auto_block(base, "timeline", "- 2026-11-25 · [需求] X")
+    refilled = refilled.replace(
+        "## 7. 关联过程性内容索引\n\n> 以下链接由系统自动维护，删除或新增关联时会同步更新。\n",
+        "## 7. 关联过程性内容索引\n\n> 以下链接由系统自动维护，删除或新增关联时会同步更新。\n\n### 关联需求\n- [[REQ-1]] 需求甲\n",
+    )
+    refilled = refilled.replace(
+        "## 8. 相关子笔记 MOC\n",
+        "## 8. 相关子笔记 MOC\n\n- **[子笔记A](path)** — 摘要一\n",
+        1,
+    )
+    out = kls.restructure_main_note_content(refilled, domain, "K-1", "2026-11-26")
+    assert "[[REQ-1]] 需求甲" in out, "§7 回填被清空"
+    assert "子笔记A" in out, "§8 回填被清空"
+    assert "- 2026-11-25 · [需求] X" in out, "AUTO 回填被清空"

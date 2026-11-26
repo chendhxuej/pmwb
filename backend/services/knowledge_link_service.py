@@ -2199,6 +2199,312 @@ def normalize_main_note_content(existing: str) -> str:
     return out
 
 
+# ---------------------------------------------------------------------------
+# 结构规范化：把「A 骨架 + B 标准模板混排」的错乱主笔记重排为标准结构。
+# 与 normalize_main_note_content（只去重、保原顺序）不同，本函数会按标准模板
+# 章节顺序重新组装，专治「H1 流窜到中部 / §1-§9 空壳在前而 ### 内容在后 /
+# frontmatter 丢失 / 无编号 MOC 残留」。仅用于存量修复工具，不改 create_main_note。
+# ---------------------------------------------------------------------------
+
+# 章节编号 -> 是否在标准模板中保留其标题+正文（None 表示由 AUTO 块承载，不整段搬）
+def _parse_note_blocks(content: str) -> List[Dict]:
+    """把正文切成标题块：[{level, no, title, body}]。no 为编号前缀（如 '2.1'），无编号用 ''。
+
+    与 get_main_note_structured 的编号识别一致（^\\d+(?:\\.\\d+)*）。标题层级 1-6。
+    """
+    lines = content.splitlines()
+    marks = []
+    for idx, line in enumerate(lines):
+        m = re.match(r"^(#{1,6})\s+(.*)$", line.strip())
+        if not m:
+            continue
+        level = len(m.group(1))
+        text = m.group(2).strip()
+        pm = re.match(r"^(\d+(?:\.\d+)*)\b\s*(.*)$", text)
+        marks.append({
+            "idx": idx,
+            "level": level,
+            "no": pm.group(1) if pm else "",
+            "title": text,
+        })
+    blocks = []
+    for k, mk in enumerate(marks):
+        end = marks[k + 1]["idx"] if k + 1 < len(marks) else len(lines)
+        body = "\n".join(lines[mk["idx"] + 1:end]).strip("\n")
+        blocks.append({**mk, "body": body})
+    return blocks
+
+
+def _meaningful(body: str) -> bool:
+    """判断章节正文是否为实质内容（排除空/占位/纯引用说明）。"""
+    if not body or not body.strip():
+        return False
+    txt = body.strip()
+    placeholders = {
+        "_暂无数据_", "- ", "|      |      |          |      |",
+        "|      |          |          |     |", "|           |          |          |      |",
+    }
+    if txt in placeholders or txt.startswith("_暂无"):
+        return False
+    # 只含「> 以下…由系统自动维护」说明行也视为空
+    only_note = all(
+        (not l.strip()) or l.strip().startswith("> 以下") or l.strip().startswith("> 本笔记")
+        for l in txt.splitlines()
+    )
+    return not only_note
+
+
+def _strip_orphan_moc(body: str) -> str:
+    """剥离错乱文件中混入其它章节正文的孤儿 MOC 说明行（§8 由 rebuild 重建，不搬运）。
+
+    只删整行严格等于说明/占位的行，避免误伤「_暂无子笔记_（人工备注：…）」等人工正文。
+    """
+    drop_exact = {
+        "> 以下子笔记摘要由系统自动维护（按更新时间倒序），新增/删除子笔记或改动摘要时同步更新。",
+        "_暂无子笔记_",
+    }
+    kept = [l for l in body.split("\n") if l.strip() not in drop_exact]
+    return "\n".join(kept).rstrip("\n")
+
+
+def _is_standard_structure(content: str) -> bool:
+    """判断是否已是规范结构（frontmatter + 单个 H1 在前 + 章节编号升序 + 无孤儿 MOC）。
+
+    用于 restructure 幂等短路：已规范文件直接返回原文，绝不重建（否则会清空
+    rebuild 回填的 §7/§8 索引，或覆盖人工在 frontmatter 里补的元数据）。
+    """
+    if not content or not content.strip():
+        return False
+    lines = content.split("\n")
+    if not content.startswith("---"):
+        return False
+    fm_end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if fm_end is None:
+        return False
+    h1 = [i for i, l in enumerate(lines) if re.match(r"^# ", l)]
+    if len(h1) != 1 or not (fm_end < h1[0] <= fm_end + 5):
+        return False
+    if any(l.strip() == "## 相关子笔记 MOC" for l in lines):
+        return False
+    heads = [int(m.group(1)) for l in lines for m in [re.match(r"^## (\d+)\.", l)] if m]
+    return heads == sorted(heads) and len(heads) == len(set(heads))
+
+
+def _merge_frontmatter(original: str, structured_body: str, domain) -> str:
+    """保留原 frontmatter 的既有键（含人工补的 related_*、created_date），只补齐缺失键。
+
+    structured_body 是已归位的标准正文（不含 frontmatter）——只从 original 取 frontmatter
+    键值，绝不把原始错乱正文带回来（审查#5 + 避免覆盖归位结果）。
+    """
+    if not original.lstrip().startswith("---"):
+        return structured_body
+    lines = original.split("\n")
+    fm_end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if fm_end is None:
+        return structured_body
+    std = build_main_note_markdown(domain, "PLACEHOLDER", "1970-01-01")
+    std_lines = std.split("\n")
+    std_end = next((i for i in range(1, len(std_lines)) if std_lines[i].strip() == "---"), None)
+    std_fm = {}
+    for l in std_lines[1:std_end]:
+        if ":" in l:
+            k, v = l.split(":", 1)
+            std_fm[k.strip()] = v.strip()
+    orig_keys = set()
+    for l in lines[1:fm_end]:
+        if ":" in l:
+            orig_keys.add(l.split(":", 1)[0].strip())
+    merged_fm = lines[1:fm_end]
+    for k, v in std_fm.items():
+        if k not in orig_keys:
+            merged_fm.append(f"{k}: {v}")
+    # structured_body 是 build_main_note_markdown 的输出，自带 frontmatter，需剥离
+    body_lines = structured_body.split("\n")
+    body_start = next(
+        (i for i in range(1, len(body_lines)) if body_lines[i].strip() == "---"),
+        0,
+    )
+    body = "\n".join(body_lines[body_start + 1:]).lstrip("\n")
+    return "---\n" + "\n".join(merged_fm) + "\n---\n\n" + body
+
+
+def restructure_main_note_content(
+    content: str,
+    domain,
+    item_id: str,
+    created_date: str,
+) -> str:
+    """把错乱主笔记重排为标准结构（frontmatter + H1 + §1..§N 顺序）。
+
+    归位规则：
+    - 以 build_main_note_markdown 生成的标准模板为骨架（唯一真相源）；
+    - 按编号把错乱文件各章节的实质正文搬入对应标准章节（跳过空壳/占位）；
+    - AUTO 块按 key 抽取全文最丰富内容回填（沿用 normalize 的抽取逻辑）；
+    - 自动区（§5/§6/§7/§8/§9）不从旧文件整段搬运：5/6/9 由 AUTO 块回填，
+      §7/§8 关联索引留空交给 rebuild_main_note_section7/subnotes 从 DB 全量重建，
+      避免新旧索引反复叠加且保证幂等。
+
+    幂等：对已规范的文件再跑一次结果一致。人工区正文零改写（只换位置，不改字）。
+    """
+    # 幂等短路：已是规范结构直接返回原文（绝不重建，保住 §7/§8 回填与人工元数据）
+    if _is_standard_structure(content):
+        return content.rstrip("\n") + "\n"
+
+    std = build_main_note_markdown(domain, item_id, created_date)
+    blocks = _parse_note_blocks(content)
+
+    # 标准模板：编号 -> 标题；以及「父编号集合」（有子章节的编号，如 2/3/4）
+    std_blocks = _parse_note_blocks(std)
+    no_to_title = {b["no"]: b["title"] for b in std_blocks if b["no"]}
+    parent_nos = {no.split(".")[0] for no in no_to_title if "." in no}
+
+    AUTO_SECTION_NOS = {"5", "6", "7", "8", "9"}
+    # 编号 -> 该编号下所有块的实质正文（去重、保序）；非标准编号单独收进 misc
+    by_no: Dict[str, List[str]] = {}
+    misc: List[str] = []
+    AUTO_SPLIT = re.compile(
+        r"<!--\s*PMWB:AUTO:BEGIN\s+key=\w+\s*-->.*?<!--\s*PMWB:AUTO:END\s+key=\w+\s*-->",
+        re.DOTALL,
+    )
+
+    def add_body(no: str, body: str):
+        body = _strip_orphan_moc(AUTO_SPLIT.sub("", body).strip("\n"))  # 只取 AUTO 标记外的人工正文
+        if not _meaningful(body):
+            return
+        bucket = by_no.setdefault(no, [])
+        if body not in bucket:
+            bucket.append(body)
+
+    for b in blocks:
+        title = b["title"]
+        if b["level"] == 3 and title in ("关联需求", "关联运营工单", "关联会议", "关联交付物"):
+            continue  # §7 由 rebuild 从 DB 重建
+        if b["level"] == 2 and title == "相关子笔记 MOC":
+            continue  # §8 由 rebuild 从 DB 重建
+        if b["no"]:
+            add_body(b["no"], b["body"])
+        else:
+            # 无编号人工章节（如 H1 下的引言说明、人工补充说明）保留到 §1 引言
+            if b["level"] >= 2 and _meaningful(b["body"]):
+                misc.append(b["body"])
+
+    # 归位：叶子编号整节替换；父编号（有子节）只把正文作为引言追加到子节树之前，
+    # 绝不整节替换（审查#1：否则父节正文会连带删掉 ### 子节与其中 AUTO 块）。
+    for no, bodies in by_no.items():
+        if no in AUTO_SECTION_NOS:
+            continue  # 5/6/9 由 AUTO 回填、7/8 由 rebuild 重建，不整段搬运
+        title = no_to_title.get(no)
+        if not title:
+            # 非标准编号（如 2.9 人工自定义章节）保留到 misc 区，不静默丢弃
+            misc.append(f"### {title}\n" + "\n\n".join(bodies))
+            continue
+        merged = "\n\n".join(bodies)
+        if no in parent_nos:
+            std = _prepend_to_section(std, title, merged)
+        else:
+            std = _replace_section_by_title(std, title, merged)
+
+    # 无编号/非标准编号的人工正文：追加到 §1 之后（不丢人工内容）
+    if misc:
+        std = _append_to_section(std, no_to_title.get("1", "1. 业务概述"), "\n\n".join(misc))
+
+    # 保留原 frontmatter 的既有键（created_date / item_id / related_* 等），只补缺键
+    std = _merge_frontmatter(content, std, domain)
+
+    # AUTO 块：按 key 抽取全文最丰富内容（跳过空/占位），按行去重合并多个非空块
+    pat = re.compile(
+        r"<!--\s*PMWB:AUTO:BEGIN\s+key=(\w+)\s*-->(.*?)<!--\s*PMWB:AUTO:END\s+key=\1\s*-->",
+        re.DOTALL,
+    )
+    best_lines: Dict[str, List[str]] = {}
+    for m in pat.finditer(content):
+        key, body = m.group(1), m.group(2).strip()
+        if not body or body.startswith("_暂无"):
+            continue
+        bucket = best_lines.setdefault(key, [])
+        for line in body.split("\n"):
+            if line.strip() and line not in bucket:
+                bucket.append(line)
+    for key, lines in best_lines.items():
+        std = _replace_auto_block(std, key, "\n".join(lines))
+
+    return std.rstrip("\n") + "\n"
+
+
+def _section_body_span(lines: List[str], title: str):
+    """返回 (标题行i, 正文起, 正文止) 或 None。正文止为下一同级/更高级标题行号。"""
+    exact = re.compile(r"^#{1,6}\s+" + re.escape(title) + r"\s*$")
+    for i, line in enumerate(lines):
+        if exact.match(line.strip()):
+            lvl = len(line.strip()) - len(line.strip().lstrip("#"))
+            j = i + 1
+            while j < len(lines):
+                lm = re.match(r"^(#{1,6})\s+", lines[j].strip())
+                if lm and len(lm.group(1)) <= lvl:
+                    break
+                j += 1
+            return i, i + 1, j
+    return None
+
+
+def _prepend_to_section(content: str, title: str, prefix: str) -> str:
+    """在章节正文最前面插入内容（父章节引言用），保留其下的子节树。幂等。"""
+    lines = content.split("\n")
+    span = _section_body_span(lines, title)
+    if not span:
+        return content
+    _, start, _ = span
+    if prefix.strip() in "\n".join(lines[start:start + 30]):
+        return content
+    merged = prefix.strip() + "\n\n" + "\n".join(lines[start:]).lstrip("\n")
+    return "\n".join(lines[:start] + merged.split("\n"))
+
+
+def _append_to_section(content: str, title: str, extra: str) -> str:
+    """向章节正文末尾追加内容，幂等。"""
+    lines = content.split("\n")
+    span = _section_body_span(lines, title)
+    if not span:
+        return content
+    _, start, end = span
+    seg = "\n".join(lines[start:end])
+    if extra.strip() in seg:
+        return content
+    new_seg = seg.rstrip("\n") + "\n\n" + extra.strip() + "\n"
+    return "\n".join(lines[:start] + new_seg.split("\n") + lines[end:])
+
+
+def _replace_section_by_title(content: str, title: str, new_body: str) -> str:
+    """按完整标题文本（如 '2.1 产品矩阵（人工维护）'）精确替换章节正文，保留其余。"""
+    lines = content.split("\n")
+    exact = re.compile(r"^#{1,6}\s+" + re.escape(title) + r"\s*$")
+    out: List[str] = []
+    i = 0
+    n = len(lines)
+    replaced = False
+    while i < n:
+        if exact.match(lines[i].strip()):
+            replaced = True
+            lvl = len(lines[i].strip()) - len(lines[i].strip().lstrip("#"))
+            out.append(lines[i])
+            out.append("")
+            j = i + 1
+            while j < n:
+                lm = re.match(r"^(#{1,6})\s+", lines[j].strip())
+                if lm and len(lm.group(1)) <= lvl:
+                    break
+                j += 1
+            out.extend(new_body.split("\n"))
+            out.append("")
+            i = j
+            continue
+        out.append(lines[i])
+        i += 1
+    if not replaced:
+        return content
+    return "\n".join(out)
+
+
 def cleanup_duplicate_main_notes(db: Session) -> dict:
     """按 domain_code 去重主笔记索引（DB 级，非破坏 vault 文件）。
 
