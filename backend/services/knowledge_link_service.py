@@ -508,9 +508,13 @@ def build_main_note_markdown(
     lines.append("")
 
     # §10 关联系统（business/platform 有，capability/general 无）
-    if domain.domain_group in ("business", "platform"):
+    # domain_group 在 DB 存中文（"商客业务"/"系统平台"），测试/旧代码用英文别名，
+    # 两种都要支持，否则新建领域用中文 group 时 §10 永久缺失（A 骨架本有此节）。
+    _group = domain.domain_group
+    _alias = _op.group_alias(_group) if _group not in ("business", "platform", "capability", "general") else _group
+    if _alias in ("business", "platform"):
         sec10_title = (
-            "关联系统与接口" if domain.domain_group == "business"
+            "关联系统与接口" if _alias == "business"
             else "关联系统集成（上下游系统对接）"
         )
         lines.append(f"## 10. {sec10_title}")
@@ -1227,20 +1231,25 @@ def create_main_note(db: Session, domain_code: str) -> dict:
     note_file = vault_path / rel_path.replace("\\", "/")
 
     if note_file.exists():
-        # 文件已存在，保留用户内容，只补全缺失的标准章节
+        # 文件已存在：幂等处理，绝不把第二份模板叠加到已有内容上。
+        # 重复章节/AUTO 块的根因就是此前此处调用 merge_with_existing_content，
+        # 把「A 骨架(obsidian_paths)」与「B 标准模板(本模块)」按标题精确匹配合并；
+        # 两套章节体系不同（## 2.1 产商品体系 vs ### 2.1 产品矩阵），全部未匹配
+        # → 整份追加，frontmatter 亦丢失。改为三分支幂等：
         existing_content = read_markdown(rel_path) or ""
-        if not existing_content or not existing_content.strip():
-            # 文件为空或只有测试内容，用标准模板替换
+        skeleton = _op.build_main_note_skeleton(domain.domain_name, domain.domain_group)
+        is_blank = not existing_content.strip() or not _has_meaningful_structure(existing_content)
+        is_pure_skeleton = existing_content.strip() == skeleton.strip()
+        if is_blank or is_pure_skeleton:
+            # 空文件，或建领域时 ensure_domain_dir 生成的纯骨架（无人工内容）：
+            # 用标准模板覆盖，保证单一模板 + 完整 frontmatter。
             md = build_main_note_markdown(domain, item_id, created_date)
-            write_markdown(rel_path, md, protect_if_modified=False)
         else:
-            # 保留用户内容，只补全标准章节
-            md = build_main_note_markdown(domain, item_id, created_date)
-            # 提取用户已填写的内容并合并
-            md = merge_with_existing_content(existing_content, md)
-            write_markdown(rel_path, md, protect_if_modified=False)
+            # 已有实质内容：只做幂等清理（去重复章节/AUTO 块），人工区零覆盖。
+            md = normalize_main_note_content(existing_content)
+        write_markdown(rel_path, md, protect_if_modified=False)
     else:
-        # 文件不存在，创建新文件
+        # 文件不存在，创建新文件（唯一标准模板）
         md = build_main_note_markdown(domain, item_id, created_date)
         write_markdown(rel_path, md, protect_if_modified=False)
 
@@ -2025,6 +2034,152 @@ def dedup_duplicate_sections(content: str) -> str:
         out.append(lines[i])
         i += 1
     return "\n".join(out)
+
+
+def dedup_auto_blocks(content: str) -> str:
+    """去重同一 AUTO key 的标记块：保留首个「有内容」的块，删除其余空块/重复块。
+
+    重复根因之一：A 骨架(_暂无数据_)与 B 标准模板(空块)都写了同 key 的 AUTO 块，
+    叠加后同 key 出现 2 次甚至 3 次，同步引擎只会回填到其中一处，另一处永久空。
+    本函数保证每个 key 恰好一个块；若存在非空块则保留内容最丰富的那个，幂等。
+    """
+    pat = re.compile(
+        r"<!--\s*PMWB:AUTO:BEGIN\s+key=(\w+)\s*-->(.*?)<!--\s*PMWB:AUTO:END\s+key=\1\s*-->",
+        re.DOTALL,
+    )
+    matches = list(pat.finditer(content))
+    if len(matches) <= 1:
+        return content
+    # 统计每个 key 的块，选内容最丰富（非空、非"_暂无数据_"）的一块保留
+    keep_span: dict = {}
+    by_key: Dict[str, list] = {}
+    for m in matches:
+        by_key.setdefault(m.group(1), []).append(m)
+
+    def _richness(m) -> int:
+        body = m.group(2).strip()
+        if not body or body == "_暂无数据_":
+            return 0
+        return len(body)
+
+    for key, ms in by_key.items():
+        best = max(ms, key=_richness)
+        keep_span[(best.start(), best.end())] = True
+    out_parts = []
+    last = 0
+    for m in matches:
+        out_parts.append(content[last:m.start()])
+        if (m.start(), m.end()) in keep_span:
+            out_parts.append(m.group(0))
+        last = m.end()
+    out_parts.append(content[last:])
+    result = "".join(out_parts)
+    # 清理因删块留下的连续 3+ 空行
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    return result
+
+
+def ensure_frontmatter(content: str, domain, item_id: str, created_date: str) -> str:
+    """补全 YAML frontmatter：缺失则新建，残缺（如缺 item_id）则在原块内补键。幂等。"""
+    body = content.lstrip("\n")
+    if not body.startswith("---"):
+        title = f"{domain.domain_name} 业务知识主笔记"
+        fm = {
+            "item_id": item_id,
+            "domain_code": domain.domain_code,
+            "domain_name": domain.domain_name,
+            "domain_group": domain.domain_group,
+            "note_type": "business_main",
+            "sub_type": "main",
+            "title": title,
+            "created_date": created_date,
+            "updated_date": created_date,
+            "source_type": "manual",
+            "tags": ["业务知识", domain.domain_group, domain.domain_name, "主笔记"],
+        }
+        lines = ["---"]
+        for k, v in fm.items():
+            lines.append(f"{k}: [{', '.join(v)}]" if isinstance(v, list) and v else (f"{k}: []" if isinstance(v, list) else f"{k}: {v}"))
+        lines.append("---")
+        lines.append("")
+        return "\n".join(lines) + body
+
+    # 已有 frontmatter：找第一个 --- 结束位，检查必需键，缺则补
+    lines = body.split("\n")
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return content
+    present = set()
+    for ln in lines[1:end]:
+        mm = re.match(r"^([\w-]+)\s*:", ln)
+        if mm:
+            present.add(mm.group(1))
+    required = {
+        "item_id": item_id,
+        "domain_code": domain.domain_code,
+        "domain_name": domain.domain_name,
+        "domain_group": domain.domain_group,
+        "note_type": "business_main",
+        "sub_type": "main",
+        "title": f"{domain.domain_name} 业务知识主笔记",
+        "created_date": created_date,
+    }
+    missing = [(k, v) for k, v in required.items() if k not in present]
+    if not missing:
+        return content
+    add_lines = [f"{k}: {v}" for k, v in missing]
+    new_lines = lines[:end] + add_lines + lines[end:]
+    return "\n".join(new_lines)
+
+
+def normalize_main_note_content(existing: str) -> str:
+    """非破坏性幂等清理：去重复章节 + 去重 AUTO 块 + 剥离 Bases 污染。
+
+    关键顺序（修复「去重章节连带删掉 AUTO 回填内容」）：
+    1. 先按 key 抽取全文所有 AUTO 块的有效内容（跳过 _暂无数据_/空块）；
+    2. 去重重复 H2 章节（此时块可能被连带删掉，无妨，内容已在内存）；
+    3. 对剩余的每个 AUTO key，用已抽取的内容通过 _replace_auto_block 回填；
+       若该 key 的块已被章节去重删光，则 _replace_auto_block 回退按章节插入。
+    这样既保证每 key 唯一块，又不丢失同步引擎回填的真实内容。
+    人工正文（非 AUTO 块、非重复 H2）零改写。
+    """
+    out = strip_bases_metadata(existing)
+    pat = re.compile(
+        r"<!--\s*PMWB:AUTO:BEGIN\s+key=(\w+)\s*-->(.*?)<!--\s*PMWB:AUTO:END\s+key=\1\s*-->",
+        re.DOTALL,
+    )
+    # 1) 抽取每个 key 的最丰富内容
+    best_body: Dict[str, str] = {}
+    for m in pat.finditer(out):
+        key = m.group(1)
+        body = m.group(2).strip()
+        if not body or body == "_暂无数据_":
+            continue
+        if key not in best_body or len(body) > len(best_body[key]):
+            best_body[key] = body
+    # 2) 去重重复章节（可能连带删掉块）
+    out = dedup_duplicate_sections(out)
+    # 3) 清理残留的空块（每个 key 只留「第一个」块位置），再回填最丰富内容
+    #    先把同 key 的多个块折叠成一个空块占位
+    seen = set()
+
+    def _collapse(m):
+        key = m.group(1)
+        if key in seen:
+            return ""
+        seen.add(key)
+        return _auto_block(key, "")
+
+    out = pat.sub(_collapse, out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    # 4) 回填内容（_replace_auto_block 幂等；无块时按章节回退插入）
+    for key, body in best_body.items():
+        out = _replace_auto_block(out, key, body)
+    return out
 
 
 def cleanup_duplicate_main_notes(db: Session) -> dict:
